@@ -350,13 +350,15 @@ PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 �
 | ------------------------------ | ------------------ | ------- | --------------------------------------------------------------------------------------- |
 | `review.audience`              | `peer` \| `junior` | `peer`  | 인라인 코멘트를 누구 눈높이로 쓸지                                                      |
 | `review.postVerdict`           | `true` \| `false`  | `true`  | GitHub PR에 APPROVE나 REQUEST_CHANGES 이벤트까지 남길지. `false`면 `COMMENT`로 고정한다 |
-| `review.approveWhenNoBlocking` | `true` \| `false`  | `false` | 블로킹 이슈가 없으면 warning이 남아 있어도 `APPROVE`로 낼지                             |
+| `review.approveWhenNoBlocking` | `true` \| `false`  | `false` | 블로킹 이슈가 없으면 warning이 남아 있어도 `APPROVE`로 낼지. 아래 참고                 |
 
 값은 호출 인자, 프로필, 스킬 기본값 순으로 정한다. `--junior`처럼 부를 때 붙인 값이 있으면 프로필보다 앞선다. 칸을 비워 두면 그 칸은 프로필이 없을 때와 똑같이 돈다. 리뷰를 시작할 때 어떤 값이 프로필에서 왔는지 한 줄로 알려 준다.
 
 **`gestalt.json`과 섞지 않는다.** 이 파일은 위 [우선순위](#우선순위) 병합에 안 들어가고 `loadConfig()`도 안 읽는다. 레포의 `gestalt.json`이나 레포 안 `.gestalt/profile.json`에 같은 칸을 적어도 무시된다. `approveWhenNoBlocking`은 리뷰어 계정으로 승인을 내보내는 값이라, 리뷰받는 레포가 설정 한 줄로 켤 수 있으면 그 레포가 내 승인을 내게 된다.
 
 **깨진 파일은 경고만 하고 기본값으로 돈다.** JSON이 아니거나 맨 바깥이 객체가 아니면 전부 기본값이다. 모르는 칸은 무시하고 경고한다. 값이 틀린 칸(예: `"audience": "senior"`)은 그 칸만 기본값으로 두고 나머지는 살린다. 어느 경우든 `gestalt profile show`는 종료 코드 0으로 경고를 함께 낸다.
+
+**`approveWhenNoBlocking`이 바꾸는 건 warning만 남은 리뷰 하나다.** critical이나 high가 있으면 그대로 `REQUEST_CHANGES`다. 프로필에서 켠 값은 approve를 명시한 것으로 치지 않으므로, 조회 막힘이나 원격 없는 레포, 연관 PR 미확정(`BLOCKING_ISSUES`)이 있거나 참조 검사를 비운 라운드면 `approve-gate`가 `COMMENT`로 내린다. `postVerdict: false`로 부른 리뷰와 본인 PR에는 안 걸린다. review-loop도 이 값을 안 본다 — 열린 스레드가 남으면 승인하지 않는다는 그 스킬의 규칙이 앞선다.
 
 리뷰의 "맥락 소스"와 "어투"는 프로필 칸이 없다. review 스킬에 그 둘을 받는 입력이 없어서다. 맥락은 0단계 미니 인터뷰로 받고 어투는 `code-review-writer`가 정한다.
 

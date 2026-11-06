@@ -98,6 +98,7 @@ describe('리뷰 코멘트 audience 옵션', () => {
 
     it('audience를 선택 입력으로 받는다', () => {
       expect(Object.keys(skill.frontmatter.inputs).sort()).toEqual([
+        'approveWhenNoBlocking',
         'audience',
         'local',
         'postVerdict',
