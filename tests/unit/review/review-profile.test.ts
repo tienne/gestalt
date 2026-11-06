@@ -62,6 +62,23 @@ describe('review 스킬의 사용자 프로필', () => {
     expect(step05).toMatch(/아무 신호가 없으면[^\n]*프로필의 `audience`[^\n]*`peer`/);
   });
 
+  it('로컬 PR에서 프로필의 junior는 묻지 않고 peer로 내리되 한 줄 알린다', () => {
+    const step105 = section(skill.body, '### 1.05단계: audience와 게시 경로 맞추기');
+    // ship은 --audience 없이 review를 부른다. 프로필 값으로 확인을 열면 라운드마다 ship에 없던 멈춤이 생긴다
+    expect(step105).toMatch(/프로필의 `audience`를 썼다면 묻지 않고 `peer`로 내립니다/);
+    expect(step105).toMatch(/조용히 내리지는 않고 한 줄 알립니다/);
+    // 예외가 말로 밝힌 junior까지 덮으면 사용자가 이번에 준 옵션이 확인 없이 사라진다
+    expect(step105).toMatch(/말로만 밝힌 경우에도[^\n]*똑같이 묻습니다/);
+  });
+
+  it('게시 준비 절은 audience 출처를 보기 전에 프로필을 읽는다', () => {
+    const entry = section(skill.body, '#### 게시 준비 (PR 식별, audience 확인)');
+    expect(entry.indexOf('gestalt profile show --json')).toBeLessThan(
+      entry.indexOf('1.05단계의 프로필 예외'),
+    );
+    expect(entry).toMatch(/프로필에서 왔으면[^\n]*묻지 않고[^\n]*`peer`로 내립니다/);
+  });
+
   it('게시만 따로 요청받은 경로도 프로필을 읽는다', () => {
     const entry = section(skill.body, '#### 게시 준비 (PR 식별, audience 확인)');
     expect(entry).toMatch(/프로필 값도 같은 이유로 없을 수 있습니다/);
