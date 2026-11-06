@@ -95,7 +95,9 @@ describe('블로킹 없으면 APPROVE (approveWhenNoBlocking)', () => {
 
   it('프로필 값은 approve 명시가 아니라서 approve-gate가 막을 수 있다', () => {
     expect(event()).toMatch(/프로필에서 켠 값은 approve 명시가 아닙니다/);
-    expect(event()).toMatch(/프로필만 켜져 있으면 `none`/);
+    expect(event()).toMatch(
+      /`--scope`는 사용자가 직접 한 말로만 정하므로 프로필만 켜져 있으면 `none`/,
+    );
   });
 
   it('postVerdict false가 이 값보다 앞선다', () => {
