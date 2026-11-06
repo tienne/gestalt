@@ -1,7 +1,7 @@
 ---
 name: review-loop
 version: "1.0.0"
-description: "남의 GitHub PR을 리뷰어로 끝까지 따라가는 루프. 리뷰하고 인라인 코멘트를 남기고 승인이나 변경 요청 판정을 게시한 뒤, 작성자가 대응할 때까지 지켜보다가 재리뷰한다. 이걸 approve가 날 때까지 반복한다. 리뷰 한 번만 하려면 review, 내 PR을 통과시키는 쪽은 ship, 받은 리뷰에 답하는 쪽은 review-reply를 쓴다."
+description: "남의 GitHub PR을 리뷰어로 끝까지 따라가는 루프. 리뷰하고 인라인 코멘트를 남기고 승인이나 변경 요청 판정을 게시한 뒤, 작성자가 대응할 때까지 지켜보다가 재리뷰한다. 이걸 approve가 날 때까지 반복한다. 내가 리뷰한 PR의 리뷰 상태를 확인하거나 대응을 보고 다시 리뷰할 때도 이 스킬이다. 리뷰 한 번만 하려면 review, 내 PR을 통과시키는 쪽은 ship, 받은 리뷰에 답하는 쪽은 review-reply를 쓴다."
 triggers:
   - "리뷰 루프"
   - "review loop"
@@ -14,6 +14,9 @@ triggers:
   - "리뷰어로 끝까지"
   - "재리뷰 반복"
   - "PR 계속 지켜봐줘"
+  - "리뷰 상태 확인"
+  - "재리뷰해줘"
+  - "다시 리뷰"
 inputs:
   target:
     type: string
