@@ -956,7 +956,7 @@ export function createCli(): Command {
     .requiredOption('--phase <phase>', '0, 1, 2, a, 3, 4, ci 중 하나')
     .requiredOption('--next <text>', '다음에 할 일 한 줄')
     .option('--round <n>', '라운드 번호')
-    .option('--local-pr <id>', '로컬 PR id')
+    .option('--local-pr <id>', '로컬 PR id (8자 16진수)')
     .option('--pr <number>', 'GitHub PR 번호')
     .option('--pr-url <url>', 'GitHub PR URL')
     .option('--base <ref>', 'Phase 0에서 정한 base')

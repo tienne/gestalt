@@ -169,6 +169,26 @@ describe('파일 읽고 쓰기', () => {
     }
   });
 
+  it.each(['a$(id)', '-x', '3fa9c2e', 123])(
+    'localPrId 가 8자 16진수가 아니면(%s) unreadable — gestalt pr close 인자로 들어간다',
+    (localPrId) => {
+      const d = tmp();
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, 'checkpoint.json'), JSON.stringify({ ...cp(), localPrId }));
+      expect(readCheckpoint(d)).toEqual({
+        kind: 'unreadable',
+        error: 'localPrId 형식에 안 맞아요',
+      });
+    },
+  );
+
+  it('localPrId 가 null 이면 읽는다 — 로컬 PR 을 만들기 전 단계다', () => {
+    const d = tmp();
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, 'checkpoint.json'), JSON.stringify({ ...cp(), localPrId: null }));
+    expect(readCheckpoint(d).kind).toBe('ok');
+  });
+
   it('상대 경로와 빈 값은 받지 않는다 — 빈 변수가 워킹트리에 파일을 만든다', () => {
     expect(() => assertDir('')).toThrow('절대 경로');
     expect(() => assertDir(undefined)).toThrow('절대 경로');

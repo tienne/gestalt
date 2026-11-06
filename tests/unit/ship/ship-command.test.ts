@@ -62,4 +62,12 @@ describe('ship 명령의 실패 출력 — 스킬이 stdout 을 판정으로 읽
     expect(err).toHaveBeenCalledWith(expect.stringContaining('--base'));
     expect(log).not.toHaveBeenCalled();
   });
+
+  it('checkpoint save 의 --local-pr 가 8자 16진수가 아니면 저장하지 않고 1 로 끝난다', () => {
+    expect(() =>
+      shipCheckpointSaveCommand({ dir: '/tmp/x', phase: '2', next: 'x', localPr: '-x' }),
+    ).toThrow('exit 1');
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('--local-pr'));
+    expect(log).not.toHaveBeenCalled();
+  });
 });

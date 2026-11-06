@@ -4,6 +4,7 @@ import {
   checkCheckpoint,
   defaultObserveDeps,
   isShipPhase,
+  LOCAL_PR_ID_RE,
   saveCheckpoint,
   type CheckpointPatch,
   type StopKind,
@@ -75,7 +76,8 @@ export function shipCheckpointSaveCommand(opts: ShipCheckpointSaveOptions): void
     if (opts.round !== undefined) patch.round = nonNegativeInt(opts.round, '--round');
     if (opts.issues !== undefined) patch.issues = nonNegativeInt(opts.issues, '--issues');
     if (opts.pr !== undefined) patch.prNumber = positiveInt(opts.pr, '--pr');
-    if (opts.localPr) patch.localPrId = opts.localPr;
+    const localPr = matching(opts.localPr, LOCAL_PR_ID_RE, '--local-pr');
+    if (localPr) patch.localPrId = localPr;
     if (opts.prUrl) patch.prUrl = opts.prUrl;
     const base = matching(opts.base, BRANCH_NAME_RE, '--base');
     if (base) patch.base = base;
@@ -143,7 +145,7 @@ function nonNegativeInt(v: string, flag: string): number {
   return n;
 }
 
-/** gh 와 git 인자로 넘기는 값이라 `-` 로 시작하는 값이 옵션으로 읽히지 않게 형식을 본다 */
+/** gh, git, gestalt pr 인자로 넘기는 값이라 `-` 로 시작하는 값이 옵션으로 읽히지 않게 형식을 본다 */
 function matching(v: string | undefined, re: RegExp, flag: string): string | undefined {
   if (!v) return undefined;
   if (!re.test(v)) throw new Error(`${flag} 값이 형식에 안 맞아요: ${v}`);

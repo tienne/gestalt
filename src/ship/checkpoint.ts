@@ -88,6 +88,9 @@ export type CheckpointRead =
 /** pr-base 0절의 이름 검사와 같은 규칙. base 는 셸 명령의 큰따옴표 안에 들어간다 */
 export const BRANCH_NAME_RE = /^[A-Za-z0-9._][A-Za-z0-9._/-]*$/;
 
+/** 로컬 PR id 는 randomUUID().slice(0, 8) 로 만든다. `gestalt pr close <id>` 처럼 셸 명령에 들어간다 */
+export const LOCAL_PR_ID_RE = /^[0-9a-f]{8}$/i;
+
 export function readCheckpoint(dir: string): CheckpointRead {
   const path = checkpointPath(dir);
   if (!existsSync(path)) return { kind: 'none' };
@@ -105,6 +108,12 @@ export function readCheckpoint(dir: string): CheckpointRead {
     }
     if (raw.base != null && (typeof raw.base !== 'string' || !BRANCH_NAME_RE.test(raw.base))) {
       return { kind: 'unreadable', error: 'base 이름이 형식에 안 맞아요' };
+    }
+    if (
+      raw.localPrId != null &&
+      (typeof raw.localPrId !== 'string' || !LOCAL_PR_ID_RE.test(raw.localPrId))
+    ) {
+      return { kind: 'unreadable', error: 'localPrId 형식에 안 맞아요' };
     }
     return { kind: 'ok', checkpoint: raw as ShipCheckpoint };
   } catch (e) {
