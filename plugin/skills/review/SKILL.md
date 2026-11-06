@@ -1656,7 +1656,7 @@ ges_execute {
 | `local` | `로컬 PR <id> — gestalt pr show <id>` |
 | `none` | 줄을 뺍니다. 브랜치나 커밋을 리뷰해서 가리킬 PR이 없습니다 |
 
-링크를 owner와 번호로 손수 조립하지 않습니다. GitHub Enterprise면 호스트가 달라서요. 게시 준비 절의 `gh pr view` 결과에서 `url`을 씁니다. 대상 판별 2번으로 확정되면 판별 5번 조회를 안 거쳐 그쪽에는 `url`이 없을 수 있습니다. 게시 준비 전에 멈췄으면 판별 5번 조회의 `url`을 쓰고 그것도 없으면 `gh pr view <번호> --json url --jq .url`로 한 번 받습니다.
+링크를 owner와 번호로 손수 조립하지 않습니다. GitHub Enterprise면 호스트가 달라서요. 게시 준비 절의 `gh pr view` 결과에서 `url`을 씁니다. 대상 판별 2번으로 확정됐으면 판별 5번 조회를 안 거쳐서 그 조회의 `url`이 없을 수 있습니다. 게시 준비 전에 멈췄으면 판별 5번 조회의 `url`을 쓰고 그것도 없으면 `gh pr view <번호> --json url --jq .url`로 한 번 받습니다.
 
 0단계의 `reviewIntent`에 `purpose` 또는 `focusAreas`가 하나라도 있거나 `prContext`가 있거나 1.03단계가 `roundNote`를 남겼으면, PR 링크 바로 아래에 리뷰 컨텍스트 블록을 표시합니다 (넷 다 비어 있으면 블록 전체를 생략):
 
