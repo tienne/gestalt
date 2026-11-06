@@ -100,13 +100,16 @@ describe('mergeCheckpoint', () => {
     );
   });
 
-  it("멈춤 표시는 'none' 으로 지운다", () => {
+  it('멈춤 표시는 다음 저장에서 지워진다 — 다시 저장했다면 그 자리를 넘어선 것이다', () => {
     const stopped = mergeCheckpoint(null, { phase: '2', next: 'x', stopped: 'blocked' }, at, 't');
     expect(stopped.stopped).toBe('blocked');
-    expect(mergeCheckpoint(stopped, { phase: '2', next: 'x' }, at, 't').stopped).toBe('blocked');
-    expect(
-      mergeCheckpoint(stopped, { phase: '2', next: 'x', stopped: 'none' }, at, 't').stopped,
-    ).toBeNull();
+    expect(mergeCheckpoint(stopped, { phase: '3', next: 'x' }, at, 't').stopped).toBeNull();
+  });
+
+  it('라운드는 같은 단계에서만 이어받는다', () => {
+    const r3 = mergeCheckpoint(null, { phase: '2', next: 'x', round: 3 }, at, 't');
+    expect(mergeCheckpoint(r3, { phase: '2', next: 'y' }, at, 't').round).toBe(3);
+    expect(mergeCheckpoint(r3, { phase: 'a', next: 'y' }, at, 't').round).toBeNull();
   });
 });
 
@@ -134,6 +137,13 @@ describe('파일 읽고 쓰기', () => {
     writeFileSync(join(d, 'checkpoint.json'), '{');
     expect(readCheckpoint(d).kind).toBe('unreadable');
     writeFileSync(join(d, 'checkpoint.json'), JSON.stringify({ ...cp(), version: 2 }));
+    expect(readCheckpoint(d).kind).toBe('unreadable');
+  });
+
+  it('head 가 커밋 해시 꼴이 아니면 unreadable — git 인자로 넘기는 값이다', () => {
+    const d = tmp();
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, 'checkpoint.json'), JSON.stringify({ ...cp(), head: '--output=x' }));
     expect(readCheckpoint(d).kind).toBe('unreadable');
   });
 

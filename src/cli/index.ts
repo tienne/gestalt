@@ -953,7 +953,7 @@ export function createCli(): Command {
     .command('save')
     .description('지금 단계와 다음 할 일을 남긴다. 앞에서 넘긴 값은 그대로 둔다')
     .requiredOption('--dir <path>', 'ship 상태 자리의 절대 경로')
-    .requiredOption('--phase <phase>', '0, 1, 2, a, 3, 4, ci, c 중 하나')
+    .requiredOption('--phase <phase>', '0, 1, 2, a, 3, 4, ci 중 하나')
     .requiredOption('--next <text>', '다음에 할 일 한 줄')
     .option('--round <n>', '라운드 번호')
     .option('--local-pr <id>', '로컬 PR id')
@@ -962,7 +962,7 @@ export function createCli(): Command {
     .option('--base <ref>', 'Phase 0에서 정한 base')
     .option('--verify-cmd <cmd>', 'Phase 0에서 정한 검증 명령')
     .option('--issues <n>', '이번 라운드 이슈 수. --round와 함께')
-    .option('--stopped <kind>', '멈춘 자리 blocked|escalated, 지우려면 none')
+    .option('--stopped <kind>', '멈춘 자리 blocked|escalated. 다음 저장에서 저절로 지워진다')
     .action((o) => shipCheckpointSaveCommand(o));
 
   checkpoint

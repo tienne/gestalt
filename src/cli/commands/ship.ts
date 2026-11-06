@@ -131,9 +131,9 @@ function nonNegativeInt(v: string, flag: string): number {
   return n;
 }
 
-function stopKind(v: string): StopKind | 'none' {
-  if (v === 'blocked' || v === 'escalated' || v === 'none') return v;
-  throw new Error(`--stopped 는 blocked, escalated, none 중 하나예요: ${v}`);
+function stopKind(v: string): StopKind {
+  if (v === 'blocked' || v === 'escalated') return v;
+  throw new Error(`--stopped 는 blocked, escalated 중 하나예요: ${v}`);
 }
 
 function run(body: () => void): void {

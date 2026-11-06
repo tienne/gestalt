@@ -14,7 +14,7 @@ import { defaultRunner, type CmdRunner } from './ci.js';
  * 그걸 무시 목록에 안 넣은 남의 레포에서 커밋에 딸려 들어간다.
  */
 
-export const SHIP_PHASES = ['0', '1', '2', 'a', '3', '4', 'ci', 'c'] as const;
+export const SHIP_PHASES = ['0', '1', '2', 'a', '3', '4', 'ci'] as const;
 export type ShipPhase = (typeof SHIP_PHASES)[number];
 
 export type StopKind = 'blocked' | 'escalated';
@@ -55,8 +55,7 @@ export interface CheckpointPatch {
   prUrl?: string;
   base?: string;
   verifyCmd?: string;
-  /** 'none' 이면 멈춤 표시를 지운다 */
-  stopped?: StopKind | 'none';
+  stopped?: StopKind;
   issues?: number;
 }
 
@@ -95,7 +94,9 @@ export function readCheckpoint(dir: string): CheckpointRead {
       raw.version !== 1 ||
       typeof raw.phase !== 'string' ||
       !isShipPhase(raw.phase) ||
-      typeof raw.head !== 'string'
+      typeof raw.head !== 'string' ||
+      // git 인자로 넘기는 값이라 `-` 로 시작하면 옵션으로 읽힌다
+      !/^[0-9a-f]{7,64}$/i.test(raw.head)
     ) {
       return { kind: 'unreadable', error: '알 수 없는 형식이에요' };
     }
@@ -108,6 +109,9 @@ export function readCheckpoint(dir: string): CheckpointRead {
 /**
  * 앞 체크포인트에 이번 값을 덧씌운다. 단계마다 아는 값이 달라서(로컬 PR id 는 1단계,
  * GitHub PR 번호는 3단계) 매번 전부 넘기게 하면 뒤 단계에서 앞 값을 잃는다.
+ *
+ * 라운드는 같은 단계에서만 이어받는다. 단계가 바뀌면 앞 단계의 라운드 번호는 뜻이 없다.
+ * 멈춤 표시는 이어받지 않는다. 다시 저장했다면 멈췄던 자리를 이미 넘어선 것이다.
  */
 export function mergeCheckpoint(
   prev: ShipCheckpoint | null,
@@ -115,7 +119,7 @@ export function mergeCheckpoint(
   observed: { branch: string; head: string },
   savedAt: string,
 ): ShipCheckpoint {
-  const round = patch.round ?? prev?.round ?? null;
+  const round = patch.round ?? (prev?.phase === patch.phase ? prev.round : null);
   const history = [...(prev?.history ?? [])];
   if (patch.issues !== undefined) {
     if (round === null) throw new Error('--issues 는 --round 와 함께 줘야 해요');
@@ -129,12 +133,7 @@ export function mergeCheckpoint(
     if (at >= 0) history[at] = entry;
     else history.push(entry);
   }
-  const stopped =
-    patch.stopped === undefined
-      ? (prev?.stopped ?? null)
-      : patch.stopped === 'none'
-        ? null
-        : patch.stopped;
+  const stopped = patch.stopped ?? null;
   return {
     version: 1,
     branch: observed.branch,
@@ -161,8 +160,6 @@ export function writeCheckpoint(dir: string, cp: ShipCheckpoint): string {
   renameSync(tmp, path);
   return path;
 }
-
-// ─── 다시 부를 때의 대조 ─────────────────────────────────────
 
 export interface ObservedState {
   branch: string;
@@ -199,7 +196,7 @@ export interface Mismatch {
 
 /** 로컬 PR head 를 맞춰 보는 단계. 4단계부터는 GitHub 에서 고치므로 로컬 PR head 가 뒤처지는 게 정상이다 */
 const LOCAL_PR_HEAD_PHASES: readonly ShipPhase[] = ['1', '2', 'a'];
-const GITHUB_PHASES: readonly ShipPhase[] = ['3', '4', 'ci', 'c'];
+const GITHUB_PHASES: readonly ShipPhase[] = ['3', '4', 'ci'];
 
 const short = (sha: string): string => sha.slice(0, 7);
 
