@@ -21,6 +21,7 @@ import {
   reviewLoopStateCommand,
 } from './commands/review-loop.js';
 import { approveGateCommand, reviewRoundsCommand } from './commands/approve-gate.js';
+import { shipCiWaitCommand } from './commands/ship.js';
 import {
   harnessRefsClonesPruneCommand,
   harnessRefsCollectCommand,
@@ -711,6 +712,24 @@ export function createCli(): Command {
     .option('--round <n>', '라운드 번호. 없으면 마지막 기록 다음')
     .option('--record', '판정 결과를 라운드 기록에 남긴다')
     .action((o) => approveGateCommand(o));
+
+  const ship = program
+    .command('ship')
+    .description('ship 스킬이 쓰는 CI 대기. 셸로 판정하던 자리를 여기서 맡는다');
+
+  ship
+    .command('ci-wait')
+    .description('PR의 CI가 끝나거나 상한에 닿을 때까지 기다려 결과와 실패 원인 줄을 낸다')
+    .requiredOption('--pr <number>', 'GitHub PR 번호')
+    .option('--head <sha>', '이 커밋이 PR head가 될 때까지 먼저 기다린다')
+    .option('--repo <owner/name>', '대상 레포. 없으면 gh가 현재 레포를 쓴다')
+    .option('--timeout <sec>', '대기 상한(초)', '900')
+    .option('--grace <sec>', '체크가 하나도 안 붙었을 때 CI 없음으로 정하기까지(초)', '120')
+    .option('--interval <sec>', '조회 간격(초)', '30')
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (o) => {
+      await shipCiWaitCommand(o);
+    });
 
   const harnessRefs = program
     .command('harness-refs')
