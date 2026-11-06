@@ -441,7 +441,7 @@ Phase 0에서 4번(사용자가 직접 준 명령)으로 정했으면 `verify-sr
 
 `agent:ship`으로 남기려면 **이 스킬이 부르는 하위 스킬의 `gestalt pr` 호출까지 그 값이 실린다는 확증**이 있어야 한다. 셸 상태가 도구 호출 사이에 안 남는 런타임이면 `export` 한 줄로는 안 된다. 확증이 없으면 안 쓴다 — **한쪽에만 붙이는 게 제일 나쁘다.**
 
-**이 문서의 `gestalt pr` 예시에는 액터가 안 붙어 있다.** 기본 형태를 그대로 보인 것이다. `agent:ship`을 고르면 네 자리 전부에 `GESTALT_ACTOR=agent:ship`을 앞에 붙인다 — `pr create`, `pr update` 둘, `pr close`다. **넷 다 붙이거나 넷 다 안 붙인다.**
+**이 문서의 `gestalt pr` 예시에는 액터가 안 붙어 있다.** 기본 형태를 그대로 보인 것이다. `agent:ship`을 고르면 이 스킬이 부르는 `gestalt pr` 쓰기 명령 전부에 `GESTALT_ACTOR=agent:ship`을 앞에 붙인다 — `pr create`, `pr update`(Phase 1, 2.4, [이어서 하기](#이어서-하기)에서 head를 옮길 때), `pr close`(Phase 5, base를 바꿔 처음부터 할 때)다. **전부 붙이거나 전부 안 붙인다.**
 
 ### 명령 형태
 
