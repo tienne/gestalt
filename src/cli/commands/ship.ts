@@ -27,11 +27,11 @@ export interface ShipCiWaitOptions {
 }
 
 export async function shipCiWaitCommand(opts: ShipCiWaitOptions): Promise<void> {
-  await runAsync(async () => {
+  try {
     const result = await waitForCi({
       prNumber: positiveInt(opts.pr, '--pr'),
-      head: opts.head || undefined,
-      repo: opts.repo || undefined,
+      head: matching(opts.head, /^[0-9a-f]{7,64}$/i, '--head'),
+      repo: matching(opts.repo, /^(?:[\w.-]+\/)?[\w.-]+\/[\w.-]+$/, '--repo'),
       timeoutSec: positiveInt(opts.timeout ?? '900', '--timeout'),
       graceSec: positiveInt(opts.grace ?? '120', '--grace'),
       intervalSec: positiveInt(opts.interval ?? '30', '--interval'),
@@ -41,7 +41,9 @@ export async function shipCiWaitCommand(opts: ShipCiWaitOptions): Promise<void> 
       return;
     }
     printCi(result);
-  });
+  } catch (e) {
+    exitWithError(e);
+  }
 }
 
 export interface ShipCheckpointSaveOptions {
@@ -115,7 +117,10 @@ function printCi(r: CiWaitResult): void {
   for (const f of r.failed) {
     console.log(`- ${f.name} ${f.link}`);
     if (f.logError) console.log(`    (로그 못 읽음: ${f.logError})`);
+    if (f.causeFromTail) console.log('    (원인 표시를 못 찾아 로그 끝 줄을 대신 보여요)');
     for (const line of f.causeLines) console.log(`    ${line}`);
+    const rest = f.causeLinesTotal - f.causeLines.length;
+    if (rest > 0) console.log(`    … 외 ${rest}줄`);
   }
 }
 
@@ -131,6 +136,13 @@ function nonNegativeInt(v: string, flag: string): number {
   return n;
 }
 
+/** gh 와 git 인자로 넘기는 값이라 `-` 로 시작하는 값이 옵션으로 읽히지 않게 형식을 본다 */
+function matching(v: string | undefined, re: RegExp, flag: string): string | undefined {
+  if (!v) return undefined;
+  if (!re.test(v)) throw new Error(`${flag} 값이 형식에 안 맞아요: ${v}`);
+  return v;
+}
+
 function stopKind(v: string): StopKind {
   if (v === 'blocked' || v === 'escalated') return v;
   throw new Error(`--stopped 는 blocked, escalated 중 하나예요: ${v}`);
@@ -140,16 +152,11 @@ function run(body: () => void): void {
   try {
     body();
   } catch (e) {
-    console.error(e instanceof Error ? e.message : String(e));
-    process.exit(1);
+    exitWithError(e);
   }
 }
 
-async function runAsync(body: () => Promise<void>): Promise<void> {
-  try {
-    await body();
-  } catch (e) {
-    console.error(e instanceof Error ? e.message : String(e));
-    process.exit(1);
-  }
+function exitWithError(e: unknown): never {
+  console.error(e instanceof Error ? e.message : String(e));
+  process.exit(1);
 }
