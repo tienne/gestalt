@@ -21,6 +21,7 @@ import {
   reviewLoopStateCommand,
 } from './commands/review-loop.js';
 import { approveGateCommand, reviewRoundsCommand } from './commands/approve-gate.js';
+import { profileShowCommand } from './commands/profile.js';
 import {
   harnessRefsClonesPruneCommand,
   harnessRefsCollectCommand,
@@ -651,6 +652,16 @@ export function createCli(): Command {
       '127.0.0.1 말고 받을 Host 이름. 테일스케일 serve 같은 앞단 프록시 이름을 직접 넘길 때만 쓴다',
     )
     .action((slug, o, cmd) => digestServeCommand(slug, { ...digestInherited(cmd), ...o }));
+
+  const profile = program
+    .command('profile')
+    .description('사용자 전역 프로필(~/.gestalt/profile.json). 리뷰 스킬이 기본값을 여기서 읽는다');
+
+  profile
+    .command('show')
+    .description('프로필이 정한 값과 경고. 파일이 없거나 깨졌으면 비어 있는 채로 나온다')
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action((o) => profileShowCommand(o));
 
   const reviewLoop = program
     .command('review-loop')
