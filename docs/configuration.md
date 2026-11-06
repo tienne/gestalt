@@ -358,7 +358,7 @@ PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 �
 
 **깨진 파일은 경고만 하고 기본값으로 돈다.** JSON이 아니거나 맨 바깥이 객체가 아니면 전부 기본값이다. 모르는 칸은 무시하고 경고한다. 값이 틀린 칸(예: `"audience": "senior"`)은 그 칸만 기본값으로 두고 나머지는 살린다. 어느 경우든 `gestalt profile show`는 종료 코드 0으로 경고를 함께 낸다.
 
-**`approveWhenNoBlocking`이 바꾸는 건 warning만 남은 리뷰 하나다.** critical이나 high가 있으면 그대로 `REQUEST_CHANGES`다. 프로필에서 켠 값은 approve를 명시한 것으로 치지 않으므로, 조회 막힘이나 원격 없는 레포, 연관 PR 미확정(`BLOCKING_ISSUES`)이 있거나 참조 검사를 비운 라운드면 `approve-gate`가 `COMMENT`로 내린다. `postVerdict: false`로 부른 리뷰와 본인 PR에는 안 걸린다. review-loop도 이 값을 안 본다 — 열린 스레드가 남으면 승인하지 않는다는 그 스킬의 규칙이 앞선다.
+**`approveWhenNoBlocking`이 바꾸는 건 warning만 남은 리뷰 하나다.** critical이나 high가 있으면 그대로 `REQUEST_CHANGES`다. 프로필에서 켠 값은 approve를 명시한 것으로 치지 않으므로, 조회 막힘이나 원격 없는 레포, 연관 PR 미확정(`BLOCKING_ISSUES`)이 있거나 참조 검사를 비운 라운드면 `approve-gate`가 `COMMENT`로 내린다. `postVerdict: false`로 부른 리뷰와 본인 PR에는 안 걸린다. 게시하라고 했어도 이 값으로 나온 `APPROVE`는 미리보기 끝에서 승인으로 낼지 한 번 더 묻는다. 게시 의사만으로는 승인을 내지 않는다.
 
 리뷰의 "맥락 소스"와 "어투"는 프로필 칸이 없다. review 스킬에 그 둘을 받는 입력이 없어서다. 맥락은 0단계 미니 인터뷰로 받고 어투는 `code-review-writer`가 정한다.
 

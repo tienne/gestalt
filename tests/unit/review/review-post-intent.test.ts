@@ -14,9 +14,22 @@ const skill = parseSkillMd(readFileSync(SKILL_PATH, 'utf-8'), SKILL_PATH);
 describe('게시 의사를 밝혔으면 다시 묻지 않기', () => {
   const confirm = () => section(skill.body, '#### 게시 확인');
 
-  it('의사가 있으면 미리보기만 보이고 이벤트까지 게시한다', () => {
+  it('의사가 있으면 미리보기만 보이고 변경 요청과 코멘트 이벤트까지 게시한다', () => {
     expect(confirm()).toMatch(/게시 의사가 있으면 묻지 않고 게시합니다/);
-    expect(confirm()).toMatch(/`APPROVE`나 `REQUEST_CHANGES` 이벤트도 같이 나갑니다/);
+    expect(confirm()).toMatch(/`REQUEST_CHANGES`와 `COMMENT` 이벤트는 같이 나갑니다/);
+  });
+
+  it('의사가 있어도 approve를 명시하지 않은 APPROVE는 따로 묻는다', () => {
+    // "코멘트 달아줘"가 승인까지 내면 프로필 값 하나로 묻지 않는 승인이 나간다
+    expect(confirm()).toMatch(/`APPROVE`면 사용자가 approve를 명시했을 때만 묻지 않/);
+    expect(confirm()).toMatch(/`precondition`이나 `thisRound`/);
+    expect(confirm()).toMatch(/프로필 `approveWhenNoBlocking`으로 나온 `APPROVE`를 포함해/);
+    expect(confirm()).toContain('이벤트를 APPROVE로 낼까요? 아니면 COMMENT로 올릴게요.');
+    expect(confirm()).toMatch(/거절하면 `COMMENT`로 게시/);
+    const still = confirm()
+      .split('**게시 의사가 있어도 묻는 자리는 남습니다.**')[1]!
+      .split('\n\n**')[0]!;
+    expect(still).toMatch(/`APPROVE`인데 사용자가 approve를 명시하지 않았으면[^\n]*묻/);
   });
 
   it('의사가 없으면 지금처럼 묻고 거절하면 코멘트를 버린다', () => {
@@ -74,6 +87,7 @@ describe('게시 의사를 밝혔으면 다시 묻지 않기', () => {
     expect(event).toMatch(
       /미리보기에 이벤트를 싣고[^\n]*게시 의사를 밝혔거나 그 자리에서 동의했을 때만/,
     );
+    expect(event).toMatch(/`APPROVE`는 게시 의사만으로 안 나갑니다/);
   });
 
   it('결과 표시에 게시 의사 판정을 한 줄 남긴다', () => {
