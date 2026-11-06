@@ -42,6 +42,15 @@ describe('사용자 프로필', () => {
     expect(p.warnings).toEqual([]);
   });
 
+  it('로더를 바로 불러도 GESTALT_HOME 아래 그 경로 하나만 읽는다', () => {
+    // CLI 케이스는 cwd를 바꿔 본다. 로더 단독 호출도 cwd를 안 쓰는지 경로로 확인한다
+    write(JSON.stringify({ review: { postVerdict: false } }));
+    const p = loadUserProfile();
+    expect(p.path).toBe(join(home, '.gestalt', 'profile.json'));
+    expect(p.path.startsWith(process.cwd())).toBe(false);
+    expect(p.review).toEqual({ postVerdict: false });
+  });
+
   it('파일이 없으면 빈 프로필이고 경고도 없다', () => {
     const p = loadUserProfile();
     expect(p).toEqual({ path: profilePath(), exists: false, review: {}, warnings: [] });
