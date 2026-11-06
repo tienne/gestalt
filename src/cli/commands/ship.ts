@@ -31,7 +31,12 @@ export async function shipCiWaitCommand(opts: ShipCiWaitOptions): Promise<void> 
     const result = await waitForCi({
       prNumber: positiveInt(opts.pr, '--pr'),
       head: matching(opts.head, /^[0-9a-f]{7,64}$/i, '--head'),
-      repo: matching(opts.repo, /^(?:[\w.-]+\/)?[\w.-]+\/[\w.-]+$/, '--repo'),
+      repo: matching(
+        opts.repo,
+        // host 와 owner 는 영숫자로 시작하고 repo 는 `.github` 처럼 `.` 으로 시작해도 받는다
+        /^(?:[A-Za-z0-9][\w.-]*\/)?[A-Za-z0-9][\w.-]*\/(?!\.\.?$)[\w.][\w.-]*$/,
+        '--repo',
+      ),
       timeoutSec: positiveInt(opts.timeout ?? '900', '--timeout'),
       graceSec: positiveInt(opts.grace ?? '120', '--grace'),
       intervalSec: positiveInt(opts.interval ?? '30', '--interval'),
