@@ -21,7 +21,11 @@ import {
   reviewLoopStateCommand,
 } from './commands/review-loop.js';
 import { approveGateCommand, reviewRoundsCommand } from './commands/approve-gate.js';
-import { shipCiWaitCommand } from './commands/ship.js';
+import {
+  shipCheckpointCheckCommand,
+  shipCheckpointSaveCommand,
+  shipCiWaitCommand,
+} from './commands/ship.js';
 import {
   harnessRefsClonesPruneCommand,
   harnessRefsCollectCommand,
@@ -713,24 +717,6 @@ export function createCli(): Command {
     .option('--record', '판정 결과를 라운드 기록에 남긴다')
     .action((o) => approveGateCommand(o));
 
-  const ship = program
-    .command('ship')
-    .description('ship 스킬이 쓰는 CI 대기. 셸로 판정하던 자리를 여기서 맡는다');
-
-  ship
-    .command('ci-wait')
-    .description('PR의 CI가 끝나거나 상한에 닿을 때까지 기다려 결과와 실패 원인 줄을 낸다')
-    .requiredOption('--pr <number>', 'GitHub PR 번호')
-    .option('--head <sha>', '이 커밋이 PR head가 될 때까지 먼저 기다린다')
-    .option('--repo <owner/name>', '대상 레포. 없으면 gh가 현재 레포를 쓴다')
-    .option('--timeout <sec>', '대기 상한(초)', '900')
-    .option('--grace <sec>', '체크가 하나도 안 붙었을 때 CI 없음으로 정하기까지(초)', '120')
-    .option('--interval <sec>', '조회 간격(초)', '30')
-    .option('--json', '에이전트가 파싱할 JSON으로')
-    .action(async (o) => {
-      await shipCiWaitCommand(o);
-    });
-
   const harnessRefs = program
     .command('harness-refs')
     .description('하네스 PR의 레포 간 참조 후보. review 스킬 1단계 뒤에 부른다');
@@ -940,6 +926,51 @@ export function createCli(): Command {
     .action(() => {
       usageReportCommand();
     });
+
+  const ship = program
+    .command('ship')
+    .description('ship 스킬이 쓰는 CI 대기와 체크포인트. 셸로 판정하던 자리를 여기서 맡는다');
+
+  ship
+    .command('ci-wait')
+    .description('PR의 CI가 끝나거나 상한에 닿을 때까지 기다려 결과와 실패 원인 줄을 낸다')
+    .requiredOption('--pr <number>', 'GitHub PR 번호')
+    .option('--head <sha>', '이 커밋이 PR head가 될 때까지 먼저 기다린다')
+    .option('--repo <owner/name>', '대상 레포. 없으면 gh가 현재 레포를 쓴다')
+    .option('--timeout <sec>', '대기 상한(초)', '900')
+    .option('--grace <sec>', '체크가 하나도 안 붙었을 때 CI 없음으로 정하기까지(초)', '120')
+    .option('--interval <sec>', '조회 간격(초)', '30')
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (o) => {
+      await shipCiWaitCommand(o);
+    });
+
+  const checkpoint = ship
+    .command('checkpoint')
+    .description('단계와 라운드가 끝날 때 남기고 다시 부를 때 git과 PR 상태를 맞춰 본다');
+
+  checkpoint
+    .command('save')
+    .description('지금 단계와 다음 할 일을 남긴다. 앞에서 넘긴 값은 그대로 둔다')
+    .requiredOption('--dir <path>', 'ship 상태 자리의 절대 경로')
+    .requiredOption('--phase <phase>', '0, 1, 2, a, 3, 4, ci, c 중 하나')
+    .requiredOption('--next <text>', '다음에 할 일 한 줄')
+    .option('--round <n>', '라운드 번호')
+    .option('--local-pr <id>', '로컬 PR id')
+    .option('--pr <number>', 'GitHub PR 번호')
+    .option('--pr-url <url>', 'GitHub PR URL')
+    .option('--base <ref>', 'Phase 0에서 정한 base')
+    .option('--verify-cmd <cmd>', 'Phase 0에서 정한 검증 명령')
+    .option('--issues <n>', '이번 라운드 이슈 수. --round와 함께')
+    .option('--stopped <kind>', '멈춘 자리 blocked|escalated, 지우려면 none')
+    .action((o) => shipCheckpointSaveCommand(o));
+
+  checkpoint
+    .command('check')
+    .description('체크포인트를 읽고 git과 로컬 PR, GitHub PR 상태가 그대로인지 본다')
+    .requiredOption('--dir <path>', 'ship 상태 자리의 절대 경로')
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action((o) => shipCheckpointCheckCommand(o));
 
   return program;
 }

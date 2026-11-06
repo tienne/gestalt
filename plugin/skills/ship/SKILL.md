@@ -243,6 +243,63 @@ description: "Phase 4/5 — CI 확인 | {대기 중|통과|실패 n개|진행 �
 
 `TaskCreate`가 없는 런타임이면 라운드 시작마다 한 줄로 대신 알린다.
 
+## 체크포인트
+
+라운드가 길면 대화가 압축되거나 세션이 끊긴다. 그때 다시 부르면 처음부터 돌아서 앞에서 받은 리뷰와 승인을 또 받았다. 단계와 라운드가 끝날 때마다 어디까지 왔는지 남기고 다시 부르면 그걸 읽어 이어서 돈다.
+
+**자리는 [임시 파일 자리](#임시-파일-자리)의 `checkpoint.json`이다.** 새 자리를 만들지 않는다. git 디렉토리 아래라 어느 레포에서도 추적되지 않고 브랜치별로 갈린다. Phase 5가 이 자리를 통째로 지우므로 끝까지 간 실행은 체크포인트를 남기지 않는다.
+
+| 언제 | `--phase` | 함께 넘기는 값 |
+| --- | --- | --- |
+| Phase 0 끝 | `0` | `--base`, `--verify-cmd` |
+| Phase 1 끝 | `1` | `--local-pr` |
+| 2.2에서 수렴했을 때, 2.4 끝 | `2` | `--round`, `--issues`(그 라운드 리뷰의 이슈 수) |
+| 2.5나 2.6에서 멈출 때 | `2` | `--stopped blocked` |
+| 2.7에서 멈출 때 | `2` | `--stopped escalated` |
+| ⓐ에서 "여기서 멈춘다"를 골랐을 때 | `a` | |
+| Phase 3 끝 | `3` | `--pr`, `--pr-url` |
+| 4.4에서 수렴했을 때, 4.5 끝 | `4` | `--round`, `--issues`(그 라운드 새 코멘트 수) |
+| [CI 확인](#ci-확인) 끝 | `ci` | |
+
+```bash
+shipTmp=<Phase 0에서 출력된 절대 경로>
+
+gestalt ship checkpoint save --dir "$shipTmp" --phase 2 --round 2 --issues 3 \
+  --next "2.1 로컬 리뷰 라운드 3"
+```
+
+- **`--next`에는 다음에 할 일을 절 번호와 함께 한 줄로 적는다.** 다시 불렀을 때 이 줄을 보고 어디서 이어갈지 정한다
+- 앞에서 넘긴 값은 다음 저장에 다시 안 넘겨도 남는다. 브랜치와 HEAD, 저장 시각은 명령이 직접 채운다
+- `--dir`은 절대 경로만 받는다. 변수가 빈 채로 풀려 상대 경로가 되면 거절한다
+- 저장이 실패해도 출하를 멈추지 않는다. 완료 보고에 `체크포인트 저장 실패 ({stderr 첫 줄})`를 적는다
+
+### 이어서 하기
+
+**Phase 0의 사전 점검 명령 다음, base를 고르기 전에 체크포인트부터 본다.** detached HEAD면 브랜치별 자리가 안 갈리므로 여기 오기 전에 멈춘다. [임시 파일 자리](#임시-파일-자리)의 `rm -f`보다도 먼저다. 지우고 나서 보면 이어갈 근거가 없다.
+
+```bash
+shipBranch=$(git rev-parse --abbrev-ref HEAD)
+shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$shipBranch"
+mkdir -p "$shipTmp"
+gestalt ship checkpoint check --dir "$shipTmp" --json > "$shipTmp/resume.json"; echo "EXIT=$?"
+echo "$shipTmp"
+```
+
+명령은 체크포인트의 커밋과 지금 HEAD, 커밋 안 한 변경, 로컬 PR, GitHub PR을 맞춰 보고 `status`를 낸다.
+
+| `status` | 하는 일 |
+| --- | --- |
+| `none` | 새로 시작한다. Phase 0을 그대로 탄다 |
+| `match` | 체크포인트의 `phase`와 `round`, `next`를 한 줄로 알리고 `next` 자리로 간다 |
+| `mismatch` | `mismatches[].detail`을 그대로 보이고 "이어서 한다 / 처음부터 한다 / 멈춘다"로 묻는다 |
+
+- **이어서 할 때는 base와 검증 명령을 체크포인트 값으로 쓴다.** pr-base와 ⓥ를 다시 돌지 않는다. 검증 명령 대조는 그대로 돈다. 그래서 `rm -f`도 건너뛴다 — 대조가 지난 실행의 `verify-src-hash`와 비교해야 한다
+- **`stopped`가 있으면 지난 실행이 거기서 멈췄다는 뜻이다.** 그대로 이어가면 같은 자리에서 또 멈춘다. 멈춘 이유를 보이고 이어갈지 묻는다
+- 체크포인트 뒤에 커밋이 쌓였는데 이어서 하기로 했으면 2.4처럼 로컬 PR head부터 옮긴다. 4단계 이후면 push부터 한다
+- 2.5의 연속 카운트는 이어서 할 때 0부터 다시 센다. 체크포인트에는 이슈 수만 있고 이슈 내용은 없다
+- "처음부터 한다"를 고르면 `checkpoint.json`까지 지우고 새로 시작한다. 안 끝난 로컬 PR은 Phase 1이 다시 찾아 쓴다
+- `EXIT=1`이면 체크포인트를 못 읽은 것이다. stderr를 보이고 처음부터 할지 묻는다
+
 ---
 
 ## Phase 0 — 사전 점검
@@ -253,6 +310,8 @@ git status --porcelain                             # 커밋 안 된 변경
 git rev-parse --abbrev-ref HEAD                    # 현재 브랜치
 gh auth status
 ```
+
+**detached HEAD가 아니면 base를 고르기 전에 [이어서 하기](#이어서-하기)부터 돈다.** 체크포인트대로 이어가면 base를 다시 고르지 않는다.
 
 **`base` 인자가 없으면 [`../_shared/pr-base.md`](../_shared/pr-base.md)로 고른다.** 기본 브랜치를 그대로 쓰지 않는다. 스택 브랜치를 기본 브랜치로 올리면 상위 브랜치의 커밋이 PR에 섞인다. 그 문서의 "보고 줄" 절에 해당하는 줄을 이 단계 보고에 그대로 싣는다.
 
@@ -281,9 +340,11 @@ shipBranch=$(git rev-parse --abbrev-ref HEAD)
 shipTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$shipBranch"
 mkdir -p "$shipTmp"
 rm -f "$shipTmp"/verify-src "$shipTmp"/verify-src-hash \
-      "$shipTmp"/round-start-head "$shipTmp"/requested-at
+      "$shipTmp"/round-start-head "$shipTmp"/requested-at "$shipTmp"/checkpoint.json
 echo "$shipTmp"
 ```
+
+[이어서 하기](#이어서-하기)에서 체크포인트대로 이어가기로 했으면 `rm -f` 줄을 건너뛴다.
 
 **출력된 절대 경로를 적어둔다.** 이 자리는 git 디렉토리 아래라 세션이 끝나도 남는다. 지난 실행이 상한이나 escalate로 멈췄으면 그때 파일이 그대로 있어서 이번 실행이 남의 상태를 대조한다. 시작할 때 한 번 턴다.
 
@@ -888,7 +949,7 @@ gestalt pr close <localPrId> --reason "GitHub #<prNumber>로 이어감"
 
 종료된 로컬 PR도 head ref를 붙잡으므로 나중에 `pr diff`와 `pr checkout`이 그대로 된다.
 
-라운드 상태를 지운다. 검증 로그는 두고 갈 이유가 없다.
+라운드 상태를 지운다. 검증 로그는 두고 갈 이유가 없다. **지우기 전에 `checkpoint.json`의 `history`를 읽어 둔다.** 대화가 압축돼 앞 라운드의 이슈 수가 안 보이면 [완료 보고](#완료-보고)의 라운드 줄을 이 값으로 채운다.
 
 ```bash
 rm -rf "$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-ship/$(git rev-parse --abbrev-ref HEAD)"
@@ -966,5 +1027,7 @@ CI: CI 없음
 CI: 실패 1개 (8분)
   - build (ubuntu-latest, 22) — Error: write EPIPE
 ```
+
+라운드 줄의 이슈 수는 체크포인트의 `history`와 맞아야 한다. [이어서 하기](#이어서-하기)로 다시 시작한 실행이면 `재개: {phase}단계 {round}라운드부터` 줄을 붙인다. 그 앞 라운드는 이번 대화에서 돌린 게 아니라서 사람이 이력을 어디서 봐야 할지 알 수 있게 한다.
 
 **안 한 걸 했다고 쓰지 않는다.** 어느 라운드를 도구가 없어 건너뛰었으면 그 사실을 여기 적는다. 검증을 코드 변경이 없어 건너뛴 라운드가 있으면 그것도 적는다.
