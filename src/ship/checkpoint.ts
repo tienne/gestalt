@@ -85,6 +85,9 @@ export type CheckpointRead =
   | { kind: 'ok'; checkpoint: ShipCheckpoint }
   | { kind: 'unreadable'; error: string };
 
+/** pr-base 0절의 이름 검사와 같은 규칙. base 는 셸 명령의 큰따옴표 안에 들어간다 */
+export const BRANCH_NAME_RE = /^[A-Za-z0-9._][A-Za-z0-9._/-]*$/;
+
 export function readCheckpoint(dir: string): CheckpointRead {
   const path = checkpointPath(dir);
   if (!existsSync(path)) return { kind: 'none' };
@@ -99,6 +102,9 @@ export function readCheckpoint(dir: string): CheckpointRead {
       !/^[0-9a-f]{7,64}$/i.test(raw.head)
     ) {
       return { kind: 'unreadable', error: '알 수 없는 형식이에요' };
+    }
+    if (raw.base != null && (typeof raw.base !== 'string' || !BRANCH_NAME_RE.test(raw.base))) {
+      return { kind: 'unreadable', error: 'base 이름이 형식에 안 맞아요' };
     }
     return { kind: 'ok', checkpoint: raw as ShipCheckpoint };
   } catch (e) {

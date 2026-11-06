@@ -1,5 +1,6 @@
 import {
   assertDir,
+  BRANCH_NAME_RE,
   checkCheckpoint,
   defaultObserveDeps,
   isShipPhase,
@@ -76,7 +77,8 @@ export function shipCheckpointSaveCommand(opts: ShipCheckpointSaveOptions): void
     if (opts.pr !== undefined) patch.prNumber = positiveInt(opts.pr, '--pr');
     if (opts.localPr) patch.localPrId = opts.localPr;
     if (opts.prUrl) patch.prUrl = opts.prUrl;
-    if (opts.base) patch.base = opts.base;
+    const base = matching(opts.base, BRANCH_NAME_RE, '--base');
+    if (base) patch.base = base;
     if (opts.verifyCmd) patch.verifyCmd = opts.verifyCmd;
     if (opts.stopped !== undefined) patch.stopped = stopKind(opts.stopped);
     saveCheckpoint(dir, patch);

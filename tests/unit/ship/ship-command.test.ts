@@ -54,4 +54,12 @@ describe('ship 명령의 실패 출력 — 스킬이 stdout 을 판정으로 읽
     expect(err).toHaveBeenCalledWith(expect.stringContaining('--phase'));
     expect(log).not.toHaveBeenCalled();
   });
+
+  it('checkpoint save 의 --base 가 브랜치 이름 꼴이 아니면 저장하지 않고 1 로 끝난다', () => {
+    expect(() =>
+      shipCheckpointSaveCommand({ dir: '/tmp/x', phase: '2', next: 'x', base: '-x' }),
+    ).toThrow('exit 1');
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('--base'));
+    expect(log).not.toHaveBeenCalled();
+  });
 });

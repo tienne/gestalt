@@ -147,6 +147,28 @@ describe('파일 읽고 쓰기', () => {
     expect(readCheckpoint(d).kind).toBe('unreadable');
   });
 
+  it.each(['-x', 'a$(id)', '/main'])(
+    'base 가 브랜치 이름 꼴이 아니면(%s) unreadable — 셸 명령에 그대로 들어간다',
+    (base) => {
+      const d = tmp();
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, 'checkpoint.json'), JSON.stringify({ ...cp(), base }));
+      expect(readCheckpoint(d)).toEqual({
+        kind: 'unreadable',
+        error: 'base 이름이 형식에 안 맞아요',
+      });
+    },
+  );
+
+  it('base 가 null 이거나 브랜치 이름이면 읽는다', () => {
+    const d = tmp();
+    mkdirSync(d, { recursive: true });
+    for (const base of [null, 'main', 'feat/stack-1']) {
+      writeFileSync(join(d, 'checkpoint.json'), JSON.stringify({ ...cp(), base }));
+      expect(readCheckpoint(d).kind).toBe('ok');
+    }
+  });
+
   it('상대 경로와 빈 값은 받지 않는다 — 빈 변수가 워킹트리에 파일을 만든다', () => {
     expect(() => assertDir('')).toThrow('절대 경로');
     expect(() => assertDir(undefined)).toThrow('절대 경로');
