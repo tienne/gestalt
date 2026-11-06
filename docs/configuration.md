@@ -360,6 +360,8 @@ PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 �
 
 **`approveWhenNoBlocking`이 바꾸는 건 warning만 남은 리뷰 하나다.** critical이나 high가 있으면 그대로 `REQUEST_CHANGES`다. 프로필에서 켠 값은 approve를 명시한 것으로 치지 않으므로, 조회 막힘이나 원격 없는 레포, 연관 PR 미확정(`BLOCKING_ISSUES`)이 있거나 참조 검사를 비운 라운드면 `approve-gate`가 `COMMENT`로 내린다. `postVerdict: false`로 부른 리뷰와 본인 PR에는 안 걸린다. 게시하라고 했어도 이 값으로 나온 `APPROVE`는 미리보기 끝에서 승인으로 낼지 한 번 더 묻는다. 게시 의사만으로는 승인을 내지 않는다.
 
+**review-loop는 프로필을 안 읽는다.** `approveWhenNoBlocking`은 열린 스레드가 남으면 승인하지 않는다는 그 스킬의 규칙이 앞서서 안 본다. `audience`는 그 스킬의 기본값 `junior`를 `review`에 넘기므로 프로필의 `audience`보다 앞선다. peer 눈높이로 돌리려면 `/review-loop <PR> --peer`로 부른다.
+
 리뷰의 "맥락 소스"와 "어투"는 프로필 칸이 없다. review 스킬에 그 둘을 받는 입력이 없어서다. 맥락은 0단계 미니 인터뷰로 받고 어투는 `code-review-writer`가 정한다.
 
 ---
