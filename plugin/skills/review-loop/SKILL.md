@@ -706,6 +706,8 @@ echo "$state" | jq -r '"\(.signal) pending=\(.pending)/\(.myThreads) changed=\(.
 위 신호를 한 번 계산하고 Phase 4로 간다. 재리뷰 조건이 아니면 지금 상태를 알리고 끝낸다.
 
 ```
+{prUrl}
+
 #{prNumber} 아직 대응 중이에요.
 
 내가 남긴 스레드 {총}개 중 {대응}개 처리됨 / {pending}개 남음
@@ -857,6 +859,8 @@ echo "$round"
 리뷰로 안 풀리는 자리라는 뜻이다. 같은 코멘트를 세 번 받은 작성자 입장에서도 라운드가 더 도는 게 도움이 안 된다.
 
 ```
+{prUrl}
+
 #{prNumber} — 같은 이슈가 3라운드 연속 남아서 여기서 멈출게요.
 
 {파일:줄 — 요지} (라운드 {a}~{c})
@@ -868,7 +872,7 @@ echo "$round"
 
 ### 출력값 채우기 — 어느 경로로 끝나든 먼저 한다
 
-`loopState`는 아래 종료 분기에서 정해진다. 나머지 다섯을 여기서 읽는다.
+`loopState`는 아래 종료 분기에서 정해진다. 나머지 다섯과 완료 보고 첫 줄에 쓸 `prUrl`을 여기서 읽는다.
 
 **`unresolvedAtEnd`는 지금 다시 센다.** 마지막 라운드 뒤에 작성자가 스레드를 해결했을 수 있다. 조회 명령이 매번 새로 받아오므로 묵은 수가 실릴 자리가 없다.
 
@@ -883,9 +887,13 @@ unresolvedAtEnd=$(echo "$state" | jq -r .pending)
 rounds=$(cat "$stateDir/round" 2>/dev/null || echo 0)   # 완료한 라운드가 없으면 0
 verdicts=$(cat "$stateDir/verdicts" 2>/dev/null)        # 한 줄에 하나. 없으면 빈 값
 
-finalDecision=$(gh pr view "$prNumber" --repo "$owner/$repo" --json reviewDecision \
-  --jq '.reviewDecision // "REVIEW_REQUIRED"') || { echo "판정 조회 실패"; exit 1; }
+decision=$(gh pr view "$prNumber" --repo "$owner/$repo" --json reviewDecision,url) \
+  || { echo "판정 조회 실패"; exit 1; }
+finalDecision=$(echo "$decision" | jq -r '.reviewDecision // "REVIEW_REQUIRED"')
+prUrl=$(echo "$decision" | jq -r .url)
 ```
+
+**`prUrl`은 `gh`가 낸 값을 그대로 쓴다.** `owner`와 `repo`로 손수 조립하지 않는다. GitHub Enterprise면 호스트가 달라 조립한 링크가 엉뚱한 곳을 가리킨다. 출력 규약 값은 아니고 완료 보고 첫 줄에만 쓴다.
 
 `round`와 `verdicts`는 2.5에서만 생긴다. 2.1의 escalate나 1.2의 blocked로 빠진 라운드에는 없으므로 기본값을 둔다 — **없는 것과 읽기 실패를 가른다.** 조회 실패는 위에서 이미 멈춘 뒤다.
 
@@ -894,6 +902,8 @@ finalDecision=$(gh pr view "$prNumber" --repo "$owner/$repo" --json reviewDecisi
 `loopState`를 `approved`로 둔다. `finalDecision`은 `APPROVED`다.
 
 ```
+{prUrl}
+
 #{prNumber} 승인했습니다. ({N}라운드)
 
 라운드별 이슈: 7 → 3 → 0
@@ -905,6 +915,8 @@ finalDecision=$(gh pr view "$prNumber" --repo "$owner/$repo" --json reviewDecisi
 `maxRounds`를 채웠는데 approve가 안 났으면 **판정을 새로 안 내보내고** 남은 것을 정리해 보고한다. 마지막 라운드의 `--request-changes`가 그대로 서 있다. `loopState`를 `blocked`로 둔다 — 조기 종료도 같다.
 
 ```
+{prUrl}
+
 #{prNumber} — {maxRounds}라운드 안에 안 끝났어요.
 
 남은 이슈 {N}개
@@ -946,7 +958,14 @@ rm -rf "$stateDir"
 
 라운드마다 무엇이 줄었는지가 이 스킬의 값이다. 마지막 상태만 적지 않는다.
 
+**첫 줄은 PR URL이다.** 어느 경로로 끝나든(`approved`, `waiting`, `blocked`, `escalated`, `closed`) 사용자에게 내는 마지막 메시지의 첫 줄에 Phase 5 출력값 채우기에서 받은 `prUrl`을 그대로 둔다. 위 절들의 종료 문구는 이 줄 아래에 붙는다.
+
+- 앞 라운드에서 이미 링크를 말했어도 다시 넣는다. 라운드가 길어지면 앞 메시지는 압축돼 안 보인다. 사용자는 마지막 보고에서 바로 PR로 넘어간다.
+- 출력값 채우기가 조회 실패로 멈춰 `prUrl`이 없으면 `#{prNumber}`를 첫 줄에 두고 링크를 못 받았다고 적는다. 번호도 모르면 사용자가 준 대상을 그대로 옮긴다. 링크를 지어내지 않는다.
+
 ```
+https://github.com/o/r/pull/123
+
 #123 "인증 토큰 갱신" — 승인
 
 3라운드: 이슈 7 → 3 → 0

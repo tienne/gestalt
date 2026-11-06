@@ -1645,7 +1645,17 @@ ges_execute {
 
 ## 결과 표시
 
-0단계의 `reviewIntent`에 `purpose` 또는 `focusAreas`가 하나라도 있거나 `prContext`가 있거나 1.03단계가 `roundNote`를 남겼으면, 전체 출력 최상단에 리뷰 컨텍스트 블록을 표시합니다 (넷 다 비어 있으면 블록 전체를 생략):
+**마지막 메시지의 첫 줄은 PR 링크입니다.** 리뷰 컨텍스트 블록보다 위에 둡니다. 앞에서 이미 링크를 말했어도 다시 넣습니다. 대화가 길어지면 앞 메시지는 압축돼 안 보이고 사용자는 마지막 보고에서 바로 PR로 넘어가서요.
+
+| `prTarget` | 첫 줄 |
+| --- | --- |
+| `github` | 1단계 `gh pr view`가 받아 둔 `url` 그대로 |
+| `local` | `로컬 PR <id> — gestalt pr show <id>` |
+| `none` | 줄을 뺍니다. 브랜치나 커밋을 리뷰해서 가리킬 PR이 없습니다 |
+
+링크를 owner와 번호로 손수 조립하지 않습니다. GitHub Enterprise면 호스트가 달라서요. 게시만 따로 요청받은 경로라 1단계 조회가 이 대화에 없으면 게시 준비 절의 `gh pr view` 결과에서 `url`을 씁니다.
+
+0단계의 `reviewIntent`에 `purpose` 또는 `focusAreas`가 하나라도 있거나 `prContext`가 있거나 1.03단계가 `roundNote`를 남겼으면, PR 링크 바로 아래에 리뷰 컨텍스트 블록을 표시합니다 (넷 다 비어 있으면 블록 전체를 생략):
 
 ```
 ## 리뷰 컨텍스트
