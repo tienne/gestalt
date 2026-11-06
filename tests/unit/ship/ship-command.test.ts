@@ -83,3 +83,34 @@ describe('ship 명령의 실패 출력 — 스킬이 stdout 을 판정으로 읽
   );
 });
 
+describe('ci-wait 를 --json 없이 부를 때 사람이 읽는 줄', () => {
+  let log: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(waitForCi).mockReset();
+  });
+
+  it('전부 건너뛰었으면 통과로 적지 않고 건너뛴 체크 수를 적는다', async () => {
+    const check = { workflow: 'ci', bucket: 'skipping', link: 'https://x' };
+    vi.mocked(waitForCi).mockResolvedValue({
+      status: 'skipped',
+      prNumber: 7,
+      head: null,
+      waitedSec: 0,
+      checks: [
+        { ...check, name: 'a' },
+        { ...check, name: 'b' },
+        { ...check, name: 'c' },
+      ],
+      failed: [],
+      pending: [],
+    });
+    await shipCiWaitCommand({ pr: '7' });
+    expect(log).toHaveBeenCalledWith('CI: 전부 건너뜀 (3개) — 0분 기다림');
+  });
+});

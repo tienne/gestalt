@@ -114,19 +114,25 @@ export function shipCheckpointCheckCommand(opts: { dir?: string; json?: boolean 
   });
 }
 
+// default 를 두지 않는다. CiStatus 에 값이 늘면 반환이 빠져 여기서 컴파일이 깨진다
+function ciLabel(r: CiWaitResult): string {
+  switch (r.status) {
+    case 'pass':
+      return '통과';
+    case 'none':
+      return 'CI 없음';
+    case 'skipped':
+      return `전부 건너뜀 (${r.checks.length}개)`;
+    case 'pending':
+      return `진행 중 (${r.pending.length}개 안 끝남)`;
+    case 'fail':
+      return `실패 ${r.failed.length}개`;
+  }
+}
+
 function printCi(r: CiWaitResult): void {
   const mins = Math.round(r.waitedSec / 60);
-  const label =
-    r.status === 'pass'
-      ? '통과'
-      : r.status === 'none'
-        ? 'CI 없음'
-        : r.status === 'skipped'
-          ? `전부 건너뜀 (${r.checks.length}개)`
-          : r.status === 'pending'
-            ? `진행 중 (${r.pending.length}개 안 끝남)`
-            : `실패 ${r.failed.length}개`;
-  console.log(`CI: ${label} — ${mins}분 기다림`);
+  console.log(`CI: ${ciLabel(r)} — ${mins}분 기다림`);
   for (const f of r.failed) {
     console.log(`- ${f.name} ${f.link}`);
     if (f.logError) console.log(`    (로그 못 읽음: ${f.logError})`);
