@@ -9,7 +9,7 @@ import { stripVTControlCharacters } from 'node:util';
  * "아직 체크가 안 붙었다"와 "CI 가 없다"를 가르는 일을 매번 손으로 해야 해서 여기 모은다.
  */
 
-export type CiStatus = 'pass' | 'fail' | 'pending' | 'none';
+export type CiStatus = 'pass' | 'fail' | 'pending' | 'none' | 'skipped';
 
 export interface CiCheck {
   name: string;
@@ -341,7 +341,12 @@ export async function waitForCi(
         const failedNow = read.checks.some((c) => c.bucket === 'fail' || c.bucket === 'cancel');
         if (failedNow) return finish('fail', read.checks);
         const stillRunning = read.checks.some((c) => c.bucket === 'pending');
-        if (!stillRunning) return finish('pass', read.checks);
+        // draft PR 에서 잡을 건너뛰는 레포는 체크가 전부 skipping 으로 끝난다.
+        // 아무 검사도 안 돌았는데 통과로 보고하지 않게 따로 판정한다
+        if (!stillRunning) {
+          const anyPassed = read.checks.some((c) => c.bucket === 'pass');
+          return finish(anyPassed ? 'pass' : 'skipped', read.checks);
+        }
         if (now >= deadline) return finish('pending', read.checks);
       }
     }

@@ -167,6 +167,23 @@ describe('waitForCi', () => {
     expect(r.waitedSec).toBe(30);
   });
 
+  it('체크가 전부 skipping 으로 끝나면 통과가 아니라 skipped', async () => {
+    const r = await waitForCi(
+      opts,
+      fakeDeps({ checks: [ok(checksJson(['build', 'skipping'], ['lint', 'skipping']))] }),
+    );
+    expect(r.status).toBe('skipped');
+    expect(r.failed).toEqual([]);
+  });
+
+  it('통과한 체크가 하나라도 있으면 나머지가 skipping 이어도 pass', async () => {
+    const r = await waitForCi(
+      opts,
+      fakeDeps({ checks: [ok(checksJson(['build', 'pass'], ['deploy', 'skipping']))] }),
+    );
+    expect(r.status).toBe('pass');
+  });
+
   it('체크가 안 붙은 채 유예가 지나면 CI 없음', async () => {
     const none: CmdResult = { status: 1, stdout: '', stderr: 'no checks reported on the b branch' };
     const r = await waitForCi(opts, fakeDeps({ checks: [none] }));

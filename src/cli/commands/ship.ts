@@ -119,9 +119,11 @@ function printCi(r: CiWaitResult): void {
       ? '통과'
       : r.status === 'none'
         ? 'CI 없음'
-        : r.status === 'pending'
-          ? `진행 중 (${r.pending.length}개 안 끝남)`
-          : `실패 ${r.failed.length}개`;
+        : r.status === 'skipped'
+          ? `전부 건너뜀 (${r.checks.length}개)`
+          : r.status === 'pending'
+            ? `진행 중 (${r.pending.length}개 안 끝남)`
+            : `실패 ${r.failed.length}개`;
   console.log(`CI: ${label} — ${mins}분 기다림`);
   for (const f of r.failed) {
     console.log(`- ${f.name} ${f.link}`);
