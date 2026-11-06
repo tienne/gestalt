@@ -302,7 +302,7 @@ echo "$shipTmp"
 - "처음부터 한다"를 고르면 `checkpoint.json`까지 지우고 새로 시작한다. 안 끝난 로컬 PR은 Phase 1이 다시 찾아 쓴다
 - `EXIT=1`이면 명령 자체가 실패한 것이다(git 오류나 `--dir` 오류). 체크포인트가 깨졌으면 `EXIT=1`이 아니라 `mismatch`의 `unreadable`로 온다. stderr를 보이고 처음부터 할지 묻는다
 
-**base 인자를 받았고 체크포인트가 있으면 `status`를 따르기 전에 base부터 맞춘다.** 체크포인트에는 base 대조가 없어서 `match`로 나와도 사용자가 이번에 준 base가 말없이 밀린다. 그대로 가면 Phase 3이 체크포인트의 base로 PR을 올린다.
+**base 인자를 받았고 체크포인트가 있으면 `status`를 따르기 전에 base부터 맞춘다.** 체크포인트에는 base 대조가 없어서 `match`로 나와도 사용자가 이번에 준 base는 무시되고 체크포인트의 base가 쓰인다. 그대로 가면 PR이 옛 base로 올라간다.
 
 1. [Phase 0](#phase-0--사전-점검)의 base 인자 규칙대로 pr-base 0절 이름 검사부터 건다. 걸리면 거기서 멈추고 묻는다
 2. 통과한 인자를 `checkpoint.base`와 비교한다. 같으면 위 표대로 간다
