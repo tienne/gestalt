@@ -25,6 +25,7 @@ const checksJson = (...buckets: Array<[string, string]>): string =>
 function fakeDeps(script: {
   checks: Array<CmdResult>;
   head?: Array<string>;
+  headResult?: CmdResult;
   log?: CmdResult;
 }): CiWaitDeps & { calls: string[][] } {
   let t = 0;
@@ -45,6 +46,7 @@ function fakeDeps(script: {
         return r;
       }
       if (args[0] === 'pr' && args[1] === 'view') {
+        if (script.headResult) return script.headResult;
         const seq = script.head ?? [];
         const sha = seq[Math.min(headAt, seq.length - 1)] ?? '';
         headAt += 1;
@@ -73,6 +75,10 @@ describe('readChecks', () => {
     ).toEqual({
       kind: 'none',
     });
+  });
+
+  it('빈 배열도 none 이다 — 체크로 읽으면 진행 중인 게 없어 통과로 판정된다', () => {
+    expect(readChecks(ok('[]'))).toEqual({ kind: 'none' });
   });
 
   it('그 밖의 실패는 error 다', () => {
@@ -104,7 +110,7 @@ describe('extractCauseLines', () => {
       line(' ELIFECYCLE  Test failed. See above for more details.'),
       line('##[error]Process completed with exit code 1.'),
     ].join('\n');
-    expect(extractCauseLines(log)).toEqual([
+    expect(extractCauseLines(log).lines).toEqual([
       'Error: write EPIPE',
       'ELIFECYCLE  Test failed. See above for more details.',
     ]);
@@ -116,7 +122,7 @@ describe('extractCauseLines', () => {
       line('AssertionError: expected [ "a.md" ] to deeply equal []'),
       line(' Test Files  1 failed | 354 passed (355)'),
     ].join('\n');
-    expect(extractCauseLines(log)).toEqual([
+    expect(extractCauseLines(log).lines).toEqual([
       'FAIL  tests/unit/hygiene.test.ts > 금지어가 없다',
       'AssertionError: expected [ "a.md" ] to deeply equal []',
       'Test Files  1 failed | 354 passed (355)',
@@ -127,14 +133,25 @@ describe('extractCauseLines', () => {
     const log = ['a', 'b', 'c', 'd', 'e', 'f', '##[error]Process completed with exit code 2.']
       .map(line)
       .join('\n');
-    expect(extractCauseLines(log)).toEqual(['b', 'c', 'd', 'e', 'f']);
+    expect(extractCauseLines(log).lines).toEqual(['b', 'c', 'd', 'e', 'f']);
+  });
+
+  it('끝 줄로 대신 냈는지와 잘리기 전 개수를 함께 낸다', () => {
+    const tail = extractCauseLines(['a', 'b'].map(line).join('\n'));
+    expect(tail).toEqual({ lines: ['a', 'b'], total: 2, fromTail: true });
+
+    const log = Array.from({ length: 12 }, (_, i) => line(`error TS2322: 타입 ${i}`)).join('\n');
+    const cut = extractCauseLines(log, 8);
+    expect(cut.lines).toHaveLength(8);
+    expect(cut.total).toBe(12);
+    expect(cut.fromTail).toBe(false);
   });
 
   it('같은 줄은 한 번만, 개수는 상한까지', () => {
     const log = Array.from({ length: 20 }, (_, i) => line(`error TS2322: 타입 ${i % 12}`)).join(
       '\n',
     );
-    const picked = extractCauseLines(log, 8);
+    const picked = extractCauseLines(log, 8).lines;
     expect(picked).toHaveLength(8);
     expect(new Set(picked).size).toBe(8);
   });
@@ -155,6 +172,11 @@ describe('waitForCi', () => {
     const r = await waitForCi(opts, fakeDeps({ checks: [none] }));
     expect(r.status).toBe('none');
     expect(r.waitedSec).toBe(120);
+  });
+
+  it('빈 배열만 오다 유예가 지나면 통과가 아니라 CI 없음', async () => {
+    const r = await waitForCi(opts, fakeDeps({ checks: [ok('[]')] }));
+    expect(r.status).toBe('none');
   });
 
   it('유예 안에 체크가 붙으면 CI 없음으로 끝내지 않는다', async () => {
@@ -180,6 +202,8 @@ describe('waitForCi', () => {
         bucket: 'fail',
         link: JOB_LINK,
         causeLines: ['Error: denylist hit in docs/a.md'],
+        causeLinesTotal: 1,
+        causeFromTail: false,
       },
     ]);
     expect(deps.calls).toContainEqual([
@@ -194,11 +218,12 @@ describe('waitForCi', () => {
     ]);
   });
 
-  it('실패가 하나라도 있으면 나머지가 진행 중이어도 상한에서 fail 이다', async () => {
+  it('실패가 보이면 진행 중이 남아도 기다리지 않고 바로 fail 이다', async () => {
     const deps = fakeDeps({ checks: [ok(checksJson(['build', 'fail'], ['e2e', 'pending']))] });
-    const r = await waitForCi({ ...opts, timeoutSec: 60 }, deps);
+    const r = await waitForCi(opts, deps);
     expect(r.status).toBe('fail');
     expect(r.pending).toEqual(['e2e']);
+    expect(r.waitedSec).toBe(0);
   });
 
   it('상한까지 안 끝나면 진행 중으로 끝낸다', async () => {
@@ -237,6 +262,16 @@ describe('waitForCi', () => {
     const firstChecks = deps.calls.findIndex((c) => c[2] === 'checks');
     const views = deps.calls.slice(0, firstChecks).filter((c) => c[2] === 'view');
     expect(views).toHaveLength(3);
+  });
+
+  it('PR head 조회가 계속 실패하면 push 문제로 돌리지 않고 그 오류를 던진다', async () => {
+    const deps = fakeDeps({
+      headResult: { status: 1, stdout: '', stderr: 'HTTP 401: Bad credentials' },
+      checks: [ok(checksJson(['build', 'pass']))],
+    });
+    await expect(waitForCi({ ...opts, head: 'abc1234' }, deps)).rejects.toThrow(
+      'PR head를 못 읽었어요: HTTP 401',
+    );
   });
 
   it('유예 안에 head 가 안 바뀌면 push 를 확인하라고 던진다', async () => {

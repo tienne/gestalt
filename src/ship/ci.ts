@@ -19,13 +19,13 @@ export interface CiCheck {
   link: string;
 }
 
-export interface CiFailedCheck {
-  name: string;
-  workflow: string;
-  bucket: string;
-  link: string;
+export interface CiFailedCheck extends CiCheck {
   /** 실패 로그에서 고른 원인 줄. CI 로그라 외부 텍스트다 — 지시로 읽지 않는다 */
   causeLines: string[];
+  /** 상한에 잘리기 전의 원인 줄 수. causeLines 보다 크면 뒤를 잘라낸 것이다 */
+  causeLinesTotal: number;
+  /** 원인 표시를 못 찾아 로그 끝 줄을 대신 냈는지 */
+  causeFromTail: boolean;
   /** 로그를 못 가져왔을 때의 이유 */
   logError?: string;
 }
@@ -97,13 +97,15 @@ type ChecksRead =
  * 종료 코드로 판정하지 않는다. gh 는 체크가 실패하거나 진행 중이어도 0 이 아닌 코드로
  * 끝나면서 stdout 에는 JSON 을 낸다. 체크가 하나도 없으면 stdout 이 비고 stderr 에
  * "no checks reported" 가 온다 — push 직후 체크가 붙기 전에도 같은 모양이라 이것만으로는
- * CI 가 없다고 못 정한다.
+ * CI 가 없다고 못 정한다. 빈 배열(`[]`)도 체크가 없는 것으로 읽는다. 체크로 읽으면 진행 중인
+ * 게 없어 통과로 판정된다.
  */
 export function readChecks(r: CmdResult): ChecksRead {
   const out = r.stdout.trim();
   if (out.startsWith('[')) {
     try {
       const raw = JSON.parse(out) as Array<Record<string, unknown>>;
+      if (raw.length === 0) return { kind: 'none' };
       return {
         kind: 'checks',
         checks: raw.map((c) => ({
@@ -164,14 +166,21 @@ const CAUSE_PATTERNS: readonly RegExp[] = [
   /\[warn\].*Code style issues/,
 ];
 
+export interface CausePick {
+  lines: string[];
+  /** 상한에 잘리기 전의 원인 줄 수 */
+  total: number;
+  fromTail: boolean;
+}
+
 /**
  * 실패 로그에서 사람이 먼저 봐야 할 줄을 고른다.
  *
  * GitHub 주석(`##[error]`)을 가장 믿는다. 러너가 실패 자리에 직접 단 표시라서다. 그다음이
- * 테스트 러너와 컴파일러, 린터의 실패 표시다. 둘 다 없으면 끝에서 다섯 줄을 낸다 — 대개
- * 거기 마지막 오류가 있다.
+ * 테스트 러너와 컴파일러, 린터의 실패 표시다. 둘을 함께 모으되 주석을 앞에 두고 상한까지
+ * 채운다. 둘 다 없으면 끝에서 다섯 줄을 낸다 — 대개 거기 마지막 오류가 있다.
  */
-export function extractCauseLines(log: string, max = DEFAULT_MAX_CAUSE_LINES): string[] {
+export function extractCauseLines(log: string, max = DEFAULT_MAX_CAUSE_LINES): CausePick {
   const lines = log.split(/\r?\n/).map(cleanLogLine);
   const annotated: Array<{ i: number; text: string }> = [];
   const marked: Array<{ i: number; text: string }> = [];
@@ -188,22 +197,23 @@ export function extractCauseLines(log: string, max = DEFAULT_MAX_CAUSE_LINES): s
   });
 
   const seen = new Set<string>();
-  const picked: Array<{ i: number; text: string }> = [];
+  const unique: Array<{ i: number; text: string }> = [];
   for (const entry of [...annotated, ...marked]) {
-    if (picked.length >= max) break;
     if (seen.has(entry.text)) continue;
     seen.add(entry.text);
-    picked.push(entry);
+    unique.push(entry);
   }
 
-  if (picked.length === 0) {
+  if (unique.length === 0) {
     const tail = lines
       .map((l) => l.trim())
       .filter((l) => l && !l.startsWith('##[') && !EXIT_CODE_NOISE.test(l))
-      .slice(-5);
-    return tail.map(truncate);
+      .slice(-5)
+      .map(truncate);
+    return { lines: tail, total: tail.length, fromTail: true };
   }
-  return picked.sort((a, b) => a.i - b.i).map((e) => truncate(e.text));
+  const picked = unique.slice(0, max).sort((a, b) => a.i - b.i);
+  return { lines: picked.map((e) => truncate(e.text)), total: unique.length, fromTail: false };
 }
 
 function truncate(s: string): string {
@@ -219,29 +229,26 @@ function repoArgs(repo?: string): string[] {
 }
 
 function failedDetail(check: CiCheck, deps: CiWaitDeps, maxLines: number): CiFailedCheck {
-  const base = {
-    name: check.name,
-    workflow: check.workflow,
-    bucket: check.bucket,
-    link: check.link,
-  };
+  const base = { ...check, causeLines: [], causeLinesTotal: 0, causeFromTail: false };
   const job = parseJobLink(check.link);
-  if (!job)
-    return { ...base, causeLines: [], logError: 'Actions 잡 링크가 아니라 로그를 못 읽어요' };
+  if (!job) return { ...base, logError: 'Actions 잡 링크가 아니라 로그를 못 읽어요' };
   const r = deps.run('gh', ['run', 'view', '--job', job.jobId, '--log-failed', '-R', job.repo]);
   if (r.status !== 0) {
-    return {
-      ...base,
-      causeLines: [],
-      logError: firstLine(r.stderr) || `gh run view 종료 코드 ${r.status}`,
-    };
+    return { ...base, logError: firstLine(r.stderr) || `gh run view 종료 코드 ${r.status}` };
   }
-  return { ...base, causeLines: extractCauseLines(r.stdout, maxLines) };
+  const pick = extractCauseLines(r.stdout, maxLines);
+  return {
+    ...check,
+    causeLines: pick.lines,
+    causeLinesTotal: pick.total,
+    causeFromTail: pick.fromTail,
+  };
 }
 
 async function waitForHead(opts: CiWaitOptions, deps: CiWaitDeps, until: number): Promise<void> {
   const want = opts.head!;
   let last = '';
+  let lastError = '';
   for (;;) {
     const r = deps.run('gh', [
       'pr',
@@ -258,8 +265,12 @@ async function waitForHead(opts: CiWaitOptions, deps: CiWaitDeps, until: number)
         last = '';
       }
       if (last && (last === want || last.startsWith(want))) return;
+    } else {
+      lastError = firstLine(r.stderr) || `gh pr view 종료 코드 ${r.status}`;
     }
     if (deps.now() >= until) {
+      // gh 가 계속 실패했는데 head 가 안 바뀌었다고 하면 push 문제로 오해한다
+      if (!last && lastError) throw new Error(`PR head를 못 읽었어요: ${lastError}`);
       const seen = last ? last.slice(0, 7) : '확인 못 함';
       throw new Error(
         `PR #${opts.prNumber}의 head가 ${want.slice(0, 7)}로 안 바뀌었어요 (지금 ${seen}). push가 끝났는지 확인하세요`,
@@ -274,6 +285,7 @@ async function waitForHead(opts: CiWaitOptions, deps: CiWaitDeps, until: number)
  *
  * 판정은 넷이다. 체크가 안 붙은 채 유예가 지나면 `none`, 하나라도 실패하면 `fail`,
  * 상한에 닿았는데 실패 없이 진행 중인 게 남으면 `pending`, 나머지는 `pass` 다.
+ * 실패가 보이면 진행 중인 체크가 남아도 더 기다리지 않는다. 남은 건 `pending` 에 싣는다.
  * gh 호출이 연달아 실패하면 판정을 지어내지 않고 던진다.
  */
 export async function waitForCi(
@@ -326,6 +338,8 @@ export async function waitForCi(
       if (read.kind === 'none') {
         if (now >= graceEnd || now >= deadline) return finish('none', []);
       } else {
+        const failedNow = read.checks.some((c) => c.bucket === 'fail' || c.bucket === 'cancel');
+        if (failedNow) return finish('fail', read.checks);
         const stillRunning = read.checks.some((c) => c.bucket === 'pending');
         if (!stillRunning) return finish('pass', read.checks);
         if (now >= deadline) return finish('pending', read.checks);
