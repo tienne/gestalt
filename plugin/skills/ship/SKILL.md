@@ -307,7 +307,7 @@ echo "$shipTmp"
 1. [Phase 0](#phase-0--사전-점검)의 base 인자 규칙대로 pr-base 0절 이름 검사부터 건다. 걸리면 거기서 멈추고 묻는다
 2. 통과한 인자를 `checkpoint.base`와 비교한다. 같으면 위 표대로 간다
 3. 다르면 `status`가 `match`여도 `mismatch`처럼 다룬다. "체크포인트 base({checkpoint.base})로 이어간다 / 새 base({인자})로 처음부터 한다 / 멈춘다"로 묻는다
-4. 새 base로 처음부터 하면 `checkpoint.json`을 지우기 전에 체크포인트의 로컬 PR을 `gestalt pr close <localPrId> --reason "base 변경"`으로 닫는다. 안 닫으면 Phase 1이 옛 base로 만든 로컬 PR을 다시 쓴다
+4. 새 base로 처음부터 하면 `checkpoint.json`을 지우기 전에 체크포인트의 로컬 PR을 `gestalt pr close <localPrId> --reason "base 변경"`으로 종료한다. 종료하지 않으면 Phase 1이 옛 base로 만든 로컬 PR을 다시 쓴다
 5. 체크포인트에 `prNumber`가 있으면 새 base 선택지를 빼고 "GitHub PR이 이미 {checkpoint.base}로 열려 있다"를 보인 뒤 이어간다와 멈춘다만 묻는다
 
 `unreadable`이면 비교할 base가 없으니 이 비교를 건너뛴다.
