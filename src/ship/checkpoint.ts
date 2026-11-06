@@ -91,6 +91,9 @@ export const BRANCH_NAME_RE = /^[A-Za-z0-9._][A-Za-z0-9._/-]*$/;
 /** 로컬 PR id 는 randomUUID().slice(0, 8) 로 만든다. `gestalt pr close <id>` 처럼 셸 명령에 들어간다 */
 export const LOCAL_PR_ID_RE = /^[0-9a-f]{8}$/i;
 
+/** 완료 보고에 그대로 옮겨 사용자에게 보이는 값이라 링크로 열리는 꼴만 받는다 */
+export const PR_URL_RE = /^https:\/\/\S+$/;
+
 export function readCheckpoint(dir: string): CheckpointRead {
   const path = checkpointPath(dir);
   if (!existsSync(path)) return { kind: 'none' };
@@ -114,6 +117,15 @@ export function readCheckpoint(dir: string): CheckpointRead {
       (typeof raw.localPrId !== 'string' || !LOCAL_PR_ID_RE.test(raw.localPrId))
     ) {
       return { kind: 'unreadable', error: 'localPrId 형식에 안 맞아요' };
+    }
+    if (
+      raw.prNumber != null &&
+      (typeof raw.prNumber !== 'number' || !Number.isInteger(raw.prNumber) || raw.prNumber <= 0)
+    ) {
+      return { kind: 'unreadable', error: 'prNumber 형식에 안 맞아요' };
+    }
+    if (raw.prUrl != null && (typeof raw.prUrl !== 'string' || !PR_URL_RE.test(raw.prUrl))) {
+      return { kind: 'unreadable', error: 'prUrl 형식에 안 맞아요' };
     }
     return { kind: 'ok', checkpoint: raw as ShipCheckpoint };
   } catch (e) {

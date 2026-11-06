@@ -70,4 +70,16 @@ describe('ship 명령의 실패 출력 — 스킬이 stdout 을 판정으로 읽
     expect(err).toHaveBeenCalledWith(expect.stringContaining('--local-pr'));
     expect(log).not.toHaveBeenCalled();
   });
+
+  it.each(['--web', 'http://example.com/pull/7'])(
+    'checkpoint save 의 --pr-url 이 https 링크가 아니면(%s) 저장하지 않고 1 로 끝난다',
+    (prUrl) => {
+      expect(() =>
+        shipCheckpointSaveCommand({ dir: '/tmp/x', phase: '3', next: 'x', prUrl }),
+      ).toThrow('exit 1');
+      expect(err).toHaveBeenCalledWith(expect.stringContaining('--pr-url'));
+      expect(log).not.toHaveBeenCalled();
+    },
+  );
 });
+

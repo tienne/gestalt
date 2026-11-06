@@ -5,6 +5,7 @@ import {
   defaultObserveDeps,
   isShipPhase,
   LOCAL_PR_ID_RE,
+  PR_URL_RE,
   saveCheckpoint,
   type CheckpointPatch,
   type StopKind,
@@ -78,7 +79,8 @@ export function shipCheckpointSaveCommand(opts: ShipCheckpointSaveOptions): void
     if (opts.pr !== undefined) patch.prNumber = positiveInt(opts.pr, '--pr');
     const localPr = matching(opts.localPr, LOCAL_PR_ID_RE, '--local-pr');
     if (localPr) patch.localPrId = localPr;
-    if (opts.prUrl) patch.prUrl = opts.prUrl;
+    const prUrl = matching(opts.prUrl, PR_URL_RE, '--pr-url');
+    if (prUrl) patch.prUrl = prUrl;
     const base = matching(opts.base, BRANCH_NAME_RE, '--base');
     if (base) patch.base = base;
     if (opts.verifyCmd) patch.verifyCmd = opts.verifyCmd;

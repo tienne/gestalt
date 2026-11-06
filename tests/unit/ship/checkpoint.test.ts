@@ -189,6 +189,41 @@ describe('파일 읽고 쓰기', () => {
     expect(readCheckpoint(d).kind).toBe('ok');
   });
 
+  it.each(['--web', 0, 1.5, '7'])(
+    'prNumber 가 양의 정수가 아니면(%s) unreadable — gh pr view 인자로 들어간다',
+    (prNumber) => {
+      const d = tmp();
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, 'checkpoint.json'), JSON.stringify({ ...cp(), prNumber }));
+      expect(readCheckpoint(d)).toEqual({
+        kind: 'unreadable',
+        error: 'prNumber 형식에 안 맞아요',
+      });
+    },
+  );
+
+  it.each(['--web', 'http://example.com/pull/7', 'https://', 7])(
+    'prUrl 이 https 링크가 아니면(%s) unreadable — 완료 보고에 그대로 옮긴다',
+    (prUrl) => {
+      const d = tmp();
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, 'checkpoint.json'), JSON.stringify({ ...cp(), prUrl }));
+      expect(readCheckpoint(d)).toEqual({ kind: 'unreadable', error: 'prUrl 형식에 안 맞아요' });
+    },
+  );
+
+  it('prNumber 와 prUrl 이 null 이거나 맞는 꼴이면 읽는다 — null 은 GitHub PR 을 만들기 전이다', () => {
+    const d = tmp();
+    mkdirSync(d, { recursive: true });
+    for (const pr of [
+      { prNumber: null, prUrl: null },
+      { prNumber: 7, prUrl: 'https://github.com/o/r/pull/7' },
+    ]) {
+      writeFileSync(join(d, 'checkpoint.json'), JSON.stringify({ ...cp(), ...pr }));
+      expect(readCheckpoint(d).kind).toBe('ok');
+    }
+  });
+
   it('상대 경로와 빈 값은 받지 않는다 — 빈 변수가 워킹트리에 파일을 만든다', () => {
     expect(() => assertDir('')).toThrow('절대 경로');
     expect(() => assertDir(undefined)).toThrow('절대 경로');
