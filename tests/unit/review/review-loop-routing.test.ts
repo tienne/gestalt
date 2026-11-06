@@ -29,6 +29,56 @@ describe('review-loop 라우팅', () => {
     expect(row).toContain('"다시 리뷰"');
   });
 
+  /**
+   * 상태만 물어도, review 바로 뒤에 넘어와도 같은 head를 다시 리뷰하면 코멘트와 판정이 한 번
+   * 더 나간다. 그래서 지난 리뷰가 남아 있으면 작성자 대응부터 보는 자리를 고정한다.
+   */
+  describe('이어서 부르면 작성자 대응부터 본다', () => {
+    const loop = () => load('review-loop').body;
+    const resume = () => section(loop(), '### 재개인지 본다');
+
+    it('재개 판단이 ⓢ보다 앞이다', () => {
+      const body = loop();
+      expect(body.indexOf('### 재개인지 본다')).toBeGreaterThan(-1);
+      expect(body.indexOf('### 재개인지 본다')).toBeLessThan(
+        body.indexOf('### 승인 단계 ⓢ — 자동 판정 동의'),
+      );
+    });
+
+    it('남은 흔적이 있으면 신호부터 보고 재리뷰일 때만 라운드를 돈다', () => {
+      const rows = resume()
+        .split('\n')
+        .filter((l) => /^\| [123] \|/.test(l));
+      expect(rows).toHaveLength(3);
+      expect(rows[0]).toMatch(/`round`나 `reviewed-head`가 있다[^\n]*Phase 3 신호 계산부터/);
+      expect(rows[1]).toMatch(/지금 head를 봤다[^\n]*Phase 3 신호 계산부터/);
+      expect(rows[2]).toMatch(/1라운드다\. ⓢ를 거쳐 Phase 1/);
+      expect(resume()).toMatch(/`WAITING`과 `REPLIES_ONLY`는 상태만 알리고 끝낸다/);
+    });
+
+    it('상태 확인과 재리뷰 요청을 문장이 아니라 신호로 가른다', () => {
+      expect(resume()).toMatch(/사용자가 한 말로 가르지 않는다/);
+    });
+
+    it('이어받을 리뷰를 review 1.03단계와 같은 거르기로 찾는다', () => {
+      // 거르기가 갈라지면 답글만 단 시점이 마지막 리뷰로 잡혀 이어받기 조건이 틀린다
+      const filter = '(.state != \\"COMMENTED\\" or .body != \\"\\")';
+      expect(section(load('review').body, '### 1.03단계: 재리뷰 판정')).toContain(filter);
+      expect(resume()).toContain(filter);
+      expect(resume()).toMatch(/> "\$stateDir\/reviewed-head"/);
+    });
+
+    it('round 파일이 없어도 재리뷰 라운드 번호가 풀린다', () => {
+      expect(loop()).toContain('round=$(( $(cat "$stateDir/round" 2>/dev/null || echo 0) + 1 ))');
+    });
+
+    it('review의 제안 문단이 이어받는다는 걸 알린다', () => {
+      expect(section(load('review').body, '## 결과 표시')).toMatch(
+        /`review-loop`는 방금 남긴 리뷰를 이어받아 작성자 대응부터 봅니다/,
+      );
+    });
+  });
+
   describe('review가 끝날 때 review-loop를 제안한다', () => {
     const result = () => section(load('review').body, '## 결과 표시');
 

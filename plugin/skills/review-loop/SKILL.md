@@ -124,7 +124,7 @@ PR별 자리에 두는 파일은 아래와 같다.
 | 파일 | 누가 쓰나 | 무엇 |
 | --- | --- | --- |
 | `my-login` | 조회 | 내 GitHub 로그인. 비어 있으면 `gh`로 다시 조회한다 |
-| `reviewed-head` | 2.5 | 마지막으로 리뷰한 head sha. `changed`가 이 값과 비교해 정해진다 |
+| `reviewed-head` | 2.5, Phase 0 재개 2번 | 마지막으로 리뷰한 head sha. `changed`가 이 값과 비교해 정해진다 |
 | `round-start-head` | 1.1 | 이번 라운드를 시작할 때의 head. 2.5가 위로 옮긴다 |
 | `round` | 2.5 | **마지막으로 완료한** 라운드 번호. 재개하면 이 값+1부터 시작한다 |
 | `verdicts` | 2.5 | 라운드마다 낸 판정 한 줄씩. Phase 5가 읽는다 |
@@ -139,7 +139,7 @@ PR별 자리에 두는 파일은 아래와 같다.
 
 스레드 스냅샷은 여기 없다. 조회와 집계가 한 프로세스 안에서 끝나므로 중간 파일이 안 생긴다.
 
-**시작할 때 지난 실행의 잔재를 확인한다.** 이 자리는 세션이 끝나도 남는다. `round` 파일이 있으면 이어서 도는 것이고 없으면 1라운드다. 이어서 돌 때는 그 사실을 사용자에게 한 줄 알린다.
+**시작할 때 지난 실행의 잔재를 확인한다.** 이 자리는 세션이 끝나도 남는다. 무엇이 남아 있으면 이어서 도는지는 Phase 0 "재개인지 본다"의 표가 정한다.
 
 ## 상태 조회 — 판정에 쓰는 수는 전부 여기서 나온다
 
@@ -325,9 +325,50 @@ gh pr view "$prNumber" --repo "$owner/$repo" --json author --jq .author.login
 #{prNumber}는 아직 draft예요. 그래도 리뷰할까요?
 ```
 
+### 재개인지 본다
+
+**ⓢ보다 먼저 본다.** 지난 리뷰가 남아 있는데 리뷰부터 다시 부르면 작성자가 아무것도 안 했어도 같은 head에 같은 코멘트와 판정이 한 번 더 나간다. 사용자는 상태만 물었는데 새 라운드가 도는 일도 생긴다.
+
+PR별 자리는 따로 만들지 않는다 — 조회가 `stateDir`로 낸다. 위에서부터 보고 처음 걸리는 행을 따른다.
+
+| 순서 | 상태 자리 | 어디서 시작하나 |
+| --- | --- | --- |
+| 1 | `round`나 `reviewed-head`가 있다 | 이어서 돈다. Phase 3 신호 계산부터 본다 |
+| 2 | 둘 다 없고 내가 남긴 마지막 리뷰가 지금 head를 봤다 | 그 리뷰를 이어받는다. 아래 명령으로 `reviewed-head`를 쓰고 Phase 3 신호 계산부터 본다 |
+| 3 | 둘 다 없고 이어받을 리뷰도 없다 | 1라운드다. ⓢ를 거쳐 Phase 1로 간다 |
+
+2번은 `review`를 한 번 돌린 뒤 이 스킬로 넘어온 자리다. 마지막 리뷰는 `review`의 "직전 리뷰 head 찾기"와 같은 거르기로 찾는다. body가 빈 `COMMENTED`를 빼는 이유도 그 절에 있다.
+
+```bash
+root=<Phase 0에서 출력된 뿌리 경로>
+coords=$(gestalt review-loop resolve --pr "$(cat "$root/target")") \
+  || { echo "좌표를 못 읽었습니다 — 진행하지 않는다"; exit 1; }
+read -r prNumber owner repo stateDir <<<"$(echo "$coords" \
+  | jq -r '"\(.prNumber) \(.owner) \(.repo) \(.stateDir)"')"
+
+me=$(cat "$stateDir/my-login" 2>/dev/null); [ -n "$me" ] || me=$(gh api user --jq .login)
+last=$(gh api "repos/$owner/$repo/pulls/$prNumber/reviews" --paginate \
+  --jq ".[] | select(.user.login == \"$me\" and .state != \"PENDING\" and (.state != \"COMMENTED\" or .body != \"\")) | .commit_id" \
+  | tail -n1)
+head=$(gh pr view "$prNumber" --repo "$owner/$repo" --json headRefOid --jq .headRefOid)
+[ -n "$last" ] && [ "$last" = "$head" ] && echo "$last" > "$stateDir/reviewed-head"
+```
+
+이어받은 리뷰는 라운드로 세지 않는다. `round` 파일이 없으니 재리뷰로 가면 1라운드부터다.
+
+**1번과 2번은 Phase 4 표를 그대로 따른다.** `READY`나 `REREVIEW_REQUESTED`면 ⓢ를 묻고 "재리뷰로 갈 때"의 라운드 번호로 Phase 1에 간다. `WAITING`과 `REPLIES_ONLY`는 상태만 알리고 끝낸다. 판정을 안 내니 ⓢ도 안 묻는다. 시작할 때 사용자에게 한 줄 알린다.
+
+```
+지난번 남긴 리뷰가 있어서 작성자 대응부터 볼게요. (마지막으로 끝낸 라운드: {round 값 | 없음})
+```
+
+**사용자가 한 말로 가르지 않는다.** "리뷰 상태 확인"과 "재리뷰해줘"가 둘 다 이 스킬로 오지만 리뷰를 다시 돌릴지는 신호가 정한다. 문장으로 가르면 "상태 확인하고 대응했으면 다시 리뷰해줘"처럼 두 말이 섞인 요청에서 틀린다. 작성자가 대응하기 전에 다시 돌리면 `review`의 재리뷰 판정이 `unchanged`로 보고 같은 스레드를 또 올린다.
+
+세션이 라운드 중간(1.1부터 2.5 전까지)에서 끊겼으면 `round`가 안 올라가 있다. 다시 부르면 그때 신호로 다시 정한다. 코멘트가 아직 안 나갔으면 신호가 그대로라 끊긴 라운드를 다시 돈다. 코멘트까지 나가고 판정 전에 끊겼으면 그 스레드가 미대응으로 세져 `WAITING`이 된다. 그 라운드 판정은 건너뛰고 다음 재리뷰 라운드가 판정을 낸다.
+
 ### 승인 단계 ⓢ — 자동 판정 동의
 
-**한 번만 묻는다.** 이 자리를 건너뛰지 않는다.
+**판정을 처음 내기 전에 한 번만 묻는다.** 이 자리를 건너뛰지 않는다. 1라운드면 Phase 1 전에 묻는다. 이어서 돌면 Phase 4가 재리뷰로 정한 뒤에 묻는다.
 
 ```
 #{prNumber} "{title}" ({author} / +{additions} -{deletions}, 파일 {N}개)
@@ -344,15 +385,6 @@ gh pr view "$prNumber" --repo "$owner/$repo" --json author --jq .author.login
 ```
 
 동의하지 않으면 시작하지 않는다. **`review` 스킬 한 번을 대신 돌려주겠다고 제안한다** — 판정 없이 리뷰만 보는 자리가 그쪽이다.
-
-### 재개인지 본다
-
-`round` 파일이 있으면 이어서 도는 것이다. 거기 적힌 값은 **마지막으로 완료한 라운드**이므로 **그 값+1부터** Phase 1을 시작하고 사용자에게 알린다. 파일이 없으면 1라운드다.
-
-PR별 자리는 따로 만들지 않는다 — 조회가 `stateDir`로 낸다.
-
-이 규칙이 세션이 Phase 4와 다음 라운드의 2.5 사이에서 끊겼을 때도 그대로 선다. 그 구간에는 아직 완료된 라운드가 없어 값이 안 올라가 있다. 재개하면 끊긴 그 라운드를 다시 돈다.
-
 
 ## Phase 1 — 리뷰 라운드
 
@@ -844,13 +876,15 @@ gestalt harness-refs three-state --candidates <collect 결과 파일> --related-
 
 ```bash
 stateDir=<상태 조회가 낸 stateDir 값>
-round=$(( $(cat "$stateDir/round") + 1 ))
+round=$(( $(cat "$stateDir/round" 2>/dev/null || echo 0) + 1 ))
 echo "$round"
 ```
 
-`maxRounds`를 넘으면 Phase 5의 상한으로 간다. 아니면 Phase 1로 돌아간다.
+`maxRounds`를 넘으면 Phase 5의 상한으로 간다. 아니면 Phase 1로 돌아간다. 이 세션에서 아직 ⓢ를 안 물었으면 Phase 1 전에 묻는다.
 
-**`review` 0단계 3번에 직전 라운드 내용을 넘긴다.** `issues-r<N-1>.md`를 읽어 무엇을 짚었는지 적고 Phase 3에서 본 대응 상태를 함께 적는다.
+`round` 파일이 없으면 0으로 읽는다. Phase 0 재개 2번으로 들어온 자리다.
+
+**`review` 0단계 3번에 직전 라운드 내용을 넘긴다.** `issues-r<N-1>.md`를 읽어 무엇을 짚었는지 적고 Phase 3에서 본 대응 상태를 함께 적는다. 재개 2번으로 들어와 `issues-r0.md`가 없으면 이어받은 리뷰라고만 적는다. 그 리뷰의 코멘트는 `review`의 재리뷰 판정이 직전 리뷰로 찾아 `priorThreads`에 싣는다.
 
 ### 조기 종료 — 같은 이슈가 3라운드 연속 남으면
 
