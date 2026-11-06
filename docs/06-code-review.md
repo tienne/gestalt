@@ -70,17 +70,23 @@ ges_execute({
       {
         id: "sec-001",
         severity: "critical",
-        ...
-        reportedBy: "security-expert"
+        category: "security",
+        file: "src/auth/token.ts",
+        message: "...",
+        suggestion: "..."
       }
-    ],
-    approvedBy: [],
-    blockedBy: ["security-expert"],
-    summary: "critical 이슈 1건 발견"
+    ]
   }
 })
 → { approved, report, needsFix, canFix, criticalHighCount }
 ```
+
+`mergedIssues`만 보내면 나머지는 엔진이 review_submit 기록으로 채워요.
+
+- `reportedBy`를 빼면 같은 id(또는 `<reportedBy>:<원래 id>` 꼴)의 원본에서 가져와요.
+- `approvedBy`와 `blockedBy`를 빼면 에이전트별 마지막 판정으로 채워요. `[]`를 보내면 빈 배열 그대로 써요.
+- `summary`를 빼면 이슈 개수로 만들어요.
+- critical이거나 security category인 원본은 `mergedIssues`에 각자 따로 남겨야 해요. 빼거나 severity를 낮추면 거부돼요.
 
 - `approved === true` (critical/high 이슈 0건) → Review 통과, 파이프라인 완료
 - `approved === false` → review_fix 진행
