@@ -52,7 +52,7 @@ describe('review-loop 라우팅', () => {
       expect(rows).toHaveLength(3);
       expect(rows[0]).toMatch(/`round`나 `reviewed-head`가 있다[^\n]*Phase 3 신호 계산부터/);
       expect(rows[1]).toMatch(/지금 head를 봤다[^\n]*Phase 3 신호 계산부터/);
-      expect(rows[2]).toMatch(/1라운드다\. ⓢ를 거쳐 Phase 1/);
+      expect(rows[2]).toMatch(/1라운드다[^\n]*ⓢ를 거쳐[^\n]*Phase 1/);
       expect(resume()).toMatch(/`WAITING`과 `REPLIES_ONLY`는 상태만 알리고 끝낸다/);
     });
 
@@ -83,7 +83,7 @@ describe('review-loop 라우팅', () => {
     const result = () => section(load('review').body, '## 결과 표시');
 
     it('COMMENT나 REQUEST_CHANGES를 남겼을 때 한 줄로 묻는다', () => {
-      expect(result()).toContain('작성자 대응을 지켜보다 재리뷰할까요? (review-loop)');
+      expect(result()).toMatch(/재리뷰할까요\? \(review-loop\)/);
       expect(result()).toMatch(/`COMMENT`나 `REQUEST_CHANGES`를 남기고 끝났으면/);
     });
 

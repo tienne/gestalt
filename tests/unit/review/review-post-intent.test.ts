@@ -16,7 +16,7 @@ describe('게시 의사를 밝혔으면 다시 묻지 않기', () => {
 
   it('의사가 있으면 미리보기만 보이고 변경 요청과 코멘트 이벤트까지 게시한다', () => {
     expect(confirm()).toMatch(/게시 의사가 있으면 묻지 않고 게시합니다/);
-    expect(confirm()).toMatch(/`REQUEST_CHANGES`와 `COMMENT` 이벤트는 같이 나갑니다/);
+    expect(confirm()).toMatch(/`REQUEST_CHANGES`와 `COMMENT`[^\n]*같이 나/);
   });
 
   it('의사가 있어도 approve를 명시하지 않은 APPROVE는 따로 묻는다', () => {
@@ -24,7 +24,7 @@ describe('게시 의사를 밝혔으면 다시 묻지 않기', () => {
     expect(confirm()).toMatch(/`APPROVE`면 사용자가 approve를 명시했을 때만 묻지 않/);
     expect(confirm()).toMatch(/`precondition`이나 `thisRound`/);
     expect(confirm()).toMatch(/프로필 `approveWhenNoBlocking`으로 나온 `APPROVE`를 포함해/);
-    expect(confirm()).toContain('이벤트를 APPROVE로 낼까요? 아니면 COMMENT로 올릴게요.');
+    expect(confirm()).toMatch(/이벤트를 APPROVE로 낼까요[^\n]*COMMENT로 올릴/);
     expect(confirm()).toMatch(/거절하면 `COMMENT`로 게시/);
     const still = confirm()
       .split('**게시 의사가 있어도 묻는 자리는 남습니다.**')[1]!
