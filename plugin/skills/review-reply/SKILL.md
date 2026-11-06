@@ -518,7 +518,11 @@ gestalt pr resolve <id> <commentId>
 
 ## 결과 표시
 
+**첫 줄은 대상 PR의 URL이다.** 6단계 게시 결과에 이미 찍혔어도 여기 다시 적는다. 대화가 압축되면 앞에서 말한 링크가 안 보여서 사용자가 "PR 링크 알려줘"를 다시 묻는다. 로컬 PR은 URL이 없으므로 첫 줄에 `로컬 PR <id>`를 적는다. 사람이 그 값으로 `gestalt pr show <id>`를 바로 부를 수 있다.
+
 ```
+https://github.com/owner/repo/pull/<number>
+
 ## 리뷰 답변 결과
 
 **대상**: PR #<number> — <제목>
