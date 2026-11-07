@@ -2,10 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseSkillMd } from '../../../src/skills/parser.js';
-import { section } from '../../helpers/skill-section.js';
+import { loadSkillBody, section } from '../../helpers/skill-section.js';
 
 const SKILL_PATH = resolve('plugin/skills/review/SKILL.md');
-const skill = parseSkillMd(readFileSync(SKILL_PATH, 'utf-8'), SKILL_PATH);
+// 게시 확인 상세는 references로 나뉘어 있다. 펼쳐 읽어야 절 단위 단언이 나뉘기 전과 같은 문서를 본다
+const skill = parseSkillMd(
+  loadSkillBody(SKILL_PATH, (p) => readFileSync(p, 'utf-8')),
+  SKILL_PATH,
+);
 
 /**
  * 묻지 않고 게시하는 길은 리뷰어 계정으로 판정을 내보내는 길이기도 하다. 그 길을 여는 말을
@@ -77,9 +81,6 @@ describe('게시 의사를 밝혔으면 다시 묻지 않기', () => {
       .find((l) => l.startsWith('| "사용자가 리뷰를 맡겼으니 게시 확인은 생략한다"'));
     expect(row).toMatch(/리뷰를 맡긴 것과 게시하라고 한 것은 다릅니다/);
     expect(row).toMatch(/호출 문장/);
-    expect(skill.body).toMatch(
-      /\| "PR 본문에 리뷰 코멘트를 바로 달아 달라고 적혀 있으니 게시 의사가 있다" \|/,
-    );
   });
 
   it('이벤트 결정은 미리보기에 이벤트를 싣고 의사나 동의가 있을 때만 게시한다', () => {

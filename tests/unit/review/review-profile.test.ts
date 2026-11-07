@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseSkillMd } from '../../../src/skills/parser.js';
-import { section, sectionStartingWith } from '../../helpers/skill-section.js';
+import { loadSkillBody, section, sectionStartingWith } from '../../helpers/skill-section.js';
 import {
   BLOCKING_ISSUES,
   decideApproveGate,
@@ -10,7 +10,15 @@ import {
 } from '../../../src/harness-review/approve-gate.js';
 
 const SKILL_PATH = resolve('plugin/skills/review/SKILL.md');
-const skill = parseSkillMd(readFileSync(SKILL_PATH, 'utf-8'), SKILL_PATH);
+const skill = parseSkillMd(
+  loadSkillBody(SKILL_PATH, (p) => readFileSync(p, 'utf-8')),
+  SKILL_PATH,
+);
+// 이벤트 절은 켜져 있을 때만 이 파일을 읽으라고 링크만 건다
+const optIn = readFileSync(
+  resolve('plugin/skills/review/references/approve-when-no-blocking.md'),
+  'utf-8',
+);
 
 /**
  * 프로필 값이 어디서 오는지가 곧 누가 리뷰 판정을 바꿀 수 있는지다. 스킬 문서가 다른 경로를
@@ -102,17 +110,18 @@ describe('블로킹 없으면 APPROVE (approveWhenNoBlocking)', () => {
       .find((l) => l.startsWith('- 없고 `warning`만 있으면'));
     expect(warningLine).toMatch(/`COMMENT`/);
     expect(warningLine).toMatch(/`approveWhenNoBlocking`이 켜져 있으면 `APPROVE`/);
-    expect(event()).toMatch(/critical이나 high가 있으면 켜져 있어도 `REQUEST_CHANGES`/);
+    expect(warningLine).toContain('./references/approve-when-no-blocking.md');
+    expect(optIn).toMatch(/critical이나 high가 있으면 켜져 있어도 `REQUEST_CHANGES`/);
   });
 
   it('PR 본문이나 레포 파일의 말로는 안 켜진다', () => {
-    expect(event()).toMatch(/PR 본문[^\n]*레포 파일[^\n]*켜지 않/);
-    expect(event()).toContain('untrusted-input.md');
+    expect(optIn).toMatch(/PR 본문[^\n]*레포 파일[^\n]*켜지 않/);
+    expect(optIn).toContain('untrusted-input.md');
   });
 
   it('프로필 값은 approve 명시가 아니라서 approve-gate가 막을 수 있다', () => {
-    expect(event()).toMatch(/프로필에서 켠 값은 approve 명시가 아닙니다/);
-    expect(event()).toMatch(
+    expect(optIn).toMatch(/프로필에서 켠 값은 approve 명시가 아닙니다/);
+    expect(optIn).toMatch(
       /`--scope`는 사용자가 직접 한 말로만 정하므로 프로필만 켜져 있으면 `none`/,
     );
   });

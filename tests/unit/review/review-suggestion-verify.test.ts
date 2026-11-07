@@ -5,6 +5,7 @@ import { parseSkillMd } from '../../../src/skills/parser.js';
 import { parseAgentMd } from '../../../src/agent/parser.js';
 import { RoleAgentRegistry } from '../../../src/agent/role-agent-registry.js';
 import {
+  loadSkillBody,
   section,
   sectionStartingWith,
   codeBlockContaining,
@@ -19,7 +20,11 @@ import {
  */
 
 const SKILL_PATH = resolve('plugin/skills/review/SKILL.md');
-const skill = parseSkillMd(readFileSync(SKILL_PATH, 'utf-8'), SKILL_PATH);
+// 게시 확인 미리보기는 references로 나뉘어 있어 펼쳐 읽는다
+const skill = parseSkillMd(
+  loadSkillBody(SKILL_PATH, (p) => readFileSync(p, 'utf-8')),
+  SKILL_PATH,
+);
 const body = skill.body;
 
 const AGENT_PATH = resolve('plugin/role-agents/suggestion-verifier/AGENT.md');

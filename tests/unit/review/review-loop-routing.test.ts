@@ -2,11 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseSkillMd } from '../../../src/skills/parser.js';
-import { section } from '../../helpers/skill-section.js';
+import { loadSkillBody, section } from '../../helpers/skill-section.js';
 
 const load = (name: string) => {
   const path = resolve(`plugin/skills/${name}/SKILL.md`);
-  return parseSkillMd(readFileSync(path, 'utf-8'), path);
+  // review의 재리뷰 제안 문구는 references로 나뉘어 있어 펼쳐 읽는다
+  return parseSkillMd(
+    loadSkillBody(path, (p) => readFileSync(p, 'utf-8')),
+    path,
+  );
 };
 
 /**

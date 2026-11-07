@@ -2,11 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseSkillMd } from '../../../src/skills/parser.js';
-import { section } from '../../helpers/skill-section.js';
+import { loadSkillBody, section } from '../../helpers/skill-section.js';
 
 const load = (name: string) => {
   const path = resolve(`plugin/skills/${name}/SKILL.md`);
-  return parseSkillMd(readFileSync(path, 'utf-8'), path).body;
+  return parseSkillMd(
+    loadSkillBody(path, (p) => readFileSync(p, 'utf-8')),
+    path,
+  ).body;
 };
 const review = load('review');
 const loop = load('review-loop');
