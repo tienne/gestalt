@@ -96,4 +96,13 @@ describe('게시 의사를 밝혔으면 다시 묻지 않기', () => {
     expect(result).toMatch(/\*\*게시 의사\*\*: 없음 — 리뷰만 맡기셔서/);
     expect(result).toMatch(/게시를 거절했어도 남깁니다/);
   });
+
+  it('게시 의사 줄의 따로 물은 자리에 로컬 PR의 junior 확인이 들어간다', () => {
+    // 1.05단계에서 junior 확인을 받았는데 이 목록에 없으면 묻지 않고 올렸다는 줄만 남는다
+    const result = section(skill.body, '## 결과 표시');
+    expect(result).toMatch(
+      /어투 검사나 로컬 PR의 `junior` 확인, 연관 PR 알림, 승인 이벤트 때문에 물었으면/,
+    );
+    expect(result).toMatch(/프로필에서 온 `junior`는 묻지 않고 내렸으니 넣지 않/);
+  });
 });
