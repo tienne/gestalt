@@ -105,4 +105,17 @@ describe('게시 의사를 밝혔으면 다시 묻지 않기', () => {
     );
     expect(result).toMatch(/프로필에서 온 `junior`는 묻지 않고 내렸으니 넣지 않/);
   });
+
+  it('로컬 PR은 승인 질문을 거절하면 COMMENT로 바꾸지 않고 게시하지 않는다', () => {
+    // review_publish에는 이벤트를 고르는 인자가 없다. COMMENT로 올린다고 적으면 실제로는 approve가 나간다
+    expect(confirm()).toMatch(/로컬 PR에는 이 `COMMENT` 폴백이 없습니다/);
+    expect(confirm()).toMatch(
+      /`reviewSessionId`, `prId`, `prReviewer`, `repoRoot`뿐[^\n]*`approve`나 `request_changes`/,
+    );
+    expect(confirm()).toMatch(/거절하면 `review_publish`를 부르지 않고/);
+    const still = confirm()
+      .split('**게시 의사가 있어도 묻는 자리는 남습니다.**')[1]!
+      .split('\n\n**')[0]!;
+    expect(still).toMatch(/로컬 PR은 위 절대로 게시하지 않습니다/);
+  });
 });
