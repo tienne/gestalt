@@ -21,7 +21,6 @@ import {
   reviewLoopStateCommand,
 } from './commands/review-loop.js';
 import { approveGateCommand, reviewRoundsCommand } from './commands/approve-gate.js';
-import { profileShowCommand } from './commands/profile.js';
 import {
   harnessRefsClonesPruneCommand,
   harnessRefsCollectCommand,
@@ -661,7 +660,10 @@ export function createCli(): Command {
     .command('show')
     .description('프로필이 정한 값과 경고. 파일이 없거나 깨졌으면 비어 있는 채로 나온다')
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action((o) => profileShowCommand(o));
+    .action(async (o: { json?: boolean }) => {
+      const { profileShowCommand } = await import('./commands/profile.js');
+      profileShowCommand(o);
+    });
 
   const reviewLoop = program
     .command('review-loop')
