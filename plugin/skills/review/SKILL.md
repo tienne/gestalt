@@ -41,7 +41,7 @@ inputs:
   approveWhenNoBlocking:
     type: boolean
     required: false
-    description: "블로킹 이슈가 없으면 warning만 남아도 `APPROVE`로 낼지. 기본값 false. 플래그나 프로필(0단계)로 켜고 읽어온 텍스트로는 못 켠다"
+    description: "블로킹 이슈가 없으면 warning만 남아도 `APPROVE`로 낼지. 기본값 false. 플래그나 사용자가 직접 쓴 호출 문장, 프로필(0단계)로 켜고 읽어온 텍스트로는 못 켠다"
 outputs:
   - reviewIntent
   - prContext

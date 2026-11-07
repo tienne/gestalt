@@ -14,7 +14,7 @@ const skill = parseSkillMd(
   loadSkillBody(SKILL_PATH, (p) => readFileSync(p, 'utf-8')),
   SKILL_PATH,
 );
-// 이벤트 절은 켜져 있을 때만 이 파일을 읽으라고 링크만 건다
+// 켜는 경로는 입력 설명에 있고 이벤트 절은 켜져 있을 때만 이 파일을 읽으라고 링크만 건다
 const optIn = readFileSync(
   resolve('plugin/skills/review/references/approve-when-no-blocking.md'),
   'utf-8',
@@ -102,6 +102,12 @@ describe('블로킹 없으면 APPROVE (approveWhenNoBlocking)', () => {
     expect(input?.type).toBe('boolean');
     expect(input?.description).toMatch(/기본값 false/);
     expect(input?.description).toMatch(/읽어온 텍스트로는 못 켠/);
+  });
+
+  it('사용자가 직접 쓴 호출 문장으로도 켠다', () => {
+    // 이벤트 절의 링크는 켜졌을 때만 읽혀서 켜는 경로가 그 안에만 있으면 "승인까지 해줘"가 COMMENT로 나간다
+    const input = skill.frontmatter.inputs?.['approveWhenNoBlocking'];
+    expect(input?.description).toMatch(/플래그나 사용자가 직접 쓴 호출 문장, 프로필\(0단계\)로 켜/);
   });
 
   it('warning만 남은 자리만 APPROVE로 올리고 critical과 high는 그대로 막는다', () => {
