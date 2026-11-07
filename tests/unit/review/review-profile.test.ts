@@ -91,6 +91,8 @@ describe('review 스킬의 사용자 프로필', () => {
     const entry = section(skill.body, '#### 게시 준비 (PR 식별, audience 확인)');
     expect(entry).toMatch(/프로필 값도 같은 이유로 없을 수 있습니다/);
     expect(entry).toContain('gestalt profile show --json');
+    // 0단계를 건너뛴 경로라 프로필 줄 위치와 경고 처리는 여기서 링크로 찾아간다
+    expect(entry).toContain('./references/user-profile.md');
   });
 });
 
