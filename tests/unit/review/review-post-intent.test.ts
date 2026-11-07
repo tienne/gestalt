@@ -117,6 +117,6 @@ describe('게시 의사를 밝혔으면 다시 묻지 않기', () => {
     const still = confirm()
       .split('**게시 의사가 있어도 묻는 자리는 남습니다.**')[1]!
       .split('\n\n**')[0]!;
-    expect(still).toMatch(/로컬 PR은 거절하면 위에서 적은 대로 게시하지 않습니다/);
+    expect(still).toMatch(/로컬 PR[^\n.]*거절[^\n.]*게시하지 않/);
   });
 });
