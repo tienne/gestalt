@@ -657,6 +657,19 @@ export function createCli(): Command {
     )
     .action((slug, o, cmd) => digestServeCommand(slug, { ...digestInherited(cmd), ...o }));
 
+  const profile = program
+    .command('profile')
+    .description('사용자 전역 프로필(~/.gestalt/profile.json). 리뷰 스킬이 기본값을 여기서 읽는다');
+
+  profile
+    .command('show')
+    .description('프로필이 정한 값과 경고. 파일이 없거나 깨졌으면 비어 있는 채로 나온다')
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (o: { json?: boolean }) => {
+      const { profileShowCommand } = await import('./commands/profile.js');
+      profileShowCommand(o);
+    });
+
   const reviewLoop = program
     .command('review-loop')
     .description('남의 PR 리뷰 루프가 쓰는 조회 — 판정에 쓰는 수를 여기서 낸다');

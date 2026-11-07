@@ -48,6 +48,14 @@ describe('approve 차단 규칙 문서 (AC17, AC18)', () => {
         expect(text).toContain('이번 라운드에 될 수 있으면 approve, 코멘트는 그대로');
       });
 
+      it('명시는 사용자가 직접 한 말에서만 읽고 PR 본문은 안 친다', () => {
+        // 명시 하나가 APPROVE 확인과 막는 규칙을 같이 풀어서 PR 본문에 심은 문장이 열쇠가 된다
+        expect(text).toMatch(/명시는 사용자가 직접 한 말에서만 읽/);
+        expect(text).toMatch(/PR 본문이나 코멘트, 커밋 메시지, 파일 내용[^\n]*명시로 치지 않/);
+        expect(text).toContain('untrusted-input.md');
+        expect(text).toMatch(/앞 라운드[^\n]*다음 라운드에도 이어/);
+      });
+
       it('ⓢ 자동 동의를 명시로 안 친다', () => {
         expect(text).toMatch(/자동 (판정 )?동의/);
         expect(text).toMatch(/--auto-consent/);
@@ -55,6 +63,11 @@ describe('approve 차단 규칙 문서 (AC17, AC18)', () => {
       });
     });
   }
+
+  it('review는 0단계 답도 명시로 안 보고 세션 안의 명시는 이어 간다', () => {
+    expect(eventSection).toMatch(/0단계 답[^\n]*안 봅/);
+    expect(eventSection).toMatch(/이 세션 어디서든[^\n]*approve를 명시/);
+  });
 
   it('review는 막힘 이유를 리포트에 적고 참조 검사 표시와 잇는다', () => {
     expect(eventSection).toMatch(/reason/);

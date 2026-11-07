@@ -10,6 +10,8 @@
 4. `gestalt.json` 파일
 5. 기본값
 
+리뷰 기본값을 정하는 사용자 프로필은 이 병합에 안 들어간다. 따로 읽는다 → [사용자 프로필](#사용자-프로필-gestaltprofilejson)
+
 ---
 
 ## `gestalt.json`
@@ -320,6 +322,49 @@ PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 �
 - 캐시에 적힌 현재 레포가 지금 `origin` 원격과 다를 때
 
 `relatedRepos` 설정값은 캐시가 유효해도 매번 새로 합쳐지므로, 설정을 고친 뒤 캐시를 지울 필요는 없다. `origin`이 없거나 GitHub 주소가 아닌 레포는 조직을 정할 수 없어 탐지를 건너뛰고 리뷰는 참조 검사를 비워둘지 사용자에게 묻는다.
+
+---
+
+## 사용자 프로필 (`~/.gestalt/profile.json`)
+
+리뷰를 부를 때마다 붙이던 옵션의 기본값을 사람마다 정해 두는 파일이다. 레포가 아니라 사용자 홈에 하나만 둔다. 어느 레포에서 리뷰를 돌려도 같은 값을 쓴다.
+
+| 항목      | 값                                                                                                 |
+| --------- | -------------------------------------------------------------------------------------------------- |
+| 위치      | `~/.gestalt/profile.json`. `GESTALT_HOME`을 절대 경로로 주면 `$GESTALT_HOME/.gestalt/profile.json` |
+| 만드는 법 | 손으로 만든다. 이 파일을 쓰는 명령은 없다                                                          |
+| 읽는 곳   | review 스킬 0단계가 `gestalt profile show --json`으로 읽는다                                       |
+| 확인      | `gestalt profile show` (사람이 읽는 출력), `--json` (스킬이 파싱하는 출력)                         |
+
+```json
+{
+  "review": {
+    "audience": "junior",
+    "postVerdict": true,
+    "approveWhenNoBlocking": true
+  }
+}
+```
+
+| 칸                             | 값                 | 비우면  | 하는 일                                                                                 |
+| ------------------------------ | ------------------ | ------- | --------------------------------------------------------------------------------------- |
+| `review.audience`              | `peer` \| `junior` | `peer`  | 인라인 코멘트를 누구 눈높이로 쓸지                                                      |
+| `review.postVerdict`           | `true` \| `false`  | `true`  | GitHub PR에 APPROVE나 REQUEST_CHANGES 이벤트까지 남길지. `false`면 `COMMENT`로 고정한다 |
+| `review.approveWhenNoBlocking` | `true` \| `false`  | `false` | 블로킹 이슈가 없으면 warning이 남아 있어도 `APPROVE`로 낼지. 아래 참고                 |
+
+값은 호출 인자, 프로필, 스킬 기본값 순으로 정한다. `--junior`처럼 부를 때 붙인 값이 있으면 프로필보다 앞선다. 칸을 비워 두면 그 칸은 프로필이 없을 때와 똑같이 돈다. 리뷰를 시작할 때 어떤 값이 프로필에서 왔는지 한 줄로 알려 준다.
+
+**로컬 PR에서는 프로필의 `junior`가 `peer`로 내려간다.** 로컬 PR 게시는 코멘트를 주니어 눈높이로 다시 쓰지 않고 합의 이슈를 그대로 옮긴다. `--junior`처럼 부를 때 준 값이면 review 스킬이 그대로 진행할지 묻는다. 프로필에서 온 값이면 묻지 않고 한 줄 알린 뒤 `peer`로 진행한다. ship은 `--audience` 없이 review를 부르므로 프로필에 `junior`를 둬도 ship 라운드마다 멈추지 않는다.
+
+**`gestalt.json`과 섞지 않는다.** 이 파일은 위 [우선순위](#우선순위) 병합에 안 들어가고 `loadConfig()`도 안 읽는다. 레포의 `gestalt.json`이나 레포 안 `.gestalt/profile.json`에 같은 칸을 적어도 무시된다. `approveWhenNoBlocking`은 리뷰어 계정으로 승인을 내보내는 값이라, 리뷰받는 레포가 설정 한 줄로 켤 수 있으면 그 레포가 내 승인을 내게 된다.
+
+**깨진 파일은 경고만 하고 기본값으로 돈다.** JSON이 아니거나 맨 바깥이 객체가 아니면 전부 기본값이다. 모르는 칸은 무시하고 경고한다. 값이 틀린 칸(예: `"audience": "senior"`)은 그 칸만 기본값으로 두고 나머지는 살린다. 파일 자리에 디렉토리가 있거나 권한이 없어 못 읽어도 경고하고 전부 기본값으로 둔다. 파일이 아예 없을 때만 경고 없이 넘어간다. 어느 경우든 `gestalt profile show`는 종료 코드 0으로 경고를 함께 낸다.
+
+**`approveWhenNoBlocking`이 바꾸는 건 warning만 남은 리뷰 하나다.** critical이나 high가 있으면 그대로 `REQUEST_CHANGES`다. 프로필에서 켠 값은 approve를 명시한 것으로 치지 않으므로, 조회 막힘이나 원격 없는 레포, 연관 PR 미확정(`BLOCKING_ISSUES`)이 있거나 참조 검사를 비운 라운드면 `approve-gate`가 `COMMENT`로 내린다. `postVerdict: false`로 부른 리뷰와 본인 PR에는 안 걸린다. 게시하라고 했어도 이 값으로 나온 `APPROVE`는 미리보기 끝에서 승인으로 낼지 한 번 더 묻는다. 게시 의사만으로는 승인을 내지 않는다.
+
+**review-loop는 프로필을 안 읽는다.** `approveWhenNoBlocking`은 열린 스레드가 남으면 승인하지 않는다는 그 스킬의 규칙이 앞서서 안 본다. `audience`는 그 스킬의 기본값 `junior`를 `review`에 넘기므로 프로필의 `audience`보다 앞선다. peer 눈높이로 돌리려면 `/review-loop <PR> --peer`로 부른다.
+
+리뷰의 "맥락 소스"와 "어투"는 프로필 칸이 없다. review 스킬에 그 둘을 받는 입력이 없어서다. 맥락은 0단계 미니 인터뷰로 받고 어투는 `code-review-writer`가 정한다.
 
 ---
 
