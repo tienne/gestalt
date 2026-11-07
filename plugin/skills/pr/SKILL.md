@@ -342,7 +342,7 @@ gestalt humanize-scan --file "$scanTmp/description.md" --register report
 - 취소: description 텍스트만 출력하고 종료
 ```
 
-heredoc 패턴으로 실행합니다. **PR 작성자 자신을 어사인**하기 위해 `--assignee @me`를 항상 포함합니다. 명령 앞에 `GESTALT_PR=1` 표식을 붙입니다 (raw `gh pr create`를 가로채는 PreToolUse 훅이 이 스킬의 호출은 통과시키도록 하는 우회 표식):
+heredoc 패턴으로 실행합니다. **PR 작성자 자신을 담당자로 지정**하기 위해 `--assignee @me`를 항상 포함합니다. 명령 앞에 `GESTALT_PR=1` 표식을 붙입니다 (raw `gh pr create`를 가로채는 PreToolUse 훅이 이 스킬의 호출은 통과시키도록 하는 우회 표식):
 
 ```bash
 GESTALT_PR=1 gh pr create --base "{target}" --assignee @me --title "..." --body "$(cat <<'EOF'
@@ -354,7 +354,17 @@ EOF
 - `--base`를 반드시 붙입니다. 안 붙이면 `gh`가 기본 브랜치나 upstream으로 추론해서 스택 브랜치의 base가 엉뚱하게 잡힙니다.
 - `GESTALT_PR=1`은 환경변수 형태의 표식일 뿐 동작에 영향을 주지 않습니다. 이미 gestalt:pr 플로우 안이므로 PR 생성 확인 프롬프트가 중복되지 않게 해줍니다.
 - `@me`는 `gh`에 인증된 현재 사용자를 가리키므로, PR이 생성되면 작성자 본인이 자동으로 assignee로 지정됩니다.
-- 어사인이 실패해도(권한·레포 설정 등) PR 생성 자체는 막지 않습니다. 실패 시 PR 생성 후 `gh pr edit {prUrl} --add-assignee @me`로 재시도합니다.
+- 담당자 지정이 실패해도(권한·레포 설정 등) PR 생성 자체는 막지 않습니다. 실패 시 PR 생성 후 `gh pr edit {prUrl} --add-assignee @me`로 재시도합니다.
 
 반환된 PR URL을 사용자에게 표시합니다. 반환값은 `prUrl` 하나입니다. 로컬 PR의 id가 필요하면 `local-pr` 스킬을 부릅니다.
+
+**완료 보고의 첫 줄은 PR URL 한 줄로 고정합니다.** 제출 확인 단계에서 이미 보였거나 `gh` 출력에 찍혔어도 마지막 보고에 다시 적습니다. 대화가 압축되면 앞에서 말한 링크가 안 보여서 사용자가 "PR 링크 알려줘"를 다시 묻게 됩니다.
+
+```
+https://github.com/owner/repo/pull/123
+
+<제목 한 줄과 담당자 지정 결과. 담당자 지정을 재시도했으면 그 결과>
+```
+
+취소를 골라 PR을 안 만들었으면 URL이 없으므로 첫 줄에 `PR 안 만듦 (취소, description만 출력)`을 적습니다.
 
