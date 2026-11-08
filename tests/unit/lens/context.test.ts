@@ -593,4 +593,21 @@ describe('영상 맥락 카드와 상한', () => {
     ).html;
     expect(lensHtml).not.toContain('영상에서 한 말을 바깥 자료로 확인한 카드예요');
   });
+
+  it('영상 카드는 사실 확인과 기준과 해석이라는 이름을 쓴다', () => {
+    const d = sampleDigest();
+    d.reports[0]!.cards = [vcard(1, { kind: 'unverified' }), vcard(2, { kind: 'interpretation' })];
+    const html = renderDigestHtml(d, sampleTranscript()).html;
+    expect(html).toContain('<span class="ctx-kind">사실 확인</span>');
+    expect(html).toContain('<span class="ctx-kind">기준과 해석</span>');
+    const md = renderDigestMarkdown(d, sampleTranscript());
+    expect(md).toContain('(사실 확인)');
+    expect(md).toContain('(기준과 해석)');
+    const r = lensReport();
+    r.cards = [vcard(1, { kind: 'unverified' })];
+    const lensHtml = renderDigestHtml(lensDigest(r), lensTranscript(), {
+      source: lensSource(),
+    }).html;
+    expect(lensHtml).toContain('<span class="ctx-kind">검증 안 된 부분</span>');
+  });
 });

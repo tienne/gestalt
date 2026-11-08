@@ -242,6 +242,15 @@ export const CARD_KIND_LABEL: Record<ContextCard['kind'], string> = {
   background: '알면 좋은 배경',
 };
 
+/** 영상 카드는 발언을 확인한 것이라 렌즈의 논문 말투 대신 이 이름을 쓴다. 없는 종류는 렌즈 이름 그대로다 */
+const VIDEO_CARD_KIND_LABEL: Partial<Record<ContextCard['kind'], string>> = {
+  interpretation: '기준과 해석',
+  unverified: '사실 확인',
+};
+
+export const cardKindLabel = (kind: ContextCard['kind'], video: boolean): string =>
+  (video ? VIDEO_CARD_KIND_LABEL[kind] : undefined) ?? CARD_KIND_LABEL[kind];
+
 /** 카드 한 줄의 사실 확인 배지 글자. 마크다운 렌더도 같은 글자를 쓴다 */
 export const CARD_VERDICT_LABEL: Record<CardVerdict, string> = {
   correct: '맞음',
@@ -297,7 +306,7 @@ export function contextCardHtml(card: ContextCard, ctx: LensHtmlContext): string
   const anchor = video
     ? `영상 자리 ${ctx.loc(card.anchor.key)}${ctx.cite(card.anchor)} <small>영상에서 한 말을 바깥 자료로 확인한 카드예요.</small>`
     : `원문 자리 ${ctx.loc(card.anchor.key)}${ctx.cite(card.anchor)} <small>바깥 자료로 쓴 카드예요. 원문 안의 어긋남은 본문 의심 표시에 있어요.</small>`;
-  return `<details class="ctx-card ctx-${card.kind}" id="${ctx.pfx ?? ''}card-${ctx.escape(card.id)}"><summary><span class="ctx-kind">${CARD_KIND_LABEL[card.kind]}</span> ${ctx.escape(card.title)}</summary><p class="ctx-anchor">${anchor}</p>${lineage}${points}${sources}</details>`;
+  return `<details class="ctx-card ctx-${card.kind}" id="${ctx.pfx ?? ''}card-${ctx.escape(card.id)}"><summary><span class="ctx-kind">${cardKindLabel(card.kind, video)}</span> ${ctx.escape(card.title)}</summary><p class="ctx-anchor">${anchor}</p>${lineage}${points}${sources}</details>`;
 }
 
 /** 노트 경로는 홈 폴더를 ~로 줄여 보인다. 뷰어가 http로 열려서 file 링크는 걸지 않는다 */
