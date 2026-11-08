@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.125.0] - 2026-11-08
 
 ### Added
 
@@ -24,6 +24,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - 확장 템플릿 `background`(관련 배경지식)와 `counterpoints`(반대 시각)를 맥락 카드로 합쳐 지웠어요. 이미 만든 두 확장은 그대로 렌더되고 validate와 render에서 `UNKNOWN_TEMPLATE` 경고만 떠요.
+
+### Fixed
+
+- 맥락 카드를 다시 맡길 때 옛 초안을 먼저 지워요(#114). `lens-context`는 파일을 읽는 도구가 없어서 이미 있는 `cards.draft.json`을 Write로 덮어쓰지 못했어요. attach 오류로 다시 맡기면 새 카드를 못 쓰고 옛 초안이 다시 붙었어요. 읽기 렌즈 스킬도 같이 고쳤어요.
+
+### 검증 범위
+
+- `pnpm gate`가 통과했어요. 테스트 374개 파일에서 7,278개가 통과했고 기존 스킵 1개가 남았어요. Linux와 macOS의 Node 22, 24 CI도 통과했어요.
+- 실제 영상(1,331문장, 대섹션 11개) 사본으로 끝까지 돌렸어요. 돌리면서 세 군데를 고쳤어요.
+  - 처음엔 발언 고르기가 자막 앞쪽 312문장만 읽어서 대섹션 셋에서만 골랐어요. 리포트 불릿에서 고르게 바꾸니 아홉 대섹션에 고루 나왔어요.
+  - 카드 에이전트가 검색 두 번으로 발언 12개를 덮으려 해서 6개만 다뤘어요. 발언마다 검색하고 과거 시계열은 FRED CSV와 ECOS를 보게 하니 검색 7번, FRED CSV 10개를 열어 9개를 다뤘어요.
+  - 덮어쓰기 실패는 이 재실행에서 드러났어요.
+
+### 남긴 것
+
+- 설치본 `lens-context`로는 아직 안 돌려 봤어요. 실제 영상 검증은 새 '영상일 때' 절을 프롬프트에 실어 돌렸어요.
+- 코스피 20년 연평균, 부동산 연평균, 메모리 수요 증가율처럼 공식 원자료를 찾기 어려운 발언은 한계 줄로만 남아요.
 
 ## [0.124.0] - 2026-11-07
 
@@ -272,7 +289,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **digest와 lens 뷰어의 왼쪽 영상을 키웠어요(#102).** 사이드 폭 상한이 420px라 영상이 16:9로 236px 높이밖에 안 나와서 스크립트와 나란히 보기에 작았어요. 고정 420px를 화면 폭 40%로 바꾸고 상한을 580px로 올렸어요.
   - 1280px에서 512px, 1440px에서 576px가 돼서 영상 폭이 22~37% 커져요. 본문 열은 1280px에서 664px, 1440px에서 680px예요.
   - 420px 하한은 901~1049px 구간에서 예전보다 좁아지지 않게 폭 항에만 걸었어요.
-  - 영상 폭이 (100vh - 300px) * 16/9를 넘지 않게 해서 낮고 넓은 창에서도 스크립트 영역이 약 256px 밑으로 눌리지 않아요.
+  - 영상 폭이 (100vh - 300px) \* 16/9를 넘지 않게 해서 낮고 넓은 창에서도 스크립트 영역이 약 256px 밑으로 눌리지 않아요.
   - 영상이 없는 lens 문서형 뷰어와 팟캐스트 뷰어는 데스크톱에서 예전처럼 420px예요. 팟캐스트에는 `is-audio` 표지를 붙여 문서형과 같은 규칙을 받게 했어요.
   - 900px 이하 접힘과 플로팅 미니 플레이어(`--float-w`)는 그대로예요.
 
@@ -1484,11 +1501,11 @@ main에는 하나씩 머지하고 매번 main CI를 확인했어요. 각자 CI�
 
 과거 하네스 PR 29개를 다시 돌려 봤어요. 대상 레포의 main은 각 PR을 만든 시점의 커밋으로 잡았습니다.
 
-| 지표 | 개선 전 | 개선 후 |
-|---|---:|---:|
-| 작성자에게 묻는 연관 PR 후보 | 584 | 14 |
-| approve가 막힌 PR | 22 | 3 |
-| 잘못 올라오던 `defect` | 380 | 3 |
+| 지표                         | 개선 전 | 개선 후 |
+| ---------------------------- | ------: | ------: |
+| 작성자에게 묻는 연관 PR 후보 |     584 |      14 |
+| approve가 막힌 PR            |      22 |       3 |
+| 잘못 올라오던 `defect`       |     380 |       3 |
 
 남은 `defect` 3개도 재현 시점 차이로 생긴 거였어요. 참조 후보는 오늘의 대상 레포에서 찾고 판정은 과거 main을 봐서, PR을 만들 때는 없던 언급이 깨진 참조로 잡혔어요. 실제 리뷰에서는 둘 다 같은 main을 봐요.
 
@@ -1864,6 +1881,7 @@ main에는 하나씩 머지하고 매번 main CI를 확인했어요. 각자 CI�
 - **임계 미달 페어를 지우는 정리(prune)는 안 넣었어요.** 이 레포 실측으로 페어의 90%가 임계 미달이라 800KB쯤 줄일 수 있는데 그 대가가 조용한 누락입니다. 전량 재수집 시점에 카운트 2였던 페어를 지우면 뒤따르는 증분 커밋이 1을 더해 저장값이 1이 돼요. 실제로는 3이라 임계를 통과해야 하는데 안 뜹니다. 초기 빌드 한 번 뒤로 post-commit 훅만 도는 레포에서는 재수집이 영영 안 와서 사실상 영구예요. 잃는 쪽이 하필 막 생긴 관계, 그러니까 가장 볼 값어치 있는 쪽이라 거래가 안 맞는다고 봤습니다.
 - **문서의 MCP 출력 예시를 타입에 대고 검사하는 자리가 없어요.** 이번 리뷰에서 예시의 노드 `kind`와 id 형식, `installedHook`, `lastBuiltAt` 타입이 줄줄이 어긋나 있던 걸 사람이 손으로 대조해 찾았습니다. 손으로 찾은 것은 다음에 또 밀려요. 예시 JSON을 실제 타입으로 파싱해보는 검사가 맞는 답인데 그 자체가 별건이라 티켓으로 뗍니다.
 - **R3-01은 재현하지 못했어요.** 1MB git log 파싱 테스트가 한 번 68초를 쓰고 실패했는데 단독으로 돌리면 648ms입니다. 이후 40회 넘게 돌려 전부 깨끗했어요. 실패 모양이 단언 불일치가 아니라 벽시계라 자원 경합 쪽으로 봅니다 — `vitest.config.ts`가 `fileParallelism: false`라 어느 파일 하나가 I/O에 걸리면 그대로 그 테스트의 소요 시간으로 찍혀요. 못 본 것을 고치지는 않았습니다.
+
 ## [0.76.1] - 2026-09-13
 
 ### Changed
@@ -2315,7 +2333,7 @@ Codex와 Grok도 같은 MCP 서버를 쓰므로 알림은 그대로 받아요. �
 /ship --max-copilot 8     # Copilot 라운드 상한
 ```
 
-  이 스킬이 직접 지는 건 **루프 제어와 Copilot 왕복** 둘뿐이에요. 로컬 PR은 `local-pr`, 리뷰는 `review`, 코멘트 대응은 `review-reply`, PR description은 `pr`의 0~4.5단계가 맡아요.
+이 스킬이 직접 지는 건 **루프 제어와 Copilot 왕복** 둘뿐이에요. 로컬 PR은 `local-pr`, 리뷰는 `review`, 코멘트 대응은 `review-reply`, PR description은 `pr`의 0~4.5단계가 맡아요.
 
 - **멈추는 자리를 전부 적었어요.** 이 스킬은 무인으로 안 돌아요. 스스로 두는 자리가 넷이에요 — ⓥ 검증 명령 확인, ⓐ GitHub 게시, ⓑ Copilot 반영 계획, ⓒ ready 전환. 그 밖에 부르는 스킬이 자기 계약으로 요구하는 승인이 라운드마다 붙어요. `review-reply` 5단계처럼 그쪽이 "어떤 경우에도 건너뛰지 않는다"고 적은 자리는 부르는 쪽에서 억제할 수 없어요. 줄이려면 하위 스킬에 대화 없이 부를 입력을 새로 만들어야 하고 그건 별건으로 뒀어요.
 - **미니 인터뷰에는 미리 답을 실어 넘겨요.** `review` 0단계와 `pr` 1단계, 그리고 `pr`의 "안 끝난 로컬 PR" 사전 점검이에요. "스킵" 같은 말을 붙이면 두 스킬이 그걸 전체 건너뛰기 신호로 읽고 방금 준 값을 통째로 비우거든요.
@@ -2425,13 +2443,13 @@ Phase 1을 만든 뒤 **나머지를 이 시스템 자신으로 만들었어요.
 
 리뷰가 잡은 것 중 통과 결과만 봐서는 안 보이는 것들이에요.
 
-| 자리 | 내용 |
-| --- | --- |
-| 깨진 게이트 | `verify:rules`가 깨진 채 올라온 PR — 부모 커밋에서 돌려 이 PR이 들여온 실패임을 보였어요 |
-| 빈 테스트 | 인자 전달을 통째로 지워도 통과하던 테스트 |
-| 옮겨간 구멍 | 1라운드에 고친 판별 로직이 2라운드에 새 구멍을 만든 것 |
-| 서버 크래시 | `GET /%` 한 번에 프로세스가 죽던 것 |
-| 안 불리는 이음매 | `review_publish`를 만들어 놓고 유일한 소비자가 안 부르던 것 |
+| 자리             | 내용                                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| 깨진 게이트      | `verify:rules`가 깨진 채 올라온 PR — 부모 커밋에서 돌려 이 PR이 들여온 실패임을 보였어요 |
+| 빈 테스트        | 인자 전달을 통째로 지워도 통과하던 테스트                                                |
+| 옮겨간 구멍      | 1라운드에 고친 판별 로직이 2라운드에 새 구멍을 만든 것                                   |
+| 서버 크래시      | `GET /%` 한 번에 프로세스가 죽던 것                                                      |
+| 안 불리는 이음매 | `review_publish`를 만들어 놓고 유일한 소비자가 안 부르던 것                              |
 
 ## [0.68.0] - 2026-08-20
 
@@ -2584,11 +2602,11 @@ Phase 1을 만든 뒤 **나머지를 이 시스템 자신으로 만들었어요.
 
   이름은 룰북 패턴 칸에서 뽑아 씁니다. 코드에 따로 적어두지 않아서 문서와 따로 놀 일이 없어요. 패턴 칸은 조건과 예시까지 담고 있어 이름만 남기고 걷어냅니다.
 
-  | 걷어내는 것 | 전 | 후 |
-  | --- | --- | --- |
-  | 대시 뒤 부연 | 복합명사 압축 — 명사구를 조사 없이… | 복합명사 압축 |
-  | 긴 괄호 예시 | hype 어휘(파격적, 압도적, 강력한) 3회+ | hype 어휘 |
-  | 뒤따르는 긴 인용 | 문두 접속사 "또한, 따라서, 즉, 나아가…" | 문두 접속사 |
+  | 걷어내는 것      | 전                                      | 후            |
+  | ---------------- | --------------------------------------- | ------------- |
+  | 대시 뒤 부연     | 복합명사 압축 — 명사구를 조사 없이…     | 복합명사 압축 |
+  | 긴 괄호 예시     | hype 어휘(파격적, 압도적, 강력한) 3회+  | hype 어휘     |
+  | 뒤따르는 긴 인용 | 문두 접속사 "또한, 따라서, 즉, 나아가…" | 문두 접속사   |
 
   짧은 괄호는 이름의 일부라 남겨요 (`가운뎃점(·) 나열 남발`). 10자 이하 인용도 그 자체가 이름이라 남기고요 (`이중 피동 "~되어진다"`).
 
@@ -2602,10 +2620,10 @@ Phase 1을 만든 뒤 **나머지를 이 시스템 자신으로 만들었어요.
 
 - **에이전트 문서 어투 정리** — 룰을 가르치는 문서가 정작 그 룰을 제일 많이 어기고 있었어요. 에이전트가 읽는 문서라 그대로 산출물로 샙니다. S1 649건에서 11건까지 내렸어요.
 
-  | 룰 | 전 | 후 |
-  | --- | --- | --- |
-  | C-11 연결어미 뒤 쉼표 | 106줄 | 4 |
-  | C-12 가운뎃점 나열 | 383개 | 3 |
+  | 룰                    | 전    | 후  |
+  | --------------------- | ----- | --- |
+  | C-11 연결어미 뒤 쉼표 | 106줄 | 4   |
+  | C-12 가운뎃점 나열    | 383개 | 3   |
 
   ```
   한 문장이 전경이고, 지표 표는  →  전경이고 지표 표는
@@ -2629,14 +2647,14 @@ Phase 1을 만든 뒤 **나머지를 이 시스템 자신으로 만들었어요.
 
   코멘트가 붙는 주석은 여섯 가지예요.
 
-  | 유형 | 예 | 심각도 |
-  | --- | --- | --- |
-  | 코드를 그대로 옮긴 것 | `count += 1` 위의 `// 카운트를 1 증가` | `warning` |
-  | 변경 이력 메모 | `// 2026-03-12 수정`, `// 기존 로직 제거` | `warning` |
-  | 섹션 배너 | `// ===== helpers =====` | `warning` |
-  | 티켓 번호 없는 TODO | `// TODO: 나중에 정리` | `warning` |
-  | 코드와 어긋난 주석 | 설명하는 동작이 지금 코드에 없는 것 | `high` |
-  | 주석 처리된 죽은 코드 | `// const legacy = ...` | `high` |
+  | 유형                  | 예                                        | 심각도    |
+  | --------------------- | ----------------------------------------- | --------- |
+  | 코드를 그대로 옮긴 것 | `count += 1` 위의 `// 카운트를 1 증가`    | `warning` |
+  | 변경 이력 메모        | `// 2026-03-12 수정`, `// 기존 로직 제거` | `warning` |
+  | 섹션 배너             | `// ===== helpers =====`                  | `warning` |
+  | 티켓 번호 없는 TODO   | `// TODO: 나중에 정리`                    | `warning` |
+  | 코드와 어긋난 주석    | 설명하는 동작이 지금 코드에 없는 것       | `high`    |
+  | 주석 처리된 죽은 코드 | `// const legacy = ...`                   | `high`    |
 
   앞의 넷은 읽는 시간만 써요. 뒤의 둘은 읽는 사람을 잘못된 방향으로 끌기 때문에 심각도를 높였어요.
 
@@ -2661,7 +2679,6 @@ Phase 1을 만든 뒤 **나머지를 이 시스템 자신으로 만들었어요.
   ```
 
   모델이 스스로 매긴 변경률과 등급은 참고값이라 과윤문을 실제로 막지 못했어요. 문자 기반 변경률 하나로는 구조 편집이 드러나지 않아요. 변경률 2.8%인데 문장 3할이 통째로 바뀐 경우가 있었어요.
-
   - 룰 목록은 `ai-tell-quick-rules.md`를 읽어서 만들어요. 코드에 룰을 복사하지 않아요
   - 정규식으로 오탐 없이 셀 수 있는 21개만 탐지해요. 뜻을 봐야 하는 룰은 뺐어요
   - `--register`가 `doc`이냐 `chat`이냐에 따라 S1 대상이 달라져요
@@ -2676,11 +2693,11 @@ Phase 1을 만든 뒤 **나머지를 이 시스템 자신으로 만들었어요.
 
 - **어투 룰 심각도 재조정** — AI 산문 60편과 2022년 이전 한국어 산문 60편을 대조한 결과를 반영했어요. 원어민이 오히려 더 쓰는 표현을 무조건 지우면 사람 글이 AI 글이 돼요.
 
-  | 룰 | 전 | 후 | 근거 |
-  | --- | --- | --- | --- |
-  | `~를 통해` | S1 | S2 | 비번역 84.4 vs 번역 42.1로 원어민이 2배 더 써요 |
-  | `~한 것이다` | S1 | S2 (연속 3회 이상일 때만) | AI 20.4 vs 사람 43.0 |
-  | 부정 대구 | S2 | S1 | 사람이 쓰는 빈도 대비 9.2배로 가장 센 신호 |
+  | 룰           | 전  | 후                        | 근거                                            |
+  | ------------ | --- | ------------------------- | ----------------------------------------------- |
+  | `~를 통해`   | S1  | S2                        | 비번역 84.4 vs 번역 42.1로 원어민이 2배 더 써요 |
+  | `~한 것이다` | S1  | S2 (연속 3회 이상일 때만) | AI 20.4 vs 사람 43.0                            |
+  | 부정 대구    | S2  | S1                        | 사람이 쓰는 빈도 대비 9.2배로 가장 센 신호      |
 
   앞의 두 룰은 대화와 리뷰 코멘트에서 S1로 남겼어요. 측정 대상이 문서 산문이라 말투에는 그대로 적용되지 않아요.
 
@@ -2688,12 +2705,12 @@ Phase 1을 만든 뒤 **나머지를 이 시스템 자신으로 만들었어요.
 
 - **화이트리스트 밖 음차 정리** — 대표 예시가 "소스 오브 트루스"인데 정작 문서들이 약어로 우회하고 있었어요.
 
-  | 전 | 후 |
-  | --- | --- |
-  | SSOT, SoT | 기준, 기준 문서 |
-  | 승인 게이트 | 승인 단계 |
-  | 결정적 게이트 | 코드 검사 |
-  | 레이어 | 자리마다 계층, 묶음, 단계, 역할 |
+  | 전            | 후                              |
+  | ------------- | ------------------------------- |
+  | SSOT, SoT     | 기준, 기준 문서                 |
+  | 승인 게이트   | 승인 단계                       |
+  | 결정적 게이트 | 코드 검사                       |
+  | 레이어        | 자리마다 계층, 묶음, 단계, 역할 |
 
   "레이어 → 계층"을 일괄 치환했더니 받침이 생기면서 조사가 두 군데 깨졌어요 (`계층라면`, `계층(…)는`). 찾아 바꾸기 한 번으로 끝낼 수 있는 작업이 아니에요.
 
@@ -2712,7 +2729,7 @@ Phase 1을 만든 뒤 **나머지를 이 시스템 자신으로 만들었어요.
   ```jsonc
   // gestalt.json — 기본 표를 바꾸려면
   {
-    "tierModels": { "frugal": "haiku", "standard": "sonnet", "frontier": "opus" }
+    "tierModels": { "frugal": "haiku", "standard": "sonnet", "frontier": "opus" },
   }
   ```
 
@@ -2751,7 +2768,6 @@ Phase 1을 만든 뒤 **나머지를 이 시스템 자신으로 만들었어요.
 - **이슈별 코드 스니펫** — 리뷰 리포트가 각 이슈 아래에 해당 라인 주변 코드를 붙여요. 지목한 라인에는 `>` 마커가 붙어요.
 
   고정 3줄은 코드마다 맞지 않았어요. 그래서 위아래 5줄에서 시작해 들여쓰기로 감싸는 블록을 추정해 창을 조정해요.
-
   - 위로는 감싸는 선언을 2단계까지 붙여요. 함수 안 for 문에서 걸린 이슈면 for와 함수 선언이 함께 보여요. 이슈가 어느 함수 안에 있는지가 가장 알고 싶은 정보인데 고정 창으로는 선언이 잘려 나갔어요
   - 아래로는 감싸는 블록이 끝나는 라인에서 멈춰요. 다음 함수를 넘보지 않아요
   - 창과 선언 사이가 잘리면 생략 표시(…)를 넣어요
@@ -2775,7 +2791,6 @@ Phase 1을 만든 뒤 **나머지를 이 시스템 자신으로 만들었어요.
 - **AI-tell 탐지 모드 (humanize-monolith)** — 원문을 한 글자도 바꾸지 않고 룰 ID와 원문 인용, 한 줄 처방만 돌려줘요. "이거 AI 같아?", "패턴만 짚어줘" 같은 요청이 이쪽으로 와요.
 
   탐지 모드에서 막아둔 것은 세 가지예요.
-
   - 교정문을 예시로도 붙이지 않아요. 붙이면 사용자가 그대로 복사해 쓰게 되어 사실상 윤문 모드가 돼요
   - AI가 썼는지 판정하지 않아요. 이름 붙은 패턴은 사용자가 확인할 수 있는 근거지만 저자 추측은 근거가 없어요
   - A~D 등급을 매기지 않아요. 등급은 윤문 결과 품질 지표라서 남의 원문에 붙이면 점수를 매기는 셈이 돼요. S1과 S2 개수만 세요
@@ -2787,7 +2802,6 @@ Phase 1을 만든 뒤 **나머지를 이 시스템 자신으로 만들었어요.
 ### Changed
 
 - **삭제 처방은 삭제예요** — 처방에 "삭제"가 적힌 항목에서 모델이 리듬을 살리려고 새 마무리 문장이나 새 부제를 지어 넣는 일이 잦았어요. 원문에 없던 수사를 더하는 것이라 자체검증에 걸리는데도, 룰 문구가 "삭제 또는 구체화"라 재작성 여지를 남겨뒀어요.
-
   - 콜론 부제는 콜론 뒤를 버리고 앞부분만 남겨요. 부제를 갈아끼우면 패턴이 그대로 남아요
   - hype 어휘는 원문에 수치가 없으면 만들지 말고 수식어만 지워요
   - `본질적으로` 같은 부사는 다른 부사로 갈아끼우지 말고 삭제해요
@@ -2809,7 +2823,6 @@ Codex에서도 스킬을 써요.
 ### Added
 
 - **Codex 플러그인 매니페스트** — `codex plugin add`로 MCP 서버와 워크플로 스킬 18개를 한 번에 받아요. 그전까지 Codex 사용자는 MCP 도구만 쓸 수 있어서 review 같은 스킬을 쓰지 못했어요. 설치 크기는 680KB예요.
-
   - `.agents/plugins/marketplace.json` — Codex는 이 경로에서만 마켓플레이스를 찾아요. `.codex-plugin/marketplace.json`은 인식하지 않아요
   - `plugin/.codex-plugin/plugin.json` — `skills`와 `mcpServers` 키는 Claude Code 형식과 같고 `interface` 블록만 Codex 전용이에요
   - `plugin/mcp.json` — npx로 받아 실행하므로 설치 위치에 의존하지 않아요
@@ -2830,12 +2843,12 @@ Codex에서도 스킬을 써요.
 
 - **어투 문서가 자기가 금지한 말을 쓰고 있었어요** — 에이전트가 그걸 배워 산출물로 내보내는 경로예요. F-7이 "증류"를 금지하는데 문서 7곳이 그 단어를 쓰고 있던 게 대표적이에요.
 
-  | 전 | 후 |
-  | --- | --- |
-  | 증류 (7곳) | 추려낸, 뽑아낸, 바꿔 넣는다 |
-  | 코퍼스, authentic (9곳) | 직접 쓴 리뷰 1,300건, 표본 범위 |
-  | lexicon, metric, anchor | 표현, 지표, 근거 |
-  | 레지스터(음차 8개), register(영어 7개) | "말투" |
+  | 전                                     | 후                              |
+  | -------------------------------------- | ------------------------------- |
+  | 증류 (7곳)                             | 추려낸, 뽑아낸, 바꿔 넣는다     |
+  | 코퍼스, authentic (9곳)                | 직접 쓴 리뷰 1,300건, 표본 범위 |
+  | lexicon, metric, anchor                | 표현, 지표, 근거                |
+  | 레지스터(음차 8개), register(영어 7개) | "말투"                          |
 
   금지어 예시로 인용하는 자리는 그대로 뒀어요.
 
@@ -2857,7 +2870,6 @@ Codex에서도 스킬을 써요.
 - **`dispatch` 스킬** — execute의 실행 단계를 외부 에이전트 런타임 터미널로 돌리는 opt-in 백엔드예요. 계획 수립과 평가, 개선은 그대로 execute가 담당해요.
 
   병렬 자체가 목적은 아니에요. execute가 이미 Agent 도구로 병렬을 돌리거든요. 이 스킬로 얻는 건 워커별로 다른 에이전트 CLI, 사람이 들여다볼 수 있는 터미널, `worker_done` 생애주기 셋이에요. 필요 없으면 기본 경로가 더 가벼워요.
-
   - 런타임 감지에 실패하면 흉내내지 않고 기본 경로를 권하며 멈춰요
   - 리눅스에서 `orca`는 GNOME 스크린리더 이름이라 존재 확인이 아니라 status 응답으로 판단해요
   - 워커는 캐시된 세션 상태를 믿지 않고 `worker_done`마다 다시 읽어요. 서버 프로세스마다 인메모리 세션을 따로 들고 있거든요
@@ -2877,7 +2889,6 @@ Codex에서도 스킬을 써요.
 ### Added
 
 - **`review-reply` 스킬** — PR에 달린 리뷰 코멘트를 수집해 유형별로 처리하고 답글을 인라인으로 게시해요. review 스킬은 diff를 읽어 리뷰를 만드는 방향이라 게시 경로가 `pulls/{n}/reviews`뿐이었어요. 답글은 스레드 API(`comments/{id}/replies`)라 붙일 데가 없었고요.
-
   - 미해결 스레드는 REST가 resolved 여부를 주지 않아서 GraphQL `reviewThreads`로 조회해요
   - 승인 단계를 두 군데 뒀어요. 무엇을 수용하고 무엇을 반박할지 정하는 유형 분류, 그리고 게시 직전 답글 미리보기예요
   - accept로 분류했는데 커밋이 없으면 답글을 쓰지 않아요. "반영했습니다"는 리뷰어가 approve 근거로 삼는 사실 주장이거든요
@@ -2936,218 +2947,265 @@ Codex에서도 스킬을 써요.
 ## [0.41.1] - 2026-07-23
 
 ### Documentation
+
 - 코드 리뷰 코멘트 어투: 명사 압축·기술 비유 명사 교정 룰 추가
 
 ## [0.41.0] - 2026-07-21
 
 ### Added
+
 - `jira-writer` role agent + `jira-create` 스킬 추가 — 지라 티켓 본문 구조화 후 승인 게이트를 거쳐 생성
 - `slack-send` 스킬 추가 — 슬랙 메시지 다듬기 → 승인 게이트 → 전송·예약 발송
 
 ## [0.40.0] - 2026-07-18
 
 ### Added
+
 - `slack-messenger` role agent 추가 — 슬랙 메시지 작성 및 어투 다듬기, 자동 라우팅 표 등록
 
 ## [0.39.0] - 2026-07-15
 
 ### Changed
+
 - 게슈탈트 용어(Figure-Ground 등)의 표면/심층 분리 — MCP 경계에서만 sanitize, 매핑 소스는 `src/gestalt/surface-labels.ts`
 
 ### Documentation
+
 - 코드 리뷰 코멘트에 r/c/a 접두어 컨벤션 도입, GFM 개행 규칙 적용
 
 ## [0.38.0] - 2026-07-14
 
 ### Added
+
 - `continuity-judge` 정합 심급(consistency judge) 감독 단계 추가 — 리뷰 결과의 결함 여부뿐 아니라 목표 정합까지 판단
 - `review_consensus` 판정에 정합 심급 결과 병합 (blocking)
 - `ges_agent` get 액션에 원리 에이전트(gestalt principle agent) 레지스트리 fallback 추가
 
 ### Documentation
+
 - `gestalt-develop`, `/review` 스킬에 정합 심급 판단 단계 반영, 재리뷰 시 재평가 명시
 
 ## [0.37.0] - 2026-07-03
 
 ### Added
+
 - `reasoningModel` / `reasoningModelFallback` 설정 추가 — 스펙·플래닝 등 깊은 추론용 모델 지정
 - `ges_status` 응답에 `reasoningModel` 설정값 노출
 
 ### Fixed
+
 - 은퇴한 모델 ID를 현행 alias로 교체
 
 ### Documentation
+
 - `reasoningModel` 설정 문서화, spec/execute 스킬에 서브에이전트 스폰 지시 추가
 
 ## [0.36.2] - 2026-07-02
 
 ### Changed
+
 - 어투 규칙: 가운뎃점 나열(C-12) 규칙을 S1(강제)로 승격
 
 ## [0.36.1] - 2026-07-02
 
 ### Documentation
+
 - 어투 규칙: 어색한 조어 교정 규칙(B-4) 추가
 
 ## [0.36.0] - 2026-07-01
 
 ### Added
+
 - PR description에 흐름 변화(AS-IS → TO-BE) 섹션 추가, `change-context-writer`에도 동일 섹션 반영
 
 ## [0.35.0] - 2026-06-30
 
 ### Added
+
 - `impact-writer` role agent + `brief` 스킬 추가 — 성과 분석·KPI 회고·제안서·RFC 등 의사결정용 산문 작성
 
 ## [0.34.0] - 2026-06-29
 
 ### Added
+
 - `/review` 스킬에 PR 인라인 코멘트 게시 단계 추가 (`code-review-writer` 경로)
 
 ### Documentation
+
 - 한글 산문 가운뎃점(·) 나열 절제 규칙(C-12) 전파
 
 ## [0.33.3] - 2026-06-24
 
 ### Fixed
+
 - `code-review-writer`에 음차 표기 교정 규칙 추가, voice 가이드 내 모순 제거
 
 ## [0.33.2] - 2026-06-24
 
 ### Added
+
 - `gh pr create` 호출에 `GESTALT_PR` 표식 추가 — PreToolUse 훅 우회용
 
 ## [0.33.1] - 2026-06-24
 
 ### Documentation
+
 - PR 작성 요청 시 `gestalt:pr` 스킬로 라우팅하도록 CLAUDE.md에 추가
 
 ## [0.33.0] - 2026-06-24
 
 ### Added
+
 - `humanize-monolith` · `change-context-writer` · 리뷰 파이프라인에 작성자 본인 voice 보존 연결
 - `code-review-writer` 어투를 실제 PR 코멘트 voice 기반으로 재작성
 
 ### Changed
+
 - CI Node 24로 업그레이드, GitHub Actions 버전 갱신
 
 ## [0.32.5] - 2026-06-24
 
 ### Added
+
 - PR 생성 시 작성자 본인 자동 어사인
 
 ### Documentation
+
 - 굳어진 음차 표기 화이트리스트를 Do-NOT 규칙에 명시
 
 ## [0.32.4] - 2026-06-23
 
 ### Documentation
+
 - 비표준 영어 구 음차 표기 교정 룰(B-3) 추가
 
 ## [0.32.3] - 2026-06-23
 
 ### Added
+
 - `AtomicTask`에 `model` 힌트 필드 추가, Passthrough 태스크에 model 힌트 자동 할당 및 프롬프트 반영
 
 ## [0.32.2] - 2026-06-21
 
 ### Fixed
+
 - `client: "claude-code"`에서도 passthrough를 강제하도록 수정 — API 키가 있어도 호스트가 LLM 주체가 되도록 통일
 
 ## [0.32.1] - 2026-06-21
 
 ### Fixed
+
 - `ges_create_agent` normal mode 등록 누락 수정, `ges_execute`에 client per-call 지정 지원 추가
 
 ### Documentation
+
 - Codex 호스트 패스스루 동작 설명 보강
 
 ## [0.32.0] - 2026-06-20
 
 ### Added
+
 - `solve` 스킬 추가 — 인터뷰 완료 후 실행 루프를 자율로 드라이빙
 
 ## [0.31.2] - 2026-06-20
 
 ### Added
+
 - 한국어 응답 생성 시 AI 어투 제거 가이드, 영어 약어·한자어 대신 일상 단어를 우선하는 어휘 선택 규칙 추가
 
 ## [0.31.1] - 2026-06-18
 
 ### Added
+
 - `ux-writer` role agent 추가 — UX 문구 작성·교정 전담
 
 ### Changed
+
 - `technical-writer` / `ux-writer` 에이전트에서 특정 브랜드 레퍼런스 제거, 범용 가이드라인으로 대체
 
 ## [0.31.0] - 2026-06-18
 
 ### Added
+
 - `/pr` 스킬 추가 — repo 규칙 탐색 + 미니 인터뷰 + `gh pr create` 흐름
 - 인터뷰 세션에 PR/review 키워드 intent routing 추가 — 해당 키워드 감지 시 `/pr`·`/review`로 안내
 
 ## [0.30.1] - 2026-06-18
 
 ### Added
+
 - `/review` 스킬에 0단계 mini-interview 추가 — 리뷰 컨텍스트 확보
 
 ## [0.30.0] - 2026-06-18
 
 ### Added
+
 - `change-context-writer` role agent 추가 — 기획 컨텍스트 분석 전담
 - `/review` 스킬에 1.5단계 기획 컨텍스트 분석 단계 추가
 
 ## [0.29.1] - 2026-06-17
 
 ### Added
+
 - 페르소나 파이프라인 및 `personasDir` 설정 지원, `medicine-seller`·`trickster` 캐릭터 에이전트 추가
 
 ### Changed
+
 - humanize 단계를 `humanize-monolith` 에이전트에 위임하도록 리팩터링 (`ges_agent` 경유)
 
 ## [0.29.0] - 2026-06-17
 
 ### Added
+
 - `frontend-reviewer` review agent 추가
 - `code-review-writer` role agent 추가 — repo rule discovery, `humanize-monolith` S1 규칙 통합
 
 ### Fixed
+
 - 파서의 pipeline zod enum에 `review` 값 누락 수정
 
 ## [0.28.1] - 2026-06-14
 
 ### Changed
+
 - `gestalt-release` 체크리스트에 `format:check` 단계 추가, 테스트 파일에 prettier 포맷 적용
 
 ## [0.28.0] - 2026-06-14
 
 ### Added
+
 - Memory 격상 3단계, `HostAdapter` 추상화, `usage-report` CLI 추가
 
 ## [0.27.0] - 2026-06-14
 
 ### Added
+
 - 벤치마크 코어 테스트 스위트, resolution benchmark 추가
 - `evolve_viz`(evolution_viz) 액션 추가 — Chart.js 기반 진화 궤적 시각화
 - LLM `RetryingAdapter` / `FallbackAdapter` 추가 — tier cascade 폴백
 
 ### Changed
+
 - Knowledge Base 임베딩을 `@xenova/transformers` 네이티브 배열 입력으로 배치 처리해 성능 개선
 
 ### Documentation
+
 - README를 Interview 차별점과 자기 자신을 개발하는 dogfooding 스토리 중심으로 재구성
 
 ## [0.26.0] - 2026-06-14
 
 ### Added
+
 - Memory → Interview 피드백 루프: 이전 스펙·실행 이력이 있으면 interview 시작 시 `gestaltContext.systemPrompt`에 자동 주입
 - `CodeGraphEngine.listAllFiles()` — 명시적 전체 파일 목록 API 추가
 
 ### Fixed
+
 - better-sqlite3 Node 버전 불일치 시 MCP 서버가 초기화 전에 죽는 문제 수정 (`CodeGraphStore` static import → lazy load)
 - `searchByKeywords([''])` 빈 문자열 우회로 차단 — 빈/공백 키워드는 항상 `[]` 반환
 
 ### Changed
+
 - `execute-passthrough.ts` 1296줄 God File → `src/mcp/tools/execute/` 하위 8개 파일 분리 (dispatch map 패턴)
 - review `context-collector` 의존성 분석을 정규식에서 code-graph `blastRadius()`로 교체, DB 없으면 graceful fallback
 - ESLint flat config 도입 + CI에 `typecheck → lint → format:check` 3단 게이트 추가
@@ -3157,6 +3215,7 @@ Codex에서도 스킬을 써요.
 ## [0.25.3] - 2026-06-14
 
 ### Fixed
+
 - MCP startup no longer fails when the native `better-sqlite3` binding is missing or incompatible; the event store falls back to a JSONL backend.
 - Event store initialization now falls back to project or temp storage when the default user data directory is unavailable.
 - Skill and agent file watcher errors are downgraded to warnings so `EMFILE` does not close the MCP server during initialization.
@@ -3165,15 +3224,18 @@ Codex에서도 스킬을 써요.
 ## [0.20.2] - 2026-06-07
 
 ### Fixed
+
 - `ges_execute` MCP tool registration now uses the shared execute input schema, so implemented actions such as `resume`, `audit`, and `spawn` are exposed consistently.
 - Invalid configuration fields now fall back individually instead of discarding otherwise valid configuration values.
 
 ### Documentation
+
 - Updated the MCP reference tool overview and `ges_execute` action list to match the current server surface.
 
 ## [0.14.0] - 2026-04-12
 
 ### Added
+
 - Knowledge Base 모듈 (`src/knowledge-base/`): 코드 그래프 분석 결과 및 도메인 콘텐츠를 MD 파일로 내보내기
 - `ges_generate_kb` MCP 도구: 프로젝트 지식베이스 생성 및 임베딩 사전 계산 (`.gestalt-kb/`)
 - `ges_search` MCP 도구: 로컬 파일 기반 시맨틱 검색 (네트워크 호출 없음, 코사인 유사도)
@@ -3182,12 +3244,14 @@ Codex에서도 스킬을 써요.
 - `@xenova/transformers` (Xenova/all-MiniLM-L6-v2) 기반 임베딩 벡터 분리 저장 (`embeddings.json`)
 
 ### Changed
+
 - `execute_task` 응답에서 `retrospectiveContext.systemPrompt` 제거 (taskContext와 동일한 내용 — 중복 제거)
 - `execute_task` 응답의 `pendingTasks`를 경량화 (`taskId`, `title`, `dependsOn`만 포함)
 
 ## [0.13.0] - 2026-04-12
 
 ### Added
+
 - **멀티 프로바이더 LLM 지원**: `gestalt.json`에 `frugal`/`standard`/`frontier` tier별 provider 설정 추가
   - `provider: 'anthropic' | 'openai'`, `apiKey`, `baseURL`(Ollama 등), `model` 설정 가능
   - `src/llm/factory.ts`: `createAdapter()`, `createTierMapping()`, `hasLLMApiKey()` 팩토리 함수 신규 추가
@@ -3197,6 +3261,7 @@ Codex에서도 스킬을 써요.
 - **CI 커버리지 수정**: `@vitest/coverage-v8` devDependency 추가로 `pnpm test --coverage` CI 실패 해결
 
 ### Changed
+
 - `src/llm/openai-adapter.ts`: `baseURL` 옵션 파라미터 추가 (Ollama 호환)
 - `src/mcp/server.ts`, CLI 커맨드: `new AnthropicAdapter(...)` 하드코딩 → `createAdapter(config.llm)` 팩토리 교체
 - `gestalt.json`: `ambiguityThreshold` → `resolutionThreshold` 키 수정
@@ -3204,6 +3269,7 @@ Codex에서도 스킬을 써요.
 - 전체 소스 파일 Prettier 포맷 일괄 적용
 
 ### Documentation
+
 - `docs/configuration.md`: 멀티 프로바이더 설정 방법 및 Ollama 연결 가이드 추가
 - `docs/code-graph.md`, `docs/configuration.md`: 신규 문서 추가
 - `README.md` / `README.ko.md`: `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark` 툴 추가, 멀티 프로바이더 설정 섹션 추가
@@ -3212,6 +3278,7 @@ Codex에서도 스킬을 써요.
 ## [0.12.3] - 2026-04-09
 
 ### Changed
+
 - `ges_execute` MCP 액션 description 축약으로 토큰 사용량 절감
 
 ---
@@ -3219,6 +3286,7 @@ Codex에서도 스킬을 써요.
 ## [0.12.2] - 2026-04-08
 
 ### Documentation
+
 - `gestalt-release` 스킬에 플러그인 매니페스트 커밋 단계 추가
 
 ---
@@ -3226,6 +3294,7 @@ Codex에서도 스킬을 써요.
 ## [0.12.1] - 2026-04-08
 
 ### Fixed
+
 - 릴리즈 스킬 단계 순서 정리
 
 ---
@@ -3233,6 +3302,7 @@ Codex에서도 스킬을 써요.
 ## [0.12.0] - 2026-04-08
 
 ### Changed
+
 - **모호성(ambiguity) → 해상도(resolution) 전면 리네이밍**
   - `AmbiguityScorer` → `ResolutionScorer`, 점수 방향 반전 (낮을수록 명확 → 높을수록 명확)
   - `ambiguityThreshold: 0.2` → `resolutionThreshold: 0.8`
@@ -3240,6 +3310,7 @@ Codex에서도 스킬을 써요.
   - 레거시 이벤트 replay 시 기존 ambiguity 점수 자동 반전 처리
 
 ### Fixed
+
 - 레거시 Spec 메타데이터 하위 호환 처리
 - execute 엔진 내 레거시 fallback의 ambiguityScore → resolutionScore 처리
 
@@ -3248,6 +3319,7 @@ Codex에서도 스킬을 써요.
 ## [0.11.0] - 2026-04-05
 
 ### Added
+
 - **시맨틱 검색 / 하이브리드 검색**: Code Knowledge Graph에 임베딩 기반 검색 추가
   - `@xenova/transformers` 로컬 임베딩 (외부 API 불필요)
   - `node_embeddings` 테이블 추가 (`buildEmbeddings`, `searchBySemantic`, `searchByHybrid`)
@@ -3260,6 +3332,7 @@ Codex에서도 스킬을 써요.
 ## [0.10.0] - 2026-04-05
 
 ### Added
+
 - **Graph Visualization**: `ges_graph_visualize` MCP 툴 추가 — D3.js 인터랙티브 코드 그래프 시각화
 - **Setup Skill**: `/setup` 슬래시 커맨드로 `gestalt init` 원클릭 실행
 - **개발 자동화**: `gestalt-develop`, `gestalt-release` 스킬 추가
@@ -3270,6 +3343,7 @@ Codex에서도 스킬을 써요.
 ## [0.9.2] - 2026-04-05
 
 ### Added
+
 - **Code Knowledge Graph**: 정적 분석 기반 의존성 그래프 (`ges_code_graph` MCP 툴)
   - `build` / `blast_radius` / `diff_radius` / `query` / `stats` / `db_exists` 액션
   - Execute Engine에 blast-radius 기반 suggestedFiles 자동 주입
@@ -3280,6 +3354,7 @@ Codex에서도 스킬을 써요.
 - **`.claude/rules` 라이프사이클**: `gestalt-active.md` 자동 생성·삭제
 
 ### Changed
+
 - `interview.maxRounds` 기본값 10 → 20
 
 ---
@@ -3287,6 +3362,7 @@ Codex에서도 스킬을 써요.
 ## [0.9.0] - 2026-03-29
 
 ### Added
+
 - **공통 진행 패널**: `/interview`, `/spec`, `/execute` 스킬 실행 중 Claude Code Task 패널에 실시간 진행 상태 표시
   - Planning 시작 시 `TaskCreate`로 패널 생성, 각 단계(`plan_step`, `execute_task`, `evaluate`)마다 `TaskUpdate`로 갱신
   - Interview: 라운드 번호 / 현재 게슈탈트 원리 / 모호성 점수 추이 표시
@@ -3296,11 +3372,13 @@ Codex에서도 스킬을 써요.
   - 스킬 레벨(SKILL.md)에서 동작, MCP 서버 코드 변경 없음
 
 ### Changed
+
 - `skills/interview/SKILL.md`: 버전 1.0.0 → 1.1.0, 공통 진행 패널 섹션 추가
 - `skills/spec/SKILL.md`: 버전 1.0.0 → 1.1.0, 공통 진행 패널 섹션 추가
 - `skills/execute/SKILL.md`: 버전 1.1.0 → 1.2.0, 공통 진행 패널 섹션 추가
 
 ### Documentation
+
 - `docs/03-execute.md`: 공통 진행 패널 섹션 추가
 - `docs/mcp-reference.md`: execute 섹션에 Progress Panel 설명 추가
 - `README.md` / `README.ko.md`: Execute 섹션에 실행 진행 패널 언급 추가
@@ -3309,6 +3387,7 @@ Codex에서도 스킬을 써요.
 ## [0.8.0] - 2026-03-28
 
 ### Added
+
 - **Execution Continuity (Resume)**: 중단된 실행 세션을 이어서 실행하는 `resume` MCP action 추가
   - `ges_execute({ action: "resume", sessionId })` — 완료된 태스크 목록 + 다음 태스크 컨텍스트 반환
   - `ResumeContext`: `completedTaskIds`, `nextTaskId`, `totalTasks`, `progressPercent` 포함
@@ -3333,6 +3412,7 @@ Codex에서도 스킬을 써요.
   - `SubTask`: 부모 태스크 컨텍스트를 상속, 독립 실행 가능
 
 ### Changed
+
 - `ges_execute` action enum에 `resume`, `audit`, `spawn` 추가
 - `ges_interview` action enum에 `compress` 추가
 - `ExecuteSession`에 `completedTaskIds`, `nextTaskId`, `subTasks` 필드 추가
@@ -3341,6 +3421,7 @@ Codex에서도 스킬을 써요.
 ## [0.6.0] - 2026-03-27
 
 ### Added
+
 - **Terminal Recording**: `gestalt interview --record` 플래그로 인터뷰 세션 전체를 GIF로 녹화
   - `TerminalRecorder`: `process.stdout.write` 인터셉션으로 NDJSON `.frames` 파일에 실시간 저장
   - `GifGenerator`: jimp(텍스트 렌더링) + gifencoder(GIF 인코딩) — 외부 바이너리 없음
@@ -3352,15 +3433,18 @@ Codex에서도 스킬을 써요.
 ## [0.5.1] - 2026-03-20
 
 ### Added
+
 - **Node.js 버전 체크**: 실행 시 Node.js >= 20.0.0 검증, 미달 시 업그레이드 안내 메시지 출력
 - **README Prerequisites 섹션**: Node.js 최소 버전 요구사항 및 nvm 설치 가이드 추가
 
 ### Fixed
+
 - `bin/gestalt.ts` TypeScript 컴파일 에러 수정 (`TS18048: 'major' is possibly undefined`)
 
 ## [0.5.0] - 2026-03-20
 
 ### Added
+
 - **Code Review Pipeline**: Evolve 이후 최종 완료 직전에 PR 수준의 종합 코드리뷰 게이트 추가
   - `review_start`, `review_submit`, `review_consensus`, `review_fix` 4개 action (ges_execute 통합)
   - 카테고리별 리뷰 에이전트가 독립 리뷰 → 토론/병합 → 최종 합의
@@ -3378,6 +3462,7 @@ Codex에서도 스킬을 써요.
 - **GitHub Actions CI/CD** 워크플로우
 
 ### Changed
+
 - `AgentPipeline` 타입에 `'review'` 추가
 - `ges_execute` action enum에 `review_start`, `review_submit`, `review_consensus`, `review_fix` 추가
 - `executeInputSchema`에 리뷰 관련 입력 필드 추가 (reviewResult, reviewConsensus, reviewSessionId 등)
@@ -3386,6 +3471,7 @@ Codex에서도 스킬을 써요.
 ## [0.2.0] - 2026-03-14
 
 ### Added
+
 - **Role Agent System**: 8개 내장 Role Agent (architect, backend-developer, designer, devops-engineer, frontend-developer, product-planner, qa-engineer, researcher)
 - **`ges_create_agent` MCP 도구**: 인터뷰 기반 커스텀 Role Agent 자동 생성 (2-Call: start, submit)
 - **Lateral Thinking Personas**: Multistability, Simplicity, Reification, Invariance — stagnation 패턴별 자동 분기
@@ -3398,11 +3484,13 @@ Codex에서도 스킬을 써요.
 - **AgentCreationError** 에러 클래스 및 AGENT_CREATED 이벤트 타입
 
 ### Changed
+
 - Evolution Loop 종료 시 즉시 종료 대신 lateral thinking으로 자동 분기
 - Configuration: flat → nested 구조 (`config.llm.apiKey`, `config.interview.ambiguityThreshold` 등)
 - `constants.ts`에서 `process.env` 의존 제거 → 순수 상수
 
 ### Fixed
+
 - Claude Code 플러그인 설치 오류 (agents 필드 제거)
 - postbuild에 package.json dist 복사 누락
 - simulate-lateral TS 에러
@@ -3412,6 +3500,7 @@ Codex에서도 스킬을 써요.
 ## [0.1.0] - 2026-03-11
 
 ### Added
+
 - **Interview Engine**: 게슈탈트 5원리 기반 요구사항 인터뷰 (start, respond, score, complete)
 - **Passthrough Mode**: API 키 없이 MCP 서버 운영, caller에게 LLM 호출 위임
 - **Spec Generator**: 인터뷰 완료 후 구조화된 Spec 생성 (2-Call Passthrough 패턴)
@@ -3427,6 +3516,7 @@ Codex에서도 스킬을 써요.
 - **CLI**: interview, spec, status 명령어
 
 ### Changed
+
 - Seed → Spec 전면 리네이밍 (타입, 클래스, 필드, MCP 도구, 이벤트, CLI, 문서)
 
 [0.5.1]: https://github.com/tienne/gestalt/compare/v0.5.0...v0.5.1
