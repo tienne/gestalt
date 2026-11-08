@@ -412,7 +412,7 @@ Agent {
 gestalt lens attach '<slug>' --cards '<cardsPath>' --report '<normalKey>' --json --repo-root '<repoRoot>'
 ```
 
-`--cards`는 `cards`와 카드에서 나온 한계 줄만 바꾸고 나머지는 리포트에 있던 값을 그대로 둔다. `saved:false`면 Step 3과 같이 오류 `path`에서 `reports.<index>.` 접두를 떼고 `message`와 함께 `lens-context`에 다시 맡긴다. 다시 맡길 때도 `<contextInput>`을 똑같이 싣는다. 새 초안으로 같은 옵션으로 다시 붙인다. 세 번을 넘기면 `<cardsPath>` 내용을 `{}`로 바꿔 카드를 비우고 한 번 더 붙인다. 그래도 안 되면 카드 없이 간다. 카드 오류는 아래가 많다.
+`--cards`는 `cards`와 카드에서 나온 한계 줄만 바꾸고 나머지는 리포트에 있던 값을 그대로 둔다. `saved:false`면 Step 3과 같이 오류 `path`에서 `reports.<index>.` 접두를 떼고 `message`와 함께 `lens-context`에 다시 맡긴다. 다시 맡길 때도 `<contextInput>`을 똑같이 싣는다. 맡기기 전에 `rm -f`로 `<cardsPath>`을 지운다. `lens-context`는 파일을 읽는 도구가 없어서 이미 있는 파일을 덮어쓰지 못한다(Write가 먼저 읽으라며 거절한다). 새 초안으로 같은 옵션으로 다시 붙인다. 세 번을 넘기면 `<cardsPath>` 내용을 `{}`로 바꿔 카드를 비우고 한 번 더 붙인다. 그래도 안 되면 카드 없이 간다. 카드 오류는 아래가 많다.
 
 | 코드                                                 | 고치는 법                                                 |
 | ---------------------------------------------------- | --------------------------------------------------------- |

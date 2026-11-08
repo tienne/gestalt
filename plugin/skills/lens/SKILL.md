@@ -82,21 +82,21 @@ outputs:
 
 ## 쓰는 도구
 
-| 도구 | 쓰는 때 |
-| --- | --- |
-| `gestalt lens ingest <주소\|파일>` | 자료 종류를 판단하고 문단 단위 원문(`transcript.json`)과 표, 그림(`source.json`)을 만든다 |
-| `gestalt digest merge <slug> <파일>` | 리포트를 `digest.json`에 합치며 스키마와 lint 검사. 오류가 있으면 저장하지 않는다 |
-| `gestalt digest templates --json` | 확장 리포트 템플릿 목록. `kinds`에 쓸 수 있는 자료 종류를 적은 템플릿이 있다 |
-| `gestalt digest template <id>` | 템플릿의 지시 본문. `video-summarizer`에 그대로 넘긴다 |
-| `gestalt digest merge <slug> <파일> --extension` | 확장 리포트 한 벌을 `extensions[]`에 합치며 검사. 템플릿과 언어가 같으면 바꿔 끼운다 |
-| `gestalt lens knowledge <slug> [--source <폴더>]` | 내 노트 폴더에서 원문 이름과 겹치는 줄을 찾아 `knowledge.json`에 둔다 |
-| `gestalt lens context-input <slug> --report <key> --with-transcript` | `links`를 뺀 리포트 사본과 원문 문단을 JSON으로 낸다. `lens-context` 프롬프트에 싣는다 |
-| `gestalt lens attach <slug> --cards <파일> --links <파일> [--report <key>]` | 맥락 카드와 연결 카드를 리포트에 붙이며 merge 검사를 다시 돌린다. 넘긴 쪽 필드만 바꾼다 |
-| `ges_digest action=validate` | `digest.json` 검사와 리포트 키 목록 |
-| `ges_digest action=prose_extract` / `prose_apply` | 윤문할 문장을 뽑고 되돌려 넣는다 |
-| `ges_digest action=render` | `digest.html`과 `digest.md` 쓰기 |
-| `gestalt digest serve <slug>` | 뷰어를 127.0.0.1로 띄우기. 백그라운드로 띄운다 |
-| `gestalt digest export <slug> --md` | 마크다운만 내기 |
+| 도구                                                                        | 쓰는 때                                                                                   |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `gestalt lens ingest <주소\|파일>`                                          | 자료 종류를 판단하고 문단 단위 원문(`transcript.json`)과 표, 그림(`source.json`)을 만든다 |
+| `gestalt digest merge <slug> <파일>`                                        | 리포트를 `digest.json`에 합치며 스키마와 lint 검사. 오류가 있으면 저장하지 않는다         |
+| `gestalt digest templates --json`                                           | 확장 리포트 템플릿 목록. `kinds`에 쓸 수 있는 자료 종류를 적은 템플릿이 있다              |
+| `gestalt digest template <id>`                                              | 템플릿의 지시 본문. `video-summarizer`에 그대로 넘긴다                                    |
+| `gestalt digest merge <slug> <파일> --extension`                            | 확장 리포트 한 벌을 `extensions[]`에 합치며 검사. 템플릿과 언어가 같으면 바꿔 끼운다      |
+| `gestalt lens knowledge <slug> [--source <폴더>]`                           | 내 노트 폴더에서 원문 이름과 겹치는 줄을 찾아 `knowledge.json`에 둔다                     |
+| `gestalt lens context-input <slug> --report <key> --with-transcript`        | `links`를 뺀 리포트 사본과 원문 문단을 JSON으로 낸다. `lens-context` 프롬프트에 싣는다    |
+| `gestalt lens attach <slug> --cards <파일> --links <파일> [--report <key>]` | 맥락 카드와 연결 카드를 리포트에 붙이며 merge 검사를 다시 돌린다. 넘긴 쪽 필드만 바꾼다   |
+| `ges_digest action=validate`                                                | `digest.json` 검사와 리포트 키 목록                                                       |
+| `ges_digest action=prose_extract` / `prose_apply`                           | 윤문할 문장을 뽑고 되돌려 넣는다                                                          |
+| `ges_digest action=render`                                                  | `digest.html`과 `digest.md` 쓰기                                                          |
+| `gestalt digest serve <slug>`                                               | 뷰어를 127.0.0.1로 띄우기. 백그라운드로 띄운다                                            |
+| `gestalt digest export <slug> --md`                                         | 마크다운만 내기                                                                           |
 
 ## 전체 흐름
 
@@ -112,17 +112,17 @@ Step 0 종류 판단 → Step 1 ingest → Step 2 리포트 작성 → Step 3 me
 
 **입력값은 셸에 넣기 전에 꼴을 확인하고 작은따옴표로 감싼다.** 큰따옴표 안에서는 `$(...)`와 백틱이 실행된다. 꼴이 안 맞으면 고쳐 넣지 말고 사용자에게 되묻는다.
 
-| 입력 | 받는 꼴 |
-| --- | --- |
-| `source`, 경로 | 작은따옴표(`'`)가 없는 값 |
-| `slug` | `^[a-z0-9][a-z0-9-]{0,63}$` |
-| `kind` | `pdf`, `web`, `podcast` 중 하나 |
-| `depth` | `normal`, `deep`, `none` 중 하나 |
-| `difficulty` | `normal`, `easy` 중 하나 |
-| `templates`의 각 id | `^[a-z0-9][a-z0-9-]{0,39}$` |
-| `episode` | 0 이상의 정수 |
+| 입력                  | 받는 꼴                                  |
+| --------------------- | ---------------------------------------- |
+| `source`, 경로        | 작은따옴표(`'`)가 없는 값                |
+| `slug`                | `^[a-z0-9][a-z0-9-]{0,63}$`              |
+| `kind`                | `pdf`, `web`, `podcast` 중 하나          |
+| `depth`               | `normal`, `deep`, `none` 중 하나         |
+| `difficulty`          | `normal`, `easy` 중 하나                 |
+| `templates`의 각 id   | `^[a-z0-9][a-z0-9-]{0,39}$`              |
+| `episode`             | 0 이상의 정수                            |
 | `knowledge`의 각 경로 | `/`로 시작하고 작은따옴표(`'`)가 없는 값 |
-| `reportLang` | `^[A-Za-z0-9-]+$` |
+| `reportLang`          | `^[A-Za-z0-9-]+$`                        |
 
 ## Step 0 — 종류 판단
 
@@ -163,10 +163,10 @@ gestalt lens ingest '<source>' --repo-root '<repoRoot>' [--kind '<kind>'] [--slu
 
 자료마다 원문 창과 출처 단위가 다르다.
 
-| 자료 | 출처 단위 | 원문 창 |
-| --- | --- | --- |
-| 논문(pdf) | 문단과 쪽. 표 칸 | 쪽 그림. 출처 칩을 누르면 그 쪽으로 가서 문단을 칠한다 |
-| 웹 글(web) | 문단 번호 | 추출한 문단 목록. 출처 칩을 누르면 그 문단으로 스크롤한다 |
+| 자료              | 출처 단위         | 원문 창                                                    |
+| ----------------- | ----------------- | ---------------------------------------------------------- |
+| 논문(pdf)         | 문단과 쪽. 표 칸  | 쪽 그림. 출처 칩을 누르면 그 쪽으로 가서 문단을 칠한다     |
+| 웹 글(web)        | 문단 번호         | 추출한 문단 목록. 출처 칩을 누르면 그 문단으로 스크롤한다  |
 | 팟캐스트(podcast) | 문장과 시각, 화자 | 오디오 플레이어와 스크립트. 시각을 누르면 그 자리로 옮긴다 |
 
 팟캐스트는 오디오를 받아 faster-whisper(기본 small 모델)로 받아쓰고 sherpa-onnx로 화자를 가른다. 문장마다 "화자 1", "화자 2"가 붙고 사람 이름은 붙이지 않는다. 화자 구분 모델은 처음 한 번 받는다(약 33MB). CPU에서는 받아쓰기와 화자 구분을 합쳐 오디오 길이보다 오래 걸릴 수 있으니 셸 도구의 백그라운드 실행으로 부르고 끝날 때까지 기다린다. 화자 구분이 실패하면 화자 없이 시각만 출처로 달고 출력의 `주의:` 줄에 이유가 나온다. 사용자가 화자 구분을 원하지 않으면 `--no-speakers`를 붙인다. 오디오 재생은 serve로 열었을 때만 된다.
@@ -191,11 +191,11 @@ gestalt lens panels '<slug>' '<figure-id>' <장면 수> --repo-root '<repoRoot>'
 
 **이미 있는 리포트는 다시 쓰지 않는다.** `digest.json`이 있으면 `ges_digest { action: "validate", slug, repoRoot }` 응답의 `reports`로 리포트 키 목록을 받는다. 목록 순서가 `reports[]`의 자리다. 보통 리포트 키는 `long-normal-<lang>`, 쉬운 리포트 키는 `long-easy-<lang>`이고 `<lang>`은 `reportLang`(기본 `ko`)이다.
 
-| `difficulty` | 보통 리포트 | 쉬운 리포트(Step 3.6) |
-| --- | --- | --- |
-| 비었다 | 없으면 새로 쓴다. 있으면 건너뛴다 | 보통 리포트를 새로 썼고 쉬운 리포트가 이미 있으면 다시 쓴다. 그 밖에는 쓰지 않는다 |
-| `normal` | 새로 쓴다 | 이미 있으면 다시 쓴다. 바탕이 바뀌어서다. 없으면 쓰지 않는다 |
-| `easy` | 없으면 먼저 새로 쓴다. 있으면 건너뛴다 | 새로 쓴다 |
+| `difficulty` | 보통 리포트                            | 쉬운 리포트(Step 3.6)                                                              |
+| ------------ | -------------------------------------- | ---------------------------------------------------------------------------------- |
+| 비었다       | 없으면 새로 쓴다. 있으면 건너뛴다      | 보통 리포트를 새로 썼고 쉬운 리포트가 이미 있으면 다시 쓴다. 그 밖에는 쓰지 않는다 |
+| `normal`     | 새로 쓴다                              | 이미 있으면 다시 쓴다. 바탕이 바뀌어서다. 없으면 쓰지 않는다                       |
+| `easy`       | 없으면 먼저 새로 쓴다. 있으면 건너뛴다 | 새로 쓴다                                                                          |
 
 보통 리포트를 건너뛰면 Step 3과 Step 3.5도 건너뛴다. 그 리포트는 이미 합쳐졌고 카드도 붙어 있다. 키 목록에서 찾은 그 리포트의 자리를 `<normalIndex>`로 받아 두고 쉬운 리포트를 쓰면 Step 3.6으로, 안 쓰면 Step 3.7로 간다. 보통 리포트를 새로 쓰면 Step 3 merge 출력의 `index`가 `<normalIndex>`다. 둘 다 건너뛰었으면 Step 6 보고에 이미 있어 건너뛰었다고 적는다.
 
@@ -233,21 +233,21 @@ gestalt digest merge '<slug>' '<reportPath>' --json --repo-root '<repoRoot>'
 
 렌즈 리포트에서 자주 나오는 오류는 아래와 같다. 고치라고 넘길 때 함께 적어 준다.
 
-| 코드 | 뜻 | 고치는 법 |
-| --- | --- | --- |
-| `DOUBT_NOT_NUMERIC` | 의심 표시에 근거 칸의 숫자가 없다 | 칸 숫자를 원문 꼴로 넣거나, 해석이 갈리는 의심이면 지우고 한계 단락이나 맥락 카드로 옮긴다 |
-| `DOUBT_NUMBER_UNKNOWN`, `LIMIT_NUMBER_UNKNOWN` | 근거에 없는 숫자다. 카드 id와 근거를 같이 단 한계 줄도 근거 칸과 대조한다 | `<sourcePath>`의 그 칸을 다시 열어 원문 꼴로 고친다. 계산한 값이면 지운다 |
-| `DOUBT_DIRECTION_AGREES` | 방향 의심의 두 칸이 본문 주장대로 움직였다 | 맞는 주장이라 의심 표시를 지운다. `claim`과 `better`, `from`과 `to`를 바꿔 적지 않았는지 칸을 다시 본다 |
-| `DOUBT_DIRECTION_NOT_NUMERIC`, `DOUBT_DIRECTION_TABLE_MISMATCH` | 방향 의심 칸이 숫자 하나만 든 칸이 아니거나 두 칸이 다른 표다 | 같은 표 같은 지표 열의 숫자 칸 둘로 고친다 |
-| `DOUBT_DIRECTION_LOOSE_TABLE` | 칸 경계를 못 믿는 표로 방향 의심을 달았다 | 방향 의심을 빼고 근거 문단 숫자로 숫자 의심을 달거나 의심 표시를 지운다 |
-| `TABLE_REF_UNKNOWN`, `FIGURE_REF_UNKNOWN`, `CELL_REF_OUT_OF_RANGE` | 없는 표나 칸이다 | `source.json`의 id와 `rows` 자리로 고친다 |
-| `GLANCE_MISSING`, `LIMITS_MISSING` | 한눈에 보기 칸이나 한계 단락이 빠졌다 | 지침의 자료별 칸을 채운다 |
-| `WIDGET_VALUE_MISMATCH`, `WIDGET_VALUE_NO_SOURCE` | 그림 값이 원문 칸과 다르거나 출처가 없다 | 칸 글자를 그대로 숫자로 옮기고 `src`를 단다 |
-| `B_HAS_DATA`, `B_METRIC_LABEL`, `B_BORROWS_NAME`, `B_FIGURE_TITLE` | 설명용 그림이 원문 결과처럼 읽힌다 | 값과 지표 말, 원문 이름을 빼거나 C로 바꾼다 |
-| `B_HAS_NUMBER` | 설명용 그림 라벨에 숫자가 있다 | 숫자를 빼고 순서는 '처음', '다음', '끝'처럼 쓴다 |
-| `A_NO_VALUES` | 원문 데이터 그림(A)에 값이 하나도 없다 | 원문 칸 값을 `src`와 함께 넣거나 B로 바꾼다 |
-| `LENS_FIELD_ON_VIDEO` | 렌즈 자료가 아닌 리포트에 렌즈 칸이 있다 | slug가 영상 리포트를 가리키는지 본다. 영상이면 video-digest로 간다. 영상 리포트는 맥락 카드와 카드에서 나온 한계 줄만 받고 나머지 렌즈 칸은 쓰지 않는다 |
-| `C_DIFFERENCES_EMPTY`, `C_STEPS_EXCEED_PANELS`, `C_PANELS_UNKNOWN` | 재구성이 원문과 견줄 수 없다 | 다르게 그린 점을 적고 칸 수를 줄인다. 장면 수가 없으면 `gestalt lens panels`를 먼저 부른다 |
+| 코드                                                               | 뜻                                                                        | 고치는 법                                                                                                                                               |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DOUBT_NOT_NUMERIC`                                                | 의심 표시에 근거 칸의 숫자가 없다                                         | 칸 숫자를 원문 꼴로 넣거나, 해석이 갈리는 의심이면 지우고 한계 단락이나 맥락 카드로 옮긴다                                                              |
+| `DOUBT_NUMBER_UNKNOWN`, `LIMIT_NUMBER_UNKNOWN`                     | 근거에 없는 숫자다. 카드 id와 근거를 같이 단 한계 줄도 근거 칸과 대조한다 | `<sourcePath>`의 그 칸을 다시 열어 원문 꼴로 고친다. 계산한 값이면 지운다                                                                               |
+| `DOUBT_DIRECTION_AGREES`                                           | 방향 의심의 두 칸이 본문 주장대로 움직였다                                | 맞는 주장이라 의심 표시를 지운다. `claim`과 `better`, `from`과 `to`를 바꿔 적지 않았는지 칸을 다시 본다                                                 |
+| `DOUBT_DIRECTION_NOT_NUMERIC`, `DOUBT_DIRECTION_TABLE_MISMATCH`    | 방향 의심 칸이 숫자 하나만 든 칸이 아니거나 두 칸이 다른 표다             | 같은 표 같은 지표 열의 숫자 칸 둘로 고친다                                                                                                              |
+| `DOUBT_DIRECTION_LOOSE_TABLE`                                      | 칸 경계를 못 믿는 표로 방향 의심을 달았다                                 | 방향 의심을 빼고 근거 문단 숫자로 숫자 의심을 달거나 의심 표시를 지운다                                                                                 |
+| `TABLE_REF_UNKNOWN`, `FIGURE_REF_UNKNOWN`, `CELL_REF_OUT_OF_RANGE` | 없는 표나 칸이다                                                          | `source.json`의 id와 `rows` 자리로 고친다                                                                                                               |
+| `GLANCE_MISSING`, `LIMITS_MISSING`                                 | 한눈에 보기 칸이나 한계 단락이 빠졌다                                     | 지침의 자료별 칸을 채운다                                                                                                                               |
+| `WIDGET_VALUE_MISMATCH`, `WIDGET_VALUE_NO_SOURCE`                  | 그림 값이 원문 칸과 다르거나 출처가 없다                                  | 칸 글자를 그대로 숫자로 옮기고 `src`를 단다                                                                                                             |
+| `B_HAS_DATA`, `B_METRIC_LABEL`, `B_BORROWS_NAME`, `B_FIGURE_TITLE` | 설명용 그림이 원문 결과처럼 읽힌다                                        | 값과 지표 말, 원문 이름을 빼거나 C로 바꾼다                                                                                                             |
+| `B_HAS_NUMBER`                                                     | 설명용 그림 라벨에 숫자가 있다                                            | 숫자를 빼고 순서는 '처음', '다음', '끝'처럼 쓴다                                                                                                        |
+| `A_NO_VALUES`                                                      | 원문 데이터 그림(A)에 값이 하나도 없다                                    | 원문 칸 값을 `src`와 함께 넣거나 B로 바꾼다                                                                                                             |
+| `LENS_FIELD_ON_VIDEO`                                              | 렌즈 자료가 아닌 리포트에 렌즈 칸이 있다                                  | slug가 영상 리포트를 가리키는지 본다. 영상이면 video-digest로 간다. 영상 리포트는 맥락 카드와 카드에서 나온 한계 줄만 받고 나머지 렌즈 칸은 쓰지 않는다 |
+| `C_DIFFERENCES_EMPTY`, `C_STEPS_EXCEED_PANELS`, `C_PANELS_UNKNOWN` | 재구성이 원문과 견줄 수 없다                                              | 다르게 그린 점을 적고 칸 수를 줄인다. 장면 수가 없으면 `gestalt lens panels`를 먼저 부른다                                                              |
 
 경고(소섹션 수, 불릿 수, 도식 수, `INTRO_MISSING`)는 막지 않는다. 원문에 맞는 분량이면 그대로 둔다.
 
@@ -352,14 +352,14 @@ Agent {
 gestalt lens attach '<slug>' --cards '<cardsPath>' --links '<linksPath>' --report '<Step 3 merge 출력의 key>' --json --repo-root '<repoRoot>'
 ```
 
-`saved:false`면 Step 3과 같이 오류 `path`에서 `reports.<index>.` 접두를 뗀다. `cards.`나 `limits.`로 시작하는 오류는 `lens-context`에, `links.`로 시작하는 오류는 `lens-link`에 다시 맡긴다. 그 초안만 새로 받아 같은 옵션으로 다시 붙인다. 세 번을 넘기면 오류가 남은 쪽 초안 파일 내용을 `{}`로 바꿔 그 필드를 비우고 한 번 더 붙인다. 다시 붙일 때도 같은 `--report` 값을 쓴다. 그래도 안 되면 카드 없이 간다. 카드 오류는 아래가 많다.
+`saved:false`면 Step 3과 같이 오류 `path`에서 `reports.<index>.` 접두를 뗀다. `cards.`나 `limits.`로 시작하는 오류는 `lens-context`에, `links.`로 시작하는 오류는 `lens-link`에 다시 맡긴다. 맡기기 전에 `rm -f`로 그 초안을 지운다. `lens-context`는 파일을 읽는 도구가 없어서 이미 있는 파일을 덮어쓰지 못한다(Write가 먼저 읽으라며 거절한다). 그 초안만 새로 받아 같은 옵션으로 다시 붙인다. 세 번을 넘기면 오류가 남은 쪽 초안 파일 내용을 `{}`로 바꿔 그 필드를 비우고 한 번 더 붙인다. 다시 붙일 때도 같은 `--report` 값을 쓴다. 그래도 안 되면 카드 없이 간다. 카드 오류는 아래가 많다.
 
-| 코드 | 고치는 법 |
-| --- | --- |
-| `CARD_SOURCE_UNKNOWN` | 줄의 출처 id를 카드 `sources`에 있는 id로 고친다 |
-| `CARD_SECTION_UNKNOWN`, `CARD_ANCHOR_OUT_OF_SECTION` | 리포트 대섹션 id와 그 범위 안의 문단으로 고친다 |
-| `LINK_QUOTE_NOT_FOUND` | 노트 파일을 다시 열어 글자 그대로 옮긴다 |
-| `LINK_OUTSIDE_SOURCES` | `knowledge.json`의 `roots` 안 절대 경로로 고친다 |
+| 코드                                                 | 고치는 법                                        |
+| ---------------------------------------------------- | ------------------------------------------------ |
+| `CARD_SOURCE_UNKNOWN`                                | 줄의 출처 id를 카드 `sources`에 있는 id로 고친다 |
+| `CARD_SECTION_UNKNOWN`, `CARD_ANCHOR_OUT_OF_SECTION` | 리포트 대섹션 id와 그 범위 안의 문단으로 고친다  |
+| `LINK_QUOTE_NOT_FOUND`                               | 노트 파일을 다시 열어 글자 그대로 옮긴다         |
+| `LINK_OUTSIDE_SOURCES`                               | `knowledge.json`의 `roots` 안 절대 경로로 고친다 |
 
 ## Step 3.6 — 쉬운 리포트
 
