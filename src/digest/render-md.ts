@@ -4,7 +4,7 @@ import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.
 import { blockMarkdown, mdInline, sectionDiagramMd } from './render-blocks.js';
 import { isCellRef, type Evidence } from './lens-schema.js';
 import type { LensSource } from './lens-source.js';
-import { CARD_KIND_LABEL, GLANCE_LABEL, unitLabel } from './render-lens.js';
+import { CARD_KIND_LABEL, CARD_VERDICT_LABEL, GLANCE_LABEL, unitLabel } from './render-lens.js';
 import { reportLabel } from './reports.js';
 import { widgetMarkdown } from './render-widgets.js';
 import {
@@ -158,7 +158,10 @@ export function renderDigestMarkdown(
           .join(', ');
         out.push(`- ${l.year} ${l.title} ${ref(l.source)}${extra ? ` (${extra})` : ''}`);
       }
-      for (const pt of card.points) out.push(`- ${plain(pt.text)} ${pt.sources.map(ref).join('')}`);
+      for (const pt of card.points) {
+        const verdict = pt.verdict ? `[${CARD_VERDICT_LABEL[pt.verdict]}] ` : '';
+        out.push(`- ${verdict}${plain(pt.text)} ${pt.sources.map(ref).join('')}`);
+      }
       out.push('');
       card.sources.forEach((s, k) => out.push(`${k + 1}. [${s.title}](${s.url})`));
       out.push('');

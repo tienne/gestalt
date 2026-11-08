@@ -4,6 +4,7 @@ import { numbersIn } from '../../../src/digest/lint-lens.js';
 import { parseDigest } from '../../../src/digest/schema.js';
 import { lensDigest, lensReport, lensSource, lensTranscript } from './fixture.js';
 import { sampleDigest, sampleTranscript } from '../digest/fixture.js';
+import type { ContextCard } from '../../../src/digest/lens-schema.js';
 
 const codes = (r = lensReport(), source = lensSource()) =>
   lintErrors(lintDigest(lensDigest(r), lensTranscript(), { source })).map((i) => i.code);
@@ -251,5 +252,102 @@ describe('읽기 렌즈 lint', () => {
     // 모델 이름 속 숫자는 원문 값이 아니다. 범위의 -와 음수 부호는 그대로 숫자로 센다
     expect(numbersIn('ResNet-34는 plain-18보다, ViT-L/16과 SST-2에서')).toEqual([]);
     expect(numbersIn('0.3-0.5 구간과 -0.5')).toEqual([0.3, 0.5, 0.5]);
+  });
+});
+
+describe('영상 리포트의 맥락 카드', () => {
+  const videoCard = (over: Partial<ContextCard> = {}): ContextCard => ({
+    id: 'c1',
+    kind: 'counter',
+    section: 's1',
+    anchor: { key: 1, from: 1, to: 1 },
+    title: '반론',
+    points: [{ text: '다른 시각도 있다.', sources: ['src'], verdict: 'depends' }],
+    sources: [{ id: 'src', url: 'https://example.com/a', title: '자료' }],
+    ...over,
+  });
+  const videoCodes = (mutate: (r: ReturnType<typeof sampleDigest>['reports'][0]) => void) => {
+    const d = sampleDigest();
+    mutate(d.reports[0]!);
+    return lintDigest(d, sampleTranscript());
+  };
+  const errCodes = (issues: ReturnType<typeof lintDigest>) => lintErrors(issues).map((i) => i.code);
+
+  it('영상 리포트에 카드와 card가 달린 한계 줄을 넣어도 오류가 없다', () => {
+    const issues = videoCodes((r) => {
+      r.cards = [videoCard(), videoCard({ id: 'bg', kind: 'background' })];
+      r.limits = [{ text: '카드에서 온 줄', evidence: [], card: 'c1' }];
+    });
+    expect(errCodes(issues)).toEqual([]);
+  });
+
+  it('영상 lineage 카드는 CARD_KIND_ON_VIDEO', () => {
+    const issues = videoCodes((r) => {
+      r.cards = [
+        videoCard({
+          kind: 'lineage',
+          lineage: [{ year: '2021', title: 'X', role: 'foundation', took: 'y', source: 'src' }],
+        }),
+      ];
+    });
+    expect(errCodes(issues)).toContain('CARD_KIND_ON_VIDEO');
+  });
+
+  it('영상 한계 줄에 card가 없으면 reports.0.limits로 막는다', () => {
+    const issues = videoCodes((r) => {
+      r.cards = [videoCard()];
+      r.limits = [{ text: 'card 없음', evidence: [] }];
+    });
+    const hit = lintErrors(issues).filter((i) => i.code === 'LENS_FIELD_ON_VIDEO');
+    expect(hit.map((i) => i.path)).toEqual(['reports.0.limits']);
+  });
+
+  it('영상 한계 줄에 evidence가 있으면 reports.0.limits로 막는다', () => {
+    const issues = videoCodes((r) => {
+      r.cards = [videoCard()];
+      r.limits = [
+        { text: '근거 있음', evidence: [{ cite: { key: 1, from: 1, to: 1 } }], card: 'c1' },
+      ];
+    });
+    const hit = lintErrors(issues).filter((i) => i.code === 'LENS_FIELD_ON_VIDEO');
+    expect(hit.map((i) => i.path)).toEqual(['reports.0.limits']);
+  });
+
+  it('영상 카드도 앵커, 섹션, 출처, 한계 줄 참조를 검사한다', () => {
+    const issues = videoCodes((r) => {
+      r.cards = [
+        videoCard({ id: 'a', anchor: { key: 8, from: 8, to: 8 } }),
+        videoCard({ id: 'b', section: 's9' }),
+        videoCard({ id: 'c', points: [{ text: '출처 없음', sources: ['nope'] }] }),
+      ];
+      r.limits = [{ text: '유령', evidence: [], card: 'ghost' }];
+    });
+    const c = errCodes(issues);
+    expect(c).toContain('CARD_ANCHOR_OUT_OF_SECTION');
+    expect(c).toContain('CARD_SECTION_UNKNOWN');
+    expect(c).toContain('CARD_SOURCE_UNKNOWN');
+    expect(c).toContain('LIMIT_CARD_UNKNOWN');
+  });
+
+  it('영상 links는 LENS_FIELD_ON_VIDEO만 내고 LINK_* 는 내지 않는다', () => {
+    const issues = videoCodes((r) => {
+      r.links = [
+        {
+          id: 'kb-1',
+          section: 's1',
+          anchor: { key: 1, from: 1, to: 1 },
+          title: '노트',
+          note: '연결',
+          path: '/notes/a.md',
+          line: 1,
+          quote: '인용',
+        },
+      ];
+    });
+    const errs = lintErrors(issues);
+    expect(errs.filter((i) => i.code === 'LENS_FIELD_ON_VIDEO').map((i) => i.path)).toEqual([
+      'reports.0.links',
+    ]);
+    expect(errs.some((i) => i.code.startsWith('LINK_'))).toBe(false);
   });
 });

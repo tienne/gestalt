@@ -24,7 +24,9 @@ import {
   pickTerms,
   searchNotes,
 } from '../../../src/lens/knowledge.js';
+import { parseDigest } from '../../../src/digest/schema.js';
 import { mergeReport } from '../../../src/digest/merge.js';
+import { sampleDigest, sampleTranscript, SLUG as VIDEO_SLUG } from '../digest/fixture.js';
 import { LENS_SLUG, lensDigest, lensReport, lensSource, lensTranscript } from './fixture.js';
 
 const dirs: string[] = [];
@@ -490,5 +492,105 @@ describe('내 지식 찾기', () => {
 
   it('잘림 칸이 없는 옛 knowledge.json도 읽는다', () => {
     expect(knowledgeFileSchema.safeParse({ roots: [], terms: [], hits: [] }).success).toBe(true);
+  });
+});
+
+describe('영상 맥락 카드와 상한', () => {
+  const vcard = (i: number, over: Partial<ContextCard> = {}): ContextCard => ({
+    id: `c${i}`,
+    kind: 'counter',
+    section: 's1',
+    anchor: { key: 1, from: 1, to: 1 },
+    title: `카드 ${i}`,
+    points: [{ text: '다른 시각도 있다.', sources: ['src'] }],
+    sources: [{ id: 'src', url: 'https://example.com/a', title: '자료' }],
+    ...over,
+  });
+  const cards = (n: number) => Array.from({ length: n }, (_, i) => vcard(i));
+  const videoCodes = (n: number) => {
+    const d = sampleDigest();
+    d.reports[0]!.cards = cards(n);
+    return lintErrors(lintDigest(d, sampleTranscript())).map((i) => i.code);
+  };
+
+  it('렌즈 카드는 4장까지 통과하고 5장은 CARDS_OVER_LIMIT', () => {
+    const ok = lensReport();
+    ok.cards = cards(4);
+    expect(lint(ok)).toEqual([]);
+    const over = lensReport();
+    over.cards = cards(5);
+    expect(lint(over)).toContain('CARDS_OVER_LIMIT');
+  });
+
+  it('영상 카드는 8장까지 통과하고 CARDS_OVER_LIMIT도 없다', () => {
+    expect(videoCodes(8)).toEqual([]);
+  });
+
+  it('영상 카드 9장은 스키마가 거절한다 (attachContext 포함)', () => {
+    const d = sampleDigest();
+    d.reports[0]!.cards = cards(9);
+    expect(parseDigest(d).ok).toBe(false);
+    const root = tmp();
+    const store = new DigestStore(root);
+    store.saveTranscript(sampleTranscript());
+    store.saveDigest(sampleDigest());
+    expect(() =>
+      attachContext(root, VIDEO_SLUG, { cards: { cards: cards(9), limits: [] } }),
+    ).toThrow(/맥락 파일 형식 오류/);
+    expect(attachContext(root, VIDEO_SLUG, { cards: { cards: cards(8), limits: [] } }).saved).toBe(
+      true,
+    );
+  });
+
+  const verdictCard = () =>
+    vcard(1, {
+      kind: 'background',
+      points: [
+        { text: '맞는 말', sources: ['src'], verdict: 'correct' },
+        { text: '갈리는 말', sources: ['src'], verdict: 'depends' },
+        { text: '틀린 말', sources: ['src'], verdict: 'incorrect' },
+        { text: '못 가린 말', sources: ['src'], verdict: 'unverifiable' },
+      ],
+    });
+
+  it('verdict 배지 네 종류와 background 라벨을 HTML에 그린다', () => {
+    const r = lensReport();
+    r.cards = [verdictCard()];
+    const html = renderDigestHtml(lensDigest(r), lensTranscript(), { source: lensSource() }).html;
+    for (const [v, label] of [
+      ['correct', '맞음'],
+      ['depends', '기준 따라 다름'],
+      ['incorrect', '다름'],
+      ['unverifiable', '확인 못함'],
+    ]) {
+      expect(html).toContain(`<span class="ctx-verdict ctx-verdict-${v}">${label}</span>`);
+    }
+    expect(html).toContain('알면 좋은 배경');
+  });
+
+  it('md에 verdict 라벨이 붙는다', () => {
+    const r = lensReport();
+    r.cards = [verdictCard()];
+    const md = renderDigestMarkdown(lensDigest(r), lensTranscript(), { source: lensSource() });
+    for (const label of ['[맞음]', '[기준 따라 다름]', '[다름]', '[확인 못함]']) {
+      expect(md).toContain(label);
+    }
+  });
+
+  it('영상 트랜스크립트로 렌더하면 영상용 머리말이 나온다', () => {
+    const d = sampleDigest();
+    d.reports[0]!.cards = [vcard(1)];
+    const html = renderDigestHtml(d, sampleTranscript()).html;
+    expect(html).toContain('영상에서 한 말을 바깥 자료로 확인한 카드예요');
+    const lensHtml = renderDigestHtml(
+      (() => {
+        const r = lensReport();
+        r.cards = [vcard(1)];
+        return lensDigest(r);
+      })(),
+      lensTranscript(),
+      { source: lensSource() },
+    ).html;
+    expect(lensHtml).not.toContain('영상에서 한 말을 바깥 자료로 확인한 카드예요');
   });
 });

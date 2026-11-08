@@ -12,6 +12,7 @@ import {
 import { extensionSchema } from './blocks.js';
 import { diagramSchema } from './diagram-schema.js';
 import {
+  CARDS_MAX_VIDEO,
   contextCardSchema,
   doubtSchema,
   glanceSchema,
@@ -277,8 +278,11 @@ export const reportSchema = z.object({
   keywords: z.array(keywordSchema).default([]),
   /** 읽기 렌즈의 검증 안 된 부분. 본문 끝에 늘 펼쳐 둔다 */
   limits: z.array(limitSchema).optional(),
-  /** 바깥 맥락 카드. 기본 두 장, 깊게 읽기에서 네 장까지다 */
-  cards: z.array(contextCardSchema).max(4).optional(),
+  /**
+   * 바깥 맥락 카드. 스키마는 영상 상한인 여덟 장까지 받는다.
+   * 읽기 렌즈는 기본 두 장, 깊게 읽기에서 네 장까지라 그 상한은 lint가 본다
+   */
+  cards: z.array(contextCardSchema).max(CARDS_MAX_VIDEO).optional(),
   /** 내 지식 연결 카드 */
   links: z.array(knowledgeLinkSchema).max(6).optional(),
 });

@@ -1,6 +1,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
+import { CARDS_MAX_LENS } from './lens-schema.js';
 import type { DigestIssue } from './lint.js';
 import type { Report } from './schema.js';
 import { readRaw, type DigestStore } from './store.js';
@@ -56,18 +57,39 @@ function inside(root: string, path: string): boolean {
 
 /**
  * 바깥 맥락 카드와 내 지식 연결 카드를 본다. 카드 줄마다 바깥 출처가 있어야 하고
- * 연결 카드의 인용은 그 노트 파일에 글자 그대로 있어야 한다
+ * 연결 카드의 인용은 그 노트 파일에 글자 그대로 있어야 한다.
+ * 영상(material 'video')은 카드만 받는다. 연구 계보 카드는 쓰지 않고 연결 카드는 lint.ts가 칸째 막아서 여기서 안 본다
  */
 export function lintLensContext(
   report: Report,
   p: string,
   knowledge: KnowledgeContext | null | undefined,
   issues: DigestIssue[],
+  material: 'lens' | 'video' = 'lens',
 ): void {
   const sectionIds = new Set(report.sections.map((s) => s.id));
   const cardIds = new Set<string>();
-  (report.cards ?? []).forEach((card, k) => {
+  const cards = report.cards ?? [];
+  // 스키마는 영상 상한(여덟 장)까지 받는다. 읽기 렌즈의 네 장 상한은 여기서 본다
+  if (material === 'lens' && cards.length > CARDS_MAX_LENS) {
+    issues.push({
+      path: `${p}.cards`,
+      severity: 'error',
+      code: 'CARDS_OVER_LIMIT',
+      message: `맥락 카드가 ${cards.length}장이다. 읽기 렌즈는 ${CARDS_MAX_LENS}장까지 싣는다`,
+    });
+  }
+  cards.forEach((card, k) => {
     const cp = `${p}.cards.${k}`;
+    if (material === 'video' && card.kind === 'lineage') {
+      issues.push({
+        path: `${cp}.kind`,
+        severity: 'error',
+        code: 'CARD_KIND_ON_VIDEO',
+        message:
+          '연구 계보 카드는 논문용이다. 영상은 결과 해석, 반론, 검증 안 된 부분, 알면 좋은 배경 카드를 쓴다',
+      });
+    }
     if (cardIds.has(card.id)) {
       issues.push({
         path: `${cp}.id`,
@@ -133,6 +155,7 @@ export function lintLensContext(
     }
   });
 
+  if (material === 'video') return;
   report.links?.forEach((link, k) => {
     const lp = `${p}.links.${k}`;
     if (!sectionIds.has(link.section)) {

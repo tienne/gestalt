@@ -1,13 +1,21 @@
 import { z } from 'zod';
-import { contextCardSchema, knowledgeLinkSchema, limitSchema } from '../digest/lens-schema.js';
+import {
+  CARDS_MAX_VIDEO,
+  contextCardSchema,
+  knowledgeLinkSchema,
+  limitSchema,
+} from '../digest/lens-schema.js';
 import { mergeReport, type MergeResult } from '../digest/merge.js';
 import { findReport, initialReportIndex } from '../digest/reports.js';
 import { DigestStore } from '../digest/store.js';
 import { parseDigest } from '../digest/schema.js';
 
-/** lens-context의 카드(cards)와 한계 줄(limits), lens-link의 연결 카드(links)를 스킬이 한 파일로 합친 것이다 */
+/**
+ * lens-context의 카드(cards)와 한계 줄(limits), lens-link의 연결 카드(links)를 스킬이 한 파일로 합친 것이다.
+ * 카드 상한은 영상 기준으로 받고 읽기 렌즈의 네 장 상한은 merge의 lint가 본다
+ */
 export const contextFileSchema = z.object({
-  cards: z.array(contextCardSchema).max(4).default([]),
+  cards: z.array(contextCardSchema).max(CARDS_MAX_VIDEO).default([]),
   links: z.array(knowledgeLinkSchema).max(6).default([]),
   limits: z
     .array(limitSchema)

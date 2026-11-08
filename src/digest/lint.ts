@@ -700,6 +700,7 @@ export function lintDigest(
       lintReportWidgets(report, p, transcript, opts.source ?? null, issues);
     } else {
       checkLensFieldsOnVideo(report, p, issues);
+      lintLensContext(report, p, undefined, issues, 'video');
     }
   });
   lintExtensions(digest.extensions, transcript, issues, opts);
@@ -756,14 +757,16 @@ function lintReport(
 
 /**
  * 렌즈 칸은 스키마가 자료 종류와 상관없이 받고 뷰어도 종류를 안 보고 그린다.
- * 원문 대조는 렌즈 자료에서만 돌아서 영상 리포트에 들어오면 대조 없이 배지가 붙는다. 그래서 칸째 막는다
+ * 원문 대조는 렌즈 자료에서만 돌아서 영상 리포트에 들어오면 대조 없이 배지가 붙는다. 그래서 칸째 막는다.
+ * 맥락 카드는 바깥 출처로만 말하고 원문 대조가 필요 없어서 영상도 받는다. 검증 안 된 부분은 카드에서 나온 줄
+ * (card id가 있고 evidence가 빈 줄)만 받는다. evidence는 원문 표와 문단 대조용이라 영상에서는 쓰지 않는다
  */
 function checkLensFieldsOnVideo(report: Report, p: string, issues: DigestIssue[]): void {
   const found: string[] = [];
   // 빈 배열은 아무것도 그리지 않으니 길이로 본다. 형식을 맞추려고 []를 채운 영상 리포트까지 막지 않는다
   if (report.lead.glance?.length) found.push(`${p}.lead.glance`);
-  if (report.limits?.length) found.push(`${p}.limits`);
-  if (report.cards?.length) found.push(`${p}.cards`);
+  const limitsBlocked = (report.limits ?? []).some((l) => !l.card || l.evidence.length > 0);
+  if (limitsBlocked) found.push(`${p}.limits`);
   if (report.links?.length) found.push(`${p}.links`);
   report.sections.forEach((section, si) => {
     section.subsections.forEach((sub, bi) => {
@@ -782,7 +785,9 @@ function checkLensFieldsOnVideo(report: Report, p: string, issues: DigestIssue[]
       severity: 'error',
       code: 'LENS_FIELD_ON_VIDEO',
       message:
-        '읽기 렌즈 칸이다. 영상 리포트는 원문 표와 문단을 대조할 수 없어서 이 칸을 쓰지 않는다',
+        path === `${p}.limits`
+          ? '영상 리포트의 검증 안 된 부분은 맥락 카드에서 나온 줄만 받는다. 줄마다 card id를 달고 evidence는 비운다'
+          : '읽기 렌즈 칸이다. 영상 리포트는 원문 표와 문단을 대조할 수 없어서 이 칸을 쓰지 않는다',
     });
   }
 }
