@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **영상 요약에 맥락 카드를 기본으로 붙여요.** 영상에서 한 말을 `lens-context`가 웹 검색으로 확인해 대섹션 끝에 카드로 달아요. 스킬 입력 `context=false`로 꺼요.
+  - 카드 종류는 기준과 해석에 따라 달라지는 숫자(`interpretation`), 반론(`counter`), 사실 확인(`unverified`), 알면 좋은 배경(`background`, 새로 더함)이에요. 영상에서 연구 계보(`lineage`) 카드를 쓰면 `CARD_KIND_ON_VIDEO`로 막아요.
+  - 카드 줄에 `verdict`를 달면 뷰어에 맞음, 기준 따라 다름, 다름, 확인 못함 배지가 붙어요. 마크다운에는 줄 앞에 같은 라벨이 나가요.
+  - 쉬운 리포트는 보통 리포트 카드를 그대로 붙이고 다시 검색하지 않아요. 확장만 더하는 호출은 카드 단계를 건너뛰어요.
+  - 영상 카드는 6장 안팎, 8장까지예요. 스키마 상한을 8장으로 올렸고 읽기 렌즈의 4장 상한은 lint `CARDS_OVER_LIMIT`가 봐요.
+
+### Changed
+
+- 영상 리포트가 맥락 카드와 card id만 단 한계 줄을 받아요. 한계 줄에 `evidence`를 달거나 card 없는 줄을 넣으면 여전히 `LENS_FIELD_ON_VIDEO`로 막아요. 카드 검사(출처 id, 대섹션, 앵커 범위)는 영상에도 돌아요.
+
+### Removed
+
+- 확장 템플릿 `background`(관련 배경지식)와 `counterpoints`(반대 시각)를 맥락 카드로 합쳐 지웠어요. 이미 만든 두 확장은 그대로 렌더되고 validate와 render에서 `UNKNOWN_TEMPLATE` 경고만 떠요.
+
 ## [0.124.0] - 2026-11-07
 
 ### Added

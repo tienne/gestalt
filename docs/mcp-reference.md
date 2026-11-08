@@ -1307,7 +1307,9 @@ cache/             원본 PDF, HTML, 오디오 (serve는 이 폴더 안의 팟�
 | `DOUBT_NOT_NUMERIC` | 의심 표시에 근거 칸의 숫자가 없다. 해석이 갈리는 의심은 맥락 카드로 간다 |
 | `DOUBT_NUMBER_UNKNOWN`, `LIMIT_NUMBER_UNKNOWN` | 근거 칸이 든 줄과 머리줄, 근거 문단에 없는 숫자다. 계산한 차이나 비율이 여기 걸린다. 카드 id와 근거를 같이 단 한계 줄도 대조한다 |
 | `TABLE_REF_UNKNOWN`, `CELL_REF_OUT_OF_RANGE`, `FIGURE_REF_UNKNOWN` | 없는 표나 칸, 그림을 가리킨다 |
-| `CARD_SOURCE_UNKNOWN`, `CARD_SECTION_UNKNOWN`, `CARD_ANCHOR_OUT_OF_SECTION`, `LIMIT_CARD_UNKNOWN` | 맥락 카드 줄의 출처 id가 없거나 붙인 대섹션이 맞지 않는다 |
+| `CARD_SOURCE_UNKNOWN`, `CARD_SECTION_UNKNOWN`, `CARD_ANCHOR_OUT_OF_SECTION`, `LIMIT_CARD_UNKNOWN` | 맥락 카드 줄의 출처 id가 없거나 붙인 대섹션이 맞지 않는다. 영상 리포트에도 돈다 |
+| `CARDS_OVER_LIMIT` | 읽기 렌즈 리포트의 맥락 카드가 4장을 넘는다. 스키마는 영상 상한인 8장까지 받는다 |
+| `CARD_KIND_ON_VIDEO` | 영상 리포트에 연구 계보(`lineage`) 카드가 있다. 영상은 결과 해석, 반론, 검증 안 된 부분, 알면 좋은 배경 카드를 쓴다 |
 | `LINK_QUOTE_NOT_FOUND`, `LINK_OUTSIDE_SOURCES`, `LINK_NO_KNOWLEDGE` | 연결 카드 인용이 노트에 없거나 지식 소스 폴더 밖이거나 `knowledge.json`이 없다 |
 | `WIDGET_VALUE_MISMATCH`, `WIDGET_VALUE_NO_SOURCE`, `WIDGET_METRIC_UNKNOWN` | A, C 그림 값이 원문 칸과 다르거나 출처가 없거나 원문에 없는 지표 이름이다 |
 | `A_NO_VALUES` | 원문 데이터 그림(A)에 값이 하나도 없다 |
@@ -1316,7 +1318,7 @@ cache/             원본 PDF, HTML, 오디오 (serve는 이 폴더 안의 팟�
 | `C_FIGURE_MISSING`, `C_DIFFERENCES_EMPTY`, `C_PANELS_UNKNOWN`, `C_STEPS_EXCEED_PANELS` | 다시 그린 그림에 원문 그림 id가 없거나, 원문과 다르게 그린 점이 비었거나, 원문 그림의 장면 수를 모르거나, 슬라이더 칸이 장면 수보다 많다 |
 | `RANGE_NOT_SUPPORTED` | 글 자료 리포트에 시각 구간을 줬다 |
 | `FRAME_SEC_MISSING` | 영상 리포트 소섹션에 `frameSec`이 없다(영상 자료만 본다) |
-| `LENS_FIELD_ON_VIDEO` | 렌즈 자료가 아닌 리포트에 렌즈 칸(한눈에 보기, 의심 표시, 표와 그림, 맥락 카드와 연결 카드, 한계 단락)이 있다. 영상 자료는 원문 표와 대조할 수 없어서 받지 않는다 |
+| `LENS_FIELD_ON_VIDEO` | 렌즈 자료가 아닌 리포트에 렌즈 칸(한눈에 보기, 의심 표시, 표와 그림, 그림 위젯, 연결 카드)이 있거나 한계 단락에 card id가 없는 줄이나 `evidence`를 단 줄이 있다. 영상 자료는 원문 표와 대조할 수 없어서 받지 않는다. 맥락 카드와 card id만 단 한계 줄은 영상도 받는다 |
 
 ### CLI
 
