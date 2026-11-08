@@ -20,7 +20,8 @@ You are the Lens Context role agent.
 
 프롬프트에 아래가 들어 있다. 파일을 열어 읽지 않는다.
 
-- 리포트 사본 JSON. `gestalt lens context-input <slug> --report <key> --with-transcript`의 출력 꼴 `{ report, transcript: [{i, text}] }`이다. `report`는 합친 리포트 `reports[<n>]` 하나에서 `links`를 뺀 것이고 대섹션 `id`와 `cite` 범위, 의심 표시, 한계 단락이 든다. `transcript`는 문단 번호 `i`가 붙은 원문이다. 영상이면 `i`는 자막 문장 번호다.
+- 리포트 사본 JSON. `gestalt lens context-input <slug> --report <key> --with-transcript`의 출력 꼴 `{ report, transcript: [{i, text}] }`이다. `report`는 합친 리포트 `reports[<n>]` 하나에서 `links`를 뺀 것이고 대섹션 `id`와 `cite` 범위, 의심 표시, 한계 단락이 든다. `transcript`는 문단 번호 `i`가 붙은 원문이다.
+- 영상이면 리포트 사본 대신 `{ lead, sections, claims }` JSON이 온다. `sections`는 대섹션 `id`, `title`, `cite`, `conclusion`이고 `claims`는 스킬이 자막에서 미리 고른 확인할 발언이다. 발언마다 `section`, `anchor`(자막 문장 번호), `quote`(자막 원문), `claim`, `check`(무엇을 확인할지)가 든다. 자막 전체는 오지 않는다.
 - 자료 종류. 스킬이 영상이라고 적어 주면 "영상일 때" 절을 따른다. 안 적었으면 읽기 렌즈 자료(논문, 웹 글, 팟캐스트)다.
 - 카드 수. 읽기 렌즈는 2장(기본)이나 4장(깊게 읽기)이다. 영상은 6장 안팎이고 8장을 넘지 않는다.
 - 결과 언어 `lang`. 안 넘겼으면 `ko`다.
@@ -40,27 +41,44 @@ You are the Lens Context role agent.
       "anchor": { "key": 30, "from": 30, "to": 30 },
       "title": "FlavorGraph에서 이어진 연구",
       "lineage": [
-        { "year": "2021", "title": "FlavorGraph", "role": "foundation", "took": "재료와 화합물 그래프, CSP", "changed": "임베딩 학습을 diffusion으로", "source": "flavorgraph" }
+        {
+          "year": "2021",
+          "title": "FlavorGraph",
+          "role": "foundation",
+          "took": "재료와 화합물 그래프, CSP",
+          "changed": "임베딩 학습을 diffusion으로",
+          "source": "flavorgraph",
+        },
       ],
-      "points": [{ "text": "CSP 층은 FlavorGraph에 이미 있던 기법이다.", "sources": ["flavorgraph"] }],
+      "points": [
+        { "text": "CSP 층은 FlavorGraph에 이미 있던 기법이다.", "sources": ["flavorgraph"] },
+      ],
       "sources": [
-        { "id": "flavorgraph", "url": "https://doi.org/10.1038/s41598-020-79422-8", "title": "FlavorGraph: a large-scale food-chemical graph…", "publisher": "Scientific Reports", "year": "2021" }
-      ]
-    }
+        {
+          "id": "flavorgraph",
+          "url": "https://doi.org/10.1038/s41598-020-79422-8",
+          "title": "FlavorGraph: a large-scale food-chemical graph…",
+          "publisher": "Scientific Reports",
+          "year": "2021",
+        },
+      ],
+    },
   ],
-  "limits": [{ "text": "새 조합을 맛이나 화학 분석으로 확인한 후속 연구를 찾지 못했다.", "card": "counter" }]
+  "limits": [
+    { "text": "새 조합을 맛이나 화학 분석으로 확인한 후속 연구를 찾지 못했다.", "card": "counter" },
+  ],
 }
 ```
 
 ## 바깥 맥락 카드
 
-| `kind` | 담는 것 |
-| --- | --- |
-| `lineage` | 연구 계보. 선행 연구를 연도와 함께 `foundation`(토대), `component`(구성 요소), `baseline`(비교 대상)으로 나누고 이 논문이 가져온 것(`took`)과 바꾼 것(`changed`)을 적는다 |
-| `interpretation` | 결과 해석. "NMI 0.3410이 이 분야에서 얼마나 좋은가"처럼 원문 숫자를 바깥 기준에 놓고 본다 |
-| `counter` | 반론. 다른 연구가 다르게 보고했거나 같은 기법을 먼저 썼거나 방법의 약점을 짚은 자료 |
-| `unverified` | 검증 안 된 부분. 원문 주장을 확인한 후속 연구나 재현이 있는지 찾아보고 없으면 없다고 쓴다 |
-| `background` | 알면 좋은 배경. 원문이 전제로 깔고 지나간 개념이나 사건, 제도를 바깥 자료로 짧게 보탠다 |
+| `kind`           | 담는 것                                                                                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lineage`        | 연구 계보. 선행 연구를 연도와 함께 `foundation`(토대), `component`(구성 요소), `baseline`(비교 대상)으로 나누고 이 논문이 가져온 것(`took`)과 바꾼 것(`changed`)을 적는다 |
+| `interpretation` | 결과 해석. "NMI 0.3410이 이 분야에서 얼마나 좋은가"처럼 원문 숫자를 바깥 기준에 놓고 본다                                                                                 |
+| `counter`        | 반론. 다른 연구가 다르게 보고했거나 같은 기법을 먼저 썼거나 방법의 약점을 짚은 자료                                                                                       |
+| `unverified`     | 검증 안 된 부분. 원문 주장을 확인한 후속 연구나 재현이 있는지 찾아보고 없으면 없다고 쓴다                                                                                 |
+| `background`     | 알면 좋은 배경. 원문이 전제로 깔고 지나간 개념이나 사건, 제도를 바깥 자료로 짧게 보탠다                                                                                   |
 
 - 카드 수는 스킬이 넘긴 수를 넘지 않는다. 기본 두 장이면 `lineage` 하나와 `counter`나 `unverified` 하나를 먼저 고른다.
 - 카드마다 웹 검색을 두세 번 한다. 원문 참고문헌의 선행 연구는 원 논문 페이지(DOI, arXiv, ACL Anthology)를 직접 열어 확인한다.
@@ -74,15 +92,15 @@ You are the Lens Context role agent.
 
 영상 발언은 논문처럼 참고문헌과 표가 없다. 그래서 말한 숫자와 사실 주장 자체를 확인하는 데 카드를 쓴다.
 
-1. **확인할 발언을 고른다.** 리포트 사본과 자막 문장에서 숫자(통계, 금액, 비율, 연도)와 사실 주장(누가 무엇을 했다, 무엇이 무엇보다 크다)을 고른다. 영상의 결론을 받치는 발언과 듣는 사람이 그대로 믿고 옮길 만한 발언을 먼저 고른다. 말하는 사람의 의견이나 감상은 고르지 않는다.
+1. **확인할 발언은 `claims`에 있다.** 목록 밖의 발언을 새로 찾지 않는다. 확인할 거리가 없는 발언은 건너뛴다. 카드의 `section`과 `anchor`는 그 발언에 적힌 값을 그대로 쓴다. 여러 발언을 한 카드로 묶으면 `anchor`는 그 발언들을 다 덮는 범위로 적는다. 같은 대섹션 안의 발언만 묶는다.
 2. **카드 종류를 정한다.**
 
-| `kind` | 영상에서 담는 것 |
-| --- | --- |
+| `kind`           | 영상에서 담는 것                                                                                                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `interpretation` | 기준이나 해석에 따라 달라지는 숫자. 어느 해 기준인지, 어떤 지표인지, 명목인지 실질인지, 평균인지 중앙값인지에 따라 값이 바뀌면 그 기준을 나란히 적는다. 이런 줄은 `verdict: "depends"`다 |
-| `counter` | 반론. 같은 주제를 다르게 본 연구나 기사, 공식 자료 |
-| `unverified` | 사실 확인. 발언 하나마다 줄 하나를 쓰고 `verdict`를 단다. 출처에서 확인한 값과 영상에서 말한 값을 함께 적는다 |
-| `background` | 알면 좋은 배경. 영상이 설명 없이 지나간 용어나 사건, 맥락 |
+| `counter`        | 반론. 같은 주제를 다르게 본 연구나 기사, 공식 자료                                                                                                                                       |
+| `unverified`     | 사실 확인. 발언 하나마다 줄 하나를 쓰고 `verdict`를 단다. 출처에서 확인한 값과 영상에서 말한 값을 함께 적는다                                                                            |
+| `background`     | 알면 좋은 배경. 영상이 설명 없이 지나간 용어나 사건, 맥락                                                                                                                                |
 
 3. **`lineage`는 쓰지 않는다.** 연구 계보는 논문용이라 영상 리포트에 쓰면 `CARD_KIND_ON_VIDEO`로 막힌다.
 4. **카드 수는 6장 안팎이다.** 확인할 발언이 적은 영상이면 줄인다. 8장을 넘기면 스키마에서 막힌다. 한 카드에 같은 대섹션의 발언 여러 개를 줄로 묶어도 된다.
