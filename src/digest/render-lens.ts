@@ -1,5 +1,6 @@
 import {
   isCellRef,
+  type CardVerdict,
   type ContextCard,
   type KnowledgeLink,
   type CellRef,
@@ -10,7 +11,7 @@ import {
 } from './lens-schema.js';
 import { GLANCE_REQUIRED } from './lint-lens.js';
 import type { LensSource, SourceFigure, SourceTable } from './lens-source.js';
-import type { Cite, LensKind, Report, Transcript } from './schema.js';
+import { isLensKind, type Cite, type LensKind, type Report, type Transcript } from './schema.js';
 
 /**
  * 읽기 렌즈가 video-digest 뷰어에 더하는 조각. 뷰어를 두 벌 두지 않으려고 render-html이 이 조각을 끼워 넣는다.
@@ -238,6 +239,24 @@ export const CARD_KIND_LABEL: Record<ContextCard['kind'], string> = {
   interpretation: '결과 해석',
   counter: '반론',
   unverified: '검증 안 된 부분',
+  background: '알면 좋은 배경',
+};
+
+/** 영상 카드는 발언을 확인한 것이라 렌즈의 논문 말투 대신 이 이름을 쓴다. 없는 종류는 렌즈 이름 그대로다 */
+const VIDEO_CARD_KIND_LABEL: Partial<Record<ContextCard['kind'], string>> = {
+  interpretation: '기준과 해석',
+  unverified: '사실 확인',
+};
+
+export const cardKindLabel = (kind: ContextCard['kind'], video: boolean): string =>
+  (video ? VIDEO_CARD_KIND_LABEL[kind] : undefined) ?? CARD_KIND_LABEL[kind];
+
+/** 카드 한 줄의 사실 확인 배지 글자. 마크다운 렌더도 같은 글자를 쓴다 */
+export const CARD_VERDICT_LABEL: Record<CardVerdict, string> = {
+  correct: '맞음',
+  depends: '기준 따라 다름',
+  incorrect: '다름',
+  unverifiable: '확인 못함',
 };
 
 const LINEAGE_ROLE_LABEL = {
@@ -248,7 +267,8 @@ const LINEAGE_ROLE_LABEL = {
 
 /**
  * 바깥 맥락 카드. 대섹션 끝에 접어 둔다. 줄마다 바깥 출처 번호를 달고 출처는 새 탭 링크다.
- * 원문 안의 어긋남은 의심 표시가 본문에 펼쳐 보이니 카드는 바깥 자료만 담는다
+ * 원문 안의 어긋남은 의심 표시가 본문에 펼쳐 보이니 카드는 바깥 자료만 담는다.
+ * 영상에는 의심 표시가 없어서 머리말을 영상 발언을 확인한 카드라고 바꿔 단다
  */
 export function contextCardHtml(card: ContextCard, ctx: LensHtmlContext): string {
   const order = card.sources.map((s) => s.id);
@@ -269,7 +289,12 @@ export function contextCardHtml(card: ContextCard, ctx: LensHtmlContext): string
         .join('')}</tbody></table>`
     : '';
   const points = `<ul class="ctx-points">${card.points
-    .map((pt) => `<li>${ctx.inline(pt.text)}${pt.sources.map(ref).join('')}</li>`)
+    .map((pt) => {
+      const badge = pt.verdict
+        ? `<span class="ctx-verdict ctx-verdict-${pt.verdict}">${CARD_VERDICT_LABEL[pt.verdict]}</span> `
+        : '';
+      return `<li>${badge}${ctx.inline(pt.text)}${pt.sources.map(ref).join('')}</li>`;
+    })
     .join('')}</ul>`;
   const sources = `<ol class="ctx-sources">${card.sources
     .map(
@@ -277,7 +302,11 @@ export function contextCardHtml(card: ContextCard, ctx: LensHtmlContext): string
         `<li><a href="${ctx.escape(s.url)}" target="_blank" rel="noopener noreferrer">${ctx.escape(s.title)}</a>${[s.publisher, s.year].filter(Boolean).length ? ` <small>${ctx.escape([s.publisher, s.year].filter(Boolean).join(', '))}</small>` : ''}</li>`,
     )
     .join('')}</ol>`;
-  return `<details class="ctx-card ctx-${card.kind}" id="${ctx.pfx ?? ''}card-${ctx.escape(card.id)}"><summary><span class="ctx-kind">${CARD_KIND_LABEL[card.kind]}</span> ${ctx.escape(card.title)}</summary><p class="ctx-anchor">원문 자리 ${ctx.loc(card.anchor.key)}${ctx.cite(card.anchor)} <small>바깥 자료로 쓴 카드예요. 원문 안의 어긋남은 본문 의심 표시에 있어요.</small></p>${lineage}${points}${sources}</details>`;
+  const video = !isLensKind(ctx.transcript.meta.source);
+  const anchor = video
+    ? `영상 자리 ${ctx.loc(card.anchor.key)}${ctx.cite(card.anchor)} <small>영상에서 한 말을 바깥 자료로 확인한 카드예요.</small>`
+    : `원문 자리 ${ctx.loc(card.anchor.key)}${ctx.cite(card.anchor)} <small>바깥 자료로 쓴 카드예요. 원문 안의 어긋남은 본문 의심 표시에 있어요.</small>`;
+  return `<details class="ctx-card ctx-${card.kind}" id="${ctx.pfx ?? ''}card-${ctx.escape(card.id)}"><summary><span class="ctx-kind">${cardKindLabel(card.kind, video)}</span> ${ctx.escape(card.title)}</summary><p class="ctx-anchor">${anchor}</p>${lineage}${points}${sources}</details>`;
 }
 
 /** 노트 경로는 홈 폴더를 ~로 줄여 보인다. 뷰어가 http로 열려서 file 링크는 걸지 않는다 */
@@ -353,6 +382,12 @@ export const LENS_CSS = `
 .ctx-card summary{cursor:pointer;font-weight:600}
 .ctx-kind{display:inline-block;font-size:.75em;font-weight:700;border-radius:999px;padding:0 8px;background:var(--chip);color:var(--muted);margin-right:4px}
 .ctx-counter{border-left-color:var(--warn)}
+.ctx-background{border-left-color:var(--muted)}
+.ctx-verdict{display:inline-block;font-size:.75em;font-weight:700;border:1px solid currentColor;border-radius:999px;padding:0 7px;margin-right:2px;white-space:nowrap}
+.ctx-verdict-correct{color:var(--accent)}
+.ctx-verdict-depends{color:var(--warn)}
+.ctx-verdict-incorrect{color:var(--warn);background:var(--hl)}
+.ctx-verdict-unverifiable{color:var(--muted);border-style:dashed}
 .ctx-anchor{font-size:.88em;color:var(--muted)}
 .ctx-lineage{border-collapse:collapse;font-size:.86em;margin:6px 0;width:100%}
 .ctx-lineage th,.ctx-lineage td{border-bottom:1px solid var(--line);padding:3px 6px;text-align:left;vertical-align:top}

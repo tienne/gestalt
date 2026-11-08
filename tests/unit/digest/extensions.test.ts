@@ -199,7 +199,7 @@ describe('loadTemplates', () => {
   it('skillsDir에 video-digest가 없으면 패키지에 실린 기본 템플릿으로 내려간다', () => {
     const dir = findBuiltinTemplatesDir(join(tmpRepo(), 'plugin', 'skills'));
     expect(dir).not.toBeNull();
-    expect(existsSync(join(dir!, 'background.md'))).toBe(true);
+    expect(existsSync(join(dir!, 'meeting.md'))).toBe(true);
   });
 });
 
@@ -266,6 +266,25 @@ describe('확장 리포트 lint', () => {
     expect(codes(issues)).toEqual(
       expect.arrayContaining(['BLOCK_NOT_IN_TEMPLATE', 'UNKNOWN_TEMPLATE']),
     );
+  });
+});
+
+describe('목록에 없는 템플릿의 기존 확장', () => {
+  it('UNKNOWN_TEMPLATE 경고만 내고 렌더는 된다', () => {
+    const quiz = parseTemplate(
+      TEMPLATE.replace('id: background', 'id: quiz').replace('관련 배경지식', '퀴즈'),
+      'builtin',
+      'p',
+    );
+    const d = { ...sampleDigest(), extensions: [sampleExtension({ template: 'background' })] };
+    const issues = lintDigest(d, sampleTranscript(), { templates: templateMap([quiz]) });
+    expect(lintErrors(issues)).toEqual([]);
+    expect(issues.filter((i) => i.severity === 'warning').map((i) => i.code)).toEqual([
+      'UNKNOWN_TEMPLATE',
+    ]);
+    const { html } = renderDigestHtml(d, sampleTranscript(), { templates: [quiz] });
+    expect(html).toContain('id="ext-background.ko"');
+    expect(html).toContain('<strong>코드를</strong>');
   });
 });
 

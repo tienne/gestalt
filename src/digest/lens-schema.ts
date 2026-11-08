@@ -106,10 +106,22 @@ export const lineageSchema = z.object({
   source: idSchema,
 });
 
-export const CARD_KINDS = ['lineage', 'interpretation', 'counter', 'unverified'] as const;
+export const CARD_KINDS = [
+  'lineage',
+  'interpretation',
+  'counter',
+  'unverified',
+  'background',
+] as const;
 
 /**
- * 바깥 맥락 카드. 선행 연구와 반론, 결과 해석처럼 원문 밖 자료로만 말할 수 있는 것을 담는다.
+ * 카드 한 줄이 원문 주장을 바깥 자료로 확인한 결과. 영상 발언의 사실 확인에 쓴다.
+ * correct는 맞음, depends는 기준이나 해석에 따라 달라짐, incorrect는 바깥 자료와 다름, unverifiable은 확인 못함이다
+ */
+export const CARD_VERDICTS = ['correct', 'depends', 'incorrect', 'unverifiable'] as const;
+
+/**
+ * 바깥 맥락 카드. 선행 연구와 반론, 결과 해석, 알면 좋은 배경처럼 원문 밖 자료로만 말할 수 있는 것을 담는다.
  * 원문 안의 어긋남은 의심 표시 몫이라 여기 두지 않는다. 줄마다 바깥 출처 id를 단다
  */
 export const contextCardSchema = z.object({
@@ -122,11 +134,21 @@ export const contextCardSchema = z.object({
   title: textSchema,
   lineage: z.array(lineageSchema).max(8).optional(),
   points: z
-    .array(z.object({ text: textSchema, sources: z.array(idSchema).min(1) }))
+    .array(
+      z.object({
+        text: textSchema,
+        sources: z.array(idSchema).min(1),
+        verdict: z.enum(CARD_VERDICTS).optional(),
+      }),
+    )
     .min(1)
     .max(6),
   sources: z.array(cardSourceSchema).min(1).max(10),
 });
+
+/** 맥락 카드 상한. 읽기 렌즈는 깊게 읽기에서 네 장, 영상은 숫자와 사실 주장이 많아 여덟 장까지다 */
+export const CARDS_MAX_LENS = 4;
+export const CARDS_MAX_VIDEO = 8;
 
 /**
  * 내 지식 연결 카드. 사용자 노트나 레포 문서의 한 자리와 원문을 잇는다.
@@ -146,4 +168,5 @@ export const knowledgeLinkSchema = z.object({
 });
 
 export type ContextCard = z.infer<typeof contextCardSchema>;
+export type CardVerdict = (typeof CARD_VERDICTS)[number];
 export type KnowledgeLink = z.infer<typeof knowledgeLinkSchema>;

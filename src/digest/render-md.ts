@@ -4,10 +4,11 @@ import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.
 import { blockMarkdown, mdInline, sectionDiagramMd } from './render-blocks.js';
 import { isCellRef, type Evidence } from './lens-schema.js';
 import type { LensSource } from './lens-source.js';
-import { CARD_KIND_LABEL, GLANCE_LABEL, unitLabel } from './render-lens.js';
+import { CARD_VERDICT_LABEL, cardKindLabel, GLANCE_LABEL, unitLabel } from './render-lens.js';
 import { reportLabel } from './reports.js';
 import { widgetMarkdown } from './render-widgets.js';
 import {
+  isLensKind,
   isTextKind,
   keywordPattern,
   type Bullet,
@@ -146,7 +147,10 @@ export function renderDigestMarkdown(
   if (report.cards?.length) {
     out.push('## 바깥 맥락', '');
     for (const card of report.cards) {
-      out.push(`### ${card.title} (${CARD_KIND_LABEL[card.kind]})`, '');
+      out.push(
+        `### ${card.title} (${cardKindLabel(card.kind, !isLensKind(transcript.meta.source))})`,
+        '',
+      );
       const order = card.sources.map((s) => s.id);
       const ref = (id: string) => `[${order.indexOf(id) + 1}]`;
       for (const l of card.lineage ?? []) {
@@ -158,7 +162,10 @@ export function renderDigestMarkdown(
           .join(', ');
         out.push(`- ${l.year} ${l.title} ${ref(l.source)}${extra ? ` (${extra})` : ''}`);
       }
-      for (const pt of card.points) out.push(`- ${plain(pt.text)} ${pt.sources.map(ref).join('')}`);
+      for (const pt of card.points) {
+        const verdict = pt.verdict ? `[${CARD_VERDICT_LABEL[pt.verdict]}] ` : '';
+        out.push(`- ${verdict}${plain(pt.text)} ${pt.sources.map(ref).join('')}`);
+      }
       out.push('');
       card.sources.forEach((s, k) => out.push(`${k + 1}. [${s.title}](${s.url})`));
       out.push('');
