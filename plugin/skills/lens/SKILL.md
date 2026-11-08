@@ -246,7 +246,7 @@ gestalt digest merge '<slug>' '<reportPath>' --json --repo-root '<repoRoot>'
 | `B_HAS_DATA`, `B_METRIC_LABEL`, `B_BORROWS_NAME`, `B_FIGURE_TITLE` | 설명용 그림이 원문 결과처럼 읽힌다 | 값과 지표 말, 원문 이름을 빼거나 C로 바꾼다 |
 | `B_HAS_NUMBER` | 설명용 그림 라벨에 숫자가 있다 | 숫자를 빼고 순서는 '처음', '다음', '끝'처럼 쓴다 |
 | `A_NO_VALUES` | 원문 데이터 그림(A)에 값이 하나도 없다 | 원문 칸 값을 `src`와 함께 넣거나 B로 바꾼다 |
-| `LENS_FIELD_ON_VIDEO` | 렌즈 자료가 아닌 리포트에 렌즈 칸이 있다 | slug가 영상 리포트를 가리키는지 본다. 영상이면 video-digest로 가고 렌즈 칸은 쓰지 않는다 |
+| `LENS_FIELD_ON_VIDEO` | 렌즈 자료가 아닌 리포트에 렌즈 칸이 있다 | slug가 영상 리포트를 가리키는지 본다. 영상이면 video-digest로 간다. 영상 리포트는 맥락 카드와 카드에서 나온 한계 줄만 받고 나머지 렌즈 칸은 쓰지 않는다 |
 | `C_DIFFERENCES_EMPTY`, `C_STEPS_EXCEED_PANELS`, `C_PANELS_UNKNOWN` | 재구성이 원문과 견줄 수 없다 | 다르게 그린 점을 적고 칸 수를 줄인다. 장면 수가 없으면 `gestalt lens panels`를 먼저 부른다 |
 
 경고(소섹션 수, 불릿 수, 도식 수, `INTRO_MISSING`)는 막지 않는다. 원문에 맞는 분량이면 그대로 둔다.

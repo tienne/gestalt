@@ -61,7 +61,7 @@ const SHORT_DESCRIPTIONS: Record<string, string> = {
   explainer: '대상에 맞춘 설명 작성',
   'video-summarizer': '영상 스크립트로 요약 리포트 작성',
   'lens-reader': '논문과 글을 출처와 의심 표시로 읽는 리포트 작성',
-  'lens-context': '읽기 렌즈의 선행 연구와 반론 카드 작성',
+  'lens-context': '읽기 렌즈와 영상 요약의 맥락 카드 작성',
   'lens-link': '읽기 렌즈의 내 노트 연결 카드 작성',
 };
 
