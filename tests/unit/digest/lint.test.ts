@@ -240,4 +240,51 @@ describe('lintDigest', () => {
       expect(diagramTarget(d.reports[0]!)).toBe(1);
     });
   });
+
+  describe('도식 종류가 한쪽으로 쏠리면 경고만 낸다', () => {
+    // s2를 복제해 대섹션을 늘린다. 소섹션 id까지 바꿔야 중복 id 오류가 안 난다
+    const withKinds = (kinds: Array<'flow' | 'hub' | 'stat'>) => {
+      const d = sampleDigest();
+      const [first, base] = d.reports[0]!.sections;
+      const sections = kinds.map((kind, i) => {
+        const copy = JSON.parse(JSON.stringify(base).replaceAll('"s2', `"s${i + 3}`));
+        copy.diagram =
+          kind === 'flow'
+            ? base!.diagram
+            : kind === 'hub'
+              ? {
+                  kind: 'hub',
+                  center: { label: '중심' },
+                  satellites: [{ label: '하나' }, { label: '둘' }],
+                }
+              : { kind: 'stat', value: '37%', label: '비율', cite: { key: 7, from: 6, to: 7 } };
+        return copy;
+      });
+      d.reports[0]!.sections = [first!, ...sections];
+      return d;
+    };
+    const skew = (kinds: Array<'flow' | 'hub' | 'stat'>) =>
+      lintDigest(withKinds(kinds), sampleTranscript()).filter(
+        (i) => i.code === 'DIAGRAM_KIND_SKEW',
+      );
+
+    it('절반을 넘는 종류가 있으면 그 종류 이름과 함께 알린다', () => {
+      const issues = skew(['flow', 'flow', 'hub']);
+      expect(issues).toEqual([
+        expect.objectContaining({ severity: 'warning', path: 'reports.0.sections' }),
+      ]);
+      expect(issues[0]!.message).toContain('3개 중 2개가 flow');
+    });
+
+    it('정확히 절반이면 쏠림으로 보지 않는다', () => {
+      expect(skew(['flow', 'flow', 'hub', 'stat'])).toEqual([]);
+    });
+
+    it('도식이 셋보다 적으면 보지 않는다', () => {
+      const d = sampleDigest();
+      expect(lintDigest(d, sampleTranscript()).map((i) => i.code)).not.toContain(
+        'DIAGRAM_KIND_SKEW',
+      );
+    });
+  });
 });

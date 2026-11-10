@@ -612,6 +612,22 @@ function checkDiagramCount(report: Report, p: string, issues: DigestIssue[]): vo
   }
 }
 
+// 개수만 채우라고 하면 모델이 만만한 flow와 compare로 몰아 새 종류가 쓰일 자리까지 덮는다
+function checkDiagramKindSkew(report: Report, p: string, issues: DigestIssue[]): void {
+  const kinds = report.sections.flatMap((s) => (s.diagram ? [s.diagram.kind] : []));
+  if (kinds.length < 3) return;
+  const counts = new Map<string, number>();
+  for (const kind of kinds) counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  const [top, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]!;
+  if (n * 2 <= kinds.length) return;
+  issues.push({
+    path: `${p}.sections`,
+    severity: 'warning',
+    code: 'DIAGRAM_KIND_SKEW',
+    message: `도식 ${kinds.length}개 중 ${n}개가 ${top}다. 대섹션마다 내용의 모양에 맞는 종류를 다시 고른다. 숫자 하나로 모이면 stat, 후보 중 일부만 골랐으면 pickGrid, 한 중심에 순서 없이 딸리면 hub, 바뀌기 전과 뒤가 있으면 beforeAfter가 맞다`,
+  });
+}
+
 function checkVolume(report: Report, p: string, issues: DigestIssue[]): void {
   const { subsections: subRange, bullets: bulletRange } = VOLUME_BY_LENGTH[report.options.length];
   report.sections.forEach((section, si) => {
@@ -752,6 +768,7 @@ function lintReport(
   checkDuplicateIds(report, p, issues);
   checkVolume(report, p, issues);
   checkDiagramCount(report, p, issues);
+  checkDiagramKindSkew(report, p, issues);
 }
 
 /**
