@@ -11,6 +11,7 @@
 | `style-guide.md` | 한국어 문장·용어·문서 구조 규칙 | `technical-writer`, `impact-writer`, `presentation-writer`, `presentation-designer`, `jira-writer` |
 | `comment-rules.md` | 코드 주석 위생 룰북 (`CM-` ID, 리뷰 파이프라인 심각도). 어투가 아니라 코드 품질 쪽 | `quality-reviewer` |
 | `truncation-rules.md` | 잘린 결과 룰북 (`TR-` ID, 리뷰 파이프라인 심각도). 일부만 가져와놓고 전부인 것처럼 돌려주는 코드 | `quality-reviewer` |
+| `diagram-choice.md` | 대섹션 도식 종류 고르는 기준 (룰 ID 없음). 내용의 모양에서 `stat`, `pickGrid`, `hub` 같은 구체적인 종류를 먼저 찾고 `flow`는 마지막에 쓴다. `DIAGRAM_KIND_SKEW` 경고의 근거 | `video-summarizer`, `lens-reader` |
 | `rule-path-walk.md` | 규칙 문서 경로 따라가기 절차 (룰 ID 없음). 규칙 문서가 바뀐 PR에서 정상 경로 하나를 끝까지 따라가 막힘, 모순, 비어버림 같은 자리를 찾는다 | `/review` 3.5단계(`continuity-judge` 프롬프트), `suggestion-verifier` |
 
 ## 고칠 때
