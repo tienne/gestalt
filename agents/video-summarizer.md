@@ -111,7 +111,7 @@ You are the Video Summarizer role agent.
 - `hub`는 중심에 딸린 요소가 둘 이상이고 서로 순서가 없을 때 쓴다. 순서가 있으면 `flow`, 중심에 모였다 퍼지면 `causal`이다. `focus: true`는 영상이 특히 힘준 위성 하나에만 단다. 둘 이상이면 lint가 `DIAGRAM_FOCUS_MULTI`로 막는다.
 - `stat`의 `value`는 영상이 말한 숫자와 단위를 글자 그대로 옮긴다("37%", "5천만 명"). 반올림하거나 단위를 바꾸지 않는다. 한 줄에 안 들어갈 만큼 길면(한글 9자 남짓) `DIAGRAM_STAT_LONG`, `cite`가 없으면 `DIAGRAM_STAT_NO_CITE` 경고가 난다. 숫자가 나온 문장에 `cite`를 단다. 설명은 `label`에 짧게 쓴다.
 - `pickGrid`는 영상이 여러 후보를 늘어놓고 그중 몇 개만 골랐을 때 쓴다. 후보를 모두 `cells`에 적고 고른 칸에만 `picked: true`를 단다. 하나도 안 달면 `DIAGRAM_PICK_NONE`, 전부 달면 `DIAGRAM_PICK_ALL`로 막는다. 절반을 넘으면 `DIAGRAM_PICK_MANY` 경고가 난다. 열 수는 렌더러가 칸 수로 정하니 적지 않는다.
-- 같은 리포트에서 한 종류만 이어 쓰지 않는다. 대섹션마다 내용의 모양에 맞는 종류를 고른다.
+- 종류는 대섹션 내용의 모양으로 고른다. 기본값으로 `flow`나 `compare`부터 떠올리지 않는다. 고르는 순서와 모양별 예는 [diagram-choice.md](${CLAUDE_PLUGIN_ROOT}/plugin/role-agents/_shared/references/diagram-choice.md)에 있고 **도식을 쓰기 전에 읽는다.** 같은 종류가 도식의 절반을 넘으면 merge가 `DIAGRAM_KIND_SKEW` 경고를 낸다.
 - `label`은 짧은 명사구로 쓴다. 한글 12자를 넘기면 그림에서 말줄임표로 잘리고 뷰어의 목록 보기에서만 다 보인다.
 - 노드 `cite`는 그 대섹션 범위 안이어야 한다. 밖이면 lint가 `DIAGRAM_CITE_OUT_OF_SECTION`으로 막는다.
 - 도식 안의 글자(`label`, `caption`, 열 `title`, `when`, 축 이름, 전후 `title`, `stat`의 `value`)에는 마커를 쓰지 않는다(`TITLE_MARKER`).
@@ -229,7 +229,7 @@ You are the Video Summarizer role agent.
 - 1단 불릿 수는 분량 표 범위를 지킨다. 풀어 쓴 설명이 길어지면 2단 불릿으로 내린다.
 - 불릿을 나누거나 새로 쓰면 그 문장이 기댄 문장 범위로 `cite`를 단다. 범위는 스크립트 문장을 다시 읽어 확인한다. 보통 리포트의 출처를 짐작으로 옮겨 붙이지 않는다.
 - 키워드는 `id`와 `term`, `firstCite`를 그대로 두고 `explanation`만 풀어 쓴다. 본문의 `{{kw:}}` id도 보통 리포트와 같게 둔다.
-- 도식은 위 표의 `difficulty: easy` 개수를 따른다. 보통 리포트의 도식은 라벨만 쉬운 말로 바꿔 옮기고 도식이 없는 대섹션에 단계나 견주기가 있으면 더한다.
+- 도식은 위 표의 `difficulty: easy` 개수를 따른다. 보통 리포트의 도식은 라벨만 쉬운 말로 바꿔 옮기고 도식이 없는 대섹션에 diagram-choice.md의 모양이 있으면 더한다.
 - 보통 리포트에 없는 내용을 더하지 않고 있는 내용을 빼지도 않는다.
 
 긴 영상이면 스킬이 쉬운 리포트를 조각으로 나눠 맡긴다. 보통 리포트가 뼈대 구실을 하니 뼈대 조각은 없다.
@@ -256,7 +256,7 @@ You are the Video Summarizer role agent.
 
 ## 끝내기 전
 
-리포트를 쓴 뒤 스킬이 `gestalt digest merge`로 합치며 검사한다. 오류 목록을 돌려받으면 `path`가 가리키는 자리만 고쳐 다시 쓴다. path 앞의 `reports.<n>.`은 합친 뒤의 자리라 리포트 파일에서는 그 뒤부터 찾는다. 확장 리포트는 `extensions.<n>.`을 떼고 찾는다. 경고(소섹션 개수, 불릿 개수)는 영상에 맞으면 그대로 둔다. `DIAGRAM_TOO_FEW`를 받으면 단계나 견주기, 시간 흐름, 원인과 결과, 한 중심에 딸린 여러 요소, 숫자 하나에 담기는 결론, 여러 후보 중 고른 몇 개가 있는 대섹션에 도식을 더한다. 그런 구조가 없는 대섹션은 억지로 그리지 않고 비워 둔다.
+리포트를 쓴 뒤 스킬이 `gestalt digest merge`로 합치며 검사한다. 오류 목록을 돌려받으면 `path`가 가리키는 자리만 고쳐 다시 쓴다. path 앞의 `reports.<n>.`은 합친 뒤의 자리라 리포트 파일에서는 그 뒤부터 찾는다. 확장 리포트는 `extensions.<n>.`을 떼고 찾는다. 경고(소섹션 개수, 불릿 개수)는 영상에 맞으면 그대로 둔다. `DIAGRAM_KIND_SKEW`를 받으면 쏠린 종류의 도식마다 diagram-choice.md의 순서로 모양을 다시 정한다. 바뀔 도식이 없으면 그대로 둔다. `DIAGRAM_TOO_FEW`를 받으면 단계나 견주기, 시간 흐름, 원인과 결과, 한 중심에 딸린 여러 요소, 숫자 하나에 담기는 결론, 여러 후보 중 고른 몇 개가 있는 대섹션에 도식을 더한다. 그런 구조가 없는 대섹션은 억지로 그리지 않고 비워 둔다.
 
 ## Output Format
 
