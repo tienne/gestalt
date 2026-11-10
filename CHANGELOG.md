@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.126.0] - 2026-11-11
+
+### Added
+
+- **도식 종류가 한쪽으로 몰리면 경고해요.** 대섹션 도식이 3개 이상이고 한 종류가 절반을 넘으면 `DIAGRAM_KIND_SKEW` 경고를 내요(#115). 정확히 절반은 쏠림으로 안 봐요. 경고라서 merge를 막지는 않아요.
+  - 지금까지는 개수가 모자라면 알리는 `DIAGRAM_TOO_FEW`만 있었어요. 종류를 고르게 하는 압력이 없어서 모델이 만만한 `flow`와 `compare`로 개수를 채웠고 `hub`, `stat`, `pickGrid`는 실제 리포트에 한 번도 안 나왔어요.
+  - `diagram-choice.md`를 새로 뒀어요. 대섹션 내용의 모양을 위에서부터 훑어 처음 맞는 종류를 쓰는 11단계 표예요. `flow`는 마지막 후보고 영상용 예와 논문과 글용 예를 같이 적었어요.
+  - 원문에 근거가 없는 모양은 만들지 않아요. `stat`은 원문이 말한 숫자가 있을 때만 쓰고 `pickGrid`는 원문이 실제로 골랐을 때만 써요.
+
+### Changed
+
+- `lens-reader`가 도식을 아끼지 않게 안내를 보강했어요. 논문과 글에는 방법 단계와 기존 방법 대비 제안 방법, 구성 요소, 핵심 수치처럼 그릴 구조가 많아서예요. 권하는 도식 수 표를 넣었고 종류는 `diagram-choice.md`를 먼저 읽고 고르게 했어요. 서론이나 배경처럼 구조가 없는 대섹션에는 억지로 붙이지 않아요.
+- `video-summarizer`의 "같은 종류만 이어 쓰지 않는다" 한 줄을 기준 문서 링크로 바꿨고 `DIAGRAM_KIND_SKEW`를 받았을 때의 대응을 추가했어요.
+
+### 남긴 것
+
+- 경고는 한 종류가 절반을 넘을 때만 잡아요. `flow` 2개와 `compare` 2개와 `causal` 2개처럼 고르게 퍼진 쏠림은 못 잡아요.
+- 새 종류(hierarchy, sequence, venn)는 이번에 안 넣었어요. 효과를 본 뒤에 정해요.
+- `lens-reader`가 `video-summarizer`의 종류별 JSON 꼴 절을 실제로 읽는지는 영상 하나를 다시 요약해 봐야 알아요.
+
 ## [0.125.0] - 2026-11-08
 
 ### Added
