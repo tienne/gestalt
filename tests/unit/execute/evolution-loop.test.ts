@@ -319,6 +319,20 @@ describe('Spec Patch Applier', () => {
     expect(newSpec.ontologySchema.entities).toEqual(spec.ontologySchema.entities);
   });
 
+  it('does not share the attributes array of an omitted field with the original spec', () => {
+    const spec = createTestSpec();
+    const original = JSON.parse(JSON.stringify(spec));
+    const { newSpec } = applySpecPatch(
+      spec,
+      { ontologySchema: { entities: [{ name: 'User' }, { name: 'Token' }] } },
+      1,
+    );
+
+    newSpec.ontologySchema.entities[0]?.attributes?.push('mutated');
+
+    expect(spec.ontologySchema.entities).toEqual(original.ontologySchema.entities);
+  });
+
   it('clears an entity field only when the patch gives an explicit empty value', () => {
     const spec = createTestSpec();
     const { newSpec } = applySpecPatch(

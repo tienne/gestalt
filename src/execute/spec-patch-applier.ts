@@ -30,8 +30,10 @@ export function applySpecPatch(
   // L3: ontologySchema (add/modify only, validated upstream)
   if (patch.ontologySchema) {
     if (patch.ontologySchema.entities) {
-      // description/attributes를 생략한 엔티티는 기존 값을 유지한다. 비우려면 빈 값을 명시한다. spread는 undefined 키가 기존 값을 덮어서 쓰지 않는다.
-      const existingByName = new Map(currentSpec.ontologySchema.entities.map((e) => [e.name, e]));
+      // description/attributes를 생략한 엔티티는 기존 값을 유지한다. 비우려면 빈 값을 명시한다.
+      // {...existing, ...entity}는 undefined 키가 기존 값을 덮어서 필드마다 ??로 합친다.
+      // 원본 배열 참조가 newSpec으로 새지 않게 복제본에서 읽는다.
+      const existingByName = new Map(newSpec.ontologySchema.entities.map((e) => [e.name, e]));
       newSpec.ontologySchema.entities = patch.ontologySchema.entities.map((entity) => {
         const existing = existingByName.get(entity.name);
         if (!existing) return entity;
