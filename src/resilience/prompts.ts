@@ -157,5 +157,6 @@ Rules:
 - Only include specPatch fields that need to change
 - acceptanceCriteria/constraints: provide the FULL list (not just additions)
 - ontologySchema: must include ALL existing entities/relations + any new ones
+- An existing entity may omit description/attributes to keep them as is (give an empty value to clear)
 - Your approach MUST differ from previous evolution attempts`;
 }

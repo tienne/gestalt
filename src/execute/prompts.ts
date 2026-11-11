@@ -645,6 +645,7 @@ Rules:
 - Only include fields that need to change (omit unchanged fields)
 - acceptanceCriteria/constraints: provide the FULL list (not just additions)
 - ontologySchema.entities: must include ALL existing entities + any new ones
+- ontologySchema.entities: an existing entity may omit description/attributes to keep them as is (give an empty value to clear)
 - ontologySchema.relations: must include ALL existing relations + any new ones
 - Focus on addressing the specific gaps identified
 - Keep changes minimal to avoid scope creep`;
