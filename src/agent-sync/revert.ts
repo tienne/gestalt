@@ -182,17 +182,28 @@ interface CheckContext {
   t: (p: string) => string;
 }
 
+interface ActionProblem {
+  reason: string;
+  /** 지금 찾은 대상 홈에 없는 자리라서 걸렸다. sync 뒤 계정이 빠졌을 때도 이렇게 걸린다 */
+  slotMiss: boolean;
+}
+
 /** sync가 남길 수 없는 동작이면 그 이유 */
-function actionProblem(action: RunAction, ctx: CheckContext): string | null {
+function actionProblem(action: RunAction, ctx: CheckContext): ActionProblem | null {
   const { dir, home, agents, slotPaths, t } = ctx;
+  const shape = (reason: string): ActionProblem => ({ reason, slotMiss: false });
   const paths = Object.entries(action).flatMap(([k, v]) =>
     k !== 'op' && typeof v === 'string' ? [v] : [],
   );
   const bad = paths.find((p) => !isAbsolute(p) || resolve(p) !== p);
   if (bad)
-    return `절대 경로가 아니거나 \`.\`, \`..\`, 끝의 \`/\`, 겹친 \`/\`가 들어 있어요: ${bad}`;
-  const notSlot = (p: string) =>
-    `sync 대상 홈의 skills, CLAUDE.md, AGENTS.md나 ~/.agents/AGENTS.md가 아니에요: ${t(p)}`;
+    return shape(
+      `절대 경로가 아니거나 \`.\`, \`..\`, 끝의 \`/\`, 겹친 \`/\`가 들어 있어요: ${bad}`,
+    );
+  const notSlot = (p: string): ActionProblem => ({
+    reason: `sync 대상 홈의 skills, CLAUDE.md, AGENTS.md나 ~/.agents/AGENTS.md가 아니에요: ${t(p)}`,
+    slotMiss: true,
+  });
   const backupOk = (path: string, backup: string) =>
     isInside(dir, backup) && backup === backupPathIn(dir, home, path);
 
@@ -200,7 +211,7 @@ function actionProblem(action: RunAction, ctx: CheckContext): string | null {
     case 'mkdir':
       return isInside(agents, action.path)
         ? null
-        : `~/.agents 밖에 만든 폴더예요: ${t(action.path)}`;
+        : shape(`~/.agents 밖에 만든 폴더예요: ${t(action.path)}`);
     case 'create_file':
       return slotPaths.has(action.path) ? null : notSlot(action.path);
     case 'write_file':
@@ -208,26 +219,27 @@ function actionProblem(action: RunAction, ctx: CheckContext): string | null {
       if (!slotPaths.has(action.path)) return notSlot(action.path);
       return backupOk(action.path, action.backup)
         ? null
-        : `백업 경로가 실행 폴더 안의 제자리가 아니에요: ${t(action.backup)}`;
+        : shape(`백업 경로가 실행 폴더 안의 제자리가 아니에요: ${t(action.backup)}`);
     case 'create_link':
       if (!slotPaths.has(action.path)) return notSlot(action.path);
       return isInside(agents, action.target)
         ? null
-        : `~/.agents 밖을 가리키는 링크예요: ${t(action.target)}`;
+        : shape(`~/.agents 밖을 가리키는 링크예요: ${t(action.target)}`);
     case 'move': {
       const parent = dirname(action.from);
-      if (basename(parent) !== 'skills' || !slotPaths.has(parent))
-        return `sync 대상 홈의 skills 폴더 밖에서 옮긴 항목이에요: ${t(action.from)}`;
+      const outside = `sync 대상 홈의 skills 폴더 밖에서 옮긴 항목이에요: ${t(action.from)}`;
+      if (basename(parent) !== 'skills') return shape(outside);
+      if (!slotPaths.has(parent)) return { reason: outside, slotMiss: true };
       return isInside(agents, action.to)
         ? null
-        : `~/.agents 밖으로 옮긴 항목이에요: ${t(action.to)}`;
+        : shape(`~/.agents 밖으로 옮긴 항목이에요: ${t(action.to)}`);
     }
     case 'pending':
       return action.action.op === 'backup'
-        ? 'sync 기록에 없어야 할 backup 동작이 있어요'
+        ? shape('sync 기록에 없어야 할 backup 동작이 있어요')
         : actionProblem(action.action, ctx);
     default:
-      return `sync 기록에 없어야 할 ${action.op} 동작이 있어요`;
+      return shape(`sync 기록에 없어야 할 ${action.op} 동작이 있어요`);
   }
 }
 
@@ -243,9 +255,12 @@ function checkRevertable(target: RunRecord, input: RevertInput, t: (p: string) =
     slotPaths: input.slotPaths,
     t,
   };
+  let slotMiss = false;
   const problems = target.actions.flatMap((a, i) => {
     const p = actionProblem(a, ctx);
-    return p ? [`${i}번 동작: ${p}`] : [];
+    if (!p) return [];
+    slotMiss ||= p.slotMiss;
+    return [`${i}번 동작: ${p.reason}`];
   });
   const progress = target.revertProgress;
   if (progress !== undefined && progress > target.actions.length) {
@@ -256,11 +271,18 @@ function checkRevertable(target: RunRecord, input: RevertInput, t: (p: string) =
   const warned = (input.discoveryWarnings ?? []).map(
     (w) => `계정 홈을 다 못 찾았을 수 있어요: ${w}`,
   );
+  // 변조 신호에까지 붙이면 사용자가 설정 탓으로 읽으니 슬롯 집합에서 걸렸을 때만 안내한다
+  const hint = slotMiss
+    ? [
+        `오르카에서 계정을 지웠거나 id가 바뀌었거나 orcaDataDir를 바꿨다면 sync할 때의 계정과 설정으로 되돌린 뒤 다시 실행해 주세요. 그럴 수 없으면 백업 폴더 ${t(ctx.dir)}에서 직접 꺼내 주세요`,
+      ]
+    : [];
   throw new RevertError(
     [
       `${target.dirName}/run.json을 믿을 수 없어 아무것도 바꾸지 않았어요`,
       ...problems,
       ...warned,
+      ...hint,
     ].join('\n'),
   );
 }

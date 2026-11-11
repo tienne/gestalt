@@ -500,6 +500,47 @@ describe('변조된 run.json (SEC-1)', () => {
     expect(() => runRevert({ ...scope(), dryRun: true })).toThrow(RevertError);
     expect(snapshot(f.home)).toEqual(afterSync);
   });
+
+  const notSlotTampers = tamperings.filter(([name]) =>
+    [
+      '백업 경로가 실행 폴더 밖',
+      '옮긴 곳이 ~/.agents 밖',
+      '모르는 동작',
+      '동작 수보다 큰 revertProgress',
+    ].includes(name),
+  );
+
+  it.each(notSlotTampers)(
+    '%s면 계정과 설정을 되돌리라는 안내를 붙이지 않는다 (q-r3-3)',
+    (_n, tamper) => {
+      const { run } = sync();
+      const raw = JSON.parse(readFileSync(run!.recordFile, 'utf-8')) as Raw;
+      tamper(raw, f.home);
+      writeFileSync(run!.recordFile, JSON.stringify(raw));
+
+      const error = (() => {
+        try {
+          runRevert({ ...scope(), dryRun: true });
+        } catch (e) {
+          return e;
+        }
+      })();
+      expect(error).toBeInstanceOf(RevertError);
+      expect((error as Error).message).not.toContain('sync할 때의 계정과 설정');
+    },
+  );
+
+  it('sync 뒤 오르카에서 계정이 빠지면 거부하면서 계정과 설정을 되돌리거나 백업에서 꺼내라고 안내한다 (sec-r3-1)', () => {
+    const { run } = sync();
+    const afterSync = snapshot(f.home);
+    const i = f.listing.accounts.findIndex((a) => a.id === 'acct-a');
+    f.listing.accounts.splice(i, 1);
+
+    expect(() => runRevert({ ...scope(), dryRun: false })).toThrow(
+      `sync할 때의 계정과 설정으로 되돌린 뒤 다시 실행해 주세요. 그럴 수 없으면 백업 폴더 ${tildify(run!.dir, f.home)}에서 직접 꺼내 주세요`,
+    );
+    expect(snapshot(f.home)).toEqual(afterSync);
+  });
 });
 
 describe('실패 경로 (Q6)', () => {
