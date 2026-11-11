@@ -119,8 +119,9 @@ export interface InterviewSession {
 // ─── Spec ───────────────────────────────────────────────────────
 export interface OntologyEntity {
   name: string;
-  description: string;
-  attributes: string[];
+  // MCP 입력 스키마가 둘 다 optional로 받아서 저장된 스펙에 빠져 있을 수 있다
+  description?: string;
+  attributes?: string[];
 }
 
 export interface OntologyRelation {

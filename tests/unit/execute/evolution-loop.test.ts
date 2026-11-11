@@ -307,6 +307,55 @@ describe('Spec Patch Applier', () => {
     applySpecPatch(spec, { constraints: ['new'] }, 1);
     expect(spec.constraints).toEqual(original.constraints);
   });
+
+  it('keeps existing entity fields when the patch omits them', () => {
+    const spec = createTestSpec();
+    const { newSpec } = applySpecPatch(
+      spec,
+      { ontologySchema: { entities: [{ name: 'User' }, { name: 'Token' }] } },
+      1,
+    );
+
+    expect(newSpec.ontologySchema.entities).toEqual(spec.ontologySchema.entities);
+  });
+
+  it('does not share the attributes array of an omitted field with the original spec', () => {
+    const spec = createTestSpec();
+    const original = JSON.parse(JSON.stringify(spec));
+    const { newSpec } = applySpecPatch(
+      spec,
+      { ontologySchema: { entities: [{ name: 'User' }, { name: 'Token' }] } },
+      1,
+    );
+
+    newSpec.ontologySchema.entities[0]!.attributes!.push('mutated');
+
+    expect(spec.ontologySchema.entities).toEqual(original.ontologySchema.entities);
+  });
+
+  it('clears an entity field only when the patch gives an explicit empty value', () => {
+    const spec = createTestSpec();
+    const { newSpec } = applySpecPatch(
+      spec,
+      { ontologySchema: { entities: [{ name: 'Token', attributes: [] }] } },
+      1,
+    );
+
+    expect(newSpec.ontologySchema.entities).toEqual([
+      { name: 'Token', description: 'JWT token', attributes: [] },
+    ]);
+  });
+
+  it('adds a new entity as given and fills nothing in', () => {
+    const spec = createTestSpec();
+    const { newSpec } = applySpecPatch(
+      spec,
+      { ontologySchema: { entities: [{ name: 'Session' }] } },
+      1,
+    );
+
+    expect(newSpec.ontologySchema.entities).toEqual([{ name: 'Session' }]);
+  });
 });
 
 describe('Impact Identifier', () => {

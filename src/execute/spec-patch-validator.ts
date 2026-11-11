@@ -16,7 +16,7 @@ export interface PatchValidationResult {
  * 허용 범위 (L1~L3):
  *   L1: acceptanceCriteria — 자유 수정 (추가/변경/삭제)
  *   L2: constraints — 자유 수정
- *   L3: ontologySchema — 선택적 (추가/변경만, entity/relation 삭제 불가)
+ *   L3: ontologySchema — 선택적 (추가/변경만, entity/relation 삭제 불가, 엔티티 필드는 생략하면 기존 값을 유지)
  *   L4: goal — 변경 금지
  */
 export function validateSpecPatch(patch: SpecPatch, currentSpec: Spec): PatchValidationResult {

@@ -177,7 +177,7 @@ function measureOntologyDrift(spec: Spec, result: TaskExecutionResult): DriftDim
   const ontologyTerms = new Set<string>();
   for (const entity of spec.ontologySchema.entities) {
     ontologyTerms.add(entity.name.toLowerCase());
-    for (const attr of entity.attributes) {
+    for (const attr of entity.attributes ?? []) {
       ontologyTerms.add(attr.toLowerCase());
     }
   }
