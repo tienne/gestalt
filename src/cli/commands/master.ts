@@ -121,6 +121,19 @@ function assertMasterSession(ctx: Ctx, command: string, cwd = process.cwd()): vo
     );
 }
 
+/**
+ * 워커 세션에서 다른 워커 이름으로 보고나 체크포인트를 남기면 거절한다.
+ *
+ * `GESTALT_MASTER_WORKER_ID`는 git 워크트리 런처가 세션을 열 때만 넣는다. 오르카와 서브에이전트
+ * 워커는 이 값이 없어서 여기서 못 막는다. 실수로 남의 id를 적는 걸 막는 장치다.
+ */
+function assertOwnWorkerId(worker: string, env: NodeJS.ProcessEnv = process.env): void {
+  const self = env['GESTALT_MASTER_WORKER_ID'];
+  if (self && self !== worker) {
+    throw new Error(`이 세션은 워커 ${self}라 ${worker} 이름으로 못 남겨요`);
+  }
+}
+
 export interface MasterOrderAddOptions extends MasterCommonOptions {
   repo: string;
   title: string;
@@ -295,6 +308,7 @@ export interface MasterWorkerReportOptions extends MasterCommonOptions {
 
 export function masterWorkerReportCommand(opts: MasterWorkerReportOptions): void {
   run(() => {
+    assertOwnWorkerId(opts.worker);
     const ctx = open(opts);
     const fromFile = opts.file
       ? (JSON.parse(readFileSync(opts.file, 'utf-8')) as Record<string, unknown>)
@@ -379,6 +393,7 @@ export interface MasterCheckpointSaveOptions extends MasterCommonOptions {
 
 export function masterCheckpointSaveCommand(opts: MasterCheckpointSaveOptions): void {
   run(() => {
+    assertOwnWorkerId(opts.worker);
     const ctx = open(opts);
     const cp = saveSkillCheckpoint(ctx.store, {
       workerId: opts.worker,

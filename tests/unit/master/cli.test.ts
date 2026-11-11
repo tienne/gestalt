@@ -145,6 +145,40 @@ describe('gestalt master', () => {
     ).toThrow('exit 1');
   });
 
+  it('워커 세션은 다른 워커 이름으로 보고나 체크포인트를 남기지 못한다', () => {
+    const stateDir = tempStateDir();
+    masterOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: 'x' });
+    const orderId = (last()['order'] as { id: string }).id;
+    const store = MasterStore.open(stateDir);
+    const w = worker(orderId);
+    store.startWorker(w);
+    store.updateOrder(orderId, { status: 'running', workerId: w.id });
+
+    vi.stubEnv('GESTALT_MASTER_WORKER_ID', 'wrk-other');
+    try {
+      expect(() =>
+        masterWorkerReportCommand({ stateDir, worker: w.id, status: 'progress', summary: 'x' }),
+      ).toThrow('exit 1');
+      expect(err.at(-1)).toContain('wrk-other');
+      expect(() =>
+        masterCheckpointSaveCommand({ stateDir, worker: w.id, skill: 'solve', next: 'x' }),
+      ).toThrow('exit 1');
+      expect(MasterStore.open(stateDir).snapshot.checkpoints[orderId]).toBeUndefined();
+
+      vi.stubEnv('GESTALT_MASTER_WORKER_ID', w.id);
+      masterCheckpointSaveCommand({
+        stateDir,
+        json: true,
+        worker: w.id,
+        skill: 'solve',
+        next: 'x',
+      });
+      expect(last()).toMatchObject({ skill: 'solve' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('슬랙 초안은 게이트로 올라가고 resolve로 닫힌다', async () => {
     const stateDir = tempStateDir();
     const textFile = join(stateDir, 'draft.txt');
