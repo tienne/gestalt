@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { GestaltPrinciple } from '../core/types.js';
 
-// LLM이 만든 스펙은 필드를 다 채우게 일부러 엄격하게 둔다. MCP 입력 쪽은 optional로 받는다(mcp/schemas.ts).
+// ges_spec으로 만드는 스펙은 필드를 다 채우게 일부러 엄격하게 둔다(passthrough 입력도 여기서 다시 검사한다). optional로 받는 곳은 ges_execute의 spec, specPatch, lateralResult 입력뿐이다(mcp/schemas.ts).
 const ontologyEntitySchema = z.object({
   name: z.string().min(1),
   description: z.string(),
