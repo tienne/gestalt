@@ -19,7 +19,7 @@ export interface SkippedTarget {
   label: string;
   home: string;
   reason: string;
-  /** 오르카가 준 id가 이상해 뺀 계정이면 그 id. 출력할 때 따옴표로 감싼다 */
+  /** 오르카가 알려줬지만 뺀 계정이면 오르카가 준 그대로의 id. 빈 값일 수 있어 출력할 때 따옴표로 감싼다 */
   rejectedId?: string;
 }
 

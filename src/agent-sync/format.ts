@@ -16,7 +16,7 @@ function targetLines(d: TargetDiscovery, t: T): string[] {
     lines.push(
       '건너뛴 홈',
       ...d.skipped.map((s) => {
-        // 거절된 id는 경로에 못 쓰는 글자가 든 값이라 따옴표로 감싸 경계를 보인다
+        // 오르카가 준 id는 빈 값이나 공백, 제어 문자가 들 수 있어 따옴표로 감싸 경계를 보인다
         const label =
           s.rejectedId === undefined ? s.label : `${s.label} ${JSON.stringify(s.rejectedId)}`;
         return `  - ${label}  ${s.home ? t(s.home) : '(경로 없음)'}  ${s.reason}`;

@@ -13,7 +13,7 @@ export interface OrcaAccount {
 
 export interface RejectedAccount {
   kind: 'claude' | 'codex';
-  /** 오르카가 준 그대로의 id. 경로에 못 쓰는 글자가 들 수 있다 */
+  /** 오르카가 준 그대로의 id. 빈 값이거나 경로에 못 쓰는 글자가 들 수 있다 */
   id: string;
   reason: string;
 }
@@ -59,7 +59,7 @@ interface PickedAccounts {
 }
 
 /**
- * 이상한 id를 주거나 home이 절대 경로가 아니거나 `.`, `..`, 끝의 `/`, 겹친 `/`가 든 계정은 뺀다.
+ * id가 없거나 이상한 계정, home이 절대 경로가 아니거나 `.`, `..`, 끝의 `/`, 겹친 `/`가 든 계정은 뺀다.
  * 그 홈에 링크를 걸고 백업을 옮기게 된다. 뺀 계정은 출력에 이유를 남기려고 따로 모은다
  */
 function pickAccounts(kind: 'claude' | 'codex', group: unknown): PickedAccounts {
