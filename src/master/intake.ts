@@ -1,3 +1,4 @@
+import { log } from '../core/log.js';
 import type { MasterConfig } from './scheduler.js';
 import { openOrReuse } from './gates.js';
 import { newId, type MasterStore } from './store.js';
@@ -24,6 +25,55 @@ import {
 
 export const DEFAULT_SKILL_CHAIN: readonly string[] = ['solve', 'ship'];
 
+/**
+ * 워커 체인에 넣을 수 있는 스킬. 워커를 띄우는 dispatch와 handoff는 하위 워커 금지와 부딪혀 뺀다
+ */
+export const KNOWN_SKILLS: ReadonlySet<string> = new Set([
+  'solve',
+  'interview',
+  'spec',
+  'execute',
+  'ship',
+  'pr',
+  'local-pr',
+  'review',
+  'review-loop',
+  'review-reply',
+  'blast-radius',
+  'diff-radius',
+  'explain',
+  'doubt',
+  'build-graph',
+]);
+
+export const ISSUE_KEY_RE = /^[A-Z][A-Z0-9_]*-\d+$/;
+
+/** 지시서 한 줄에 들어갈 값. 개행과 제어 문자로 지시 블록을 위조하지 못하게 공백으로 바꾸고 자른다 */
+export function oneLine(text: string, max = 200): string {
+  let out = '';
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    out += c < 0x20 || (c >= 0x7f && c < 0xa0) || c === 0x2028 || c === 0x2029 ? ' ' : ch;
+  }
+  return [...out.replace(/\s+/g, ' ').trim()].slice(0, max).join('');
+}
+
+const SCOPE_RANK: Record<OrderScope, number> = {
+  'merge-through': 0,
+  approval: 1,
+  'interview-first': 2,
+};
+
+/**
+ * 바깥(지라, 큐, 남의 PR)이 적은 범위는 설정 기본값보다 느슨하게 못 연다. merge-through는 기본값이어도
+ * 받지 않는다. 큐나 티켓에 쓸 수 있는 누구나 머지 승인을 끌 수 있으면 안 돼서다
+ */
+function externalScope(asked: OrderScope | undefined, fallback: OrderScope): OrderScope {
+  const floor = fallback === 'merge-through' ? 'approval' : fallback;
+  if (!asked || SCOPE_RANK[asked] < SCOPE_RANK[floor]) return floor;
+  return asked;
+}
+
 export interface IntakeInput {
   source: IntakeKind;
   /** 비우면 말로 던진 주문으로 보고 새로 만든다 */
@@ -47,14 +97,22 @@ export interface IntakeResult {
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 
+/**
+ * 주문을 받는다. 범위와 스킬 체인을 그대로 믿는 건 마스터 세션이 CLI로 넣을 때(`trusted`)와
+ * 말로 던진 주문뿐이다. 지라, 큐, PR 감시에서 온 값은 externalScope와 KNOWN_SKILLS로 거른다
+ */
 export function intakeOrder(
   store: MasterStore,
   input: IntakeInput,
   config: Pick<MasterConfig, 'defaultScope'>,
+  opts: { trusted?: boolean } = {},
 ): IntakeResult {
   if (!REPO_RE.test(input.repo))
     throw new Error(`레포는 owner/name 꼴로 적어 주세요: ${input.repo}`);
-  if (!input.title.trim()) throw new Error('주문 제목이 비었어요');
+  const title = oneLine(input.title);
+  if (!title) throw new Error('주문 제목이 비었어요');
+  const trusted = opts.trusted === true || input.source === 'spoken';
+  const skills = trusted ? input.skillChain : input.skillChain?.filter((s) => KNOWN_SKILLS.has(s));
 
   const id = newId('ord');
   const sourceRef = input.sourceRef ?? `${input.source}:${id}`;
@@ -67,9 +125,11 @@ export function intakeOrder(
     source: input.source,
     sourceRef,
     repo: input.repo,
-    title: input.title.trim(),
-    scope: input.scope ?? config.defaultScope,
-    skillChain: input.skillChain?.length ? input.skillChain : [...DEFAULT_SKILL_CHAIN],
+    title,
+    scope: trusted
+      ? (input.scope ?? config.defaultScope)
+      : externalScope(input.scope, config.defaultScope),
+    skillChain: skills?.length ? skills : [...DEFAULT_SKILL_CHAIN],
     status: 'queued',
     createdAt: at,
     updatedAt: at,
@@ -84,8 +144,6 @@ export function intakeOrder(
   return { order, created: true };
 }
 
-// ─── 지라 ────────────────────────────────────────────────────────
-
 export interface JiraTicket {
   key: string;
   summary: string;
@@ -96,15 +154,20 @@ export interface JiraTicket {
   scope?: string;
 }
 
-/** 마스터에게 배정된 티켓을 가져오는 어댑터. 실제 지라 호출은 구현이 한다 */
+/**
+ * 마스터에게 배정된 티켓을 가져오는 어댑터. 실제 지라 호출은 구현이 한다.
+ * 페이지 상한에 닿아 뒤를 못 읽었으면 `truncated`를 켠다. 배열만 돌려주면 전부 읽은 것으로 본다
+ */
 export interface JiraIntakeSource {
-  fetchAssigned(): Promise<JiraTicket[]>;
+  fetchAssigned(): Promise<JiraTicket[] | { tickets: JiraTicket[]; truncated?: boolean }>;
 }
 
 export interface PollResult {
   created: Order[];
   /** 주문으로 세우지 못해 사람에게 물은 것 */
   gated: string[];
+  /** 소스가 상한에 닿아 이번에 다 못 읽었다 */
+  truncated?: boolean;
 }
 
 export async function pollJira(
@@ -113,9 +176,20 @@ export async function pollJira(
   config: Pick<MasterConfig, 'defaultScope'>,
 ): Promise<PollResult> {
   const result: PollResult = { created: [], gated: [] };
-  for (const t of await source.fetchAssigned()) {
+  const fetched = await source.fetchAssigned();
+  const tickets = Array.isArray(fetched) ? fetched : fetched.tickets;
+  if (!Array.isArray(fetched) && fetched.truncated) {
+    result.truncated = true;
+    log(`지라 배정 티켓이 조회 상한에 닿아 ${tickets.length}개까지만 읽었어요`);
+  }
+  for (const t of tickets) {
     const sourceRef = `jira:${t.key}`;
     if (store.findOrderBySourceRef(sourceRef)) continue;
+    if (!ISSUE_KEY_RE.test(t.key)) {
+      askOnce(store, sourceRef, `지라 키 꼴이 아니라 주문으로 안 받았어요: ${oneLine(t.key, 40)}`);
+      result.gated.push(sourceRef);
+      continue;
+    }
     if (!t.repo || !REPO_RE.test(t.repo)) {
       askOnce(store, sourceRef, `${t.key} 티켓의 레포를 모르겠어요. 티켓에 레포를 적어 주세요`);
       result.gated.push(sourceRef);
@@ -151,8 +225,6 @@ export function normalizeIssueType(name: string): IssueType {
   if (key === 'subbug') return 'sub-bug';
   return isIssueType(key) ? key : 'other';
 }
-
-// ─── 외부 큐 ─────────────────────────────────────────────────────
 
 export interface QueueMessage {
   id: string;
@@ -210,14 +282,24 @@ export function parseQueueBody(body: unknown): Omit<IntakeInput, 'source' | 'sou
     if (!isOrderScope(b['scope'])) return `scope를 모르겠어요: ${b['scope']}`;
     out.scope = b['scope'];
   }
-  if (typeof b['issueKey'] === 'string') out.issueKey = b['issueKey'];
+  if (b['issueKey'] !== undefined) {
+    if (typeof b['issueKey'] !== 'string' || !ISSUE_KEY_RE.test(b['issueKey']))
+      return 'issueKey가 PROJ-123 꼴이 아니에요';
+    out.issueKey = b['issueKey'];
+  }
   if (typeof b['issueType'] === 'string') out.issueType = normalizeIssueType(b['issueType']);
-  if (typeof b['workerKind'] === 'string' && isWorkerKind(b['workerKind']))
+  if (b['workerKind'] !== undefined) {
+    if (typeof b['workerKind'] !== 'string' || !isWorkerKind(b['workerKind']))
+      return `workerKind를 모르겠어요: ${String(b['workerKind'])}`;
     out.workerKind = b['workerKind'];
-  if (typeof b['jiraStatus'] === 'string' && isJiraStatus(b['jiraStatus'])) {
+  }
+  if (b['jiraStatus'] !== undefined) {
+    if (typeof b['jiraStatus'] !== 'string' || !isJiraStatus(b['jiraStatus']))
+      return `jiraStatus를 모르겠어요: ${String(b['jiraStatus'])}`;
     out.explicitJiraStatus = b['jiraStatus'];
   }
   if (Array.isArray(b['skillChain']) && b['skillChain'].every((x) => typeof x === 'string')) {
+    // 모르는 이름은 접수에서 걸러진다. 여기서는 꼴만 본다
     out.skillChain = b['skillChain'] as string[];
   }
   return out;

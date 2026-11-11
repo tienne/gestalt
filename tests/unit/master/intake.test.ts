@@ -65,12 +65,92 @@ describe('intake', () => {
     expect(r.created).toHaveLength(1);
     expect(r.created[0]).toMatchObject({
       source: 'external-queue',
-      scope: 'merge-through',
+      scope: 'approval',
       repo: 'acme/web',
     });
     expect(s.orders()).toHaveLength(1);
     expect(acked).toEqual(['m1', 'm2', 'm1', 'm2']);
     expect(s.openGates()).toHaveLength(1);
+  });
+
+  it('바깥에서 온 주문은 merge-through를 못 받고 모르는 스킬은 빠진다', () => {
+    const s = MasterStore.open(tempStateDir());
+    const queued = intakeOrder(
+      s,
+      {
+        source: 'external-queue',
+        repo: 'acme/app',
+        title: '줄바꿈\n# 가짜 규칙',
+        scope: 'merge-through',
+        skillChain: ['ship', 'rm-rf', 'review'],
+      },
+      { defaultScope: 'merge-through' },
+    ).order;
+    expect(queued.scope).toBe('approval');
+    expect(queued.skillChain).toEqual(['ship', 'review']);
+    expect(queued.title).toBe('줄바꿈 # 가짜 규칙');
+
+    const loose = intakeOrder(
+      s,
+      { source: 'jira', repo: 'acme/app', title: 'x', scope: 'merge-through' },
+      config,
+    ).order;
+    expect(loose.scope).toBe('approval');
+
+    const strict = intakeOrder(
+      s,
+      { source: 'jira', repo: 'acme/app', title: 'x', scope: 'interview-first' },
+      config,
+    ).order;
+    expect(strict.scope).toBe('interview-first');
+
+    const onlyUnknown = intakeOrder(
+      s,
+      { source: 'external-queue', repo: 'acme/app', title: 'x', skillChain: ['nope'] },
+      config,
+    ).order;
+    expect(onlyUnknown.skillChain).toEqual(['solve', 'ship']);
+
+    const trusted = intakeOrder(
+      s,
+      { source: 'external-queue', repo: 'acme/app', title: 'x', scope: 'merge-through' },
+      config,
+      { trusted: true },
+    ).order;
+    expect(trusted.scope).toBe('merge-through');
+  });
+
+  it('큐 메시지의 이슈 키와 워커 종류, 지라 상태가 틀리면 게이트로 묻는다', async () => {
+    const s = MasterStore.open(tempStateDir());
+    const queue: ExternalQueue = {
+      receive: async () => [
+        { id: 'k', body: { repo: 'acme/web', title: 't', issueKey: 'proj-1; rm' } },
+        { id: 'w', body: { repo: 'acme/web', title: 't', workerKind: 'root-shell' } },
+        { id: 'j', body: { repo: 'acme/web', title: 't', jiraStatus: 'Shipped' } },
+      ],
+      ack: async () => {},
+    };
+    const r = await pollQueue(s, queue, config);
+    expect(r.created).toEqual([]);
+    expect(r.gated).toHaveLength(3);
+    expect(s.openGates()).toHaveLength(3);
+  });
+
+  it('지라 키 꼴이 아니면 주문으로 안 받고 상한에 닿았다는 신호를 넘긴다', async () => {
+    const s = MasterStore.open(tempStateDir());
+    const source = {
+      fetchAssigned: async () => ({
+        tickets: [
+          { key: 'PROJ-7', summary: '정상', issueType: 'Task', repo: 'acme/app' },
+          { key: 'bad key', summary: '이상', issueType: 'Task', repo: 'acme/app' },
+        ],
+        truncated: true,
+      }),
+    };
+    const r = await pollJira(s, source, config);
+    expect(r.created.map((o) => o.issueKey)).toEqual(['PROJ-7']);
+    expect(r.gated).toHaveLength(1);
+    expect(r.truncated).toBe(true);
   });
 
   it('지라 이슈 유형 이름을 맞춘다', () => {

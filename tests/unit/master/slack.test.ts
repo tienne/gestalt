@@ -1,7 +1,13 @@
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { resolveGate } from '../../../src/master/gates.js';
-import { draftSlack, publishApprovedSlack, type SlackClient } from '../../../src/master/slack.js';
+import {
+  draftSlack,
+  publishApprovedSlack,
+  SUPERSEDED_PREFIX,
+  type SlackClient,
+} from '../../../src/master/slack.js';
 import { MasterStore } from '../../../src/master/store.js';
 import { cleanupStateDirs, tempStateDir } from './fixtures.js';
 
@@ -65,5 +71,35 @@ describe('슬랙 초안', () => {
     fail = false;
     await publishApprovedSlack(s, client);
     expect(sent).toEqual(['둘']);
+  });
+
+  it('승인 뒤 초안 파일이 바뀌면 보내지 않고 바뀐 본문으로 새 확인 자리를 연다', async () => {
+    const dir = tempStateDir();
+    const s = MasterStore.open(dir);
+    const { sent, client } = fakeSlack();
+    const { gate } = draftSlack(
+      s,
+      { channel: '#release', text: '배포 끝났어요', orderId: 'ord-1' },
+      join(dir, 'slack'),
+    );
+    resolveGate(s, gate.id, 'approved');
+    writeFileSync(String(gate.payload?.draftFile), '바꿔치기한 본문');
+
+    const r = await publishApprovedSlack(s, client);
+    expect(sent).toEqual([]);
+    expect(r.reopened).toHaveLength(1);
+    const newGateId = r.reopened[0]!.newGateId;
+    expect(s.snapshot.slackPosted[gate.id]).toBe(`${SUPERSEDED_PREFIX}${newGateId}`);
+    const reopened = s.openGates().find((g) => g.id === newGateId);
+    expect(reopened?.type).toBe('slack-post');
+    expect(reopened?.orderId).toBe('ord-1');
+
+    const again = await publishApprovedSlack(s, client);
+    expect(again.reopened).toEqual([]);
+    expect(sent).toEqual([]);
+
+    resolveGate(s, newGateId, 'approved');
+    await publishApprovedSlack(s, client);
+    expect(sent).toEqual([{ channel: '#release', text: '바꿔치기한 본문' }]);
   });
 });

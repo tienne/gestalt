@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { newId, type MasterStore } from './store.js';
 import type { Gate } from './types.js';
 
@@ -29,10 +29,7 @@ export function draftSlack(
   input: SlackDraftInput,
   draftDir: string,
 ): { gate: Gate; reused: boolean } {
-  const digest = createHash('sha256')
-    .update(`${input.channel}\n${input.threadTs ?? ''}\n${input.text}`)
-    .digest('hex')
-    .slice(0, 16);
+  const digest = draftDigest(input.channel, input.threadTs, input.text);
   const existing = store
     .openGates()
     .find((g) => g.type === 'slack-post' && g.payload?.digest === digest);
@@ -61,23 +58,36 @@ export function draftSlack(
   return { gate, reused: false };
 }
 
+function draftDigest(channel: string, threadTs: string | undefined, text: string): string {
+  return createHash('sha256')
+    .update(`${channel}\n${threadTs ?? ''}\n${text}`)
+    .digest('hex')
+    .slice(0, 16);
+}
+
+/** slackPosted에 남기는 표식. 승인 뒤 초안이 바뀌어 새 게이트로 넘겼다는 뜻이다 */
+export const SUPERSEDED_PREFIX = 'superseded:';
+
 export interface PublishResult {
   posted: { gateId: string; ref: string }[];
   failed: { gateId: string; error: string }[];
+  /** 승인 뒤 초안이 바뀌어 다시 승인을 받으려고 연 게이트 */
+  reopened: { gateId: string; newGateId: string }[];
 }
 
 /**
  * 승인된 슬랙 초안을 한 번씩만 게시한다.
  *
  * 게시했는지는 slack-posted 이벤트로 남기고 다음 tick에는 건너뛴다. 거절된 초안은 게시하지 않는다.
- * 승인 뒤에 사람이 초안 파일을 고쳤으면 고친 본문을 보낸다.
+ * 초안 파일은 워커도 쓸 수 있는 자리라 승인 때의 digest와 다르면 보내지 않는다. 바뀐 본문으로
+ * 새 게이트를 열고 앞 게이트는 SUPERSEDED_PREFIX로 표시해 다음 tick이 다시 집지 않게 한다.
  */
 export async function publishApprovedSlack(
   store: MasterStore,
   client: SlackClient,
   readDraft: (file: string) => string = (f) => readFileSync(f, 'utf-8'),
 ): Promise<PublishResult> {
-  const result: PublishResult = { posted: [], failed: [] };
+  const result: PublishResult = { posted: [], failed: [], reopened: [] };
   const pending = Object.values(store.snapshot.gates).filter(
     (g) =>
       g.type === 'slack-post' &&
@@ -94,11 +104,32 @@ export async function publishApprovedSlack(
     }
     try {
       const threadTs = gate.payload?.threadTs;
-      const ref = await client.post({
-        channel,
-        text: readDraft(draftFile),
-        ...(threadTs ? { threadTs } : {}),
-      });
+      const text = readDraft(draftFile);
+      if (draftDigest(channel, threadTs, text) !== gate.payload?.digest) {
+        const { gate: next } = draftSlack(
+          store,
+          {
+            channel,
+            text,
+            ...(gate.orderId ? { orderId: gate.orderId } : {}),
+            ...(threadTs ? { threadTs } : {}),
+          },
+          dirname(draftFile),
+        );
+        store.append({
+          type: 'slack-posted',
+          at: store.timestamp(),
+          gateId: gate.id,
+          ref: `${SUPERSEDED_PREFIX}${next.id}`,
+        });
+        result.reopened.push({ gateId: gate.id, newGateId: next.id });
+        result.failed.push({
+          gateId: gate.id,
+          error: `승인 뒤 초안이 바뀌어 보내지 않았어요. 새 확인 자리 ${next.id}를 열었어요`,
+        });
+        continue;
+      }
+      const ref = await client.post({ channel, text, ...(threadTs ? { threadTs } : {}) });
       store.append({ type: 'slack-posted', at: store.timestamp(), gateId: gate.id, ref });
       result.posted.push({ gateId: gate.id, ref });
     } catch (err) {
