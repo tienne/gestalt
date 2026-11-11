@@ -253,16 +253,32 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 
 ## 마스터 오케스트레이터 (`master`)
 
+설정은 두 자리에 나뉜다. 레포의 `gestalt.json`은 클론한 레포가 쓰는 파일이라 감시 주기와 상한 같은 조율 값만 받는다.
+
 ```json
 {
   "master": {
     "maxConcurrentWorkers": 10,
-    "defaultScope": "approval",
-    "accounts": { "acme/widget-kit": "work" },
-    "repoPaths": { "acme/widget-kit": "/path/to/widget-kit" }
+    "pollIntervalSec": 60,
+    "maxResumeAttempts": 3,
+    "staleAfterSec": 1800,
+    "resultMaxChars": 2000
   }
 }
 ```
+
+머지 승인 범위와 상태 저장소, 계정, 레포 경로는 사용자 전역 `~/.gestalt/master.json`에만 적는다. `GESTALT_HOME`을 바꿨으면 그 아래 `.gestalt/master.json`이다. 이 파일은 `master` 블록 없이 칸을 바로 적고 조율 값도 함께 둘 수 있다. 같은 칸이 두 파일에 다 있으면 이 파일이 앞선다.
+
+```json
+{
+  "defaultScope": "approval",
+  "stateDir": "/path/to/master-state",
+  "accounts": { "acme/widget-kit": "work" },
+  "repoPaths": { "acme/widget-kit": "/path/to/widget-kit" }
+}
+```
+
+레포 `gestalt.json`에 이 네 칸을 적으면 버리고 버린 칸 이름을 경고로 알린다. 남이 만든 레포 안에서 마스터 세션을 열었다고 머지 승인이 꺼지거나 워커가 남이 정한 경로와 계정으로 뜨면 안 되기 때문이다.
 
 - `maxConcurrentWorkers`를 넘는 주문은 큐에 쌓였다가 자리가 나면 뜬다. 마스터가 진행을 볼 때마다 다시 읽으므로 돌고 있는 중에 바꿔도 다음 감시부터 적용된다
 - `defaultScope`는 주문에 범위를 안 적었을 때 쓴다. `merge-through`는 머지까지 승인 없이 가고 `approval`은 머지 전에 사람 승인을 받는다. `interview-first`는 인터뷰 답을 사람이 직접 한다

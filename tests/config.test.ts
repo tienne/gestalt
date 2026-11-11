@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig, _deepMerge } from '../src/core/config.js';
@@ -264,31 +264,74 @@ describe('loadConfig — master', () => {
     expect(loadConfig({}, opts).master.staleAfterSec).toBe(1800);
   });
 
-  it('레포의 gestalt.json은 merge-through를 기본 범위로 걸 수 없다', () => {
+  function inTempRepo(fn: (dir: string, home: string) => void): string {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const dir = mkdtempSync(join(tmpdir(), 'gestalt-config-'));
+    const home = join(dir, 'home', '.gestalt');
+    mkdirSync(home, { recursive: true });
     const cwd = process.cwd();
     try {
-      writeFileSync(
-        join(dir, 'gestalt.json'),
-        JSON.stringify({ master: { defaultScope: 'merge-through', maxConcurrentWorkers: 3 } }),
-      );
+      process.env['GESTALT_HOME'] = join(dir, 'home');
       process.chdir(dir);
-      const { master } = loadConfig({}, { skipDotEnv: true });
-      expect(master.defaultScope).toBe('approval');
-      expect(master.maxConcurrentWorkers).toBe(3);
-      expect(consoleSpy.mock.calls.flat().join()).toContain('merge-through');
-
-      writeFileSync(
-        join(dir, 'gestalt.json'),
-        JSON.stringify({ master: { defaultScope: 'interview-first' } }),
-      );
-      expect(loadConfig({}, { skipDotEnv: true }).master.defaultScope).toBe('interview-first');
+      fn(dir, home);
+      return consoleSpy.mock.calls.flat().join('\n');
     } finally {
       process.chdir(cwd);
       rmSync(dir, { recursive: true, force: true });
       consoleSpy.mockRestore();
     }
+  }
+
+  it('레포의 gestalt.json은 조율 값만 받고 범위와 계정, 경로는 버린다', () => {
+    const warned = inTempRepo((dir) => {
+      writeFileSync(
+        join(dir, 'gestalt.json'),
+        JSON.stringify({
+          master: {
+            defaultScope: 'merge-through',
+            stateDir: '/elsewhere',
+            accounts: { 'acme/app': 'someone' },
+            repoPaths: { 'acme/app': '/elsewhere/app' },
+            maxConcurrentWorkers: 3,
+          },
+        }),
+      );
+      const { master } = loadConfig({}, { skipDotEnv: true });
+      expect(master.defaultScope).toBe('approval');
+      expect(master.stateDir).toBeUndefined();
+      expect(master.accounts).toEqual({});
+      expect(master.repoPaths).toEqual({});
+      expect(master.maxConcurrentWorkers).toBe(3);
+    });
+    for (const key of ['defaultScope', 'stateDir', 'accounts', 'repoPaths']) {
+      expect(warned).toContain(`master.${key}`);
+    }
+  });
+
+  it('사용자 전역 master.json의 범위와 계정을 받고 레포 값보다 앞선다', () => {
+    inTempRepo((dir, home) => {
+      writeFileSync(join(dir, 'gestalt.json'), JSON.stringify({ master: { pollIntervalSec: 30 } }));
+      writeFileSync(
+        join(home, 'master.json'),
+        JSON.stringify({
+          defaultScope: 'interview-first',
+          accounts: { 'acme/app': 'work' },
+          pollIntervalSec: 120,
+        }),
+      );
+      const { master } = loadConfig({}, { skipDotEnv: true });
+      expect(master.defaultScope).toBe('interview-first');
+      expect(master.accounts).toEqual({ 'acme/app': 'work' });
+      expect(master.pollIntervalSec).toBe(120);
+    });
+  });
+
+  it('사용자 전역 master.json이 깨졌으면 경고하고 기본값으로 간다', () => {
+    const warned = inTempRepo((_dir, home) => {
+      writeFileSync(join(home, 'master.json'), '[1, 2]');
+      expect(loadConfig({}, { skipDotEnv: true }).master.defaultScope).toBe('approval');
+    });
+    expect(warned).toContain('master.json');
   });
 });
 

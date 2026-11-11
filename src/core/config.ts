@@ -5,7 +5,6 @@ import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
 import { gestaltPath } from './home.js';
 import { HOOKS_ENV, WEBFETCH_CACHE_ENV, parseHooksEnv } from './hooks-env.js';
-import { ORDER_SCOPES } from '../master/types.js';
 import {
   DEFAULT_MODEL,
   DEFAULT_REASONING_MODEL,
@@ -16,6 +15,7 @@ import {
   DRIFT_THRESHOLD,
   EVOLVE_SUCCESS_THRESHOLD,
   EVOLVE_GOAL_ALIGNMENT_THRESHOLD,
+  ORDER_SCOPES,
 } from './constants.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -384,7 +384,7 @@ const masterConfigSchema = z.object({
   staleAfterSec: z.number().int().min(60).max(86400).default(1800),
   /**
    * 주문에 범위를 안 적었을 때. 머지 전에 사람 승인을 받는 쪽이 기본이다.
-   * 레포의 gestalt.json은 merge-through를 걸 수 없다(withoutRepoMergeThrough)
+   * 여기부터 repoPaths까지는 레포의 gestalt.json이 못 바꾼다(withoutRepoMasterOverrides)
    */
   defaultScope: z.enum(ORDER_SCOPES).default('approval'),
   /** 워커 결과 요약의 글자 수 상한. 원문 로그가 마스터 대화로 새지 않게 막는다 */
@@ -398,18 +398,58 @@ const masterConfigSchema = z.object({
 });
 
 /**
- * 작업 디렉토리의 gestalt.json은 클론한 레포가 쓴다. 그 레포 안에서 마스터 세션을 열었다고 모든
- * 주문의 머지 승인이 꺼지면 안 되니 master.defaultScope의 merge-through만 버린다. 주문마다
- * `--scope merge-through`로 거는 길은 남는다.
+ * 작업 디렉토리의 gestalt.json은 클론한 레포가 쓴다. 그 레포 안에서 마스터 세션을 열었다고
+ * 머지 승인이 꺼지거나, 상태 저장소와 계정, 레포 경로가 남의 값으로 바뀌면 안 된다.
+ * 그래서 master 블록은 감시 주기와 상한 같은 조율 값만 받고 나머지는 버린다.
+ * 버린 칸은 사용자 전역 `~/.gestalt/master.json`이나 환경 변수에서만 정한다.
  */
-function withoutRepoMergeThrough(json: Record<string, unknown>): Record<string, unknown> {
+const REPO_MASTER_KEYS: ReadonlySet<string> = new Set([
+  'maxConcurrentWorkers',
+  'pollIntervalSec',
+  'maxResumeAttempts',
+  'staleAfterSec',
+  'resultMaxChars',
+]);
+
+export const USER_MASTER_FILE = 'master.json';
+
+function withoutRepoMasterOverrides(json: Record<string, unknown>): Record<string, unknown> {
   const master = json['master'];
-  if (!isRecord(master) || master['defaultScope'] !== 'merge-through') return json;
+  if (!isRecord(master)) return json;
+  const kept: Record<string, unknown> = {};
+  const dropped: string[] = [];
+  for (const [key, value] of Object.entries(master)) {
+    if (REPO_MASTER_KEYS.has(key)) kept[key] = value;
+    else dropped.push(key);
+  }
+  if (dropped.length === 0) return json;
   console.error(
-    '[gestalt] Warning: gestalt.json의 master.defaultScope merge-through는 받지 않습니다. 주문마다 --scope로 정해 주세요',
+    `[gestalt] Warning: gestalt.json의 master.${dropped.join(', master.')}는 받지 않습니다. ~/.gestalt/${USER_MASTER_FILE}에 적어 주세요`,
   );
-  const { defaultScope: _, ...rest } = master;
-  return { ...json, master: rest };
+  return { ...json, master: kept };
+}
+
+/** 사용자 전역 마스터 설정. 없으면 빈 값이고 못 읽으면 경고만 남긴다 */
+function loadUserMasterJson(): Record<string, unknown> {
+  const filePath = gestaltPath(USER_MASTER_FILE);
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error(`[gestalt] Warning: ${filePath}를 못 읽어서 무시합니다`);
+    }
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) throw new Error('not an object');
+    const { $schema: _, ...rest } = parsed;
+    return rest;
+  } catch {
+    console.error(`[gestalt] Warning: ${filePath}가 JSON 객체로 안 읽혀서 무시합니다`);
+    return {};
+  }
 }
 
 /** 호스트 초기화 때 갱신하는 모델 필드와 그 기본값의 단일 정의. */
@@ -785,8 +825,13 @@ export function loadConfig(
     loadDotEnv();
   }
 
-  // 2. Load gestalt.json
-  const jsonConfig = options?.skipGestaltJson ? {} : withoutRepoMergeThrough(loadGestaltJson());
+  // 2. Load gestalt.json, then the user-wide master file on top of it.
+  //    skipGestaltJson은 설정 파일을 하나도 안 읽는다는 뜻이라 사용자 파일도 함께 건너뛴다
+  const jsonConfig = options?.skipGestaltJson
+    ? {}
+    : deepMerge(withoutRepoMasterOverrides(loadGestaltJson()), {
+        master: loadUserMasterJson(),
+      });
 
   // 3. Build env config from process.env
   const envConfig = buildEnvConfig();

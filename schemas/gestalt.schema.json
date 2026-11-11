@@ -229,12 +229,12 @@
           "minimum": 60,
           "maximum": 86400,
           "description": "Seconds without a report or checkpoint before a worker counts as disconnected and is resumed",
-          "default": 900
+          "default": 1800
         },
         "defaultScope": {
           "type": "string",
           "enum": ["merge-through", "approval", "interview-first"],
-          "description": "Scope for orders that do not name one",
+          "description": "Scope for orders that do not name one. Read only from ~/.gestalt/master.json; a repo gestalt.json value is ignored",
           "default": "approval"
         },
         "resultMaxChars": {
@@ -246,18 +246,18 @@
         },
         "stateDir": {
           "type": "string",
-          "description": "Where the execution state lives. Defaults to ~/.gestalt/master"
+          "description": "Where the execution state lives. Defaults to ~/.gestalt/master. Read only from ~/.gestalt/master.json; a repo gestalt.json value is ignored"
         },
         "accounts": {
           "type": "object",
           "additionalProperties": { "type": "string" },
-          "description": "Auth account per repo (owner/name). Checked and switched before a worker starts in that repo",
+          "description": "Auth account per repo (owner/name). Checked and switched before a worker starts in that repo. Read only from ~/.gestalt/master.json; a repo gestalt.json value is ignored",
           "default": {}
         },
         "repoPaths": {
           "type": "object",
           "additionalProperties": { "type": "string" },
-          "description": "Local checkout path per repo (owner/name). Used to create git worktrees or point Orca at the repo",
+          "description": "Local checkout path per repo (owner/name). Used to create git worktrees or point Orca at the repo. Read only from ~/.gestalt/master.json; a repo gestalt.json value is ignored",
           "default": {}
         }
       },
