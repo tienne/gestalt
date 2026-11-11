@@ -163,6 +163,7 @@ describe('findPluginLaunchers', () => {
     ['작은따옴표 키', "[plugins.'gestalt@gestalt']\nenabled = false\n"],
     ['[plugins] 아래 점 키', '[plugins]\n"gestalt@gestalt".enabled = false\n'],
     ['첫 표 머리 앞 점 키', 'plugins."gestalt@gestalt".enabled = false\n\n[other]\nx = 1\n'],
+    ['첫 표 머리 앞 인라인 표', "plugins . 'gestalt@gestalt' = { enabled = false }\n"],
     [
       '[plugins] 아래 인라인 표',
       '[plugins]\n"gestalt@gestalt" = { source = "x", enabled = false }\n',
@@ -182,6 +183,12 @@ describe('findPluginLaunchers', () => {
     ],
     ['이름이 plugins로 끝나는 다른 키', 'myplugins."gestalt@gestalt".enabled = false\n'],
     ['다른 표 아래 점 키', '[other]\nplugins."gestalt@gestalt".enabled = false\n'],
+    ['첫 표 머리 앞 다른 플러그인 인라인 표', 'plugins."other@gestalt" = { enabled = false }\n'],
+    ['다른 표 아래 인라인 표', '[other]\nplugins."gestalt@gestalt" = { enabled = false }\n'],
+    [
+      '첫 표 머리 앞 안쪽 표에만 enabled = false가 있는 인라인 표',
+      'plugins."gestalt@gestalt" = { opts = { enabled = false } }\n',
+    ],
     [
       '안쪽 표에만 enabled = false가 있는 인라인 표',
       '[plugins]\n"gestalt@gestalt" = { opts = { enabled = false }, enabled = true }\n',

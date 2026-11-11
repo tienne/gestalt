@@ -108,6 +108,15 @@ function claudeLaunchers({ env, home }: Context): PluginLauncher[] {
   return found;
 }
 
+const GESTALT_KEY = String.raw`(["'])gestalt@gestalt\1`;
+const DOTTED_OFF = String.raw`\s*\.\s*enabled\s*=\s*false\b`;
+// 안쪽 표의 enabled는 이 플러그인 값이 아니라서 중괄호가 낀 앞부분은 매칭하지 않는다
+const INLINE_OFF = String.raw`\s*=\s*\{(?:[^{}]*,)?\s*enabled\s*=\s*false\s*[,}]`;
+const PLUGINS_KEY_OFF = new RegExp(`^${GESTALT_KEY}(?:${DOTTED_OFF}|${INLINE_OFF})`);
+const ROOT_KEY_OFF = new RegExp(
+  String.raw`^plugins\s*\.\s*${GESTALT_KEY}(?:${DOTTED_OFF}|${INLINE_OFF})`,
+);
+
 /**
  * Codex config.toml에서 이 플러그인을 꺼 뒀는지 본다. TOML 의존성 없이 해당 표만 읽는다.
  * 키에 `#`이 들어갈 일이 없어 줄 끝 주석은 `#`부터 걷어낸다
@@ -119,7 +128,7 @@ function codexPluginDisabled(codexHome: string): boolean {
   } catch {
     return false;
   }
-  // 알아보는 표기는 `[plugins."gestalt@gestalt"]` 표, 첫 표 머리 앞의 `plugins."gestalt@gestalt".enabled` 점 키,
+  // 알아보는 표기는 `[plugins."gestalt@gestalt"]` 표, 첫 표 머리 앞의 `plugins."gestalt@gestalt"` 점 키와 한 줄 인라인 표,
   // `[plugins]` 표 아래 점 키와 한 줄 인라인 표다. 루트의 `plugins = { ... }` 인라인 표와 여러 줄 인라인 표는 안 읽는다
   let section: 'root' | 'plugin' | 'plugins' | null = 'root';
   for (const line of raw.split(/\r?\n/)) {
@@ -131,20 +140,8 @@ function codexPluginDisabled(codexHome: string): boolean {
       continue;
     }
     if (section === 'plugin' && /^enabled\s*=\s*false\b/.test(trimmed)) return true;
-    if (
-      section === 'root' &&
-      /^plugins\s*\.\s*(["'])gestalt@gestalt\1\s*\.\s*enabled\s*=\s*false\b/.test(trimmed)
-    ) {
-      return true;
-    }
-    if (section !== 'plugins') continue;
-    if (/^(["'])gestalt@gestalt\1\s*\.\s*enabled\s*=\s*false\b/.test(trimmed)) return true;
-    // 안쪽 표의 enabled는 이 플러그인 값이 아니라서 중괄호가 낀 앞부분은 건너뛰지 않는다
-    if (
-      /^(["'])gestalt@gestalt\1\s*=\s*\{(?:[^{}]*,)?\s*enabled\s*=\s*false\s*[,}]/.test(trimmed)
-    ) {
-      return true;
-    }
+    if (section === 'root' && ROOT_KEY_OFF.test(trimmed)) return true;
+    if (section === 'plugins' && PLUGINS_KEY_OFF.test(trimmed)) return true;
   }
   return false;
 }
