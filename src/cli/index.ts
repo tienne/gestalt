@@ -113,7 +113,7 @@ function parentOpts<T>(cmd: ParentedCommand): T {
 
 const AGENT_SYNC_HELP = `
 사용자 설정  ~/.gestalt/agent-sync.json (계정 이름, 확인할 도구, Claude 전용 줄)
-백업과 기록  ~/.gestalt/backups/<날짜>-<실행id>/ (run.json, 6개월 보관)
+백업과 기록  ~/.gestalt/backups/<날짜>-<실행id>/ (run.json, 6개월 보관. 아직 되돌리지 않은 가장 최근 sync와 읽지 못한 기록은 기간이 지나도 남긴다)
 자세한 설명  docs/agent-sync.md`;
 
 export function createCli(): Command {
@@ -198,7 +198,7 @@ export function createCli(): Command {
 
   program
     .command('sync')
-    .description('~/.agents(AGENTS.md와 skills/)를 원본으로 Claude와 Codex 홈을 연결한다')
+    .description('Claude와 Codex 홈을 ~/.agents(AGENTS.md와 skills/)에 연결한다')
     .option('--dry-run', '바꿀 것만 보여주고 아무것도 안 쓴다')
     .option(
       '--revert [runId]',
@@ -210,7 +210,9 @@ export function createCli(): Command {
 
   program
     .command('doctor')
-    .description('원본과 어긋난 연결을 찾고 설정에 적힌 도구가 없는 호스트를 경고한다')
+    .description(
+      '~/.agents와 어긋난 연결을 찾고 설정에 적힌 도구가 없는 호스트를 경고한다. --fix를 주면 고친다',
+    )
     .option('--fix', '백업하고 그 자리에서 고친다. 없으면 보고만 한다')
     .option('--json', 'stdout에 JSON만')
     .addHelpText(
