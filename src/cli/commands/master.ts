@@ -160,11 +160,23 @@ export function masterOrderAddCommand(opts: MasterOrderAddOptions): void {
 
 // ─── status ──────────────────────────────────────────────────────
 
-export function masterStatusCommand(opts: MasterCommonOptions): void {
+export interface MasterStatusOptions extends MasterCommonOptions {
+  /** 끝난 주문도 보여준다. bypass로 넘긴 일을 사후 보고할 때 쓴다 */
+  all?: boolean;
+}
+
+export function masterStatusCommand(opts: MasterStatusOptions): void {
   run(() => {
     const { store } = open(opts);
-    const orders = store.orders().filter((o) => o.status !== 'done');
+    const orders = store.orders().filter((o) => opts.all || o.status !== 'done');
     const gates = store.openGates();
+    const bypassesOf = new Map<string, { need: string; action: string; at: string }[]>();
+    for (const b of store.snapshot.bypasses) {
+      const key = b.orderId ?? '';
+      const list = bypassesOf.get(key) ?? [];
+      list.push({ need: b.need, action: b.action, at: b.at });
+      bypassesOf.set(key, list);
+    }
     if (opts.json) {
       return print({
         lastTickAt: store.snapshot.lastTickAt ?? null,
@@ -177,7 +189,9 @@ export function masterStatusCommand(opts: MasterCommonOptions): void {
           ...(o.workerId ? { worker: o.workerId } : {}),
           ...(o.prRef ? { pr: o.prRef } : {}),
           ...(o.issueKey ? { issue: o.issueKey } : {}),
+          bypasses: bypassesOf.get(o.id) ?? [],
         })),
+        unassignedBypasses: bypassesOf.get('') ?? [],
         gates: gates.map((g) => ({
           id: g.id,
           type: g.type,
@@ -187,7 +201,12 @@ export function masterStatusCommand(opts: MasterCommonOptions): void {
       });
     }
     console.log(`마지막 tick: ${store.snapshot.lastTickAt ?? '없음'}`);
-    for (const o of orders) console.log(`${o.id}  ${o.status}  ${o.scope}  ${o.repo}  ${o.title}`);
+    for (const o of orders) {
+      console.log(`${o.id}  ${o.status}  ${o.scope}  ${o.repo}  ${o.title}`);
+      for (const b of bypassesOf.get(o.id) ?? [])
+        console.log(`  bypass ${b.at}  ${b.need}  ${b.action}`);
+    }
+    for (const b of bypassesOf.get('') ?? []) console.log(`bypass ${b.at}  ${b.need}  ${b.action}`);
     for (const g of gates) console.log(`게이트 ${g.id}  ${g.type}  ${g.reason}`);
   });
 }

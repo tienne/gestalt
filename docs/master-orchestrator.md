@@ -96,7 +96,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `auth`, `account-switch` | `master.accounts`에 적힌 레포만 그 계정으로 맞춘다. 없으면 사람에게 |
 | `other` | 사람에게 (`no-procedure`) |
 
-사람에게 가는 자리는 확인 자리(gate)로 열리고 그 주문은 `waiting-gate`가 된다. `gestalt master gate resolve`로 닫으면 결정이 그 워커에 바로 전달된다. bypass로 넘긴 일은 저장소에 기록만 남고 마스터가 모아서 사후 보고한다.
+사람에게 가는 자리는 확인 자리(gate)로 열리고 그 주문은 `waiting-gate`가 된다. `gestalt master gate resolve`로 닫으면 결정이 그 워커에 바로 전달된다. bypass로 넘긴 일은 저장소에 기록만 남고 마스터가 모아서 사후 보고한다. `gestalt master status`가 주문마다 bypass 내역을 붙여 보여 주고 주문에 묶이지 않은 것은 `unassignedBypasses`로 따로 싣는다. 끝난 주문까지 보려면 `--all`을 붙인다.
 
 ## 체크포인트와 재개
 

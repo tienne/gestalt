@@ -56,6 +56,46 @@ describe('gestalt master', () => {
     ]);
   });
 
+  it('bypass로 넘긴 일을 주문별로 보여주고 --all이면 끝난 주문도 싣는다', () => {
+    const stateDir = tempStateDir();
+    masterOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: '배너 고치기' });
+    const orderId = (last()['order'] as { id: string }).id;
+    const store = MasterStore.open(stateDir);
+    const record = {
+      orderId,
+      need: 'cleanup' as const,
+      action: '워크트리를 지웠어요',
+      at: '2026-01-01T00:00:00.000Z',
+    };
+    store.append({ type: 'bypass', at: record.at, record });
+    store.append({
+      type: 'bypass',
+      at: record.at,
+      record: { need: 'account-switch', action: 'work 계정으로 바꿨어요', at: record.at },
+    });
+    store.updateOrder(orderId, { status: 'done' });
+
+    masterStatusCommand({ stateDir, json: true });
+    expect(last()['orders']).toEqual([]);
+    expect(last()['unassignedBypasses']).toEqual([
+      expect.objectContaining({ need: 'account-switch' }),
+    ]);
+
+    masterStatusCommand({ stateDir, json: true, all: true });
+    expect(last()['orders']).toEqual([
+      expect.objectContaining({
+        id: orderId,
+        status: 'done',
+        bypasses: [{ need: 'cleanup', action: '워크트리를 지웠어요', at: record.at }],
+      }),
+    ]);
+
+    masterStatusCommand({ stateDir, all: true });
+    expect(out.join('\n')).toContain(
+      '  bypass 2026-01-01T00:00:00.000Z  cleanup  워크트리를 지웠어요',
+    );
+  });
+
   it('잘못된 값은 stderr와 exit 1로 끝낸다', () => {
     const stateDir = tempStateDir();
     expect(() =>

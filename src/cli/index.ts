@@ -1066,8 +1066,9 @@ export function createCli(): Command {
 
   master
     .command('status')
-    .description('끝나지 않은 주문과 열린 게이트를 짧게 보여준다')
+    .description('끝나지 않은 주문과 열린 게이트, 주문별 bypass 내역을 짧게 보여준다')
     .addOption(stateDir())
+    .option('--all', '끝난 주문까지 보여준다 (bypass 사후 보고용)')
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => masterStatusCommand(o));
 
