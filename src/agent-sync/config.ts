@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import { gestaltPath } from '../core/home.js';
 
@@ -12,7 +13,11 @@ const schema = z.object({
     .record(z.string(), z.object({ label: z.string().optional(), skip: z.boolean().optional() }))
     .default({}),
   orcaCommand: z.string().min(1).optional(),
-  orcaDataDir: z.string().min(1).optional(),
+  orcaDataDir: z
+    .string()
+    .min(1)
+    .refine((v) => isAbsolute(v) && resolve(v) === v, '정리된 절대 경로여야 해요')
+    .optional(),
   rules: z
     .object({
       /** CLAUDE.md를 나눌 때 Claude 쪽에 남길 줄. 줄에 이 문자열이 들어 있으면 남긴다 */

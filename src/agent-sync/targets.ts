@@ -1,6 +1,7 @@
 import { realpathSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AgentSyncConfig } from './config.js';
+import { isInside } from './paths.js';
 import type { ListOrcaAccounts, OrcaAccount } from './orca.js';
 
 export type HostKind = 'claude' | 'codex';
@@ -95,6 +96,8 @@ export function discoverTargets(opts: DiscoverOptions): TargetDiscovery {
   });
 
   const dataDir = orcaDataDir(home, config, listing.accounts);
+  // 오르카가 엉뚱한 홈을 알려줘도 그 밖에는 손대지 않는다
+  const allowedRoot = config.orcaDataDir ?? home;
   for (const account of listing.accounts) {
     const userEntry = config.accounts[account.id];
     const name = userEntry?.label ?? account.label ?? account.id.slice(0, 8);
@@ -104,6 +107,16 @@ export function discoverTargets(opts: DiscoverOptions): TargetDiscovery {
       (account.kind === 'codex' ? join(dataDir, 'codex-accounts', account.id, 'home') : undefined);
     if (!accountHome) {
       skipped.push({ label, home: '', reason: '오르카가 계정 홈을 알려주지 않았어요' });
+      continue;
+    }
+    if (!isInside(allowedRoot, accountHome)) {
+      skipped.push({
+        label,
+        home: accountHome,
+        reason: config.orcaDataDir
+          ? '계정 홈이 orcaDataDir 밖이에요'
+          : '계정 홈이 사용자 홈 밖이에요. 오르카 데이터 폴더가 홈 밖이면 orcaDataDir를 설정해 주세요',
+      });
       continue;
     }
     if (userEntry?.skip) {

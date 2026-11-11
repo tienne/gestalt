@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { isAbsolute, resolve, sep } from 'node:path';
+import { AgentSyncConfigError } from './config.js';
 
 export interface OrcaAccount {
   kind: 'claude' | 'codex';
@@ -30,20 +32,35 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
 
+const SAFE_ID = /^[A-Za-z0-9._-]+$/;
+
+/** id는 Codex 계정 홈 경로에 그대로 들어가니 경로를 벗어날 글자를 막는다 */
+function safeId(v: unknown): string | undefined {
+  const id = str(v);
+  return id && SAFE_ID.test(id) && id !== '.' && id !== '..' ? id : undefined;
+}
+
+function isCleanAbsolute(p: string): boolean {
+  return isAbsolute(p) && resolve(p) === p;
+}
+
+/** 이상한 id나 정리되지 않은 home을 준 계정은 아예 뺀다. 그 홈에 링크를 걸고 백업을 옮기게 된다 */
 function pickAccounts(kind: 'claude' | 'codex', group: unknown): OrcaAccount[] {
   const list = (group as { accounts?: unknown } | undefined)?.accounts;
   if (!Array.isArray(list)) return [];
   const out: OrcaAccount[] = [];
   for (const item of list as RawAccount[]) {
-    const id = str(item?.id);
+    const id = safeId(item?.id);
     if (!id) continue;
+    const home = str(item.home);
+    if (home !== undefined && !isCleanAbsolute(home)) continue;
     // WSL 계정 홈은 이 머신 파일 시스템에서 바로 못 건드린다
     const runtime = str(item.managedAuthRuntime) ?? str(item.managedHomeRuntime);
     if (runtime && runtime !== 'host') continue;
     out.push({
       kind,
       id,
-      home: str(item.home),
+      home,
       label: str(item.organizationName) ?? str(item.workspaceLabel),
     });
   }
@@ -57,8 +74,18 @@ export function parseOrcaAccountList(stdout: string): OrcaAccount[] {
   return [...pickAccounts('claude', body['claude']), ...pickAccounts('codex', body['codex'])];
 }
 
+/** 절대 경로나 PATH에서 찾을 이름만 받는다. 상대 경로는 어디서 부르느냐에 따라 다른 실행 파일을 돌린다 */
 export function resolveOrcaCommand(configured?: string): string {
-  return configured ?? process.env['ORCA_CLI_COMMAND'] ?? 'orca';
+  const envValue = process.env['ORCA_CLI_COMMAND'] || undefined;
+  const command = configured ?? envValue ?? 'orca';
+  const from = configured ? '설정 orcaCommand' : envValue ? 'ORCA_CLI_COMMAND' : null;
+  const bareName = !command.includes('/') && !command.includes(sep);
+  if (from && !isAbsolute(command) && !bareName) {
+    throw new AgentSyncConfigError(
+      `${from}는 절대 경로나 PATH에서 찾을 이름이어야 해요: ${command}`,
+    );
+  }
+  return command;
 }
 
 export function defaultListOrcaAccounts(command: string): ListOrcaAccounts {

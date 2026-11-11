@@ -106,6 +106,42 @@ describe('오르카 계정 목록', () => {
     expect(listing.warning).toBeUndefined();
     expect(listing.accounts.map((a) => a.id)).toEqual(['c1', 'x1']);
   });
+
+  it('id에 경로 문자가 있거나 홈이 정리된 절대 경로가 아닌 계정은 버린다 (SEC-3)', () => {
+    const claude = (id: string, home?: string) => ({ id, home, managedAuthRuntime: 'host' });
+    const listed = parseOrcaAccountList(
+      JSON.stringify({
+        claude: {
+          accounts: [
+            claude('ok-1', '/x/home'),
+            claude('../up', '/x/home'),
+            claude('a/b', '/x/home'),
+            claude('..', '/x/home'),
+            claude('rel', 'x/home'),
+            claude('dots', '/x/../etc'),
+          ],
+        },
+      }),
+    );
+    expect(listed.map((a) => a.id)).toEqual(['ok-1']);
+  });
+
+  it('설정이나 ORCA_CLI_COMMAND의 상대 경로 명령은 거부한다 (SEC-3)', () => {
+    const saved = process.env['ORCA_CLI_COMMAND'];
+    try {
+      delete process.env['ORCA_CLI_COMMAND'];
+      expect(() => resolveOrcaCommand('./orca')).toThrow(AgentSyncConfigError);
+      expect(() => resolveOrcaCommand('bin/orca')).toThrow(AgentSyncConfigError);
+      expect(resolveOrcaCommand('orca-dev')).toBe('orca-dev');
+      process.env['ORCA_CLI_COMMAND'] = 'tools/orca';
+      expect(() => resolveOrcaCommand()).toThrow('ORCA_CLI_COMMAND');
+      process.env['ORCA_CLI_COMMAND'] = '';
+      expect(resolveOrcaCommand()).toBe('orca');
+    } finally {
+      if (saved === undefined) delete process.env['ORCA_CLI_COMMAND'];
+      else process.env['ORCA_CLI_COMMAND'] = saved;
+    }
+  });
 });
 
 describe('대상 홈 찾기 (AC9)', () => {
@@ -164,5 +200,43 @@ describe('대상 홈 찾기 (AC9)', () => {
       '오르카가 계정 홈을 알려주지 않았어요',
     ]);
     expect(d.warnings).toEqual(['orca 경고']);
+  });
+
+  it('사용자 홈이나 orcaDataDir 밖의 계정 홈은 이유와 함께 건너뛴다 (SEC-3)', () => {
+    const outside = join(f.root, 'elsewhere/home');
+    mkdirSync(outside, { recursive: true });
+    const listOrcaAccounts = () => ({
+      accounts: [{ kind: 'claude' as const, id: 'far', home: outside, label: 'far' }],
+    });
+    const plain = discoverTargets({
+      home: f.home,
+      config: loadAgentSyncConfig(),
+      listOrcaAccounts,
+    });
+    expect(plain.skipped.filter((s) => s.label === 'Claude 계정 far')).toEqual([
+      {
+        label: 'Claude 계정 far',
+        home: outside,
+        reason:
+          '계정 홈이 사용자 홈 밖이에요. 오르카 데이터 폴더가 홈 밖이면 orcaDataDir를 설정해 주세요',
+      },
+    ]);
+
+    f.writeConfig({ orcaDataDir: join(f.home, 'orca-data') });
+    const scoped = discoverTargets({
+      home: f.home,
+      config: loadAgentSyncConfig(),
+      listOrcaAccounts,
+    });
+    expect(scoped.skipped.find((s) => s.label === 'Claude 계정 far')?.reason).toBe(
+      '계정 홈이 orcaDataDir 밖이에요',
+    );
+  });
+
+  it('orcaDataDir가 정리된 절대 경로가 아니면 설정 에러다 (SEC-3)', () => {
+    for (const orcaDataDir of ['orca-data', '/x/../orca-data']) {
+      f.writeConfig({ orcaDataDir });
+      expect(() => loadAgentSyncConfig()).toThrow(AgentSyncConfigError);
+    }
   });
 });

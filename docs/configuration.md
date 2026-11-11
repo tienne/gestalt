@@ -398,8 +398,8 @@ PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 �
 | `tools.codex`       | `[]`                                    | Codex 홈에만 더 확인할 도구                                                                               |
 | `accounts.<id>`     | 오르카가 알려 준 이름, 없으면 id 앞 8자 | `label`은 출력에 쓸 이름이다. `skip: true`면 그 계정 홈을 대상에서 뺀다                                   |
 | `rules.claudeOnly`  | `[]`                                    | 처음 sync가 CLAUDE.md를 나눌 때 Claude 쪽에 남길 줄. 줄에 이 문자열이 들어 있으면 남긴다                  |
-| `orcaCommand`       | `ORCA_CLI_COMMAND`, 없으면 `orca`       | 계정 목록을 받을 오르카 명령                                                                              |
-| `orcaDataDir`       | Claude 계정 홈에서 거슬러 올라간 폴더   | Codex 계정 홈(`<여기>/codex-accounts/<id>/home`)을 만들 오르카 데이터 폴더                                |
+| `orcaCommand`       | `ORCA_CLI_COMMAND`, 없으면 `orca`       | 계정 목록을 받을 오르카 명령. 절대 경로나 PATH에서 찾을 이름만 받는다                                     |
+| `orcaDataDir`       | Claude 계정 홈에서 거슬러 올라간 폴더   | Codex 계정 홈(`<여기>/codex-accounts/<id>/home`)을 만들 오르카 데이터 폴더. 정리된 절대 경로여야 한다. 설정하면 계정 홈은 이 폴더 아래에 있어야 하고 비우면 사용자 홈 아래만 받는다 |
 
 도구 목록에 없는 도구는 확인하지 않는다. 규칙 본문에서 명령 이름을 뽑아 확인하지도 않는다. 도구 확인은 doctor를 부른 셸의 PATH 하나로 한다.
 
