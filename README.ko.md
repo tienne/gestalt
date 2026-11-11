@@ -225,7 +225,11 @@ claude mcp add gestalt -- gestalt serve
 
 플러그인 설치(옵션 1)는 앞의 둘을 `scripts/mcp-serve.sh`가 알아서 처리해요. Node는 nvm, fnm, Volta, Homebrew 밑에서 찾고요. 전역 설치된 `gestalt`는 버전이 플러그인 핀과 같을 때만 씁니다. 핀과 다른 버전이 깔려 있으면 경고만 남기고 무시해서 플러그인만 업데이트해도 최신으로 뜨고요. 그 외에는 핀된 버전을 npm 캐시에서 바로 해석합니다.
 
-터미널의 `gestalt`도 같은 식으로 플러그인을 따라가요. 전역 설치본이 Claude Code(`CLAUDE_CONFIG_DIR`이나 `~/.claude`의 `installed_plugins.json`)나 Codex(`CODEX_HOME`이나 `~/.codex`)에 설치된 gestalt 플러그인을 찾았는데 버전이 다르면 그 플러그인의 버전 고정 런처로 명령을 넘겨요. 그래서 플러그인만 업데이트해도 CLI가 같이 올라가요. 설치가 여럿이면 가장 높은 버전을 따르고 전역 쪽이 더 새 버전이어도 플러그인을 따라요. 레포 체크아웃에서 돌리거나 `npx @tienne/gestalt@<버전>`으로 버전을 집어 부르면 그 버전 그대로 돌아요. 끄려면 `GESTALT_FOLLOW_PLUGIN=0`을 주세요. 넘길 때 npm 캐시를 한 번 거쳐서 전역 버전이 플러그인과 다시 같아질 때까지 호출마다 2초쯤 더 걸려요.
+터미널의 `gestalt`도 같은 식으로 플러그인을 따라가요. `npm i -g`로 깐 전역 설치본은 설치된 gestalt 플러그인을 찾아서 버전이 다르면 그 플러그인의 런처로 명령을 넘겨요. 그래서 플러그인만 업데이트해도 CLI가 같이 올라가요.
+
+찾는 자리는 Claude Code에서 사용자 범위로 설치한 `gestalt@gestalt`(`CLAUDE_CONFIG_DIR`이나 `~/.claude`의 `installed_plugins.json`)와 Codex에서 켜 둔 gestalt 마켓플레이스 플러그인(`CODEX_HOME`이나 `~/.codex`)이에요. 설치가 여럿이면 가장 높은 버전을 따르고 전역 쪽이 더 새 버전이어도 플러그인을 따라요.
+
+레포 체크아웃이나 프로젝트 의존성, npx 캐시에서 도는 실행은 그 버전 그대로 돌아요. 다만 npx는 같은 버전이 전역에 깔려 있으면 전역 실행 파일을 부르니, 버전을 꼭 고정해야 하면 `GESTALT_FOLLOW_PLUGIN=0`을 함께 주세요. 플러그인 매니페스트의 MCP 기동은 이미 그렇게 해 뒀어요. 넘길 때 npm 캐시를 한 번 거쳐서 전역 버전이 플러그인과 다시 같아질 때까지 호출마다 2초쯤 더 걸려요.
 
 ---
 

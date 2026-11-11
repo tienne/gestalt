@@ -17,7 +17,7 @@ Claude Code에서 한 번만 실행하면 돼요.
 
 > Node.js 22 이상이 필요해요. 버전이 낮다면 `nvm install 22 && nvm use 22`를 먼저 실행하세요.
 
-> Windows 호스트는 지원하지 않아요. 플러그인이 MCP 서버를 `sh -c`로 띄워서 Windows에서는 서버가 안 떠요. CI도 Ubuntu와 macOS에서만 돌려요. 그래도 써보려면 `npm i -g @tienne/gestalt`로 전역 설치하고 MCP 설정에 `"command": "gestalt"`, `"args": ["serve"]`를 직접 넣으세요.
+> Windows 호스트는 지원하지 않아요. 플러그인이 MCP 서버를 `sh -c`로 띄워서 Windows에서는 서버가 안 떠요. CI도 Ubuntu와 macOS에서만 돌려요. 그래도 써보려면 `npm i -g @tienne/gestalt`로 전역 설치하고 MCP 설정에 `"command": "gestalt"`, `"args": ["serve"]`, `"env": { "GESTALT_FOLLOW_PLUGIN": "0" }`을 직접 넣으세요. env를 빼면 전역 설치본이 다른 버전의 플러그인을 찾았을 때 그쪽으로 넘어가요.
 
 **설치 후 명령이 보이지 않으면** Claude Code를 재시작한 뒤 Plugins 패널을 확인하세요.
 
@@ -118,7 +118,7 @@ ANTHROPIC_API_KEY=your-api-key-here
 → Node.js 22 이상이 필요해요. `nvm install 22 && nvm use 22`를 실행하거나 [nodejs.org](https://nodejs.org)에서 다운로드하세요.
 
 **MCP 서버가 붙었다 안 붙었다 하고 `Connection closed`로 끊겨요**
-→ 원인은 대개 Gestalt가 아니라 `npx`예요. `npx`는 버전을 박아도 기동할 때마다 레지스트리를 조회해요. 캐시가 비어 있으면 20초쯤 걸리고 레지스트리에 못 닿으면 70초를 매달리다 실패하는데, Claude Code는 stdio 서버가 `initialize`에 답할 때까지 30초만 기다려요. `npm i -g @tienne/gestalt`로 전역 설치하고 `gestalt serve`를 직접 부르면 이 조회가 아예 없어져요. 플러그인으로 설치했다면 전역 버전이 플러그인 핀과 같아야 쓰이니 `npm i -g @tienne/gestalt@<플러그인 버전>`으로 맞춰 주세요.
+→ 원인은 대개 Gestalt가 아니라 `npx`예요. `npx`는 버전을 박아도 기동할 때마다 레지스트리를 조회해요. 캐시가 비어 있으면 20초쯤 걸리고 레지스트리에 못 닿으면 70초를 매달리다 실패하는데, Claude Code는 stdio 서버가 `initialize`에 답할 때까지 30초만 기다려요. `npm i -g @tienne/gestalt`로 전역 설치하고 `gestalt serve`를 직접 부르면 이 조회가 아예 없어져요. 플러그인으로 설치했다면 전역 버전이 플러그인 핀과 같아야 쓰이니 `npm i -g @tienne/gestalt@<플러그인 버전>`으로 맞춰 주세요. MCP 설정에 `gestalt serve`를 직접 넣었다면 env에 `GESTALT_FOLLOW_PLUGIN=0`도 넣어 주세요. 안 넣으면 버전이 다를 때 플러그인 런처로 넘어가면서 npm 캐시를 다시 거쳐요.
 
 **데스크톱 앱에서만 서버가 바로 죽어요**
 → 데스크톱 앱이나 런처처럼 터미널 밖에서 띄운 세션은 PATH에 nvm 같은 버전 매니저가 안 들어 있어요. 그래서 `npx`나 `gestalt`를 못 찾고 바로 죽어요. MCP 설정의 `command`에 절대 경로를 주거나 서버 항목에 `env.PATH`를 넣으세요. 플러그인으로 설치했다면 `scripts/mcp-serve.sh`가 nvm, fnm, Volta, Homebrew에서 Node를 찾아줘서 이 문제를 안 겪어요.
