@@ -1,10 +1,13 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   fileDeploySource,
+  GhAccounts,
   GhAccountSwitcher,
   GhPrWatchSource,
   hostJiraClient,
+  PR_LIST_LIMIT,
   hostSlackClient,
   writeDeploySignal,
 } from '../../../src/master/adapters.js';
@@ -60,6 +63,16 @@ describe('호스트로 넘기는 쓰기', () => {
     writeDeploySignal(dir, 'ord-1', { status: 'success', ref: 'run-1' });
     expect(await src.status(o)).toEqual({ status: 'success', ref: 'run-1' });
     expect(() => writeDeploySignal(dir, '../x', { status: 'success' })).toThrow();
+  });
+
+  it('배포 결과 파일이 깨졌으면 던지지 않고 모름으로 본다', async () => {
+    const dir = join(tempStateDir(), 'deploy');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'ord-1.json'), '{"status": "succ');
+    writeFileSync(join(dir, 'ord-2.json'), 'null');
+    const src = fileDeploySource(dir);
+    expect(await src.status(order({ id: 'ord-1' }))).toEqual({ status: 'unknown' });
+    expect(await src.status(order({ id: 'ord-2' }))).toEqual({ status: 'unknown' });
   });
 });
 
@@ -119,5 +132,50 @@ describe('gh 읽기', () => {
     const sw = new GhAccountSwitcher({ runner });
     expect(await sw.current()).toBe('me');
     await expect(sw.switchTo('acme/app', 'other')).rejects.toThrow('no such user');
+  });
+
+  it('PR이 상한에 닿은 레포는 잘렸다고 표시한다', async () => {
+    const many = Array.from({ length: PR_LIST_LIMIT }, (_, i) => pr(i + 1, {}));
+    const { runner } = ghRunner({ author: many, reviewing: [] });
+    const src = new GhPrWatchSource({
+      repoPaths: { 'acme/app': '/tmp/app', 'acme/web': '/tmp/web' },
+      runner,
+    });
+    expect(await src.authored()).toHaveLength(PR_LIST_LIMIT * 2);
+    expect([...src.truncatedRepos].sort()).toEqual(['acme/app', 'acme/web']);
+  });
+
+  it('계정이 정해진 레포는 전역 계정을 바꾸지 않고 그 호출에만 GH_TOKEN을 넘긴다', async () => {
+    const calls: { args: string[]; env?: Record<string, string> }[] = [];
+    const runner: CommandRunner = async (_cmd, args, opts) => {
+      calls.push({ args, ...(opts?.env ? { env: opts.env } : {}) });
+      if (args[0] === 'auth' && args[1] === 'token')
+        return { code: 0, stdout: `tok-${args[3]}\n`, stderr: '' };
+      if (args[0] === 'api')
+        return { code: 0, stdout: opts?.env ? 'team-me\n' : 'me\n', stderr: '' };
+      if (args[0] === 'pr') return { code: 0, stdout: '[]', stderr: '' };
+      return { code: 1, stdout: '', stderr: 'unexpected' };
+    };
+    const accounts = new GhAccounts({ 'acme/web': 'team' }, { runner });
+    const src = new GhPrWatchSource({
+      repoPaths: { 'acme/app': '/tmp/app', 'acme/web': '/tmp/web' },
+      runner,
+      accounts,
+    });
+    await src.authored();
+    await src.reviewing();
+
+    const prCalls = calls.filter((c) => c.args[0] === 'pr');
+    expect(prCalls.find((c) => c.args.includes('acme/web'))?.env).toEqual({ GH_TOKEN: 'tok-team' });
+    expect(prCalls.find((c) => c.args.includes('acme/app'))?.env).toBeUndefined();
+    // 토큰과 로그인 계정은 tick 안에서 한 번씩만 묻는다
+    expect(calls.filter((c) => c.args[0] === 'auth')).toHaveLength(1);
+    expect(calls.filter((c) => c.args[0] === 'api')).toHaveLength(2);
+
+    const sw = new GhAccountSwitcher({ accounts });
+    await sw.switchTo('acme/web', 'team');
+    expect(await sw.current('acme/web')).toBe('team');
+    expect(await sw.current('acme/app')).toBe('me');
+    expect(calls.some((c) => c.args[0] === 'auth' && c.args[1] === 'switch')).toBe(false);
   });
 });

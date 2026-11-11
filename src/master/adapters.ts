@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { log } from '../core/log.js';
 import type { DeploySignal, DeploySource, JiraClient } from './jira.js';
 import {
   execRunner,
   type AccountSwitcher,
+  type CommandOptions,
   type CommandRunner,
   type HostAction,
 } from './launcher.js';
@@ -42,8 +44,6 @@ export function hostSlackClient(actions: HostAction[]): SlackClient {
   };
 }
 
-// ─── 배포 결과 ───────────────────────────────────────────────────
-
 const DEPLOY_STATUSES: ReadonlySet<DeploySignal['status']> = new Set([
   'success',
   'failed',
@@ -67,14 +67,20 @@ export function fileDeploySource(dir: string): DeploySource {
     status: async (order: Order) => {
       const file = join(dir, `${order.id}.json`);
       if (!existsSync(file)) return { status: 'pending' };
-      const raw = JSON.parse(readFileSync(file, 'utf-8')) as Partial<DeploySignal>;
-      if (!raw.status || !DEPLOY_STATUSES.has(raw.status)) return { status: 'unknown' };
+      let raw: Partial<DeploySignal>;
+      try {
+        raw = JSON.parse(readFileSync(file, 'utf-8')) as Partial<DeploySignal>;
+      } catch (err) {
+        // 깨진 파일 하나가 매 tick 정산 전체를 끊지 않게 이 주문만 건너뛴다
+        log(`배포 결과 파일을 못 읽어 ${order.id}는 이번에 건너뛰어요: ${String(err)}`);
+        return { status: 'unknown' };
+      }
+      if (!raw || typeof raw !== 'object' || !raw.status || !DEPLOY_STATUSES.has(raw.status))
+        return { status: 'unknown' };
       return { status: raw.status, ...(raw.ref ? { ref: raw.ref } : {}) };
     },
   };
 }
-
-// ─── gh ──────────────────────────────────────────────────────────
 
 interface GhActivity {
   id?: string;
@@ -93,25 +99,103 @@ interface GhPr {
 }
 
 const PR_FIELDS = 'number,title,headRefOid,comments,reviews';
+/** 열린 PR이 이보다 많으면 뒤가 잘린다. 잘렸는지는 truncatedRepos로 알린다 */
+export const PR_LIST_LIMIT = 200;
+/** 큰 레포의 PR 목록은 코멘트까지 내려받아 기본 시간보다 오래 걸린다 */
+const PR_LIST_TIMEOUT_MS = 180_000;
 
 /**
- * 레포마다 gh로 열린 PR을 읽는다. 대상 레포는 `repoPaths`에 적힌 것만 본다.
- * 본문은 안 싣고 누가 언제 남겼는지만 본다.
+ * 레포마다 쓸 gh 계정의 토큰을 꺼낸다.
+ *
+ * `gh auth switch`는 머신 전역 계정을 바꿔서 다른 레포에서 도는 워커까지 계정이 바뀐다. 그래서
+ * 전환하지 않고 `gh auth token --user`로 받은 토큰을 그 호출의 GH_TOKEN으로만 넘긴다.
+ * 인스턴스는 tick 하나 동안만 쓴다. 토큰과 로그인 계정을 그 안에서만 캐시한다.
  */
-export class GhPrWatchSource implements PrWatchSource {
+export class GhAccounts {
   private readonly runner: CommandRunner;
-  private me: string | undefined;
+  private readonly tokens = new Map<string, Promise<string>>();
+  private readonly logins = new Map<string, Promise<string>>();
 
   constructor(
-    private readonly opts: { repoPaths: Record<string, string>; runner?: CommandRunner },
+    private readonly accounts: Record<string, string> = {},
+    opts: { runner?: CommandRunner } = {},
   ) {
     this.runner = opts.runner ?? execRunner;
   }
 
+  /** 계정의 토큰. 그 계정으로 로그인한 적이 없으면 던진다 */
+  token(account: string): Promise<string> {
+    let t = this.tokens.get(account);
+    if (!t) {
+      t = this.runner('gh', ['auth', 'token', '--user', account]).then((r) => {
+        if (r.code !== 0 || !r.stdout.trim())
+          throw new Error(
+            `gh 계정 ${account}의 토큰을 못 꺼냈어요: ${r.stderr.trim().split('\n')[0] ?? ''}`,
+          );
+        return r.stdout.trim();
+      });
+      t.catch(() => this.tokens.delete(account));
+      this.tokens.set(account, t);
+    }
+    return t;
+  }
+
+  /** 계정이 정해진 레포면 그 토큰을 env로, 아니면 전역 계정을 그대로 쓴다 */
+  async envFor(repo: string, account = this.accounts[repo]): Promise<CommandOptions['env']> {
+    return account ? { GH_TOKEN: await this.token(account) } : undefined;
+  }
+
+  /** 그 env로 부를 때 gh가 보는 로그인 계정. 전역 계정은 빈 키로 한 번만 묻는다 */
+  login(account?: string): Promise<string> {
+    const key = account ?? '';
+    let l = this.logins.get(key);
+    if (!l) {
+      l = (async () => {
+        const env = account ? { GH_TOKEN: await this.token(account) } : undefined;
+        const r = await this.runner('gh', ['api', 'user', '--jq', '.login'], env ? { env } : {});
+        if (r.code !== 0)
+          throw new Error(`gh 로그인 계정을 못 읽었어요: ${r.stderr.trim().split('\n')[0] ?? ''}`);
+        return r.stdout.trim();
+      })();
+      l.catch(() => this.logins.delete(key));
+      this.logins.set(key, l);
+    }
+    return l;
+  }
+
+  accountOf(repo: string): string | undefined {
+    return this.accounts[repo];
+  }
+}
+
+/**
+ * 레포마다 gh로 열린 PR을 읽는다. 대상 레포는 `repoPaths`에 적힌 것만 본다.
+ * 코멘트와 리뷰는 누가 언제 남겼는지만 쓴다. gh pr list가 필드를 좁혀 주지 않아 본문도 내려오지만
+ * 결과에는 싣지 않는다.
+ *
+ * `unansweredThreads`는 채우지 않는다. 스레드 해결 여부는 gh pr list로 안 나오고 graphql을 따로
+ * 불러야 한다. 값을 비워 둬서 "답 없는 스레드 0개"와 구분되게 한다.
+ */
+export class GhPrWatchSource implements PrWatchSource {
+  private readonly runner: CommandRunner;
+  private readonly accounts: GhAccounts;
+  /** 이번 tick에 PR_LIST_LIMIT에 닿아 뒤가 잘린 레포 */
+  readonly truncatedRepos = new Set<string>();
+
+  constructor(
+    private readonly opts: {
+      repoPaths: Record<string, string>;
+      runner?: CommandRunner;
+      accounts?: GhAccounts;
+    },
+  ) {
+    this.runner = opts.runner ?? execRunner;
+    this.accounts = opts.accounts ?? new GhAccounts({}, { runner: this.runner });
+  }
+
   async authored(): Promise<WatchedPr[]> {
-    const me = await this.login();
     const out: WatchedPr[] = [];
-    for (const [repo, prs] of await this.list(['--author', '@me'])) {
+    for (const [repo, me, prs] of await this.list(['--author', '@me'])) {
       for (const pr of prs) {
         const activity = [...(pr.comments ?? []), ...(pr.reviews ?? [])];
         const mine = latest(activity.filter((a) => a.author?.login === me));
@@ -129,9 +213,8 @@ export class GhPrWatchSource implements PrWatchSource {
   }
 
   async reviewing(): Promise<WatchedPr[]> {
-    const me = await this.login();
     const out: WatchedPr[] = [];
-    for (const [repo, prs] of await this.list(['--search', 'reviewed-by:@me -author:@me'])) {
+    for (const [repo, me, prs] of await this.list(['--search', 'reviewed-by:@me -author:@me'])) {
       for (const pr of prs) {
         const myReview = latest((pr.reviews ?? []).filter((r) => r.author?.login === me));
         const reviewedHeadSha = myReview?.commit?.oid;
@@ -145,40 +228,42 @@ export class GhPrWatchSource implements PrWatchSource {
     return out;
   }
 
-  private async login(): Promise<string> {
-    if (this.me) return this.me;
-    const r = await this.runner('gh', ['api', 'user', '--jq', '.login']);
-    if (r.code !== 0)
-      throw new Error(`gh 로그인 계정을 못 읽었어요: ${r.stderr.trim().split('\n')[0] ?? ''}`);
-    this.me = r.stdout.trim();
-    return this.me;
-  }
-
-  private async list(filter: string[]): Promise<[string, GhPr[]][]> {
-    const out: [string, GhPr[]][] = [];
-    for (const [repo, cwd] of Object.entries(this.opts.repoPaths)) {
-      const r = await this.runner(
-        'gh',
-        [
-          'pr',
-          'list',
-          '--repo',
-          repo,
-          '--state',
-          'open',
-          ...filter,
-          '--json',
-          PR_FIELDS,
-          '--limit',
-          '50',
-        ],
-        { cwd },
-      );
-      if (r.code !== 0)
-        throw new Error(`${repo} PR 목록을 못 읽었어요: ${r.stderr.trim().split('\n')[0] ?? ''}`);
-      out.push([repo, JSON.parse(r.stdout) as GhPr[]]);
-    }
-    return out;
+  /** 레포별로 [레포, 그 레포에서의 내 로그인, PR 목록]. 레포끼리는 함께 부른다 */
+  private list(filter: string[]): Promise<[string, string, GhPr[]][]> {
+    return Promise.all(
+      Object.entries(this.opts.repoPaths).map(async ([repo, cwd]) => {
+        const account = this.accounts.accountOf(repo);
+        const env = await this.accounts.envFor(repo, account);
+        const [me, r] = await Promise.all([
+          this.accounts.login(account),
+          this.runner(
+            'gh',
+            [
+              'pr',
+              'list',
+              '--repo',
+              repo,
+              '--state',
+              'open',
+              ...filter,
+              '--json',
+              PR_FIELDS,
+              '--limit',
+              String(PR_LIST_LIMIT),
+            ],
+            { cwd, timeoutMs: PR_LIST_TIMEOUT_MS, ...(env ? { env } : {}) },
+          ),
+        ]);
+        if (r.code !== 0)
+          throw new Error(`${repo} PR 목록을 못 읽었어요: ${r.stderr.trim().split('\n')[0] ?? ''}`);
+        const prs = JSON.parse(r.stdout) as GhPr[];
+        if (prs.length >= PR_LIST_LIMIT) {
+          this.truncatedRepos.add(repo);
+          log(`${repo} 열린 PR이 ${PR_LIST_LIMIT}개 상한에 닿아 뒤쪽은 이번에 못 봤어요`);
+        }
+        return [repo, me, prs] as [string, string, GhPr[]];
+      }),
+    );
   }
 }
 
@@ -197,23 +282,26 @@ function latest(list: GhActivity[]): GhActivity | undefined {
   );
 }
 
-/** gh 계정을 레포 단위로 맞춘다. 같은 호스트에 계정이 여럿 로그인돼 있어야 전환된다 */
+/**
+ * gh 계정을 레포 단위로 맞춘다. 전역 계정은 바꾸지 않는다. 맞춘다는 건 그 계정 토큰을 꺼낼 수
+ * 있는지 확인하고 이 tick의 그 레포 호출에 묶는 것이다. 워커는 지시서대로 명령마다 GH_TOKEN을 넘긴다.
+ */
 export class GhAccountSwitcher implements AccountSwitcher {
-  private readonly runner: CommandRunner;
-  constructor(opts: { runner?: CommandRunner } = {}) {
-    this.runner = opts.runner ?? execRunner;
+  private readonly accounts: GhAccounts;
+  private readonly bound = new Map<string, string>();
+
+  constructor(opts: { runner?: CommandRunner; accounts?: GhAccounts } = {}) {
+    this.accounts = opts.accounts ?? new GhAccounts({}, opts.runner ? { runner: opts.runner } : {});
   }
 
-  async current(): Promise<string | undefined> {
-    const r = await this.runner('gh', ['api', 'user', '--jq', '.login']);
-    return r.code === 0 ? r.stdout.trim() : undefined;
+  async current(repo?: string): Promise<string | undefined> {
+    const bound = repo ? this.bound.get(repo) : undefined;
+    if (bound) return bound;
+    return this.accounts.login().catch(() => undefined);
   }
 
-  async switchTo(_repo: string, account: string): Promise<void> {
-    const r = await this.runner('gh', ['auth', 'switch', '--user', account]);
-    if (r.code !== 0)
-      throw new Error(
-        `gh 계정을 ${account}로 못 바꿨어요: ${r.stderr.trim().split('\n')[0] ?? ''}`,
-      );
+  async switchTo(repo: string, account: string): Promise<void> {
+    await this.accounts.token(account);
+    this.bound.set(repo, account);
   }
 }

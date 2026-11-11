@@ -259,6 +259,37 @@ describe('loadConfig — master', () => {
     expect(master.accounts).toEqual({ 'acme/app': 'work' });
     expect(master.maxConcurrentWorkers).toBe(10);
   });
+
+  it('워커가 멈췄다고 보는 기본 시간은 30분이다', () => {
+    expect(loadConfig({}, opts).master.staleAfterSec).toBe(1800);
+  });
+
+  it('레포의 gestalt.json은 merge-through를 기본 범위로 걸 수 없다', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const dir = mkdtempSync(join(tmpdir(), 'gestalt-config-'));
+    const cwd = process.cwd();
+    try {
+      writeFileSync(
+        join(dir, 'gestalt.json'),
+        JSON.stringify({ master: { defaultScope: 'merge-through', maxConcurrentWorkers: 3 } }),
+      );
+      process.chdir(dir);
+      const { master } = loadConfig({}, { skipDotEnv: true });
+      expect(master.defaultScope).toBe('approval');
+      expect(master.maxConcurrentWorkers).toBe(3);
+      expect(consoleSpy.mock.calls.flat().join()).toContain('merge-through');
+
+      writeFileSync(
+        join(dir, 'gestalt.json'),
+        JSON.stringify({ master: { defaultScope: 'interview-first' } }),
+      );
+      expect(loadConfig({}, { skipDotEnv: true }).master.defaultScope).toBe('interview-first');
+    } finally {
+      process.chdir(cwd);
+      rmSync(dir, { recursive: true, force: true });
+      consoleSpy.mockRestore();
+    }
+  });
 });
 
 describe('loadConfig — ruleSources', () => {

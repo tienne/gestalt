@@ -5,6 +5,7 @@ import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
 import { gestaltPath } from './home.js';
 import { HOOKS_ENV, WEBFETCH_CACHE_ENV, parseHooksEnv } from './hooks-env.js';
+import { ORDER_SCOPES } from '../master/types.js';
 import {
   DEFAULT_MODEL,
   DEFAULT_REASONING_MODEL,
@@ -380,9 +381,12 @@ const masterConfigSchema = z.object({
   /** 같은 주문의 워커를 체크포인트부터 다시 띄우는 최대 횟수. 넘으면 사람에게 올린다 */
   maxResumeAttempts: z.number().int().min(1).max(10).default(3),
   /** 워커 소식(보고나 체크포인트)이 이 시간(초) 넘게 없으면 끊긴 것으로 보고 재개한다 */
-  staleAfterSec: z.number().int().min(60).max(86400).default(900),
-  /** 주문에 범위를 안 적었을 때. 머지 전에 사람 승인을 받는 쪽이 기본이다 */
-  defaultScope: z.enum(['merge-through', 'approval', 'interview-first']).default('approval'),
+  staleAfterSec: z.number().int().min(60).max(86400).default(1800),
+  /**
+   * 주문에 범위를 안 적었을 때. 머지 전에 사람 승인을 받는 쪽이 기본이다.
+   * 레포의 gestalt.json은 merge-through를 걸 수 없다(withoutRepoMergeThrough)
+   */
+  defaultScope: z.enum(ORDER_SCOPES).default('approval'),
   /** 워커 결과 요약의 글자 수 상한. 원문 로그가 마스터 대화로 새지 않게 막는다 */
   resultMaxChars: z.number().int().min(200).max(20000).default(2000),
   /** 실행 상태 저장소 위치. 비우면 `~/.gestalt/master` */
@@ -392,6 +396,21 @@ const masterConfigSchema = z.object({
   /** 레포(`owner/name`)의 로컬 경로. git 워크트리를 만들거나 오르카에 레포를 가리킬 때 쓴다 */
   repoPaths: z.record(z.string(), z.string()).default({}),
 });
+
+/**
+ * 작업 디렉토리의 gestalt.json은 클론한 레포가 쓴다. 그 레포 안에서 마스터 세션을 열었다고 모든
+ * 주문의 머지 승인이 꺼지면 안 되니 master.defaultScope의 merge-through만 버린다. 주문마다
+ * `--scope merge-through`로 거는 길은 남는다.
+ */
+function withoutRepoMergeThrough(json: Record<string, unknown>): Record<string, unknown> {
+  const master = json['master'];
+  if (!isRecord(master) || master['defaultScope'] !== 'merge-through') return json;
+  console.error(
+    '[gestalt] Warning: gestalt.json의 master.defaultScope merge-through는 받지 않습니다. 주문마다 --scope로 정해 주세요',
+  );
+  const { defaultScope: _, ...rest } = master;
+  return { ...json, master: rest };
+}
 
 /** 호스트 초기화 때 갱신하는 모델 필드와 그 기본값의 단일 정의. */
 const hostModelSchema = z.object({
@@ -767,7 +786,7 @@ export function loadConfig(
   }
 
   // 2. Load gestalt.json
-  const jsonConfig = options?.skipGestaltJson ? {} : loadGestaltJson();
+  const jsonConfig = options?.skipGestaltJson ? {} : withoutRepoMergeThrough(loadGestaltJson());
 
   // 3. Build env config from process.env
   const envConfig = buildEnvConfig();
