@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  EXTERNAL_DESCRIPTION_MAX,
   intakeOrder,
   normalizeIssueType,
   pollJira,
@@ -71,6 +72,28 @@ describe('intake', () => {
     expect(s.orders()).toHaveLength(1);
     expect(acked).toEqual(['m1', 'm2', 'm1', 'm2']);
     expect(s.openGates()).toHaveLength(1);
+  });
+
+  it('바깥에서 온 주문의 설명은 상한에서 자르고 사람이 넣은 주문은 그대로 둔다', () => {
+    const s = MasterStore.open(tempStateDir());
+    const long = '가'.repeat(EXTERNAL_DESCRIPTION_MAX + 50);
+    const external = intakeOrder(
+      s,
+      { source: 'external-queue', repo: 'acme/app', title: 'x', description: long },
+      config,
+    ).order;
+    expect(Array.from(external.description!)).toHaveLength(
+      EXTERNAL_DESCRIPTION_MAX + ' (잘림)'.length,
+    );
+    expect(external.description!.endsWith(' (잘림)')).toBe(true);
+
+    const spoken = intakeOrder(
+      s,
+      { source: 'spoken', repo: 'acme/app', title: 'y', description: long },
+      config,
+      { trusted: true },
+    ).order;
+    expect(spoken.description).toBe(long);
   });
 
   it('바깥에서 온 주문은 merge-through를 못 받고 모르는 스킬은 빠진다', () => {

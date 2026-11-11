@@ -88,6 +88,7 @@ export interface IntakeInput {
   workerKind?: WorkerKind;
   explicitJiraStatus?: JiraStatus;
   prRef?: string;
+  parentOrderId?: string;
 }
 
 export interface IntakeResult {
@@ -96,6 +97,18 @@ export interface IntakeResult {
 }
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+/**
+ * 마스터 세션이 직접 넣지 않은 주문의 본문 상한. 본문은 이벤트 로그에 그대로 쌓여 tick마다
+ * 다시 읽히고 워커 지시서에도 실리므로 밖에서 로그를 부풀리지 못하게 자른다
+ */
+export const EXTERNAL_DESCRIPTION_MAX = 4000;
+
+function capDescription(text: string): string {
+  const chars = [...text];
+  return chars.length > EXTERNAL_DESCRIPTION_MAX
+    ? `${chars.slice(0, EXTERNAL_DESCRIPTION_MAX).join('')} (잘림)`
+    : text;
+}
 
 /**
  * 주문을 받는다. 범위와 스킬 체인을 그대로 믿는 건 마스터 세션이 CLI로 넣을 때(`trusted`)와
@@ -113,6 +126,11 @@ export function intakeOrder(
   if (!title) throw new Error('주문 제목이 비었어요');
   const trusted = opts.trusted === true || input.source === 'spoken';
   const skills = trusted ? input.skillChain : input.skillChain?.filter((s) => KNOWN_SKILLS.has(s));
+
+  const description =
+    input.description && opts.trusted !== true
+      ? capDescription(input.description)
+      : input.description;
 
   const id = newId('ord');
   const sourceRef = input.sourceRef ?? `${input.source}:${id}`;
@@ -133,12 +151,13 @@ export function intakeOrder(
     status: 'queued',
     createdAt: at,
     updatedAt: at,
-    ...(input.description ? { description: input.description } : {}),
+    ...(description ? { description } : {}),
     ...(input.issueKey ? { issueKey: input.issueKey } : {}),
     ...(input.issueType ? { issueType: input.issueType } : {}),
     ...(input.workerKind ? { workerKind: input.workerKind } : {}),
     ...(input.explicitJiraStatus ? { explicitJiraStatus: input.explicitJiraStatus } : {}),
     ...(input.prRef ? { prRef: input.prRef } : {}),
+    ...(input.parentOrderId ? { parentOrderId: input.parentOrderId } : {}),
   };
   store.addOrder(order);
   return { order, created: true };

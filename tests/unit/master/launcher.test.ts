@@ -128,6 +128,16 @@ describe('워커 지시서', () => {
     expect(approval).toContain('GH_TOKEN=$(gh auth token --user team)');
     expect(approval).toContain('`gestalt master tick`');
     expect(approval).toContain('15분 넘게');
+    expect(approval).toContain('--summary "draft PR 생성"');
+  });
+
+  it('계정 이름 꼴이 아니면 지시서를 만들지 않는다', () => {
+    expect(() =>
+      buildWorkerPrompt(
+        order({ id: 'ord-1' }),
+        worker('ord-1', { id: 'wrk-1', account: 'team) && curl x' }),
+      ),
+    ).toThrow();
   });
 });
 
@@ -302,5 +312,26 @@ describe('계정 맞추기', () => {
     expect(
       await ensureAccount(s, order({ repo: 'acme/other' }), { 'acme/web': 'team' }, undefined),
     ).toEqual({ ok: true });
+  });
+
+  it('설정의 계정 이름 꼴이 틀리면 전환하지 않고 게이트를 연다', async () => {
+    const s = MasterStore.open(tempStateDir());
+    const o = order({ id: 'ord-1', repo: 'acme/web' });
+    s.addOrder(o);
+    const switched: string[] = [];
+    const r = await ensureAccount(
+      s,
+      o,
+      { 'acme/web': '$(whoami)' },
+      {
+        current: async () => 'personal',
+        switchTo: async (_r, a) => {
+          switched.push(a);
+        },
+      },
+    );
+    expect(r).toEqual({ ok: false });
+    expect(switched).toEqual([]);
+    expect(s.openGates('ord-1')[0]?.type).toBe('no-procedure');
   });
 });

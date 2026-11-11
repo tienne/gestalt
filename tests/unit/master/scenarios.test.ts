@@ -177,7 +177,12 @@ describe('장면 1: 레포 둘, 범위 셋, 세 경로로 받은 주문', () => 
 
     const merge = h.store.openGates(bill.id)[0]!;
     await deliverGateDecision(h.store, resolveGate(h.store, merge.id, 'approved'), h.deps);
-    h.report(h.workerOf(bill.id), { status: 'progress', prRef: 'acme/billing#7' });
+    h.report(h.workerOf(bill.id), {
+      status: 'progress',
+      skill: 'ship',
+      summary: 'draft PR 생성',
+      prRef: 'acme/billing#7',
+    });
     h.report(h.workerOf(bill.id), { status: 'done', merged: true });
     await h.run();
     expect(h.store.order(bill.id)!.status).toBe('merged');
@@ -402,7 +407,12 @@ describe('워커 10개 동시', () => {
     );
 
     h.report(h.workerOf(spoken.id), { status: 'done', merged: true });
-    h.report(h.workerOf(bill.id), { status: 'progress', prRef: 'acme/billing#7' });
+    h.report(h.workerOf(bill.id), {
+      status: 'progress',
+      skill: 'ship',
+      summary: 'draft PR 생성',
+      prRef: 'acme/billing#7',
+    });
     h.report(h.workerOf(bill.id), { status: 'done', merged: true });
     h.report(h.workerOf(logs.id), { status: 'done', merged: true });
     await h.run();

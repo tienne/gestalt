@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { handleNeed } from './gates.js';
+import { handleNeed, openOrReuse } from './gates.js';
 import { oneLine } from './intake.js';
 import { RESUME_MARKER } from './metrics.js';
 import type { MasterStore } from './store.js';
@@ -275,6 +275,9 @@ export function buildWorkerPrompt(
     `- 결과는 \`${report}\`로 낸다. 요약과 refs만 싣고 diff나 로그 원문은 파일로 두고 경로만 적는다.`,
   );
   lines.push('- PR을 만들거나 다루면 결과 보고에 `--pr owner/name#번호` 꼴로 싣는다.');
+  lines.push(
+    `- ship이 GitHub PR을 만들면 Copilot 리뷰를 요청하기 전에 바로 \`${report} --status progress --skill ship --summary "draft PR 생성" --pr owner/name#번호\`로 보고한다. 마스터의 PR 감시가 이 보고로 처리 중인 PR을 알아본다. 늦으면 Copilot 코멘트를 남의 코멘트로 읽고 같은 PR에 주문을 하나 더 만든다.`,
+  );
   if (order.scope === 'merge-through') {
     lines.push(
       `- 체인이 PR을 남기고 끝나면 바로 머지하고 \`${report} --status done --merged --pr owner/name#번호\`로 보고한다.`,
@@ -288,6 +291,9 @@ export function buildWorkerPrompt(
     `- ship의 ⓐ(draft PR 올리기), ⓑ(Copilot 반영 계획), ⓒ(ready 전환)는 머지가 아니라 사람에게 묻지 않고 진행한다. 넘길 때마다 \`${report} --status needs --need simple-approval --need-detail "ship ⓐ draft PR 올리기"\`처럼 남기고 답을 기다리지 않고 이어 간다. 마스터가 이걸 bypass로 기록한다. 머지만 위 승인 절차를 탄다.`,
   );
   if (worker.account) {
+    // 계정 이름이 셸 명령 예시에 그대로 들어간다. ensureAccount가 거르지만 다른 길로 들어온 값도 막는다
+    if (!isAccountName(worker.account))
+      throw new Error(`계정 이름 꼴이 아니라 지시서에 못 넣어요: ${oneLine(worker.account)}`);
     lines.push(
       `- gh와 git push는 \`${oneLine(worker.account)}\` 계정으로 한다. 머신 전역 계정을 바꾸는 \`gh auth switch\`는 쓰지 않고 명령마다 \`GH_TOKEN=$(gh auth token --user ${oneLine(worker.account)}) gh ...\`처럼 그 명령에만 토큰을 넘긴다.`,
     );
@@ -516,6 +522,13 @@ export interface AccountSwitcher {
  * 워커를 띄우기 전에 그 레포의 계정을 맞춘다. 전환은 bypass로 처리하고 기록을 남긴다.
  * 전환이 실패하면 no-procedure 게이트를 열고 false를 돌려준다. 그 주문은 이번에 안 띄운다.
  */
+/** GitHub 계정 이름 꼴. 엔터프라이즈 관리형 계정의 `_`까지 받는다 */
+const ACCOUNT_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
+
+export function isAccountName(v: string): boolean {
+  return ACCOUNT_RE.test(v);
+}
+
 export async function ensureAccount(
   store: MasterStore,
   order: Order,
@@ -524,6 +537,15 @@ export async function ensureAccount(
 ): Promise<{ ok: boolean; account?: string }> {
   const wanted = accounts[order.repo];
   if (!wanted) return { ok: true };
+  if (!isAccountName(wanted)) {
+    // 사람이 설정을 고칠 때까지 이 주문을 띄우지 않는다
+    openOrReuse(store, {
+      orderId: order.id,
+      type: 'no-procedure',
+      reason: `${order.repo}에 적힌 계정이 계정 이름 꼴이 아니에요`,
+    });
+    return { ok: false };
+  }
   if (!switcher) {
     const outcome = await handleNeed(
       store,
