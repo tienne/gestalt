@@ -2,10 +2,12 @@
   "mcpServers": {
     "gestalt": {
       "command": "npx",
-      "args": ["-y", "@tienne/gestalt@0.127.0", "serve"],
+      "args": ["-y", "@tienne/gestalt@0.128.0", "serve"],
       "startup_timeout_sec": 180,
       "tool_timeout_sec": 900,
-      "env": { "GESTALT_FOLLOW_PLUGIN": "0" }
+      "env": {
+        "GESTALT_FOLLOW_PLUGIN": "0"
+      }
     }
   }
 }
