@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { buildClosurePrompt } from '../../../src/execute/prompts.js';
 import { buildLateralPrompt } from '../../../src/resilience/prompts.js';
 import { measureDrift } from '../../../src/execute/drift-detector.js';
+import { executeInputSchema } from '../../../src/mcp/schemas.js';
 import type {
   AtomicTask,
   ClassifiedAC,
@@ -92,6 +93,23 @@ describe('온톨로지 엔티티의 optional 필드', () => {
 
     const ontology = drift.dimensions.find((d) => d.name === 'ontology');
     expect(ontology).toBeDefined();
-    expect(Number.isFinite(ontology!.score)).toBe(true);
+    // 용어 7개와 출력 토큰 6개의 교집합 3, 합집합 10이라 1 - 0.3
+    expect(ontology!.score).toBe(0.7);
+  });
+
+  it('엔티티의 description과 attributes를 생략한 specPatch를 입력 스키마가 받는다', () => {
+    const sparsePatch = {
+      ontologySchema: { entities: [{ name: 'Audit' }, { name: 'Token', attributes: ['id'] }] },
+    };
+
+    expect(
+      executeInputSchema.safeParse({ action: 'evolve_patch', specPatch: sparsePatch }).success,
+    ).toBe(true);
+    expect(
+      executeInputSchema.safeParse({
+        action: 'evolve_lateral_result',
+        lateralResult: { persona: 'simplicity', specPatch: sparsePatch, description: 'sparse' },
+      }).success,
+    ).toBe(true);
   });
 });
