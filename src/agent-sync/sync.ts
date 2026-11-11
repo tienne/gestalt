@@ -207,13 +207,13 @@ export function fixSlotSteps(slot: InspectedSlot, ctx: PlanContext, opts: SlotFi
     if (stashes.length > 0) {
       // 겹친 항목은 그 자리에 두고 아래 링크 걸기에서 폴더째 백업한다. 따로 치우면 같은 백업 자리를 두 번 쓴다
       hints.push(
-        `${label}: ${to}에 이미 있는 ${stashes.join(', ')}는 ${to} 쪽을 남겼어요. 이쪽 것은 백업 폴더에만 있으니 필요하면 꺼내 ${to}에 직접 합쳐 주세요`,
+        `${label}: ${t(slot.path)}에는 ${to}에 이미 있는 ${stashes.join(', ')}가 남아 있어 ${to} 쪽을 남겼어요. 이쪽 것은 백업 폴더에만 있으니 필요하면 꺼내 ${to}에 직접 합쳐 주세요`,
       );
     }
     steps.push({
       summary:
         stashes.length > 0
-          ? `${label}: ${to}에 이미 있는 ${stashes.length}개(${stashes.join(', ')})만 남은 ${t(slot.path)}를 백업하고 ${to} 링크로 바꿈`
+          ? `${label}: ${t(slot.path)}에는 ${to}에 이미 있는 ${stashes.length}개(${stashes.join(', ')})만 남아 있어 백업하고 ${to} 링크로 바꿈`
           : `${label}: 빈 ${t(slot.path)}를 ${to} 링크로 바꿈`,
       apply: (run) => placeLink(run, slot.path, slot.linkTo),
     });

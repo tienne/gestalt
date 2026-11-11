@@ -295,8 +295,8 @@ describe('대상 홈 찾기 (AC9)', () => {
     );
   });
 
-  it('orcaDataDir가 정리된 절대 경로가 아니면 설정 에러다 (SEC-3)', () => {
-    for (const orcaDataDir of ['orca-data', '/x/../orca-data']) {
+  it('orcaDataDir가 절대 경로가 아니거나 `..`, 끝의 `/`가 들어 있으면 설정 에러다 (SEC-3)', () => {
+    for (const orcaDataDir of ['orca-data', '/x/../orca-data', '/x/orca-data/']) {
       f.writeConfig({ orcaDataDir });
       expect(() => loadAgentSyncConfig()).toThrow(AgentSyncConfigError);
     }

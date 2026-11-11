@@ -16,7 +16,10 @@ const schema = z.object({
   orcaDataDir: z
     .string()
     .min(1)
-    .refine((v) => isAbsolute(v) && resolve(v) === v, '정리된 절대 경로여야 해요')
+    .refine(
+      (v) => isAbsolute(v) && resolve(v) === v,
+      '절대 경로여야 하고 `.`, `..`, 끝의 `/`, 겹친 `/`가 없어야 해요',
+    )
     .optional(),
   rules: z
     .object({
