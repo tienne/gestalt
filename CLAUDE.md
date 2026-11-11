@@ -31,6 +31,7 @@ MCP 도구 목록과 액션 스키마는 `src/mcp/`의 툴 정의가 기준이�
 아키텍처 그림 → [`docs/architecture-view.md`](./docs/architecture-view.md)
 WebFetch 캐시 훅 → [`docs/webfetch-cache.md`](./docs/webfetch-cache.md)
 Codex 훅 지원 범위 → [`docs/codex-hooks.md`](./docs/codex-hooks.md)
+규칙과 스킬 동기화 → [`docs/agent-sync.md`](./docs/agent-sync.md)
 설계 제안 → [docs/proposals/](./docs/proposals/README.md)
 
 ## Role Agent 자동 라우팅
