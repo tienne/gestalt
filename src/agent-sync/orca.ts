@@ -20,7 +20,7 @@ export interface RejectedAccount {
 
 export interface OrcaListing {
   accounts: OrcaAccount[];
-  /** 오르카가 알려줬지만 id나 home이 이상해 뺀 계정 */
+  /** 오르카가 알려줬지만 id나 home이 이상하거나 이 머신에서 바로 못 건드리는 런타임이라 뺀 계정 */
   rejected?: RejectedAccount[];
   /** orca를 못 불렀거나 출력을 못 읽었을 때. 이때는 시스템 홈만 대상이 된다 */
   warning?: string;
@@ -88,7 +88,14 @@ function pickAccounts(kind: 'claude' | 'codex', group: unknown): PickedAccounts 
     }
     // WSL 계정 홈은 이 머신 파일 시스템에서 바로 못 건드린다
     const runtime = str(item.managedAuthRuntime) ?? str(item.managedHomeRuntime);
-    if (runtime && runtime !== 'host') continue;
+    if (runtime && runtime !== 'host') {
+      out.rejected.push({
+        kind,
+        id,
+        reason: `이 머신 파일 시스템에서 바로 못 건드리는 계정이에요 (runtime: ${JSON.stringify(runtime)})`,
+      });
+      continue;
+    }
     out.accounts.push({
       kind,
       id,

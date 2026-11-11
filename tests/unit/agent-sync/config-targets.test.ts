@@ -86,7 +86,14 @@ describe('오르카 계정 목록', () => {
       { kind: 'claude', id: 'c1', home: '/x/claude-profiles/c1/home', label: 'org-a' },
       { kind: 'codex', id: 'x1', home: undefined, label: 'ws-b' },
     ];
-    const rejected = [{ kind: 'claude', id: '', reason: '계정 id가 없어요' }];
+    const rejected = [
+      {
+        kind: 'claude',
+        id: 'c2',
+        reason: '이 머신 파일 시스템에서 바로 못 건드리는 계정이에요 (runtime: "wsl")',
+      },
+      { kind: 'claude', id: '', reason: '계정 id가 없어요' },
+    ];
     expect(parseOrcaAccountList(JSON.stringify(raw))).toEqual({ accounts: expected, rejected });
     expect(parseOrcaAccountList(JSON.stringify(raw.result))).toEqual({
       accounts: expected,
@@ -186,6 +193,33 @@ describe('오르카 계정 목록', () => {
     ]);
     const out = formatDoctor(f.home, d, emptyDoctor, false);
     expect(out).toContain('Claude 계정 "../x"  (경로 없음)  계정 id에 쓸 수 없는 글자가 있어요');
+  });
+
+  it('호스트가 아닌 런타임 계정은 건너뛴 홈에 이유와 함께 나오고 되돌리기 허용 홈에는 안 들어간다 (q-r3-1)', () => {
+    for (const p of ['.claude', '.codex']) mkdirSync(join(f.home, p), { recursive: true });
+    mkdirSync(f.claudeA, { recursive: true });
+    const d = discoverTargets({
+      home: f.home,
+      config: loadAgentSyncConfig(),
+      listOrcaAccounts: () =>
+        parseOrcaAccountList(
+          JSON.stringify({
+            claude: {
+              accounts: [{ id: 'wsl-1', home: f.claudeA, managedAuthRuntime: 'wsl' }],
+            },
+          }),
+        ),
+    });
+    expect(d.skipped).toEqual([
+      {
+        label: 'Claude 계정',
+        home: '',
+        reason: '이 머신 파일 시스템에서 바로 못 건드리는 계정이에요 (runtime: "wsl")',
+        rejectedId: 'wsl-1',
+      },
+    ]);
+    expect(d.knownHomes.map((h) => h.home)).not.toContain(f.claudeA);
+    expect(d.targets.map((t) => t.home)).not.toContain(f.claudeA);
   });
 
   it('설정이나 ORCA_CLI_COMMAND의 상대 경로 명령은 거부한다 (SEC-3)', () => {
