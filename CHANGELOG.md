@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.127.0] - 2026-11-11
+
+### Added
+
+- **`gestalt sync`와 `gestalt doctor`로 규칙과 스킬을 `~/.agents` 한 곳에서 연결해요(#116).** Claude 계정 여럿과 터미널 Codex, 오르카가 띄운 Codex가 같은 규칙과 스킬을 보게 해요. 각 홈에는 `~/.agents`로 가는 링크나 가져오기 줄만 둬요.
+  - 처음 sync는 `~/.claude/CLAUDE.md`를 공용 줄과 Claude 전용 줄로 나눠 `~/.agents/AGENTS.md`를 만들고 `~/.claude/skills`의 스킬을 `~/.agents/skills`로 옮긴 뒤 그 자리에 링크를 걸어요. 스킬은 폴더 자체를 링크 하나로 걸어서 새 스킬을 만들어도 다시 sync할 필요가 없어요.
+  - 대상 홈은 `~/.claude`와 `~/.codex`에 `orca account list --json`이 돌려준 계정 홈을 더해 찾아요. WSL 계정처럼 이 머신에서 못 건드리는 홈이나 id와 home 값이 이상한 계정은 이유와 함께 건너뛰어요.
+  - `doctor`는 어긋난 링크와 빠진 가져오기 줄을 찾고 `--fix`를 주면 그 자리에서 고쳐요. 설정에 적은 도구가 없는 호스트는 경고만 해요.
+  - 덮는 자리는 모두 `~/.gestalt/backups/<날짜>-<실행id>/`에 원래 경로 구조로 백업하고 `run.json`에 기록해요. `gestalt sync --revert`가 이 기록을 거꾸로 읽어 sync 전 상태로 돌려요. 보관 기간은 6개월이에요.
+  - 다루는 건 규칙 파일과 스킬 폴더뿐이에요. MCP 설정과 `settings.json`은 읽지도 고치지도 않아요. 상주 프로세스 없이 사용자가 부를 때만 돌아요.
+  - 모든 명령이 `--json`을 받아요. 에러도 stdout에 `{ "ok": false, "error" }` 꼴로 나가서 스킬이나 스크립트가 그대로 파싱할 수 있어요.
+  - 사용법은 `docs/agent-sync.md`에 적었고 사용자 설정 `~/.gestalt/agent-sync.json`의 칸 설명은 `docs/configuration.md`에 더했어요.
+
+### 검증 범위
+
+- 되돌리기는 홈의 실제 파일을 옮기는 일이라 기록을 믿지 않고 검사부터 해요. 경로가 대상 홈의 `skills`, `CLAUDE.md`, `AGENTS.md`와 정확히 같지 않으면 아무것도 안 바꾸고 멈춰요. 처음에는 파일 이름만 봐서 이름만 맞춘 다른 폴더도 통과했던 걸 리뷰에서 잡았어요.
+- `run.json`은 임시 파일에 쓰고 이름을 바꾸는 식으로 저장해요. 옮기기 전에 할 일을 먼저 적어서 중간에 멈춰도 되돌리기가 옮겨 간 자리를 찾고 다시 돌리면 멈춘 단계부터 이어가요. 옮기다 멈춘 항목이 두 자리에 다 있으면 어느 쪽이 온전한지 알 수 없어서 둘 다 두고 확인해 달라고 알려요.
+- 임시 HOME과 가짜 오르카 계정 목록으로 첫 sync, 이름 충돌, doctor 고치기, 되돌리기 범위, 중간 실패 주입, EXDEV 복사 실패, 변조된 기록을 테스트해요. CLI 테스트는 `bin/gestalt.ts`를 실제 프로세스로 띄워 미리보기부터 되돌리기까지 끝까지 돌려요.
+
+### 남긴 것
+
+- sync 뒤 오르카에서 계정을 지우거나 `orcaDataDir`를 바꾸면 그 계정 홈의 기록은 되돌리기가 거부해요. 우회 플래그는 두지 않았고 거부 문구에 다음 할 일(설정을 되돌리거나 백업 폴더에서 직접 꺼내기)을 붙였어요.
+- doctor 실행은 되돌리기 대상이 아니에요. 고친 것을 되돌리려면 그 실행의 백업 폴더에서 직접 꺼내요.
+
 ## [0.126.0] - 2026-11-11
 
 ### Added
