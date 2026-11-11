@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.128.1] - 2026-11-11
+
+### Fixed
+
+- **온톨로지 엔티티에서 `description`이나 `attributes`가 빠지면 `ges_execute`가 죽던 문제를 고쳤어요(#117).** MCP 입력 스키마는 두 필드를 optional로 받는데 `OntologyEntity` 타입은 필수라서 값이 빠진 스펙으로 closure 프롬프트나 evolve 프롬프트를 만들면 `Cannot read properties of undefined (reading 'join')`으로 멈췄어요. ontology drift 계산도 같은 값을 순회하다 죽었어요.
+  - 타입을 optional로 바꾸고 읽는 세 곳(closure 프롬프트, evolve 프롬프트, drift 용어 수집)은 `?? []`로 처리했어요.
+  - `specPatch`와 `lateralResult.specPatch`가 같은 엔티티 스키마를 써요. 한쪽만 optional이던 어긋남이 없어졌어요.
+  - specPatch로 기존 엔티티를 고칠 때 필드를 생략하면 기존 값을 그대로 유지해요. 비우려면 빈 값을 명시해요. 예전에는 생략한 필드가 병합 결과에서 사라지거나 원본 스펙의 배열이 새 스펙으로 그대로 넘어갔어요.
+  - `ges_spec`으로 만드는 스펙은 필드를 다 채우도록 엄격하게 그대로 뒀어요. passthrough 입력도 엄격 스키마로 다시 검사해서 필드가 빠진 엔티티를 거부해요.
+
+### 검증 범위
+
+- 재현 테스트를 먼저 써서 `join` 크래시와 "not iterable"로 실패하는 걸 확인한 뒤 고쳤어요. 병합 코드를 되돌려 새 테스트가 실제로 실패하는 것도 확인했어요.
+- 로컬 리뷰를 5라운드 돌렸고 마지막 라운드는 리뷰어가 모두 승인했어요. `pnpm gate`는 7292개가 통과했어요.
+
+### 남긴 것
+
+- closure 프롬프트와 lateral 프롬프트의 엔티티 목록 템플릿이 겹치고 빈 괄호가 나오는 표기는 헬퍼로 묶지 않았어요. 이 수정의 범위를 넘어서요.
+- `docs/02-spec.md`의 `interface Spec` 블록은 `description`과 `attributes`를 필수로 표시해요. 스펙 쪽 타입은 그대로 필수라 틀린 표기는 아니어서 이번에는 건드리지 않았어요.
+
 ## [0.128.0] - 2026-11-11
 
 ### Added
