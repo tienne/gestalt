@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { GestaltPrinciple } from '../core/types.js';
 
+// LLM이 만든 스펙은 필드를 다 채우게 일부러 엄격하게 둔다. MCP 입력 쪽은 optional로 받는다(mcp/schemas.ts).
 const ontologyEntitySchema = z.object({
   name: z.string().min(1),
   description: z.string(),
