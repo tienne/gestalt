@@ -49,6 +49,7 @@ export function emptySnapshot(): MasterSnapshot {
     bypasses: [],
     jiraTransitions: [],
     slackPosted: {},
+    appliedReports: {},
     ticks: 0,
     eventCount: 0,
   };
@@ -106,6 +107,9 @@ export function applyEvent(s: MasterSnapshot, e: MasterEvent): void {
       return;
     case 'slack-posted':
       s.slackPosted[e.gateId] = e.ref;
+      return;
+    case 'report-applied':
+      s.appliedReports[e.name] = e.at;
       return;
     case 'tick':
       s.ticks += 1;
@@ -279,7 +283,7 @@ function validate(event: MasterEvent, s: MasterSnapshot): void {
   if (event.type === 'gate-resolved') {
     const g = s.gates[event.gateId];
     if (!g) throw new Error(`모르는 게이트예요: ${event.gateId}`);
-    if (g.status !== 'open') throw new Error(`이미 닫힌 게이트예요: ${event.gateId}`);
+    if (g.status !== 'open') throw new Error(`이미 종료된 게이트예요: ${event.gateId}`);
   }
 }
 

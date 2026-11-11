@@ -174,7 +174,7 @@ export function openOrReuse(
 /**
  * 사람이 게이트에 답한 걸 기록한다.
  *
- * 주문의 다른 게이트가 다 닫히면 주문을 다시 움직인다. 워커가 살아 있으면 running으로,
+ * 주문의 다른 게이트가 다 종료되면 주문을 다시 움직인다. 워커가 살아 있으면 running으로,
  * 워커 없이 멈춘 주문이면 승인은 queued(다시 띄움), 거절은 cancelled로 둔다.
  * 이미 머지된 주문(배포 실패로 올라온 주문)은 체인을 다시 돌릴 일이 없다. 승인하면 merged로
  * 돌려 다음 tick이 정산을 다시 시도한다. 거절하면 escalated로 남겨 사람이 마무리한다.
@@ -206,7 +206,7 @@ export function resolveGate(
   const live = order.workerId ? store.worker(order.workerId) : undefined;
   const alive = live && (live.status === 'running' || live.status === 'starting');
   if (alive) {
-    // 게이트를 기다린 시간은 워커가 끊긴 시간이 아니다. 닫는 시점부터 다시 센다
+    // 게이트를 기다린 시간은 워커가 끊긴 시간이 아니다. 게이트를 종료한 시점부터 다시 센다
     store.updateWorker(live.id, { lastSeenAt: store.timestamp() });
     store.updateOrder(order.id, { status: 'running' });
   } else {

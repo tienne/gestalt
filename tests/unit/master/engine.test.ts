@@ -1,11 +1,12 @@
-import { existsSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   deliverGateDecision,
   FAILED_REPORTS_DIR,
   inboxDirOf,
-  MAX_SPAWN_PER_WORKER,
+  MAX_SPAWN_PER_ORDER,
   tick,
   writeReport,
   type EngineDeps,
@@ -253,13 +254,13 @@ describe('마스터 tick', () => {
     expect(store.snapshot.gates[r.escalated[0]!]!.reason).toContain('subagent');
   });
 
-  it('merge-through 주문의 하위 주문은 approval로 낮추고 워커당 상한을 넘으면 사람에게 올린다', async () => {
+  it('merge-through 주문의 하위 주문은 approval로 낮추고 주문당 상한을 넘으면 워커에 거절을 알린다', async () => {
     const { store } = clockedStore();
     store.addOrder(order({ id: 'ord-1', scope: 'merge-through' }));
-    const { deps: d } = deps({ config: { ...config, maxConcurrentWorkers: 1 } });
+    const { deps: d, git } = deps({ config: { ...config, maxConcurrentWorkers: 1 } });
     await tick(store, d, { force: true });
     const wid = store.order('ord-1')!.workerId!;
-    for (let i = 0; i <= MAX_SPAWN_PER_WORKER; i++) {
+    for (let i = 0; i <= MAX_SPAWN_PER_ORDER; i++) {
       report(store, d, {
         workerId: wid,
         status: 'progress',
@@ -267,12 +268,92 @@ describe('마스터 tick', () => {
       });
     }
     const r = await tick(store, d, { force: true });
-    expect(r.created).toHaveLength(MAX_SPAWN_PER_WORKER);
+    expect(r.created).toHaveLength(MAX_SPAWN_PER_ORDER);
     expect(r.created.map((id) => store.order(id)!.scope)).toEqual(
-      Array(MAX_SPAWN_PER_WORKER).fill('approval'),
+      Array(MAX_SPAWN_PER_ORDER).fill('approval'),
     );
+    expect(r.created.map((id) => store.order(id)!.parentOrderId)).toEqual(
+      Array(MAX_SPAWN_PER_ORDER).fill('ord-1'),
+    );
+    expect(r.escalated).toEqual([]);
+    expect(r.errors.join()).toContain('거절');
+    expect(git.sent.filter((m) => m.workerId === wid).at(-1)?.message).toContain(
+      '하위 주문을 만들지 않았어요',
+    );
+  });
+
+  it('하위 주문의 워커는 하위 주문을 더 만들지 못한다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-child', parentOrderId: 'ord-1' }));
+    const { deps: d, git } = deps();
+    await tick(store, d, { force: true });
+    const wid = store.order('ord-child')!.workerId!;
+    report(store, d, {
+      workerId: wid,
+      status: 'progress',
+      spawnRequest: { title: '손자', detail: 'x' },
+    });
+    const r = await tick(store, d, { force: true });
+    expect(r.created).toEqual([]);
+    expect(git.sent.at(-1)?.message).toContain('하위 주문을 만들지 않았어요');
+  });
+
+  it('한 번 적용한 보고 파일은 지우지 못해 남아 있어도 다시 적용하지 않는다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-1' }));
+    const { deps: d } = deps();
+    await tick(store, d, { force: true });
+    const wid = store.order('ord-1')!.workerId!;
+    report(store, d, {
+      workerId: wid,
+      status: 'progress',
+      spawnRequest: { title: '하위', detail: 'x' },
+    });
+    const inbox = inboxDirOf(store, d);
+    const name = readdirSync(inbox).find((f) => f.endsWith('.json'))!;
+    const body = readFileSync(join(inbox, name), 'utf-8');
+    await tick(store, d, { force: true });
+    expect(store.snapshot.appliedReports[name]).toBeDefined();
+    const ordersAfterFirst = store.orders().length;
+
+    // 지우기에 실패한 상황을 같은 이름의 파일을 되살려 흉내낸다
+    writeFileSync(join(inbox, name), body);
+    const r = await tick(store, d, { force: true });
+    expect(r.errors).toEqual([]);
+    expect(store.orders()).toHaveLength(ordersAfterFirst);
+    expect(existsSync(join(inbox, name))).toBe(false);
+  });
+
+  it('워커 정리가 실패하면 주문에 안 묶인 게이트를 열고 주문은 그대로 정산한다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-1', status: 'merged', mergedAt: '2026-01-01T00:00:00.000Z' }));
+    store.startWorker({
+      id: 'wrk-1',
+      orderId: 'ord-1',
+      kind: 'git-worktree',
+      spawnedBy: 'master',
+      attempt: 1,
+      status: 'finished',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      lastSeenAt: '2026-01-01T00:00:00.000Z',
+    });
+    const { deps: d, git } = deps();
+    git.launcher.release = async () => {
+      throw new Error('워크트리가 잠겨 있어요');
+    };
+    const r = await tick(store, d, { force: true });
     expect(r.escalated).toHaveLength(1);
-    expect(store.snapshot.gates[r.escalated[0]!]!.payload?.kind).toBe('spawn-limit');
+    const gate = store.snapshot.gates[r.escalated[0]!]!;
+    expect(gate.orderId).toBeUndefined();
+    expect(gate.payload).toMatchObject({ kind: 'cleanup-failed', workerId: 'wrk-1' });
+    expect(store.order('ord-1')!.status).toBe('done');
+
+    // 게이트가 열려 있는 동안은 다시 시도하지 않고 승인되면 정리된 것으로 본다
+    const again = await tick(store, d, { force: true });
+    expect(again.escalated).toEqual([]);
+    resolveGate(store, gate.id, 'approved');
+    await tick(store, d, { force: true });
+    expect(store.worker('wrk-1')!.status).toBe('released');
   });
 
   it('적용하다 실패한 결과는 지우지 않고 failed로 옮겨 원문을 남긴다', async () => {
@@ -357,28 +438,58 @@ describe('마스터 tick', () => {
     expect(git.started).toHaveLength(1);
   });
 
-  it('살아 있는 프로세스의 잠금은 오래돼도 걷어내지 않는다', async () => {
+  const lockOf = (pid: number, startedAt: number) => `${pid}:${startedAt}:${hostname()}:x`;
+
+  it('살아 있는 프로세스의 잠금은 한 시간이 지나도 걷어내지 않는다', async () => {
     const { store, dir } = clockedStore();
     const { deps: d } = deps();
     const lock = join(dir, 'tick.lock');
-    writeFileSync(lock, `${process.pid}:other`);
-    const old = new Date(Date.now() - 60 * 60 * 1000);
-    utimesSync(lock, old, old);
+    writeFileSync(lock, lockOf(process.pid, Date.now() - 60 * 60 * 1000));
     const r = await tick(store, d, { force: true });
     expect(r.skipped).toBe(true);
     expect(r.errors[0]).toContain(`pid ${process.pid}`);
     expect(existsSync(lock)).toBe(true);
   });
 
+  it('살아 있는 프로세스의 잠금이라도 6시간이 지나면 걷어낸다', async () => {
+    const { store, dir } = clockedStore();
+    const { deps: d } = deps();
+    writeFileSync(join(dir, 'tick.lock'), lockOf(process.pid, Date.now() - 7 * 60 * 60 * 1000));
+    const r = await tick(store, d, { force: true });
+    expect(r.skipped).toBeUndefined();
+  });
+
   it('죽은 프로세스의 잠금은 걷어내고 돌며 끝나면 자기 잠금만 푼다', async () => {
     const { store, dir } = clockedStore();
     const { deps: d } = deps();
     const lock = join(dir, 'tick.lock');
-    writeFileSync(lock, '2147483646:dead');
+    writeFileSync(lock, lockOf(2147483646, Date.now()));
     const r = await tick(store, d, { force: true });
     expect(r.skipped).toBeUndefined();
     expect(existsSync(lock)).toBe(false);
     expect(readdirSync(dir).filter((f) => f.includes('tick.lock'))).toEqual([]);
+  });
+
+  it('못 읽는 옛 꼴 잠금은 10분이 지나야 걷어낸다', async () => {
+    const { store, dir } = clockedStore();
+    const { deps: d } = deps();
+    const lock = join(dir, 'tick.lock');
+    writeFileSync(lock, `${process.pid}:other`);
+    expect((await tick(store, d, { force: true })).skipped).toBe(true);
+    const old = new Date(Date.now() - 11 * 60 * 1000);
+    utimesSync(lock, old, old);
+    expect((await tick(store, d, { force: true })).skipped).toBeUndefined();
+  });
+
+  it('같은 저장소를 연 두 마스터가 차례로 tick해도 같은 주문을 두 번 띄우지 않는다', async () => {
+    const { store, dir, now } = clockedStore();
+    store.addOrder(order({ id: 'ord-1' }));
+    const other = MasterStore.open(dir, { now });
+    const { deps: d, git } = deps();
+    await tick(store, d, { force: true });
+    await tick(other, d, { force: true });
+    expect(git.started).toHaveLength(1);
+    expect(other.order('ord-1')!.workerId).toBe(store.order('ord-1')!.workerId);
   });
 
   it('간격 안의 tick과 겹친 tick은 건너뛴다', async () => {

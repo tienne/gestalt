@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   existsSync,
-  linkSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -13,6 +12,7 @@ import {
   writeFileSync,
   writeSync,
 } from 'node:fs';
+import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
 import { handleNeed, openOrReuse, type BypassHandlers } from './gates.js';
 import {
@@ -53,8 +53,9 @@ import type {
 /**
  * 마스터 tick 한 번.
  *
- * 접수, 결과 수신, 끊김 감지와 재개, 배정과 띄우기, 머지 뒤 마무리, 슬랙 게시, 정리를
- * 차례로 돈다. 상태는 전부 저장소에 남기고 마스터 세션에는 짧은 TickReport만 돌려준다.
+ * 결과 수신, 접수, 끊김 감지와 재개, 배정과 띄우기, 머지 뒤 마무리, 슬랙 게시, 정리를
+ * 차례로 돈다. 결과 수신이 접수보다 앞인 건 워커가 방금 보고한 PR 주소를 PR 감시가 먼저 알게
+ * 하려는 것이다. 순서가 바뀌면 그 PR에 달린 코멘트를 남의 코멘트로 읽고 주문을 하나 더 만든다. 상태는 전부 저장소에 남기고 마스터 세션에는 짧은 TickReport만 돌려준다.
  * 마스터 세션이 대신 해야 하는 일(서브에이전트 띄우기, git 워크트리 세션 열기, 메시지 전하기)은
  * hostActions로 돌려준다. Passthrough 설계라 여기서 LLM을 부르지 않는다.
  */
@@ -106,10 +107,17 @@ export function inboxDirOf(store: MasterStore, deps: Pick<EngineDeps, 'inboxDir'
 const REVIEW_SKILLS = new Set(['ship', 'local-pr', 'review-reply', 'review-loop']);
 
 const LOCK_FILE = 'tick.lock';
-/** pid를 못 읽는 잠금(옛 꼴이나 반쯤 쓴 파일)만 이 시간이 지나면 낡았다고 본다 */
+/** 내용을 못 읽는 잠금(옛 꼴이나 반쯤 쓴 파일)은 이 시간이 지나면 낡았다고 본다 */
 const LOCK_STALE_MS = 10 * 60 * 1000;
-/** 워커 하나가 spawnRequest로 만들 수 있는 주문 수. 넘으면 사람에게 올린다 */
-export const MAX_SPAWN_PER_WORKER = 3;
+/**
+ * 적힌 프로세스가 살아 있어도 잡은 지 이 시간이 지나면 낡았다고 본다. 죽은 프로세스의 pid를
+ * 다른 프로세스가 물려받았거나 tick이 멈춘 채 살아 있으면 잠금이 영영 안 풀리기 때문이다
+ */
+const LOCK_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+/** 낡은 잠금을 걷어내는 프로세스를 하나로 줄 세우는 파일. 걷어내다 죽었으면 이 시간 뒤 다시 걷는다 */
+const STEAL_STALE_MS = 60 * 1000;
+/** 주문 하나의 워커들이 spawnRequest로 만들 수 있는 하위 주문 수. 넘는 요청은 거절해 워커에 알린다 */
+export const MAX_SPAWN_PER_ORDER = 3;
 /** 보고를 적용하다 실패한 원문을 남기는 자리. inbox 아래에 둔다 */
 export const FAILED_REPORTS_DIR = 'failed';
 
@@ -172,8 +180,8 @@ async function runTick(
   report: TickReport,
 ): Promise<TickReport> {
   let unanswered = 0;
-  await step(report, () => intake(store, deps, report).then((n) => (unanswered = n)));
   await step(report, () => ingestReports(store, deps, report));
+  await step(report, () => intake(store, deps, report).then((n) => (unanswered = n)));
   await step(report, async () => {
     detectStale(store, {
       now: new Date(report.at),
@@ -269,16 +277,20 @@ async function ingestReports(
     .sort();
   for (const f of files) {
     const path = join(dir, f);
-    try {
-      const r = parseWorkerReport(
-        JSON.parse(readFileSync(path, 'utf-8')),
-        deps.config.resultMaxChars,
-      );
-      await applyReport(store, deps, report, r);
-    } catch (err) {
-      // 지우면 done merged나 needs 같은 보고를 되살릴 길이 없다. 원문을 옮겨 두고 사람이 본다
-      report.errors.push(`결과 ${f}: ${message(err)} (${moveToFailed(dir, f)})`);
-      continue;
+    // 앞 tick이 적용만 하고 못 지운 파일이다. 다시 적용하면 needs의 bypass와 전하기가 한 번 더 돈다
+    if (store.snapshot.appliedReports[f] === undefined) {
+      try {
+        const r = parseWorkerReport(
+          JSON.parse(readFileSync(path, 'utf-8')),
+          deps.config.resultMaxChars,
+        );
+        await applyReport(store, deps, report, r);
+      } catch (err) {
+        // 지우면 done merged나 needs 같은 보고를 되살릴 길이 없다. 원문을 옮겨 두고 사람이 본다
+        report.errors.push(`결과 ${f}: ${message(err)} (${moveToFailed(dir, f)})`);
+        continue;
+      }
+      store.append({ type: 'report-applied', at: report.at, name: f });
     }
     try {
       unlinkSync(path);
@@ -311,6 +323,8 @@ async function applyReport(
   if (!order) throw new Error(`모르는 주문이에요: ${worker.orderId}`);
   if (order.workerId !== worker.id)
     throw new Error(`${worker.id}는 이미 다른 워커로 바뀐 주문의 앞 워커라 결과를 무시해요`);
+  // 상태를 하나라도 바꾸기 전에 거른다. 반쯤 적용된 채 failed로 옮겨지면 되살릴 때 앞부분이 겹친다
+  if (r.status === 'needs' && !r.need) throw new Error('status needs인데 need가 없어요');
 
   store.updateWorker(worker.id, {
     lastSeenAt: report.at,
@@ -318,7 +332,7 @@ async function applyReport(
   });
   if (r.prRef && order.prRef !== r.prRef) store.updateOrder(order.id, { prRef: r.prRef });
 
-  if (r.spawnRequest) spawnFromReport(store, deps, report, order, worker, r.spawnRequest);
+  if (r.spawnRequest) await spawnFromReport(store, deps, report, order, worker, r.spawnRequest);
 
   switch (r.status) {
     case 'progress':
@@ -365,31 +379,29 @@ async function applyReport(
  * 워커가 요청한 하위 작업을 새 주문으로 받는다.
  *
  * 워커는 하위 워커를 직접 못 띄우는데 이 길로 사람 확인 없이 주문을 늘릴 수 있다. 그래서
- * 자식 주문은 부모가 merge-through여도 approval로 낮춰 머지 전에 사람을 거치게 한다. 워커 하나가
- * 만들 수 있는 수를 묶는다. 넘으면 만들지 않고 사람에게 올린다.
+ * 자식 주문은 부모가 merge-through여도 approval로 낮춰 머지 전에 사람을 거치게 한다.
+ * 한 단계만 받는다. 자식 주문의 워커가 또 요청하면 3, 9, 27개로 불어나므로 거절한다.
+ * 수는 부모 주문 기준으로 센다. 워커 기준이면 재개로 새 워커가 뜰 때마다 몫이 다시 생긴다.
+ * 거절은 게이트로 올리지 않고 워커에 알린다. 사람이 승인해도 상한이 그대로라 할 일이 없다.
  */
-function spawnFromReport(
+async function spawnFromReport(
   store: MasterStore,
   deps: EngineDeps,
   report: TickReport,
   order: Order,
   worker: Worker,
   req: NonNullable<WorkerReport['spawnRequest']>,
-): void {
-  const prefix = `spawn:${worker.id}:`;
-  const sourceRef = `${prefix}${req.title}`;
+): Promise<void> {
+  const refuse = async (why: string): Promise<void> => {
+    report.errors.push(`${worker.id}의 하위 주문 요청을 거절했어요(${why}): ${req.title}`);
+    await sendTo(deps, report, worker, `하위 주문을 만들지 않았어요(${why}): ${req.title}`);
+  };
+  if (order.parentOrderId) return refuse('하위 주문의 하위 주문은 만들 수 없어요');
+  const sourceRef = `spawn:${order.id}:${req.title}`;
   if (store.findOrderBySourceRef(sourceRef)) return;
-  const made = store.orders().filter((o) => o.sourceRef.startsWith(prefix)).length;
-  if (made >= MAX_SPAWN_PER_WORKER) {
-    const { gate } = openOrReuse(store, {
-      orderId: order.id,
-      type: 'no-procedure',
-      reason: `${worker.id}가 하위 주문을 ${MAX_SPAWN_PER_WORKER}개 넘게 요청했어요: ${req.title}`,
-      payload: { kind: 'spawn-limit', workerId: worker.id },
-    });
-    report.escalated.push(gate.id);
-    return;
-  }
+  const made = store.orders().filter((o) => o.parentOrderId === order.id).length;
+  if (made >= MAX_SPAWN_PER_ORDER)
+    return refuse(`주문 하나에 ${MAX_SPAWN_PER_ORDER}개까지만 만들어요`);
   const scope: OrderScope = order.scope === 'merge-through' ? 'approval' : order.scope;
   const out = intakeOrder(
     store,
@@ -400,6 +412,7 @@ function spawnFromReport(
       title: req.title,
       description: req.detail,
       scope,
+      parentOrderId: order.id,
     },
     { defaultScope: deps.config.defaultScope },
   );
@@ -407,7 +420,7 @@ function spawnFromReport(
 }
 
 /**
- * 사람이 닫은 게이트의 결정을 살아 있는 워커에 전한다. `gestalt master gate resolve`가 부른다.
+ * 사람이 종료한 게이트의 결정을 살아 있는 워커에 전한다. `gestalt master gate resolve`가 부른다.
  * 워커가 없거나 끝났으면 전할 곳이 없으니 아무것도 안 한다. 주문은 resolveGate가 이미 옮겨 뒀다.
  */
 export async function deliverGateDecision(
@@ -581,30 +594,65 @@ async function settleOne(
   }
 }
 
-/** 끝난 워커의 자원을 bypass로 정리한다. 멈춘 워커는 재개가 그 dispatch id나 워크트리를 다시 쓸 수 있어 남긴다 */
+/**
+ * 끝난 워커의 자원을 정리한다. 멈춘 워커는 재개가 그 dispatch id나 워크트리를 다시 쓸 수 있어 남긴다.
+ *
+ * 정리가 실패하면 주문 없는 게이트로 올린다. 주문에 붙이면 주문이 waiting-gate로 바뀌어 머지 뒤
+ * 정산까지 멈추는데 정리는 주문 진행과 무관하다. 그 게이트가 열린 동안은 다시 시도하지 않는다.
+ * 사람이 승인하면 직접 정리한 것으로 보고 released로 두고 거절하면 다음 tick에 다시 시도한다.
+ */
 async function cleanupWorkers(
   store: MasterStore,
   deps: EngineDeps,
   report: TickReport,
 ): Promise<void> {
+  const cleanupGates = Object.values(store.snapshot.gates).filter(
+    (g) => g.payload?.kind === CLEANUP_FAILED,
+  );
+  const targets: Worker[] = [];
   for (const w of store.workers()) {
     if (w.status !== 'finished' && w.status !== 'failed') continue;
-    const launcher = deps.launchers[w.kind];
-    const outcome = await handleNeed(
-      store,
-      { orderId: w.orderId, need: 'cleanup', detail: `${w.id} 정리` },
-      {
-        ...deps.bypass,
-        cleanup: async () => {
-          if (launcher) await launcher.release(w);
-          return `${w.kind} 워커 ${w.id}를 정리했어요`;
-        },
-      },
-    );
-    if (outcome.kind === 'bypass') store.updateWorker(w.id, { status: 'released' });
-    else report.escalated.push(outcome.gate.id);
+    const mine = cleanupGates.filter((g) => g.payload?.workerId === w.id);
+    if (mine.some((g) => g.status === 'open')) continue;
+    if (mine.some((g) => g.decision === 'approved')) {
+      store.updateWorker(w.id, { status: 'released' });
+      continue;
+    }
+    targets.push(w);
   }
+  // release마다 외부 명령 타임아웃이 걸려 있어 차례로 기다리면 tick이 워커 수만큼 길어진다
+  const results = await Promise.allSettled(
+    targets.map(async (w) => {
+      await deps.launchers[w.kind]?.release(w);
+    }),
+  );
+  results.forEach((r, i) => {
+    const w = targets[i]!;
+    if (r.status === 'fulfilled') {
+      const at = store.timestamp();
+      store.append({
+        type: 'bypass',
+        at,
+        record: {
+          orderId: w.orderId,
+          need: 'cleanup',
+          action: `${w.kind} 워커 ${w.id}를 정리했어요`,
+          at,
+        },
+      });
+      store.updateWorker(w.id, { status: 'released' });
+      return;
+    }
+    const { gate } = openOrReuse(store, {
+      type: 'no-procedure',
+      reason: `${w.id} 정리에 실패했어요: ${message(r.reason)}`,
+      payload: { kind: CLEANUP_FAILED, workerId: w.id, orderId: w.orderId },
+    });
+    report.escalated.push(gate.id);
+  });
 }
+
+const CLEANUP_FAILED = 'cleanup-failed';
 
 async function moveJira(
   store: MasterStore,
@@ -671,23 +719,24 @@ function message(err: unknown): string {
 
 type LockResult = { ok: true; release: () => void } | { ok: false; holder?: number };
 
+interface LockInfo {
+  pid: number;
+  startedAt: number;
+  host: string;
+}
+
 /**
  * 마스터 세션이 둘 떠도 같은 주문을 두 번 띄우지 않게 tick을 하나만 돌린다.
  *
- * 잠금 파일에 pid와 토큰을 적는다. 적힌 프로세스가 살아 있으면 tick이 아무리 길어도 걷어내지
- * 않는다. 죽었을 때만 걷어낸다. 걷어낼 때는 rename으로 한 프로세스만 가져간다. 가져간 파일이
- * 낡았다고 본 그 파일이 아니면 되돌린다. 풀 때도 자기 토큰일 때만 지운다.
+ * 잠금 파일에 pid와 잡은 시각, 호스트, 토큰을 적는다. 같은 호스트에서 적힌 프로세스가 살아 있으면
+ * 잡은 지 LOCK_MAX_AGE_MS가 지나기 전에는 걷어내지 않는다. 다른 호스트의 pid는 살아 있는지 볼 수
+ * 없어 시간 상한만 본다. 걷어내는 쪽은 steal 파일로 한 프로세스씩 줄 세운다. 줄을 선 프로세스는
+ * 잠금을 다시 읽어 낡았다고 본 그 내용일 때만 지우고 새로 잡는다. 풀 때도 자기 토큰일 때만 지운다.
  */
 function acquireLock(dir: string): LockResult {
   const path = join(dir, LOCK_FILE);
-  const token = `${process.pid}:${randomUUID()}`;
-  const release = () => {
-    try {
-      if (readFileSync(path, 'utf-8') === token) unlinkSync(path);
-    } catch {
-      // 이미 지워졌으면 할 일이 없다
-    }
-  };
+  const token = `${process.pid}:${Date.now()}:${hostname()}:${randomUUID()}`;
+  const release = () => removeIfOwned(path, token);
   if (tryCreateLock(path, token)) return { ok: true, release };
 
   let seen: string;
@@ -696,41 +745,65 @@ function acquireLock(dir: string): LockResult {
   } catch {
     return { ok: false };
   }
-  const holder = lockPid(seen);
-  if (holder !== undefined) {
-    if (isAlive(holder)) return { ok: false, holder };
-  } else {
-    try {
-      if (Date.now() - statSync(path).mtimeMs < LOCK_STALE_MS) return { ok: false };
-    } catch {
-      return { ok: false };
-    }
-  }
+  const info = parseLock(seen);
+  const holder = info ? { holder: info.pid } : {};
+  if (!isStaleLock(path, info)) return { ok: false, ...holder };
 
-  const taken = `${path}.${token.replace(':', '-')}.stale`;
-  try {
-    renameSync(path, taken);
-  } catch {
-    return { ok: false, ...(holder !== undefined ? { holder } : {}) };
+  const stealPath = `${path}.steal`;
+  if (!tryCreateLock(stealPath, token)) {
+    clearStaleSteal(stealPath);
+    return { ok: false, ...holder };
   }
   try {
-    if (readFileSync(taken, 'utf-8') !== seen) {
-      // 그 사이 다른 프로세스가 새로 잡은 잠금을 가져왔다. 비어 있을 때만 제자리에 돌려놓는다
-      try {
-        linkSync(taken, path);
-      } catch {
-        // 이미 누가 새 잠금을 놓았으면 그쪽이 주인이다
-      }
-      return { ok: false };
-    }
-  } finally {
+    let now: string | undefined;
     try {
-      unlinkSync(taken);
+      now = readFileSync(path, 'utf-8');
     } catch {
-      // 지울 게 없으면 그만이다
+      now = undefined;
+    }
+    // 줄을 서는 사이 주인이 풀고 다른 프로세스가 새로 잡았다
+    if (now !== undefined && now !== seen) return { ok: false };
+    if (now !== undefined) unlinkSync(path);
+    return tryCreateLock(path, token) ? { ok: true, release } : { ok: false };
+  } catch {
+    return { ok: false, ...holder };
+  } finally {
+    removeIfOwned(stealPath, token);
+  }
+}
+
+function isStaleLock(path: string, info: LockInfo | undefined): boolean {
+  if (!info) {
+    try {
+      return Date.now() - statSync(path).mtimeMs >= LOCK_STALE_MS;
+    } catch {
+      return false;
     }
   }
-  return tryCreateLock(path, token) ? { ok: true, release } : { ok: false };
+  if (Date.now() - info.startedAt >= LOCK_MAX_AGE_MS) return true;
+  return info.host === hostname() && !isAlive(info.pid);
+}
+
+/** 걷어내다 죽은 프로세스의 steal 파일만 지운다. 지운 다음 tick이 다시 줄을 선다 */
+function clearStaleSteal(stealPath: string): void {
+  try {
+    const content = readFileSync(stealPath, 'utf-8');
+    const info = parseLock(content);
+    const dead = info !== undefined && info.host === hostname() && !isAlive(info.pid);
+    if (dead || Date.now() - statSync(stealPath).mtimeMs >= STEAL_STALE_MS) {
+      removeIfOwned(stealPath, content);
+    }
+  } catch {
+    // 그 사이 주인이 지웠으면 할 일이 없다
+  }
+}
+
+function removeIfOwned(path: string, token: string): void {
+  try {
+    if (readFileSync(path, 'utf-8') === token) unlinkSync(path);
+  } catch {
+    // 이미 지워졌으면 할 일이 없다
+  }
 }
 
 function tryCreateLock(path: string, token: string): boolean {
@@ -748,11 +821,13 @@ function tryCreateLock(path: string, token: string): boolean {
   return true;
 }
 
-function lockPid(content: string): number | undefined {
-  const m = /^(\d+):/.exec(content);
+function parseLock(content: string): LockInfo | undefined {
+  const m = /^(\d+):(\d+):([^:]*):[^:]+$/.exec(content);
   if (!m) return undefined;
   const pid = Number(m[1]!);
-  return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+  const startedAt = Number(m[2]!);
+  if (!Number.isSafeInteger(pid) || pid <= 0 || !Number.isSafeInteger(startedAt)) return undefined;
+  return { pid, startedAt, host: m[3]! };
 }
 
 function isAlive(pid: number): boolean {

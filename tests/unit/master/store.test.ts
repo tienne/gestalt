@@ -66,7 +66,7 @@ describe('MasterStore', () => {
     expect(s.workers()).toEqual([]);
   });
 
-  it('모르는 주문이나 닫힌 게이트를 건드리면 거절한다', () => {
+  it('모르는 주문이나 종료된 게이트를 건드리면 거절한다', () => {
     const s = MasterStore.open(tempStateDir());
     expect(() => s.updateOrder('ord-x', { status: 'done' })).toThrow(/모르는 주문/);
     expect(() => s.startWorker(worker('ord-x'))).toThrow(/모르는 주문/);
@@ -86,7 +86,7 @@ describe('MasterStore', () => {
         gateId: 'gate-1',
         decision: 'approved',
       }),
-    ).toThrow(/이미 닫힌/);
+    ).toThrow(/이미 종료된/);
   });
 
   it('append 도중 끊겨 반쯤 쓴 마지막 줄은 버리고 복원한다', () => {

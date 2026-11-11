@@ -5,7 +5,9 @@
  * 저장소(`store.ts`)에 이벤트로 쌓는다. 여기 타입은 그 이벤트와 스냅샷의 꼴이다.
  */
 
-export const ORDER_SCOPES = ['merge-through', 'approval', 'interview-first'] as const;
+import { ORDER_SCOPES } from '../core/constants.js';
+
+export { ORDER_SCOPES };
 /** 주문 하나가 사람 손을 어디서 거치는지. merge-through는 머지까지 무승인이다 */
 export type OrderScope = (typeof ORDER_SCOPES)[number];
 
@@ -70,6 +72,8 @@ export interface Order {
   explicitJiraStatus?: JiraStatus;
   mergedAt?: string;
   deployedAt?: string;
+  /** 워커의 spawnRequest로 생긴 주문이면 그 워커가 맡았던 주문. 이 주문의 워커는 더 못 늘린다 */
+  parentOrderId?: string;
 }
 
 export const WORKER_STATUSES = [
@@ -236,6 +240,8 @@ export type MasterEvent =
   | { type: 'jira-transition'; at: string; record: JiraTransitionRecord }
   | { type: 'slack-posted'; at: string; gateId: string; ref: string }
   | { type: 'tick'; at: string }
+  /** inbox의 보고 파일 하나를 적용했다. 지우기에 실패해 다음 tick에 다시 보여도 또 적용하지 않는다 */
+  | { type: 'report-applied'; at: string; name: string }
   /** 앞 프로세스가 줄 중간에 죽은 꼬리를 개행으로 끊었다는 표시. replay가 바로 앞 깨진 줄을 건너뛴다 */
   | { type: 'tail-repaired'; at: string };
 
@@ -248,6 +254,8 @@ export interface MasterSnapshot {
   bypasses: BypassRecord[];
   jiraTransitions: JiraTransitionRecord[];
   slackPosted: Record<string, string>;
+  /** 적용한 보고 파일 이름과 시각 */
+  appliedReports: Record<string, string>;
   ticks: number;
   /** 마지막 tick 시각. 감시 주기보다 자주 돌지 않게 막는 데 쓴다 */
   lastTickAt?: string;
