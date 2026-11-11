@@ -20,6 +20,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/pick-node.sh
 . "$ROOT/scripts/lib/pick-node.sh"
 
+# A global gestalt hands itself to the highest installed plugin version whenever
+# the two versions differ, newer or older. Here the pin (or GESTALT_MCP_BIN)
+# already decided which build runs, so turn that off for the override, the probe,
+# and the server this script execs.
+export GESTALT_FOLLOW_PLUGIN=0
+
 # Before the Node search, because this branch does not need Node at all. Someone
 # pointing at their own build on a machine without a usable Node install should
 # not be turned away by a search whose result they were never going to use.
@@ -56,11 +62,6 @@ fi
 if [[ "$SPEC" == "@tienne/gestalt" ]]; then
   echo "gestalt MCP: no version pin (unreadable $ROOT/package.json) — resolving latest." >&2
 fi
-
-# A newer global gestalt hands itself to the highest installed plugin
-# version. Here the pin already decided which version runs, so turn that off for
-# the probe and for the server it execs.
-export GESTALT_FOLLOW_PLUGIN=0
 
 # A global install is the fast path (no npx round), but only while it is the same
 # version as the pin. A stale `npm i -g` that kept serving would leave the server
