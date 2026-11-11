@@ -140,8 +140,25 @@ function stepFor(action: RunAction, t: (p: string) => string): RevertStep | null
     case 'pending': {
       // 옮기다 멈춘 동작. 옮겨 갈 자리가 비어 있으면 원래 것이 제자리에 있으니 할 일이 없다
       const inner = action.action;
-      const landed = inner.op === 'move' ? inner.to : inner.backup;
-      return lstatOrNull(landed) ? stepFor(inner, t) : null;
+      const [from, landed] =
+        inner.op === 'move' ? [inner.from, inner.to] : [inner.path, inner.backup];
+      if (!lstatOrNull(landed)) return null;
+      const step = stepFor(inner, t);
+      if (!step) return null;
+      return {
+        summary: step.summary,
+        apply: (run, notes) => {
+          // 뒤 동작을 되돌린 다음에 봐야 한다. 그 전에는 뒤 동작이 원래 자리를 다시 채워 둔 것일 수 있다.
+          // 복사 도중에도 지우는 도중에도 둘 다 남으니 어느 쪽이 반쯤 남은 것인지 몰라 둘 다 둔다
+          if (lstatOrNull(from)) {
+            notes.push(
+              `${t(from)}를 옮기다 멈춘 흔적이에요. ${t(from)}와 ${t(landed)}가 둘 다 있어 어느 쪽이 온전한지 몰라 그대로 뒀어요. 확인해서 하나만 남겨 주세요`,
+            );
+            return;
+          }
+          step.apply(run, notes);
+        },
+      };
     }
     default:
       return null;
@@ -315,9 +332,17 @@ export function runRevert(input: RevertInput): RevertResult {
     progress = { ...progress, revertProgress: index };
     writeRun(progress);
   }
-  run.record.changes.push(...notes.map((n) => `(참고) ${n}`));
-  run.save();
-  writeRun({ ...progress, revertedAt: now.toISOString(), revertedBy: run.record.runId });
+  // 바꾼 것도 알릴 것도 없으면 실행 폴더를 안 만든다. 그때 revertedBy는 없는 실행을 가리키게 된다
+  const saved = run.touched || notes.length > 0;
+  if (saved) {
+    run.record.changes.push(...notes.map((n) => `(참고) ${n}`));
+    run.save();
+  }
+  writeRun({
+    ...progress,
+    revertedAt: now.toISOString(),
+    ...(saved ? { revertedBy: run.record.runId } : {}),
+  });
   // 고른 실행이 보관 기간 끝자락이어도 되돌린 다음에 정리한다
   const pruned = pruneRuns(now);
   return {
@@ -325,6 +350,8 @@ export function runRevert(input: RevertInput): RevertResult {
     changes,
     notes,
     pruned,
-    run: { runId: run.record.runId, dir: run.dir, recordFile: run.recordFile },
+    ...(saved
+      ? { run: { runId: run.record.runId, dir: run.dir, recordFile: run.recordFile } }
+      : {}),
   };
 }

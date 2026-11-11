@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runDoctor, type Which } from '../../../src/agent-sync/doctor.js';
 import { formatDoctor } from '../../../src/agent-sync/format.js';
-import { movePath } from '../../../src/agent-sync/fs-ops.js';
+import { lstatOrNull, movePath } from '../../../src/agent-sync/fs-ops.js';
 import { isInside, tildify } from '../../../src/agent-sync/paths.js';
 import { revertSlotPaths, runRevert, RevertError } from '../../../src/agent-sync/revert.js';
 import {
@@ -37,6 +37,7 @@ import {
   seedFirstSetup,
   snapshot,
   type Fixture,
+  type Snapshot,
 } from './fixture.js';
 
 // 실패 주입용. 평소에는 실제 함수를 그대로 부른다
@@ -81,6 +82,11 @@ const allTools: Which = () => true;
 
 function sync(targets: Target[] = f.discover().targets, now?: Date) {
   return runSync({ home: f.home, targets, config: f.config(), dryRun: false, now });
+}
+
+/** 파일이면 내용 해시, 폴더면 안쪽 전부 */
+function snapshotOf(path: string): Snapshot | string {
+  return statSync(path).isDirectory() ? snapshot(path) : hashFile(path);
 }
 
 /** 되돌리기가 받을 자리. CLI처럼 지금 찾은 홈으로 만든다 */
@@ -555,7 +561,7 @@ describe('실패 경로 (Q6)', () => {
     expect(existsSync(join(alphaOut(), 'SKILL.md'))).toBe(true);
   });
 
-  it('옮기다 멈춘 pending 항목은 옮겨 간 자리에 있으면 되돌리고 없으면 건너뛴다', () => {
+  it('옮기다 멈춘 pending 항목은 옮겨 간 자리에 있으면 되돌린다', () => {
     const before = snapshot(f.home);
     const { run } = sync();
     const raw = JSON.parse(readFileSync(run!.recordFile, 'utf-8')) as { actions: RunAction[] };
@@ -567,6 +573,65 @@ describe('실패 경로 (Q6)', () => {
     const result = runRevert({ ...scope(), dryRun: false });
     expect(result.notes).toEqual([]);
     expect(snapshot(f.home)).toEqual(before);
+  });
+
+  /**
+   * sync 기록을 `~/.codex/AGENTS.md` stash에서 멈춘 모양으로 자르고 그 stash를 pending으로 바꾼다.
+   * 스킬 폴더 stash를 고르면 앞의 move가 되돌아오며 그 폴더 내용이 바뀌어 비교할 수 없다
+   */
+  function stopAtCodexStash(recordFile: string) {
+    const codexRules = join(f.home, '.codex/AGENTS.md');
+    const raw = JSON.parse(readFileSync(recordFile, 'utf-8')) as { actions: RunAction[] };
+    const at = raw.actions.findIndex((a) => a.op === 'stash' && a.path === codexRules);
+    const stash = raw.actions[at] as Extract<RunAction, { op: 'stash' }>;
+    raw.actions = [...raw.actions.slice(0, at), { op: 'pending', action: stash }];
+    writeFileSync(recordFile, JSON.stringify(raw));
+    return stash;
+  }
+
+  it('옮기다 멈춘 pending 항목은 옮겨 간 자리에 없으면 건너뛴다', () => {
+    const { run } = sync();
+    const stash = stopAtCodexStash(run!.recordFile);
+    if (lstatOrNull(stash.path)) rmSync(stash.path, { recursive: true });
+    renameSync(stash.backup, stash.path);
+    const original = snapshotOf(stash.path);
+
+    const result = runRevert({ ...scope(), dryRun: false });
+    expect(result.notes).toEqual([]);
+    expect(snapshotOf(stash.path)).toEqual(original);
+    expect(existsSync(stash.backup)).toBe(false);
+  });
+
+  it('옮기다 멈춘 항목이 원래 자리와 옮겨 간 자리에 둘 다 있으면 손대지 않고 알린다', () => {
+    const { run } = sync();
+    const stash = stopAtCodexStash(run!.recordFile);
+    if (lstatOrNull(stash.path)) rmSync(stash.path, { recursive: true });
+    cpSync(stash.backup, stash.path, { recursive: true });
+    const both = [snapshotOf(stash.path), snapshotOf(stash.backup)];
+
+    const result = runRevert({ ...scope(), dryRun: false });
+    expect(result.notes).toEqual([
+      `${tildify(stash.path, f.home)}를 옮기다 멈춘 흔적이에요. ${tildify(stash.path, f.home)}와 ${tildify(stash.backup, f.home)}가 둘 다 있어 어느 쪽이 온전한지 몰라 그대로 뒀어요. 확인해서 하나만 남겨 주세요`,
+    ]);
+    expect([snapshotOf(stash.path), snapshotOf(stash.backup)]).toEqual(both);
+  });
+
+  it('되돌릴 단계가 없으면 실행 폴더를 만들지 않고 revertedBy도 남기지 않는다', () => {
+    const codexRules = join(f.home, '.codex/AGENTS.md');
+    const empty = new RunWriter('sync', f.home);
+    empty.log({
+      op: 'pending',
+      action: { op: 'stash', path: codexRules, backup: empty.backupPathFor(codexRules) },
+    });
+    const dirsBefore = readdirSync(backupsRoot());
+
+    const result = runRevert({ ...scope(), dryRun: false });
+    expect(result.changes).toEqual([]);
+    expect(result.run).toBeUndefined();
+    expect(readdirSync(backupsRoot())).toEqual(dirsBefore);
+    const record = recordOf(empty.dir);
+    expect(record.revertedAt).toBeDefined();
+    expect(record.revertedBy).toBeUndefined();
   });
 
   it('상대 경로 링크인 스킬은 옮긴 뒤에도 되돌린 뒤에도 같은 곳을 가리킨다', () => {
