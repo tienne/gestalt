@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const major = Number(process.versions.node.split('.')[0]);
@@ -14,7 +13,7 @@ if (major < 22) {
   process.exit(1);
 }
 
-const { FOLLOW_PLUGIN_ENV, resolvePluginDelegation } = await import('../src/cli/follow-plugin.js');
+const { resolvePluginDelegation, runDelegated } = await import('../src/cli/follow-plugin.js');
 const { getVersion } = await import('../src/core/version.js');
 
 const target = resolvePluginDelegation({
@@ -23,28 +22,20 @@ const target = resolvePluginDelegation({
 });
 
 if (target) {
-  const child = spawn(process.execPath, [target.launcher, ...process.argv.slice(2)], {
-    stdio: 'inherit',
-    env: { ...process.env, [FOLLOW_PLUGIN_ENV]: '0' },
-  });
-  const terminate = () => child.kill('SIGTERM');
-  const hangup = () => child.kill('SIGHUP');
-  // Ctrl-C는 프로세스 그룹 전체에 가므로 자식에게 다시 보내지 않는다
-  const interrupt = () => {};
-  process.on('SIGTERM', terminate);
-  process.on('SIGHUP', hangup);
-  process.on('SIGINT', interrupt);
-  child.once('error', (error) => {
-    console.error(`gestalt: plugin launcher failed (${error.message})`);
-    process.exit(1);
-  });
-  child.once('exit', (code, signal) => {
-    process.off('SIGTERM', terminate);
-    process.off('SIGHUP', hangup);
-    process.off('SIGINT', interrupt);
+  // 사람이 보는 터미널에서만 알린다. 파이프로 읽는 스크립트의 stderr는 건드리지 않는다
+  if (process.stderr.isTTY) {
+    console.error(
+      `gestalt: following plugin ${target.version} (${target.host}) — GESTALT_FOLLOW_PLUGIN=0 to disable`,
+    );
+  }
+  try {
+    const { code, signal } = await runDelegated(target, process.argv.slice(2));
     if (signal) process.kill(process.pid, signal);
     else process.exit(code ?? 1);
-  });
+  } catch (error) {
+    console.error(`gestalt: plugin launcher failed (${(error as Error).message})`);
+    process.exit(1);
+  }
 } else {
   const { createCli } = await import('../src/cli/index.js');
   createCli().parse();

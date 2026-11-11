@@ -130,6 +130,7 @@ const terminate = () => child.kill('SIGTERM');
 const hangup = () => child.kill('SIGHUP');
 // Group Ctrl-C reaches the child: do not forward it twice. Programmatic callers
 // must use SIGTERM to cancel only this pid. Signal tests cover both delivery modes.
+// bin/gestalt.ts relays the same way through runDelegated in src/cli/follow-plugin.ts.
 const interrupt = () => {};
 process.on('SIGTERM', terminate);
 process.on('SIGHUP', hangup);

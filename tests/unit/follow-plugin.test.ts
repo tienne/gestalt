@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   findPluginLaunchers,
+  isNpmGlobalInstall,
   pickHighest,
   resolvePluginDelegation,
+  runDelegated,
 } from '../../src/cli/follow-plugin.js';
 
 const dirs: string[] = [];
@@ -26,29 +29,44 @@ function pluginRoot(root: string, version: string) {
   writeFileSync(join(root, '.codex-plugin', 'plugin.json'), JSON.stringify({ version }));
 }
 
-function claudeInstall(configDir: string, key: string, installs: string[]) {
+function claudeInstall(
+  configDir: string,
+  installs: string[],
+  options: { key?: string; scope?: string } = {},
+) {
   mkdirSync(join(configDir, 'plugins'), { recursive: true });
   writeFileSync(
     join(configDir, 'plugins', 'installed_plugins.json'),
     JSON.stringify({
       version: 2,
-      plugins: { [key]: installs.map((installPath) => ({ scope: 'user', installPath })) },
+      plugins: {
+        [options.key ?? 'gestalt@gestalt']: installs.map((installPath) => ({
+          scope: options.scope ?? 'user',
+          installPath,
+        })),
+      },
     }),
   );
 }
 
-const GLOBAL_BIN = '/usr/local/lib/node_modules/@tienne/gestalt/dist/bin/gestalt.js';
+function codexInstall(codexHome: string, version: string, marketplace = 'gestalt') {
+  pluginRoot(join(codexHome, 'plugins', 'cache', marketplace, 'gestalt', version), version);
+}
+
+/** <prefix>/lib/node_modules/@tienne/gestalt 꼴의 가짜 npm 전역 설치를 만들고 실행 파일 경로를 준다 */
+function npmGlobal(prefix: string): string {
+  mkdirSync(join(prefix, 'bin'), { recursive: true });
+  writeFileSync(join(prefix, 'bin', 'gestalt'), '');
+  return join(prefix, 'lib', 'node_modules', '@tienne', 'gestalt', 'dist', 'bin', 'gestalt.js');
+}
 
 describe('findPluginLaunchers', () => {
   it('Claude 등록부와 Codex 캐시를 둘 다 훑는다', () => {
     const home = tempHome();
     const claudeRepo = join(home, 'claude-cache', '0.126.0');
     pluginRoot(join(claudeRepo, 'plugin'), '0.126.0');
-    claudeInstall(join(home, '.claude'), 'gestalt@gestalt', [claudeRepo]);
-    pluginRoot(
-      join(home, '.codex', 'plugins', 'cache', 'gestalt', 'gestalt', '0.127.0'),
-      '0.127.0',
-    );
+    claudeInstall(join(home, '.claude'), [claudeRepo]);
+    codexInstall(join(home, '.codex'), '0.127.0');
 
     const found = findPluginLaunchers({ env: {}, home });
     expect(found.map((f) => [f.host, f.version]).sort()).toEqual([
@@ -62,9 +80,9 @@ describe('findPluginLaunchers', () => {
     const other = join(home, 'profile');
     const repo = join(home, 'repo');
     pluginRoot(join(repo, 'plugin'), '0.130.0');
-    claudeInstall(other, 'gestalt@my-market', [repo]);
+    claudeInstall(other, [repo]);
     const codexHome = join(home, 'codex-home');
-    pluginRoot(join(codexHome, 'plugins', 'cache', 'mk', 'gestalt', '0.129.0'), '0.129.0');
+    codexInstall(codexHome, '0.129.0');
 
     const found = findPluginLaunchers({
       env: { CLAUDE_CONFIG_DIR: other, CODEX_HOME: codexHome },
@@ -83,9 +101,57 @@ describe('findPluginLaunchers', () => {
     );
     const badVersion = join(home, 'b');
     pluginRoot(join(badVersion, 'plugin'), 'latest');
-    claudeInstall(join(home, '.claude'), 'gestalt@gestalt', [noLauncher, badVersion]);
+    claudeInstall(join(home, '.claude'), [noLauncher, badVersion]);
 
     expect(findPluginLaunchers({ env: {}, home })).toEqual([]);
+  });
+
+  it('공식 마켓플레이스가 아닌 설치와 프로젝트 범위 설치는 건너뛴다', () => {
+    const home = tempHome();
+    const repo = join(home, 'repo');
+    pluginRoot(join(repo, 'plugin'), '0.130.0');
+    const other = join(home, 'other');
+    claudeInstall(join(home, '.claude'), [repo], { key: 'gestalt@my-market' });
+    claudeInstall(other, [repo], { scope: 'project' });
+    codexInstall(join(home, '.codex'), '0.129.0', 'my-market');
+
+    expect(findPluginLaunchers({ env: { CLAUDE_CONFIG_DIR: other }, home })).toEqual([]);
+  });
+
+  it('상대 경로로 적힌 설치와 환경변수는 건너뛴다', () => {
+    const home = tempHome();
+    claudeInstall(join(home, '.claude'), ['relative/repo']);
+    codexInstall(join(home, '.codex'), '0.129.0');
+
+    expect(
+      findPluginLaunchers({
+        env: { CLAUDE_CONFIG_DIR: 'profile', CODEX_HOME: 'codex-home' },
+        home,
+      }),
+    ).toEqual([]);
+  });
+
+  it('Codex config.toml에서 꺼 둔 플러그인은 건너뛴다', () => {
+    const home = tempHome();
+    codexInstall(join(home, '.codex'), '0.129.0');
+    writeFileSync(
+      join(home, '.codex', 'config.toml'),
+      '[plugins."other@gestalt"]\nenabled = true\n\n[plugins."gestalt@gestalt"]\nenabled = false\n',
+    );
+    expect(findPluginLaunchers({ env: {}, home })).toEqual([]);
+  });
+
+  it('CLAUDE_CONFIG_DIR가 ~/.claude와 같은 설치를 가리키면 한 번만 센다', () => {
+    const home = tempHome();
+    const repo = join(home, 'repo');
+    pluginRoot(join(repo, 'plugin'), '0.126.0');
+    claudeInstall(join(home, '.claude'), [repo]);
+    const linked = join(home, 'linked-claude');
+    symlinkSync(join(home, '.claude'), linked);
+
+    for (const dir of [join(home, '.claude'), linked]) {
+      expect(findPluginLaunchers({ env: { CLAUDE_CONFIG_DIR: dir }, home })).toHaveLength(1);
+    }
   });
 
   it('등록부가 없거나 깨져도 던지지 않는다', () => {
@@ -108,10 +174,45 @@ describe('pickHighest', () => {
   });
 });
 
+describe('isNpmGlobalInstall', () => {
+  it('POSIX와 Windows npm 전역 설치를 알아본다', () => {
+    const home = tempHome();
+    expect(isNpmGlobalInstall(npmGlobal(join(home, 'usr-local')))).toBe(true);
+
+    const winPrefix = join(home, 'AppData', 'npm');
+    mkdirSync(winPrefix, { recursive: true });
+    writeFileSync(join(winPrefix, 'gestalt.cmd'), '');
+    expect(
+      isNpmGlobalInstall(
+        join(winPrefix, 'node_modules', '@tienne', 'gestalt', 'dist', 'bin', 'gestalt.js'),
+      ),
+    ).toBe(true);
+  });
+
+  it('체크아웃, 프로젝트 의존성, npx, pnpm dlx, bunx는 전역으로 안 본다', () => {
+    const home = tempHome();
+    const pkg = join('node_modules', '@tienne', 'gestalt', 'dist', 'bin', 'gestalt.js');
+    const project = join(home, 'proj');
+    mkdirSync(join(project, 'bin'), { recursive: true });
+    writeFileSync(join(project, 'bin', 'gestalt'), '');
+    for (const selfPath of [
+      join(home, 'work', 'gestalt', 'dist', 'bin', 'gestalt.js'),
+      join(project, pkg),
+      join(home, '.npm', '_npx', 'abc', pkg),
+      join(home, 'Library', 'Caches', 'pnpm', 'dlx', 'abc', pkg),
+      join(home, 'bunx-501-@tienne', pkg),
+    ]) {
+      expect(isNpmGlobalInstall(selfPath)).toBe(false);
+    }
+  });
+});
+
 describe('resolvePluginDelegation', () => {
+  let GLOBAL_BIN = '';
   function setup(version: string) {
     const home = tempHome();
-    pluginRoot(join(home, '.codex', 'plugins', 'cache', 'gestalt', 'gestalt', version), version);
+    codexInstall(join(home, '.codex'), version);
+    GLOBAL_BIN = npmGlobal(join(home, 'prefix'));
     return home;
   }
 
@@ -156,26 +257,62 @@ describe('resolvePluginDelegation', () => {
     ).toBeNull();
   });
 
-  it('레포 체크아웃 빌드와 npx 실행은 넘기지 않는다', () => {
+  it('npm 전역 설치가 아니면 넘기지 않는다', () => {
     const home = setup('0.128.0');
-    for (const selfPath of [
-      '/work/gestalt/dist/bin/gestalt.js',
-      '/home/me/.npm/_npx/abc/node_modules/@tienne/gestalt/dist/bin/gestalt.js',
-    ]) {
-      expect(
-        resolvePluginDelegation({ selfPath, currentVersion: '0.127.0', env: {}, home }),
-      ).toBeNull();
-    }
+    const selfPath = join(
+      home,
+      '.npm',
+      '_npx',
+      'abc',
+      'node_modules',
+      '@tienne',
+      'gestalt',
+      'x.js',
+    );
+    expect(
+      resolvePluginDelegation({ selfPath, currentVersion: '0.127.0', env: {}, home }),
+    ).toBeNull();
   });
 
   it('플러그인이 없으면 넘기지 않는다', () => {
+    const home = tempHome();
     expect(
       resolvePluginDelegation({
-        selfPath: GLOBAL_BIN,
+        selfPath: npmGlobal(join(home, 'prefix')),
         currentVersion: '0.127.0',
         env: {},
-        home: tempHome(),
+        home,
       }),
     ).toBeNull();
+  });
+});
+
+describe('runDelegated', () => {
+  function fakeLauncher(body: string) {
+    const dir = tempHome();
+    const launcher = join(dir, 'gestalt-cli.mjs');
+    writeFileSync(launcher, body);
+    return { launcher, version: '0.128.0', host: 'codex' as const };
+  }
+
+  it('인자를 넘기고 자식에 끄기 환경변수를 붙여 종료 코드를 돌려준다', async () => {
+    const target = fakeLauncher(
+      `if (process.argv[2] !== 'a' || process.env.GESTALT_FOLLOW_PLUGIN !== '0') process.exit(1);\nprocess.exit(7);\n`,
+    );
+    await expect(runDelegated(target, ['a'], { env: {} })).resolves.toEqual({
+      code: 7,
+      signal: null,
+    });
+  });
+
+  it('SIGTERM을 자식에게 전하고 끝나면 리스너를 뗀다', async () => {
+    const target = fakeLauncher(`setInterval(() => {}, 1000);\n`);
+    const signals = new EventEmitter();
+    const run = runDelegated(target, [], { env: {}, signals });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    signals.emit('SIGTERM');
+    await expect(run).resolves.toEqual({ code: null, signal: 'SIGTERM' });
+    expect(signals.listenerCount('SIGTERM')).toBe(0);
+    expect(signals.listenerCount('SIGINT')).toBe(0);
   });
 });
