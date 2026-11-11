@@ -5,6 +5,7 @@ import { loadConfig } from '../../core/config.js';
 import { gestaltPath } from '../../core/home.js';
 import {
   fileDeploySource,
+  GhAccounts,
   GhAccountSwitcher,
   GhPrWatchSource,
   hostJiraClient,
@@ -19,17 +20,20 @@ import {
   type EngineDeps,
 } from '../../master/engine.js';
 import { resolveGate } from '../../master/gates.js';
-import { intakeOrder } from '../../master/intake.js';
+import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS } from '../../master/intake.js';
 import type { DeploySignal } from '../../master/jira.js';
 import {
+  assertCanSpawn,
   detectOrca,
   GitWorktreeLauncher,
   OrcaLauncher,
   SubagentLauncher,
+  workerAt,
   type HostAction,
   type LauncherSet,
 } from '../../master/launcher.js';
 import { measure } from '../../master/metrics.js';
+import { normalizePrRef } from '../../master/pr-ref.js';
 import { saveSkillCheckpoint } from '../../master/resume.js';
 import type { MasterConfig } from '../../master/scheduler.js';
 import { draftSlack } from '../../master/slack.js';
@@ -100,7 +104,22 @@ function launchersFor(
   return { launchers, orcaAvailable: orca !== undefined };
 }
 
-// ─── order ───────────────────────────────────────────────────────
+/**
+ * 마스터 전용 명령(tick, gate resolve, order add, deploy report)을 워커 안에서 부르면 거절한다.
+ *
+ * 환경 변수는 호스트가 git 워크트리 세션을 열 때 넣어 준 경우에만 있다. 오르카 워커는 환경이
+ * 마스터와 같아서 작업 디렉토리가 살아 있는 워커의 워크트리 안인지로 가른다. 서브에이전트는
+ * 마스터와 같은 자리, 같은 환경이라 여기서 못 막고 지시서 규칙에만 기댄다. 사고를 막는 장치이지
+ * 적대적인 워커를 막는 경계는 아니다.
+ */
+function assertMasterSession(ctx: Ctx, command: string, cwd = process.cwd()): void {
+  assertCanSpawn(process.env);
+  const w = workerAt(cwd, ctx.store.workers());
+  if (w)
+    throw new Error(
+      `여기는 워커 ${w.id}(${w.orderId})의 워크트리라 \`gestalt master ${command}\`를 못 불러요. 마스터 세션에서 불러 주세요`,
+    );
+}
 
 export interface MasterOrderAddOptions extends MasterCommonOptions {
   repo: string;
@@ -120,6 +139,7 @@ export interface MasterOrderAddOptions extends MasterCommonOptions {
 export function masterOrderAddCommand(opts: MasterOrderAddOptions): void {
   run(() => {
     const ctx = open(opts);
+    assertMasterSession(ctx, 'order add');
     const source = oneOf<IntakeKind>(opts.source ?? 'spoken', INTAKE_KINDS, '--source');
     const out = intakeOrder(
       ctx.store,
@@ -130,11 +150,11 @@ export function masterOrderAddCommand(opts: MasterOrderAddOptions): void {
         ...(opts.sourceRef ? { sourceRef: opts.sourceRef } : {}),
         ...(opts.description ? { description: opts.description } : {}),
         ...(opts.scope ? { scope: oneOf<OrderScope>(opts.scope, ORDER_SCOPES, '--scope') } : {}),
-        ...(opts.skills ? { skillChain: list(opts.skills) } : {}),
+        ...(opts.skills ? { skillChain: skillList(opts.skills, '--skills') } : {}),
         ...(opts.workerKind
           ? { workerKind: oneOf<WorkerKind>(opts.workerKind, WORKER_KINDS, '--worker-kind') }
           : {}),
-        ...(opts.issueKey ? { issueKey: opts.issueKey } : {}),
+        ...(opts.issueKey ? { issueKey: issueKey(opts.issueKey) } : {}),
         ...(opts.issueType
           ? { issueType: oneOf<IssueType>(opts.issueType, ISSUE_TYPES, '--issue-type') }
           : {}),
@@ -147,9 +167,10 @@ export function masterOrderAddCommand(opts: MasterOrderAddOptions): void {
               ),
             }
           : {}),
-        ...(opts.pr ? { prRef: opts.pr } : {}),
+        ...(opts.pr ? { prRef: prRef(opts.pr) } : {}),
       },
       { defaultScope: ctx.config.defaultScope },
+      { trusted: true },
     );
     if (opts.json) return print({ created: out.created, order: out.order });
     console.log(
@@ -157,8 +178,6 @@ export function masterOrderAddCommand(opts: MasterOrderAddOptions): void {
     );
   });
 }
-
-// ─── status ──────────────────────────────────────────────────────
 
 export interface MasterStatusOptions extends MasterCommonOptions {
   /** 끝난 주문도 보여준다. bypass로 넘긴 일을 사후 보고할 때 쓴다 */
@@ -211,8 +230,6 @@ export function masterStatusCommand(opts: MasterStatusOptions): void {
   });
 }
 
-// ─── tick ────────────────────────────────────────────────────────
-
 export interface MasterTickOptions extends MasterCommonOptions {
   force?: boolean;
   prWatch?: boolean;
@@ -221,19 +238,29 @@ export interface MasterTickOptions extends MasterCommonOptions {
 export async function masterTickCommand(opts: MasterTickOptions): Promise<void> {
   try {
     const ctx = open(opts);
+    assertMasterSession(ctx, 'tick');
     const deferred: HostAction[] = [];
     const prWatch = opts.prWatch !== false && Object.keys(ctx.config.repoPaths).length > 0;
+    // 토큰과 로그인 계정 캐시를 PR 감시와 계정 맞추기가 tick 하나 동안 함께 쓴다
+    const gh = new GhAccounts(ctx.config.accounts);
+    const prSource = prWatch
+      ? new GhPrWatchSource({ repoPaths: ctx.config.repoPaths, accounts: gh })
+      : undefined;
     const deps: EngineDeps = {
       config: ctx.config,
       ...launchersFor(ctx, process.env),
       jira: hostJiraClient(deferred),
       slack: hostSlackClient(deferred),
       deploy: fileDeploySource(join(ctx.store.dir, 'deploy')),
-      ...(prWatch ? { prSource: new GhPrWatchSource({ repoPaths: ctx.config.repoPaths }) } : {}),
-      ...(Object.keys(ctx.config.accounts).length > 0 ? { accounts: new GhAccountSwitcher() } : {}),
+      ...(prSource ? { prSource } : {}),
+      ...(Object.keys(ctx.config.accounts).length > 0
+        ? { accounts: new GhAccountSwitcher({ accounts: gh }) }
+        : {}),
     };
     const report = await tick(ctx.store, deps, { force: opts.force === true });
     report.hostActions.push(...deferred);
+    for (const repo of prSource?.truncatedRepos ?? [])
+      report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
     if (opts.json) return print(report);
     if (report.skipped) {
       console.log(`건너뛰었어요${report.errors[0] ? `: ${report.errors[0]}` : ' (감시 간격 안)'}`);
@@ -249,8 +276,6 @@ export async function masterTickCommand(opts: MasterTickOptions): Promise<void> 
     exitWithError(e);
   }
 }
-
-// ─── worker report ───────────────────────────────────────────────
 
 export interface MasterWorkerReportOptions extends MasterCommonOptions {
   worker: string;
@@ -281,7 +306,7 @@ export function masterWorkerReportCommand(opts: MasterWorkerReportOptions): void
       ...(opts.summary ? { summary: opts.summary } : {}),
       ...(opts.ref?.length ? { refs: opts.ref } : { refs: fromFile['refs'] ?? [] }),
       ...(opts.skill ? { skill: opts.skill } : {}),
-      ...(opts.pr ? { prRef: opts.pr } : {}),
+      ...(opts.pr ? { prRef: prRef(opts.pr) } : {}),
       ...(opts.merged ? { merged: true } : {}),
       ...(opts.stopReason ? { stopReason: opts.stopReason } : {}),
       ...(opts.need ? { need: { kind: opts.need, detail: opts.needDetail ?? '' } } : {}),
@@ -294,8 +319,6 @@ export function masterWorkerReportCommand(opts: MasterWorkerReportOptions): void
     console.log('결과를 넘겼어요. 다음 tick에 반영돼요');
   });
 }
-
-// ─── gate ────────────────────────────────────────────────────────
 
 export function masterGateListCommand(opts: MasterCommonOptions): void {
   run(() => {
@@ -323,9 +346,10 @@ export async function masterGateResolveCommand(
   try {
     if (opts.approve === opts.reject) throw new Error('--approve와 --reject 중 하나만 주세요');
     const ctx = open(opts);
+    assertMasterSession(ctx, 'gate resolve');
     const gate = ctx.store.snapshot.gates[gateId];
     if (!gate) throw new Error(`모르는 게이트예요: ${gateId}`);
-    if (gate.status !== 'open') throw new Error(`이미 닫힌 게이트예요: ${gateId}`);
+    if (gate.status !== 'open') throw new Error(`이미 종료된 게이트예요: ${gateId}`);
     const closed = resolveGate(
       ctx.store,
       gateId,
@@ -341,8 +365,6 @@ export async function masterGateResolveCommand(
     exitWithError(e);
   }
 }
-
-// ─── checkpoint ──────────────────────────────────────────────────
 
 export interface MasterCheckpointSaveOptions extends MasterCommonOptions {
   worker: string;
@@ -373,8 +395,6 @@ export function masterCheckpointSaveCommand(opts: MasterCheckpointSaveOptions): 
   });
 }
 
-// ─── deploy, slack ───────────────────────────────────────────────
-
 export interface MasterDeployReportOptions extends MasterCommonOptions {
   order: string;
   status: string;
@@ -383,10 +403,12 @@ export interface MasterDeployReportOptions extends MasterCommonOptions {
 
 export function masterDeployReportCommand(opts: MasterDeployReportOptions): void {
   run(() => {
-    const { store } = open(opts);
+    const ctx = open(opts);
+    assertMasterSession(ctx, 'deploy report');
+    const { store } = ctx;
     if (!store.order(opts.order)) throw new Error(`모르는 주문이에요: ${opts.order}`);
     const signal = {
-      status: opts.status as DeploySignal['status'],
+      status: oneOf<DeploySignal['status']>(opts.status, DEPLOY_STATUSES, '--status'),
       ...(opts.ref ? { ref: opts.ref } : {}),
     };
     writeDeploySignal(join(store.dir, 'deploy'), opts.order, signal);
@@ -422,8 +444,6 @@ export function masterSlackDraftCommand(opts: MasterSlackDraftOptions): void {
   });
 }
 
-// ─── metrics ─────────────────────────────────────────────────────
-
 export interface MasterMetricsOptions {
   since: string;
   root?: string;
@@ -448,13 +468,34 @@ export function masterMetricsCommand(opts: MasterMetricsOptions): void {
   });
 }
 
-// ─── 보조 ────────────────────────────────────────────────────────
-
 function list(v: string): string[] {
   return v
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+const DEPLOY_STATUSES = ['success', 'failed', 'pending', 'unknown'] as const;
+
+function skillList(v: string, flag: string): string[] {
+  const skills = list(v);
+  const unknown = skills.filter((s) => !KNOWN_SKILLS.has(s));
+  if (unknown.length > 0)
+    throw new Error(
+      `${flag}에 모르는 스킬이 있어요: ${unknown.join(', ')}. ${[...KNOWN_SKILLS].join(', ')} 중에서 골라 주세요`,
+    );
+  return skills;
+}
+
+function issueKey(v: string): string {
+  if (!ISSUE_KEY_RE.test(v)) throw new Error(`--issue-key는 PROJ-123 꼴이어야 해요: ${v}`);
+  return v;
+}
+
+function prRef(v: string): string {
+  const ref = normalizePrRef(v);
+  if (!ref) throw new Error(`--pr은 owner/name#번호나 GitHub PR 주소여야 해요: ${v}`);
+  return ref;
 }
 
 function oneOf<T extends string>(v: string, allowed: readonly string[], flag: string): T {

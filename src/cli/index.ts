@@ -1052,14 +1052,14 @@ export function createCli(): Command {
       '--scope <scope>',
       'merge-through, approval, interview-first 중 하나. 없으면 설정의 기본값',
     )
-    .option('--skills <a,b>', '스킬 체인. 없으면 solve,ship')
+    .option('--skills <a,b>', '스킬 체인. 게슈탈트 스킬 이름만 받는다. 없으면 solve,ship')
     .option('--worker-kind <kind>', 'subagent, orca-worktree, git-worktree 중 하나로 고정')
     .option('--source <kind>', 'spoken, jira, external-queue, pr-watch', 'spoken')
     .option('--source-ref <ref>', '출처의 고유 키. 같은 키는 한 번만 받는다')
-    .option('--issue-key <key>', '지라 이슈 키')
+    .option('--issue-key <key>', '지라 이슈 키 (PROJ-123 꼴)')
     .option('--issue-type <type>', 'sub-task, task, bug, sub-bug, story, other')
     .option('--jira-status <status>', '사용자가 정한 지라 상태. 기본 규칙보다 먼저다')
-    .option('--pr <ref>', '연결된 PR (owner/name#번호)')
+    .option('--pr <ref>', '연결된 PR (owner/name#번호나 GitHub PR 주소)')
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => masterOrderAddCommand(o));
@@ -1095,7 +1095,7 @@ export function createCli(): Command {
     .option('--summary <text>', '짧은 요약')
     .option('--ref <ref>', '파일 경로나 링크 (여러 번)', collect)
     .option('--skill <name>', '지금 돌던 스킬')
-    .option('--pr <ref>', 'PR (owner/name#번호)')
+    .option('--pr <ref>', 'PR (owner/name#번호나 GitHub PR 주소)')
     .option('--merged', '머지까지 끝냈다')
     .option(
       '--stop-reason <reason>',
@@ -1119,7 +1119,7 @@ export function createCli(): Command {
     .action((o) => masterGateListCommand(o));
   gate
     .command('resolve <gateId>')
-    .description('게이트를 닫고 결정을 살아 있는 워커에 전한다')
+    .description('게이트를 종료하고 결정을 살아 있는 워커에 전한다')
     .option('--approve', '승인')
     .option('--reject', '거절')
     .option('--answer <text>', 'interview 게이트의 답')

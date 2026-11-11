@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   existsSync,
+  linkSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -10,6 +11,7 @@ import {
   statSync,
   unlinkSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { handleNeed, openOrReuse, type BypassHandlers } from './gates.js';
@@ -20,7 +22,7 @@ import {
   type ExternalQueue,
   type JiraIntakeSource,
 } from './intake.js';
-import { syncJira, type DeploySource, type JiraClient, type OrderStage } from './jira.js';
+import { QA_TYPES, syncJira, type DeploySource, type JiraClient, type OrderStage } from './jira.js';
 import {
   assertCanSpawn,
   buildWorkerPrompt,
@@ -30,6 +32,7 @@ import {
   type HostAction,
   type LauncherSet,
 } from './launcher.js';
+import { repoOfPrRef } from './pr-ref.js';
 import { pollPrs, type PrWatchSource } from './pr-watch.js';
 import { parseWorkerReport } from './result.js';
 import { detectStale, prepareResumes, resumeLaunchFor, type ShipReader } from './resume.js';
@@ -37,7 +40,15 @@ import type { MasterConfig } from './scheduler.js';
 import { planSlots } from './scheduler.js';
 import { publishApprovedSlack, type SlackClient } from './slack.js';
 import { newId, type MasterStore } from './store.js';
-import type { Gate, JiraStatus, Order, Worker, WorkerKind, WorkerReport } from './types.js';
+import type {
+  Gate,
+  JiraStatus,
+  Order,
+  OrderScope,
+  Worker,
+  WorkerKind,
+  WorkerReport,
+} from './types.js';
 
 /**
  * 마스터 tick 한 번.
@@ -91,13 +102,16 @@ export function inboxDirOf(store: MasterStore, deps: Pick<EngineDeps, 'inboxDir'
   return deps.inboxDir ?? join(store.dir, 'inbox');
 }
 
-/** 배포를 기다렸다가 In-QA로 가는 유형 */
-const DEPLOY_TYPES = new Set(['bug', 'task', 'sub-bug']);
 /** 이 스킬이 돌기 시작하면 지라를 PR로 옮긴다 */
 const REVIEW_SKILLS = new Set(['ship', 'local-pr', 'review-reply', 'review-loop']);
 
 const LOCK_FILE = 'tick.lock';
+/** pid를 못 읽는 잠금(옛 꼴이나 반쯤 쓴 파일)만 이 시간이 지나면 낡았다고 본다 */
 const LOCK_STALE_MS = 10 * 60 * 1000;
+/** 워커 하나가 spawnRequest로 만들 수 있는 주문 수. 넘으면 사람에게 올린다 */
+export const MAX_SPAWN_PER_WORKER = 3;
+/** 보고를 적용하다 실패한 원문을 남기는 자리. inbox 아래에 둔다 */
+export const FAILED_REPORTS_DIR = 'failed';
 
 /**
  * 사람 확인 자리가 아닌 요청을 마스터가 대신 넘기는 기본 절차. 호스트가 `deps.bypass`로 덮어쓸 수 있다.
@@ -129,61 +143,70 @@ export async function tick(
   opts: { force?: boolean } = {},
 ): Promise<TickReport> {
   assertCanSpawn(deps.env);
-  store.reload();
   const report = emptyReport(store.timestamp());
 
-  const last = store.snapshot.lastTickAt;
-  const interval = deps.config.pollIntervalSec * 1000;
-  if (!opts.force && last && Date.parse(report.at) - Date.parse(last) < interval) {
-    return { ...report, skipped: true, counts: counts(store, 0) };
-  }
-
-  const release = acquireLock(store.dir);
-  if (!release) {
-    report.errors.push('다른 tick이 돌고 있어 이번엔 건너뛰어요');
+  const lock = acquireLock(store.dir);
+  if (!lock.ok) {
+    report.errors.push(
+      `다른 tick이 돌고 있어 이번엔 건너뛰어요${lock.holder ? ` (pid ${lock.holder})` : ''}`,
+    );
     return { ...report, skipped: true, counts: counts(store, 0) };
   }
   try {
-    let unanswered = 0;
-    await step(report, () => intake(store, deps, report).then((n) => (unanswered = n)));
-    await step(report, () => ingestReports(store, deps, report));
-    await step(report, async () => {
-      detectStale(store, {
-        now: new Date(report.at),
-        staleAfterMs: deps.config.staleAfterSec * 1000,
-      });
-      for (const d of prepareResumes(store, {
-        maxResumeAttempts: deps.config.maxResumeAttempts,
-        ...(deps.readShip ? { readShip: deps.readShip } : {}),
-      })) {
-        if (d.kind === 'escalate') report.escalated.push(d.gate.id);
-      }
-    });
-    await step(report, () => launchQueued(store, deps, report));
-    await step(report, () => settleMerged(store, deps, report));
-    if (deps.slack) {
-      const slack = deps.slack;
-      await step(report, async () => {
-        const r = await publishApprovedSlack(store, slack);
-        report.slackPosted.push(...r.posted.map((p) => p.gateId));
-        report.errors.push(...r.failed.map((f) => `슬랙 게시 실패 ${f.gateId}: ${f.error}`));
-      });
+    // 잠금을 잡은 뒤에 읽어야 앞 tick이 띄운 주문을 queued로 보고 또 띄우지 않는다
+    store.reload();
+    const last = store.snapshot.lastTickAt;
+    const interval = deps.config.pollIntervalSec * 1000;
+    if (!opts.force && last && Date.parse(report.at) - Date.parse(last) < interval) {
+      return { ...report, skipped: true, counts: counts(store, 0) };
     }
-    await step(report, () => cleanupWorkers(store, deps, report));
-    store.append({ type: 'tick', at: report.at });
-    return { ...report, counts: counts(store, unanswered) };
+    return await store.deferSnapshot(() => runTick(store, deps, report));
   } finally {
-    release();
+    lock.release();
   }
 }
 
-// ─── 접수 ────────────────────────────────────────────────────────
+async function runTick(
+  store: MasterStore,
+  deps: EngineDeps,
+  report: TickReport,
+): Promise<TickReport> {
+  let unanswered = 0;
+  await step(report, () => intake(store, deps, report).then((n) => (unanswered = n)));
+  await step(report, () => ingestReports(store, deps, report));
+  await step(report, async () => {
+    detectStale(store, {
+      now: new Date(report.at),
+      staleAfterMs: deps.config.staleAfterSec * 1000,
+    });
+    for (const d of prepareResumes(store, {
+      maxResumeAttempts: deps.config.maxResumeAttempts,
+      ...(deps.readShip ? { readShip: deps.readShip } : {}),
+    })) {
+      if (d.kind === 'escalate') report.escalated.push(d.gate.id);
+    }
+  });
+  await step(report, () => launchQueued(store, deps, report));
+  await step(report, () => settleMerged(store, deps, report));
+  if (deps.slack) {
+    const slack = deps.slack;
+    await step(report, async () => {
+      const r = await publishApprovedSlack(store, slack);
+      report.slackPosted.push(...r.posted.map((p) => p.gateId));
+      report.errors.push(...r.failed.map((f) => `슬랙 게시 실패 ${f.gateId}: ${f.error}`));
+    });
+  }
+  await step(report, () => cleanupWorkers(store, deps, report));
+  store.append({ type: 'tick', at: report.at });
+  return { ...report, counts: counts(store, unanswered) };
+}
 
 async function intake(store: MasterStore, deps: EngineDeps, report: TickReport): Promise<number> {
   const cfg = { defaultScope: deps.config.defaultScope };
   if (deps.jiraSource) {
     const r = await pollJira(store, deps.jiraSource, cfg);
     report.created.push(...r.created.map((o) => o.id));
+    if (r.truncated) report.errors.push('지라 담당 티켓이 페이지 상한에 닿아 뒤를 못 읽었어요');
   }
   if (deps.queue) {
     const r = await pollQueue(store, deps.queue, cfg);
@@ -199,7 +222,7 @@ async function intake(store: MasterStore, deps: EngineDeps, report: TickReport):
   for (const g of Object.values(store.snapshot.gates)) {
     if (g.type !== 'review-manual-switch' || g.orderId || g.decision !== 'approved') continue;
     const prRef = g.payload?.prRef;
-    const repo = prRef?.split('#')[0];
+    const repo = prRef ? repoOfPrRef(prRef) : null;
     if (!prRef || !repo) continue;
     const out = intakeOrder(
       store,
@@ -221,8 +244,6 @@ async function intake(store: MasterStore, deps: EngineDeps, report: TickReport):
   }
   return unanswered;
 }
-
-// ─── 결과 수신 ───────────────────────────────────────────────────
 
 /** 워커가 낸 결과를 inbox에 둔다. 검증은 여기서 하고 걸리면 던진다 */
 export function writeReport(inboxDir: string, raw: unknown, maxChars: number): string {
@@ -255,9 +276,26 @@ async function ingestReports(
       );
       await applyReport(store, deps, report, r);
     } catch (err) {
-      report.errors.push(`결과 ${f}: ${message(err)}`);
+      // 지우면 done merged나 needs 같은 보고를 되살릴 길이 없다. 원문을 옮겨 두고 사람이 본다
+      report.errors.push(`결과 ${f}: ${message(err)} (${moveToFailed(dir, f)})`);
+      continue;
     }
-    unlinkSync(path);
+    try {
+      unlinkSync(path);
+    } catch (err) {
+      report.errors.push(`결과 ${f}를 못 지웠어요: ${message(err)}`);
+    }
+  }
+}
+
+function moveToFailed(dir: string, f: string): string {
+  const failedDir = join(dir, FAILED_REPORTS_DIR);
+  try {
+    mkdirSync(failedDir, { recursive: true });
+    renameSync(join(dir, f), join(failedDir, f));
+    return `${FAILED_REPORTS_DIR}/${f}로 옮겼어요`;
+  } catch (err) {
+    return `${FAILED_REPORTS_DIR}로 못 옮겼어요: ${message(err)}`;
   }
 }
 
@@ -280,21 +318,7 @@ async function applyReport(
   });
   if (r.prRef && order.prRef !== r.prRef) store.updateOrder(order.id, { prRef: r.prRef });
 
-  if (r.spawnRequest) {
-    const out = intakeOrder(
-      store,
-      {
-        source: 'spoken',
-        sourceRef: `spawn:${worker.id}:${r.spawnRequest.title}`,
-        repo: order.repo,
-        title: r.spawnRequest.title,
-        description: r.spawnRequest.detail,
-        scope: order.scope,
-      },
-      { defaultScope: deps.config.defaultScope },
-    );
-    if (out.created) report.created.push(out.order.id);
-  }
+  if (r.spawnRequest) spawnFromReport(store, deps, report, order, worker, r.spawnRequest);
 
   switch (r.status) {
     case 'progress':
@@ -337,7 +361,50 @@ async function applyReport(
   }
 }
 
-// ─── 게이트 결정 전달 ────────────────────────────────────────────
+/**
+ * 워커가 요청한 하위 작업을 새 주문으로 받는다.
+ *
+ * 워커는 하위 워커를 직접 못 띄우는데 이 길로 사람 확인 없이 주문을 늘릴 수 있다. 그래서
+ * 자식 주문은 부모가 merge-through여도 approval로 낮춰 머지 전에 사람을 거치게 한다. 워커 하나가
+ * 만들 수 있는 수를 묶는다. 넘으면 만들지 않고 사람에게 올린다.
+ */
+function spawnFromReport(
+  store: MasterStore,
+  deps: EngineDeps,
+  report: TickReport,
+  order: Order,
+  worker: Worker,
+  req: NonNullable<WorkerReport['spawnRequest']>,
+): void {
+  const prefix = `spawn:${worker.id}:`;
+  const sourceRef = `${prefix}${req.title}`;
+  if (store.findOrderBySourceRef(sourceRef)) return;
+  const made = store.orders().filter((o) => o.sourceRef.startsWith(prefix)).length;
+  if (made >= MAX_SPAWN_PER_WORKER) {
+    const { gate } = openOrReuse(store, {
+      orderId: order.id,
+      type: 'no-procedure',
+      reason: `${worker.id}가 하위 주문을 ${MAX_SPAWN_PER_WORKER}개 넘게 요청했어요: ${req.title}`,
+      payload: { kind: 'spawn-limit', workerId: worker.id },
+    });
+    report.escalated.push(gate.id);
+    return;
+  }
+  const scope: OrderScope = order.scope === 'merge-through' ? 'approval' : order.scope;
+  const out = intakeOrder(
+    store,
+    {
+      source: 'spoken',
+      sourceRef,
+      repo: order.repo,
+      title: req.title,
+      description: req.detail,
+      scope,
+    },
+    { defaultScope: deps.config.defaultScope },
+  );
+  if (out.created) report.created.push(out.order.id);
+}
 
 /**
  * 사람이 닫은 게이트의 결정을 살아 있는 워커에 전한다. `gestalt master gate resolve`가 부른다.
@@ -393,8 +460,6 @@ async function sendTo(
     report.errors.push(`${worker.id}에 전하기 실패: ${message(err)}`);
   }
 }
-
-// ─── 띄우기 ──────────────────────────────────────────────────────
 
 async function launchQueued(
   store: MasterStore,
@@ -465,8 +530,6 @@ async function launchQueued(
   }
 }
 
-// ─── 머지 뒤 ─────────────────────────────────────────────────────
-
 /**
  * 머지된 주문을 끝낸다. bug, task, sub-bug는 배포 파이프라인이 성공해야 In-QA로 옮기고 끝낸다.
  * 배포가 실패하면 그 주문만 사람에게 올린다.
@@ -477,39 +540,48 @@ async function settleMerged(
   report: TickReport,
 ): Promise<void> {
   for (const order of store.orders().filter((o) => o.status === 'merged')) {
-    const waitsDeploy =
-      order.issueKey !== undefined &&
-      order.issueType !== undefined &&
-      DEPLOY_TYPES.has(order.issueType);
-    if (!waitsDeploy) {
-      store.updateOrder(order.id, { status: 'done' });
-      continue;
-    }
-    if (!deps.deploy) {
-      report.errors.push(`${order.id}: 배포 감지 어댑터가 없어 In-QA로 못 옮기고 끝냈어요`);
-      store.updateOrder(order.id, { status: 'done' });
-      continue;
-    }
-    const signal = await deps.deploy.status(order);
-    if (signal.status === 'success') {
-      await moveJira(store, deps, report, order.id, 'deployed', signal);
-      store.updateOrder(order.id, { status: 'done', deployedAt: report.at });
-    } else if (signal.status === 'failed') {
-      const { gate } = openOrReuse(store, {
-        orderId: order.id,
-        type: 'no-procedure',
-        reason: '머지 뒤 배포 파이프라인이 실패했어요',
-        refs: signal.ref ? [signal.ref] : [],
-      });
-      store.updateOrder(order.id, { status: 'escalated' });
-      report.escalated.push(gate.id);
+    try {
+      await settleOne(store, deps, report, order);
+    } catch (err) {
+      report.errors.push(`${order.id} 정산 실패: ${message(err)}`);
     }
   }
 }
 
-// ─── 정리 ────────────────────────────────────────────────────────
+async function settleOne(
+  store: MasterStore,
+  deps: EngineDeps,
+  report: TickReport,
+  order: Order,
+): Promise<void> {
+  const waitsDeploy =
+    order.issueKey !== undefined && order.issueType !== undefined && QA_TYPES.has(order.issueType);
+  if (!waitsDeploy) {
+    store.updateOrder(order.id, { status: 'done' });
+    return;
+  }
+  if (!deps.deploy) {
+    report.errors.push(`${order.id}: 배포 감지 어댑터가 없어 In-QA로 못 옮기고 끝냈어요`);
+    store.updateOrder(order.id, { status: 'done' });
+    return;
+  }
+  const signal = await deps.deploy.status(order);
+  if (signal.status === 'success') {
+    await moveJira(store, deps, report, order.id, 'deployed', signal);
+    store.updateOrder(order.id, { status: 'done', deployedAt: report.at });
+  } else if (signal.status === 'failed') {
+    const { gate } = openOrReuse(store, {
+      orderId: order.id,
+      type: 'no-procedure',
+      reason: '머지 뒤 배포 파이프라인이 실패했어요',
+      refs: signal.ref ? [signal.ref] : [],
+    });
+    store.updateOrder(order.id, { status: 'escalated' });
+    report.escalated.push(gate.id);
+  }
+}
 
-/** 끝난 워커의 자원을 bypass로 정리한다. 멈춘 워커는 재개가 손잡이를 다시 쓸 수 있어 남긴다 */
+/** 끝난 워커의 자원을 bypass로 정리한다. 멈춘 워커는 재개가 그 dispatch id나 워크트리를 다시 쓸 수 있어 남긴다 */
 async function cleanupWorkers(
   store: MasterStore,
   deps: EngineDeps,
@@ -534,8 +606,6 @@ async function cleanupWorkers(
   }
 }
 
-// ─── 지라 ────────────────────────────────────────────────────────
-
 async function moveJira(
   store: MasterStore,
   deps: EngineDeps,
@@ -552,8 +622,6 @@ async function moveJira(
     report.errors.push(`지라 전환 실패 ${orderId}: ${message(err)}`);
   }
 }
-
-// ─── 보조 ────────────────────────────────────────────────────────
 
 function emptyReport(at: string): TickReport {
   return {
@@ -601,26 +669,98 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** 마스터 세션이 둘 떠도 같은 주문을 두 번 띄우지 않게 tick을 하나만 돌린다 */
-function acquireLock(dir: string): (() => void) | undefined {
+type LockResult = { ok: true; release: () => void } | { ok: false; holder?: number };
+
+/**
+ * 마스터 세션이 둘 떠도 같은 주문을 두 번 띄우지 않게 tick을 하나만 돌린다.
+ *
+ * 잠금 파일에 pid와 토큰을 적는다. 적힌 프로세스가 살아 있으면 tick이 아무리 길어도 걷어내지
+ * 않는다. 죽었을 때만 걷어낸다. 걷어낼 때는 rename으로 한 프로세스만 가져간다. 가져간 파일이
+ * 낡았다고 본 그 파일이 아니면 되돌린다. 풀 때도 자기 토큰일 때만 지운다.
+ */
+function acquireLock(dir: string): LockResult {
   const path = join(dir, LOCK_FILE);
-  try {
-    closeSync(openSync(path, 'wx'));
-  } catch {
-    // 앞 tick이 죽고 남긴 잠금이면 걷어내고 한 번 더 시도한다
+  const token = `${process.pid}:${randomUUID()}`;
+  const release = () => {
     try {
-      if (Date.now() - statSync(path).mtimeMs < LOCK_STALE_MS) return undefined;
-      unlinkSync(path);
-      closeSync(openSync(path, 'wx'));
-    } catch {
-      return undefined;
-    }
-  }
-  return () => {
-    try {
-      unlinkSync(path);
+      if (readFileSync(path, 'utf-8') === token) unlinkSync(path);
     } catch {
       // 이미 지워졌으면 할 일이 없다
     }
   };
+  if (tryCreateLock(path, token)) return { ok: true, release };
+
+  let seen: string;
+  try {
+    seen = readFileSync(path, 'utf-8');
+  } catch {
+    return { ok: false };
+  }
+  const holder = lockPid(seen);
+  if (holder !== undefined) {
+    if (isAlive(holder)) return { ok: false, holder };
+  } else {
+    try {
+      if (Date.now() - statSync(path).mtimeMs < LOCK_STALE_MS) return { ok: false };
+    } catch {
+      return { ok: false };
+    }
+  }
+
+  const taken = `${path}.${token.replace(':', '-')}.stale`;
+  try {
+    renameSync(path, taken);
+  } catch {
+    return { ok: false, ...(holder !== undefined ? { holder } : {}) };
+  }
+  try {
+    if (readFileSync(taken, 'utf-8') !== seen) {
+      // 그 사이 다른 프로세스가 새로 잡은 잠금을 가져왔다. 비어 있을 때만 제자리에 돌려놓는다
+      try {
+        linkSync(taken, path);
+      } catch {
+        // 이미 누가 새 잠금을 놓았으면 그쪽이 주인이다
+      }
+      return { ok: false };
+    }
+  } finally {
+    try {
+      unlinkSync(taken);
+    } catch {
+      // 지울 게 없으면 그만이다
+    }
+  }
+  return tryCreateLock(path, token) ? { ok: true, release } : { ok: false };
+}
+
+function tryCreateLock(path: string, token: string): boolean {
+  let fd: number;
+  try {
+    fd = openSync(path, 'wx');
+  } catch {
+    return false;
+  }
+  try {
+    writeSync(fd, token);
+  } finally {
+    closeSync(fd);
+  }
+  return true;
+}
+
+function lockPid(content: string): number | undefined {
+  const m = /^(\d+):/.exec(content);
+  if (!m) return undefined;
+  const pid = Number(m[1]!);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // 권한이 없어 신호를 못 보내는 것도 프로세스가 살아 있다는 뜻이다
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
 }

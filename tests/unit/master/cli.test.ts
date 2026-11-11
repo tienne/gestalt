@@ -1,5 +1,5 @@
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   masterCheckpointSaveCommand,
@@ -162,6 +162,44 @@ describe('gestalt master', () => {
     await expect(masterGateResolveCommand(gateId, { stateDir, approve: true })).rejects.toThrow(
       'exit 1',
     );
-    expect(err.at(-1)).toContain('이미 닫힌');
+    expect(err.at(-1)).toContain('이미 종료된');
+  });
+
+  it('주문의 --pr과 --skills, --issue-key는 꼴이 틀리면 받지 않는다', () => {
+    const stateDir = tempStateDir();
+    const add = { stateDir, json: true, repo: 'acme/app', title: 'x' };
+    expect(() => masterOrderAddCommand({ ...add, pr: 'acme/app#1; rm -rf' })).toThrow('exit 1');
+    expect(err.at(-1)).toContain('--pr');
+    expect(() => masterOrderAddCommand({ ...add, skills: 'solve,nope' })).toThrow('exit 1');
+    expect(err.at(-1)).toContain('nope');
+    expect(() => masterOrderAddCommand({ ...add, issueKey: 'app-1' })).toThrow('exit 1');
+    expect(err.at(-1)).toContain('--issue-key');
+    expect(MasterStore.open(stateDir).orders()).toEqual([]);
+
+    masterOrderAddCommand({ ...add, pr: 'https://github.com/acme/app/pull/12', skills: 'review' });
+    expect(last()['order']).toMatchObject({ prRef: 'acme/app#12', skillChain: ['review'] });
+  });
+
+  it('워커 환경이나 워커 워크트리 안에서는 마스터 전용 명령을 거절한다', () => {
+    // cwd를 바꿔 끼우므로 상대 경로가 그 cwd 기준으로 풀리지 않게 절대 경로로 둔다
+    const stateDir = resolve(tempStateDir());
+    const add = { stateDir, json: true, repo: 'acme/app', title: 'x' };
+    vi.stubEnv('GESTALT_MASTER_WORKER_ID', 'wrk-1');
+    try {
+      expect(() => masterOrderAddCommand(add)).toThrow('exit 1');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    masterOrderAddCommand(add);
+    const orderId = (last()['order'] as { id: string }).id;
+    const wt = join(stateDir, 'wt', orderId);
+    mkdirSync(wt, { recursive: true });
+    MasterStore.open(stateDir).startWorker(
+      worker(orderId, { id: 'wrk-g', kind: 'git-worktree', handle: wt }),
+    );
+    vi.spyOn(process, 'cwd').mockReturnValue(wt);
+    expect(() => masterOrderAddCommand({ ...add, title: 'y' })).toThrow('exit 1');
+    expect(err.at(-1)).toContain('wrk-g');
   });
 });
