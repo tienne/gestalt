@@ -331,6 +331,91 @@ describe('워커 10개 동시', () => {
     expect(second.counts).toMatchObject({ queued: 0, activeWorkers: 9 });
     expect(h.orca.released).toHaveLength(3);
   });
+
+  it('10개가 도는 중에도 섞어 받은 주문이 범위대로 끝 자리까지 가고 넘친 주문은 자리가 나면 뜬다', async () => {
+    let deploy: DeploySignal = { status: 'pending' };
+    const queued: QueueMessage[] = [
+      { id: 'q1', body: { repo: 'acme/app', title: '로그 정리', scope: 'interview-first' } },
+    ];
+    const h = harness({
+      jiraSource: {
+        fetchAssigned: async () => [
+          { key: 'BILL-1', summary: '결제 버그', issueType: 'Bug', repo: 'acme/billing' },
+        ],
+      },
+      queue: { receive: async () => queued.splice(0), ack: async () => {} },
+      deploy: { status: async () => deploy },
+    });
+    for (let i = 0; i < 7; i++) h.store.addOrder(order({ id: `ord-bg-${i}` }));
+    const spoken = intakeOrder(
+      h.store,
+      { source: 'spoken', repo: 'acme/app', title: '배너 문구', scope: 'merge-through' },
+      { defaultScope: 'approval' },
+    ).order;
+    h.store.addOrder(order({ id: 'ord-late', createdAt: '2099-01-01T00:00:00.000Z' }));
+
+    const first = await h.run();
+    expect(first.counts).toMatchObject({ activeWorkers: 10, queued: 1 });
+    const bill = h.store.orders().find((o) => o.issueKey === 'BILL-1')!;
+    const logs = h.store.orders().find((o) => o.title === '로그 정리')!;
+    const waiting = [spoken, bill, logs, h.store.order('ord-late')!].filter(
+      (o) => !h.store.order(o.id)!.workerId,
+    );
+    expect(waiting).toHaveLength(1);
+
+    // 배경 주문 하나를 끝내 자리를 만들면 기다리던 주문이 떠서 다시 10개가 돈다
+    h.report(h.workerOf('ord-bg-0'), { status: 'done' });
+    await h.run();
+    for (const o of [spoken, bill, logs, h.store.order('ord-late')!])
+      expect(h.store.order(o.id)!.workerId).toBeDefined();
+    expect(h.store.activeWorkers()).toHaveLength(10);
+
+    const ask = (id: string, kind: string, detail: string) =>
+      h.report(h.workerOf(id), { status: 'needs', need: { kind, detail } });
+    ask(spoken.id, 'merge-approval', '머지할까요');
+    ask(bill.id, 'merge-approval', '머지할까요');
+    ask(logs.id, 'interview-answer', '보존 기간은요?');
+    await h.run();
+    expect(
+      h.store
+        .openGates()
+        .map((g) => `${g.orderId}:${g.type}`)
+        .sort(),
+    ).toEqual([`${bill.id}:merge`, `${logs.id}:interview`].sort());
+
+    await deliverGateDecision(
+      h.store,
+      resolveGate(h.store, h.store.openGates(logs.id)[0]!.id, 'approved', '30일'),
+      h.deps,
+    );
+    await deliverGateDecision(
+      h.store,
+      resolveGate(h.store, h.store.openGates(bill.id)[0]!.id, 'approved'),
+      h.deps,
+    );
+    ask(logs.id, 'merge-approval', '머지할까요');
+    await h.run();
+    await deliverGateDecision(
+      h.store,
+      resolveGate(h.store, h.store.openGates(logs.id)[0]!.id, 'approved'),
+      h.deps,
+    );
+
+    h.report(h.workerOf(spoken.id), { status: 'done', merged: true });
+    h.report(h.workerOf(bill.id), { status: 'progress', prRef: 'acme/billing#7' });
+    h.report(h.workerOf(bill.id), { status: 'done', merged: true });
+    h.report(h.workerOf(logs.id), { status: 'done', merged: true });
+    await h.run();
+    expect(h.store.order(spoken.id)!.status).toBe('done');
+    expect(h.store.order(logs.id)!.status).toBe('done');
+    expect(h.store.order(bill.id)!.status).toBe('merged');
+
+    deploy = { status: 'success' };
+    await h.run();
+    expect(h.store.order(bill.id)!.status).toBe('done');
+    expect(h.jiraMoves).toEqual(['BILL-1:TODO', 'BILL-1:In Progress', 'BILL-1:PR', 'BILL-1:In-QA']);
+    expect(h.store.openGates()).toEqual([]);
+  });
 });
 
 describe('저장소만으로 복원', () => {
