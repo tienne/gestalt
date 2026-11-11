@@ -162,6 +162,11 @@ describe('findPluginLaunchers', () => {
     ['공백이 낀 표 머리', '[ plugins . "gestalt@gestalt" ]\nenabled = false\n'],
     ['작은따옴표 키', "[plugins.'gestalt@gestalt']\nenabled = false\n"],
     ['[plugins] 아래 점 키', '[plugins]\n"gestalt@gestalt".enabled = false\n'],
+    ['첫 표 머리 앞 점 키', 'plugins."gestalt@gestalt".enabled = false\n\n[other]\nx = 1\n'],
+    [
+      '[plugins] 아래 인라인 표',
+      '[plugins]\n"gestalt@gestalt" = { source = "x", enabled = false }\n',
+    ],
   ])('Codex config.toml의 %s로 꺼 둔 것도 건너뛴다', (_label, toml) => {
     const home = tempHome();
     codexInstall(join(home, '.codex'), '0.129.0');
@@ -169,13 +174,22 @@ describe('findPluginLaunchers', () => {
     expect(findPluginLaunchers({ env: {}, home })).toEqual([]);
   });
 
-  it('[plugins] 아래 다른 플러그인을 꺼 둔 건 gestalt를 건너뛰지 않는다', () => {
+  it.each([
+    ['[plugins] 아래 다른 플러그인 점 키', '[plugins]\n"other@gestalt".enabled = false\n'],
+    [
+      '[plugins] 아래 다른 플러그인 인라인 표',
+      '[plugins]\n"other@gestalt" = { enabled = false }\n',
+    ],
+    ['이름이 plugins로 끝나는 다른 키', 'myplugins."gestalt@gestalt".enabled = false\n'],
+    ['다른 표 아래 점 키', '[other]\nplugins."gestalt@gestalt".enabled = false\n'],
+    [
+      '안쪽 표에만 enabled = false가 있는 인라인 표',
+      '[plugins]\n"gestalt@gestalt" = { opts = { enabled = false }, enabled = true }\n',
+    ],
+  ])('Codex config.toml의 %s는 gestalt를 건너뛰지 않는다', (_label, toml) => {
     const home = tempHome();
     codexInstall(join(home, '.codex'), '0.129.0');
-    writeFileSync(
-      join(home, '.codex', 'config.toml'),
-      '[plugins]\n"other@gestalt".enabled = false\n',
-    );
+    writeFileSync(join(home, '.codex', 'config.toml'), toml);
     expect(findPluginLaunchers({ env: {}, home })).toHaveLength(1);
   });
 
