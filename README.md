@@ -198,6 +198,8 @@ If the server connects sometimes and reports `Connection closed` other times, th
 
 The plugin install (Option 1) already handles the first two through `scripts/mcp-serve.sh`: it finds Node under nvm, fnm, Volta, or Homebrew, uses a globally installed `gestalt` only when its version matches the plugin's pin (a global of any other version is ignored with a warning, so updating the plugin is enough), and otherwise resolves the pinned version from the npm cache, falling back to the network only when the cache misses.
 
+The terminal `gestalt` follows the plugin the same way. When a global install finds a gestalt plugin installed for Claude Code (`installed_plugins.json` under `CLAUDE_CONFIG_DIR` or `~/.claude`) or Codex (`CODEX_HOME` or `~/.codex`) at a different version, it hands the command to that plugin's versioned launcher, so updating the plugin also updates the CLI. With several installs it follows the highest version, even when the global itself is newer. Runs from a repo checkout or `npx @tienne/gestalt@<version>` keep their own version. Set `GESTALT_FOLLOW_PLUGIN=0` to turn this off. Delegation goes through the npm cache, so each call takes about two seconds longer until the global matches the plugin again.
+
 ---
 
 ### Option 4: OpenAI Codex Plugin
