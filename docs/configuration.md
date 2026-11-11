@@ -368,6 +368,43 @@ PDF는 300쪽을 넘으면 읽지 않고 멈춘다. 추출 프로세스에는 �
 
 ---
 
+## 설정 동기화 (`~/.gestalt/agent-sync.json`)
+
+`gestalt sync`와 `gestalt doctor`가 읽는 사용자 설정이다. 계정 이름과 확인할 도구 목록은 공개 레포에 넣을 수 없어서 이 파일에서만 읽는다. 동작은 [규칙과 스킬 동기화](./agent-sync.md)에 있다.
+
+| 항목      | 값                                                                                                       |
+| --------- | -------------------------------------------------------------------------------------------------------- |
+| 위치      | `~/.gestalt/agent-sync.json`. `GESTALT_HOME`을 절대 경로로 주면 `$GESTALT_HOME/.gestalt/agent-sync.json` |
+| 만드는 법 | 손으로 만든다. 없으면 모든 칸이 비어 있는 것으로 돈다                                                    |
+| 깨졌을 때 | JSON이 아니거나 칸 형식이 틀리면 어느 칸인지 알리고 종료 코드 1로 멈춘다. 아무것도 바꾸지 않는다         |
+
+```json
+{
+  "tools": { "all": ["git"], "claude": ["gh"], "codex": ["rg"] },
+  "accounts": {
+    "<오르카 계정 id>": { "label": "work" },
+    "<다른 계정 id>": { "skip": true }
+  },
+  "rules": { "claudeOnly": ["[Claude]", "mcp__"] },
+  "orcaCommand": "/절대/경로/orca",
+  "orcaDataDir": "/절대/경로/orca-data"
+}
+```
+
+| 칸                  | 비우면                                  | 하는 일                                                                                                   |
+| ------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `tools.all`         | `[]`                                    | 모든 호스트에 있어야 하는 도구. doctor가 PATH에서 찾고 없으면 경고한다                                    |
+| `tools.claude`      | `[]`                                    | Claude 홈에만 더 확인할 도구                                                                              |
+| `tools.codex`       | `[]`                                    | Codex 홈에만 더 확인할 도구                                                                               |
+| `accounts.<id>`     | 오르카가 알려 준 이름, 없으면 id 앞 8자 | `label`은 출력에 쓸 이름이다. `skip: true`면 그 계정 홈을 대상에서 뺀다                                   |
+| `rules.claudeOnly`  | `[]`                                    | 처음 sync가 CLAUDE.md를 나눌 때 Claude 쪽에 남길 줄. 줄에 이 문자열이 들어 있으면 남긴다                  |
+| `orcaCommand`       | `ORCA_CLI_COMMAND`, 없으면 `orca`       | 계정 목록을 받을 오르카 명령                                                                              |
+| `orcaDataDir`       | Claude 계정 홈에서 거슬러 올라간 폴더   | Codex 계정 홈(`<여기>/codex-accounts/<id>/home`)을 만들 오르카 데이터 폴더                                |
+
+도구 목록에 없는 도구는 확인하지 않는다. 규칙 본문에서 명령 이름을 뽑아 확인하지도 않는다. 도구 확인은 doctor를 부른 셸의 PATH 하나로 한다.
+
+---
+
 ## 레포 밖 규칙 소스 (`ruleSources`)
 
 게슈탈트는 규칙을 자기가 소유하는 전제로 만들어졌다. 어투는 `ai-tell-quick-rules.md`, 주석은 `comment-rules.md`가 원본이고 `verify:rules`가 사본과 갈라졌는지 검사한다.
