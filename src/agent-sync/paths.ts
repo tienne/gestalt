@@ -23,10 +23,18 @@ export const SOURCE_IMPORT_LINE = '@~/.agents/AGENTS.md';
 /** 계정 홈의 CLAUDE.md가 시스템 CLAUDE.md를 가져오는 줄 */
 export const SYSTEM_CLAUDE_IMPORT_LINE = '@~/.claude/CLAUDE.md';
 
+/**
+ * `child`가 `parent`와 같거나 그 아래인지. `..cache`처럼 점 두 개로 시작하는 이름은 안쪽이다.
+ * 경로 문자열만 보고 링크는 따라가지 않는다.
+ */
+export function isInside(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  return !(rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel));
+}
+
 /** 홈 아래면 `~/...`로 줄여 출력에 실제 사용자명이 덜 찍히게 한다 */
 export function tildify(path: string, home: string): string {
+  if (!isInside(home, path)) return path;
   const rel = relative(home, path);
-  if (rel === '') return '~';
-  if (rel.startsWith('..') || isAbsolute(rel)) return path;
-  return `~${sep}${rel}`;
+  return rel === '' ? '~' : `~${sep}${rel}`;
 }
