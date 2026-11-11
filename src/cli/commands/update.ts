@@ -66,12 +66,16 @@ export async function updateCommand(): Promise<void> {
       console.log('● Codex MCP 재등록 중...');
       try {
         execSync('codex mcp remove gestalt', { stdio: 'pipe' });
-        execSync('codex mcp add gestalt -- npx -y @tienne/gestalt', { stdio: 'inherit' });
+        execSync('codex mcp add gestalt --env GESTALT_FOLLOW_PLUGIN=0 -- npx -y @tienne/gestalt', {
+          stdio: 'inherit',
+        });
         console.log('✅ Codex MCP 재등록 완료!');
       } catch {
         console.error('✗ Codex MCP 재등록 실패. 수동으로 실행해주세요:');
         console.error('  codex mcp remove gestalt');
-        console.error('  codex mcp add gestalt -- npx -y @tienne/gestalt');
+        console.error(
+          '  codex mcp add gestalt --env GESTALT_FOLLOW_PLUGIN=0 -- npx -y @tienne/gestalt',
+        );
       }
     }
   }
