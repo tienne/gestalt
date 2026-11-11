@@ -2,13 +2,13 @@ import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'no
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { formatSync } from '../../../src/agent-sync/format.js';
-import { readRun } from '../../../src/agent-sync/run-store.js';
 import { runSync, splitClaudeRules } from '../../../src/agent-sync/sync.js';
 import {
   CLAUDE_ONLY_MARK,
   hashFile,
   linkOf,
   makeFixture,
+  recordOf,
   seedFirstSetup,
   snapshot,
   type Fixture,
@@ -44,7 +44,7 @@ describe('splitClaudeRules', () => {
     expect(split.shared).toBe(['a', '```', `${CLAUDE_ONLY_MARK} c`, '```', ''].join('\n'));
   });
 
-  it('이미 든 원본 가져오기 줄은 양쪽 어디에도 다시 넣지 않는다', () => {
+  it('이미 든 ~/.agents 가져오기 줄은 양쪽 어디에도 다시 넣지 않는다', () => {
     const split = splitClaudeRules('@~/.agents/AGENTS.md\nshared\n', []);
     expect(split.kept).toEqual([]);
     expect(split.shared).toBe('shared\n');
@@ -52,7 +52,7 @@ describe('splitClaudeRules', () => {
 });
 
 describe('gestalt sync 첫 설정 (AC6)', () => {
-  it('스킬 폴더를 원본으로 옮기고 링크 하나로 바꾸며 CLAUDE.md를 나누고 계정 홈마다 링크를 건다', () => {
+  it('스킬 폴더를 ~/.agents/skills로 옮기고 링크 하나로 바꾸며 CLAUDE.md를 나누고 계정 홈마다 링크를 건다', () => {
     const { result } = sync();
     const agents = join(f.home, '.agents');
 
@@ -87,7 +87,7 @@ describe('gestalt sync 첫 설정 (AC6)', () => {
     expect(result.hints.some((h) => h.includes('[Hooks]'))).toBe(true);
   });
 
-  it('같은 이름 스킬은 원본 쪽을 남기고 Claude 쪽 사본은 백업 폴더에만 둔다 (AC7)', () => {
+  it('같은 이름 스킬은 ~/.agents 쪽을 남기고 Claude 쪽 사본은 백업 폴더에만 둔다 (AC7)', () => {
     const { result } = sync();
     expect(readFileSync(join(f.home, '.agents/skills/dup/SKILL.md'), 'utf-8')).toBe(
       '# dup from source\n',
@@ -146,7 +146,7 @@ describe('gestalt sync 첫 설정 (AC6)', () => {
 
   it('바꾼 항목과 백업 자리를 결과에 바로 보여주고 기록 파일에도 같은 내용을 남긴다 (AC14)', () => {
     const { discovery, result } = sync();
-    const record = readRun(result.run!.dir)!;
+    const record = recordOf(result.run!.dir);
     expect(record.kind).toBe('sync');
     expect(record.changes).toEqual(result.changes);
     expect(record.actions.length).toBeGreaterThan(0);
@@ -180,17 +180,19 @@ describe('gestalt sync 첫 설정 (AC6)', () => {
     expect(files.map(hashFile)).toEqual(before);
   });
 
-  it('시스템 CLAUDE.md가 없으면 빈 원본을 만든다', () => {
+  it('시스템 CLAUDE.md가 없으면 빈 ~/.agents/AGENTS.md를 만든다', () => {
     rmSync(join(f.home, '.claude/CLAUDE.md'));
     sync();
     expect(readFileSync(join(f.home, '.agents/AGENTS.md'), 'utf-8')).toBe('');
     expect(readFileSync(join(f.home, '.claude/CLAUDE.md'), 'utf-8')).toBe('@~/.agents/AGENTS.md\n');
   });
 
-  it('원본 AGENTS.md가 이미 있으면 CLAUDE.md를 나누지 않고 가져오기 줄만 넣는다', () => {
-    writeFileSync(join(f.home, '.agents/AGENTS.md'), '# 이미 있는 원본\n');
+  it('~/.agents/AGENTS.md가 이미 있으면 CLAUDE.md를 나누지 않고 가져오기 줄만 넣는다', () => {
+    writeFileSync(join(f.home, '.agents/AGENTS.md'), '# 이미 있던 공용 규칙\n');
     sync();
-    expect(readFileSync(join(f.home, '.agents/AGENTS.md'), 'utf-8')).toBe('# 이미 있는 원본\n');
+    expect(readFileSync(join(f.home, '.agents/AGENTS.md'), 'utf-8')).toBe(
+      '# 이미 있던 공용 규칙\n',
+    );
     const claudeMd = readFileSync(join(f.home, '.claude/CLAUDE.md'), 'utf-8');
     expect(claudeMd.split('\n')[0]).toBe('@~/.agents/AGENTS.md');
     expect(claudeMd).toContain('[Tone]');

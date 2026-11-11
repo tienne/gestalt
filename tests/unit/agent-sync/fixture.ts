@@ -12,6 +12,7 @@ import {
 import { dirname, join, relative, resolve } from 'node:path';
 import { loadAgentSyncConfig, type AgentSyncConfig } from '../../../src/agent-sync/config.js';
 import type { ListOrcaAccounts, OrcaListing } from '../../../src/agent-sync/orca.js';
+import { readRun, type RunRecord } from '../../../src/agent-sync/run-store.js';
 import { discoverTargets, type TargetDiscovery } from '../../../src/agent-sync/targets.js';
 
 /**
@@ -165,4 +166,11 @@ export function linkOf(path: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** 실행 폴더의 기록. 못 읽으면 테스트를 실패시킨다 */
+export function recordOf(dir: string): RunRecord {
+  const stored = readRun(dir);
+  if (!stored?.ok) throw new Error(`run.json을 못 읽었어요: ${dir} ${stored ? stored.reason : ''}`);
+  return stored.record;
 }

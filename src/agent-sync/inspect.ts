@@ -5,7 +5,7 @@ import { SOURCE_IMPORT_LINE, SYSTEM_CLAUDE_IMPORT_LINE, type SourcePaths } from 
 import type { Target } from './targets.js';
 
 /**
- * 계정 홈 하나에서 원본으로 이어져야 하는 자리.
+ * 계정 홈 하나에서 `~/.agents`로 이어져야 하는 자리.
  * `link`는 심링크여야 하고 `import`는 CLAUDE.md 안에 `@` 가져오기 줄이 있어야 한다.
  */
 export interface Slot {
@@ -71,7 +71,7 @@ export function slotsFor(target: Target, src: SourcePaths): Slot[] {
   ];
 }
 
-/** 시스템 홈 쪽 자리도 통과로 쳐 준다. 계정 홈이 시스템 홈을 거쳐 원본에 닿는 구성이 흔하다 */
+/** 시스템 홈 쪽 자리도 통과로 쳐 준다. 계정 홈이 시스템 홈을 거쳐 `~/.agents`에 닿는 구성이 흔하다 */
 export function withSystemAccepts(
   slot: Slot,
   systemHomes: { claude?: string; codex?: string },

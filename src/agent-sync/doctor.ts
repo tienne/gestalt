@@ -2,7 +2,7 @@ import { accessSync, constants, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { toolsFor, type AgentSyncConfig } from './config.js';
 import { inspectSource, inspectTargets, type InspectedSlot } from './inspect.js';
-import { pruneRuns, RunWriter } from './run-store.js';
+import { listRunsNewestFirst, pruneRuns, RunWriter } from './run-store.js';
 import { applyPlan, fixSlotSteps, planContext, systemHomeRules, type PlanStep } from './sync.js';
 import type { Target } from './targets.js';
 
@@ -40,7 +40,7 @@ export function defaultWhich(tool: string): boolean {
       accessSync(file, constants.X_OK);
       return true;
     } catch {
-      // 다음 폴더
+      // 없는 파일이거나 실행 권한이 없으면 PATH의 다음 폴더를 본다. which와 같은 동작이다
     }
   }
   return false;
@@ -62,6 +62,8 @@ export interface DoctorResult {
   hints: string[];
   /** 고친 뒤에도 남은 문제. 고치지 않았으면 issues와 같다 */
   remaining: DoctorIssue[];
+  /** 읽지 못한 실행 기록. 종료 코드에는 안 걸린다 */
+  recordWarnings: string[];
   pruned: string[];
   run?: { runId: string; dir: string; recordFile: string };
 }
@@ -88,18 +90,18 @@ function findIssues(input: DoctorInput): Found {
   if (!source.rulesFile) {
     issues.push({
       kind: 'source_missing',
-      label: '원본',
+      label: '~/.agents',
       path: src.rulesFile,
-      message: `원본 ${t(src.rulesFile)}가 없어요. 처음이면 gestalt sync를 먼저 돌려 주세요`,
+      message: `${t(src.rulesFile)}가 없어요. 처음이면 gestalt sync를 먼저 돌려 주세요`,
       fixable: false,
     });
   }
   if (!source.skillsDir) {
     issues.push({
       kind: 'source_missing',
-      label: '원본',
+      label: '~/.agents',
       path: src.skillsDir,
-      message: `원본 ${t(src.skillsDir)} 폴더가 없어요. 처음이면 gestalt sync를 먼저 돌려 주세요`,
+      message: `${t(src.skillsDir)} 폴더가 없어요. 처음이면 gestalt sync를 먼저 돌려 주세요`,
       fixable: false,
     });
   }
@@ -114,11 +116,14 @@ function findIssues(input: DoctorInput): Found {
     else if (st.state === 'missing') message = `${p}가 없어요 (${slot.importLine} 줄을 넣을 파일)`;
     else if (st.state === 'broken_link') message = `${p}가 없는 ${t(st.linkTarget)}를 가리켜요`;
     else if (st.state === 'wrong_target')
-      message = `${p}가 원본 대신 ${t(st.linkTarget)}를 가리켜요`;
+      message =
+        slot.mode === 'link'
+          ? `${p}가 ${t(slot.linkTo)} 대신 ${t(st.linkTarget)}를 가리켜요`
+          : `${p}가 ${slot.importLine} 줄이 없는 ${t(st.linkTarget)}를 가리켜요`;
     else if (st.state === 'replaced_by_file')
       message = `${p}가 링크 대신 실제 ${st.isDir ? '폴더' : '파일'}예요`;
     else message = `${p}에 ${slot.importLine} 줄이 없어요`;
-    // 원본이 없는데 링크만 다시 걸면 또 끊긴 링크가 된다
+    // `~/.agents` 쪽이 없는데 링크만 다시 걸면 또 끊긴 링크가 된다
     const sourceReady =
       slot.mode === 'import' || (slot.name === 'skills' ? source.skillsDir : source.rulesFile);
     issues.push({ kind, label: slot.target.label, path: slot.path, message, fixable: sourceReady });
@@ -150,6 +155,10 @@ function findToolWarnings(input: DoctorInput): ToolWarning[] {
 export function runDoctor(input: DoctorInput): DoctorResult {
   const found = findIssues(input);
   const toolWarnings = findToolWarnings(input);
+  const recordWarnings = listRunsNewestFirst().corrupt.map(
+    (c) =>
+      `${c.dirName} 실행 기록을 읽지 못했어요 (${c.reason}). 정리하지 않고 남겨 뒀으니 직접 확인해 주세요`,
+  );
   if (!input.fix || found.slots.length === 0) {
     return {
       issues: found.issues,
@@ -157,6 +166,7 @@ export function runDoctor(input: DoctorInput): DoctorResult {
       fixed: [],
       hints: [],
       remaining: found.issues,
+      recordWarnings,
       pruned: [],
     };
   }
@@ -186,6 +196,7 @@ export function runDoctor(input: DoctorInput): DoctorResult {
     fixed: steps.map((s) => s.summary),
     hints,
     remaining: after.issues,
+    recordWarnings,
     pruned,
     run: { runId: run.record.runId, dir: run.dir, recordFile: run.recordFile },
   };

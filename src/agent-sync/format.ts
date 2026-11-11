@@ -45,7 +45,7 @@ export function formatSync(
     ...targetLines(d, t),
   ];
   if (r.changes.length === 0) {
-    lines.push('', '바꿀 게 없어요. 모든 홈이 원본(~/.agents)에 연결돼 있어요');
+    lines.push('', '바꿀 게 없어요. 모든 홈이 ~/.agents에 연결돼 있어요');
   } else {
     lines.push(...section(dryRun ? '바꿀 것' : '바꾼 것', r.changes));
   }
@@ -89,7 +89,7 @@ export function formatDoctor(
       '도구 경고',
       r.toolWarnings.map((w) => w.message),
     ),
-    ...section('경고', d.warnings),
+    ...section('경고', [...d.warnings, ...r.recordWarnings]),
   );
   if (fix) {
     lines.push(...section('고친 것', r.fixed), ...section('참고', r.hints));

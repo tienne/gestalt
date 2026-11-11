@@ -37,8 +37,6 @@ export function planContext(home: string): PlanContext {
   return { home, src: sourcePaths(home), t: (p) => tildify(p, home) };
 }
 
-// ---- 한 동작씩. 바꾸고 나서 바로 기록해 중간에 멈춰도 거기까지는 되돌릴 수 있다 ----
-
 export function ensureDir(run: RunWriter, path: string): void {
   if (lstatOrNull(path)) return;
   ensureDir(run, dirname(path));
@@ -46,21 +44,18 @@ export function ensureDir(run: RunWriter, path: string): void {
   run.log({ op: 'mkdir', path });
 }
 
-/** 자리에 뭔가 있으면 백업으로 치우고 링크를 건다 */
+/**
+ * 자리에 뭔가 있으면 백업으로 치우고 링크를 건다.
+ * 치울 것은 옮기기 전에 기록하고 새로 만든 것은 만든 뒤 바로 기록한다. 중간에 멈춰도 치운 것은 되돌릴 수 있다.
+ */
 export function placeLink(run: RunWriter, path: string, target: string): void {
-  if (lstatOrNull(path)) {
-    const backup = run.moveToBackup(path);
-    run.log({ op: 'stash', path, backup });
-  }
+  if (lstatOrNull(path)) run.moveToBackup('stash', path);
   symlinkSync(target, path);
   run.log({ op: 'create_link', path, target });
 }
 
 export function placeFile(run: RunWriter, path: string, content: string): void {
-  if (lstatOrNull(path)) {
-    const backup = run.moveToBackup(path);
-    run.log({ op: 'stash', path, backup });
-  }
+  if (lstatOrNull(path)) run.moveToBackup('stash', path);
   writeFileSync(path, content, { flag: 'wx' });
   run.log({ op: 'create_file', path });
 }
@@ -77,15 +72,12 @@ function moveEntry(run: RunWriter, from: string, to: string): void {
   const st = lstatOrNull(from);
   const relLink =
     st?.isSymbolicLink() && !isAbsolute(readlinkSync(from)) ? linkTargetOf(from) : null;
-  movePath(from, to);
-  run.log({ op: 'move', from, to });
+  run.recordMove({ op: 'move', from, to }, () => movePath(from, to));
   if (relLink) {
     unlinkSync(to);
     symlinkSync(relLink, to);
   }
 }
-
-// ---- 규칙 나누기 ----
 
 export interface SplitRules {
   shared: string;
@@ -128,17 +120,16 @@ export function withImportLine(content: string, line: string): string {
   return content.trim() ? `${line}\n\n${content}` : `${line}\n`;
 }
 
-// ---- 자리 하나 고치기. sync와 doctor --fix가 같이 쓴다 ----
-
 export interface SlotFixOptions {
-  /** sync는 실제 skills 폴더의 항목을 원본으로 옮긴다. doctor는 폴더째 백업만 한다 */
+  /** sync는 실제 skills 폴더의 항목을 `~/.agents/skills`로 옮긴다. doctor는 폴더째 백업만 한다 */
   mergeSkills: boolean;
-  /** 옮길 때 이름이 겹치는지 보려고 원본에 있게 될 이름을 모은다 */
+  /** 옮길 때 이름이 겹치는지 보려고 `~/.agents/skills`에 있게 될 이름을 모은다 */
   sourceNames: Set<string>;
-  /** 내용이 이미 원본으로 가는 자리. 링크가 여기를 가리켰으면 '옮기지 않았다'고 알리지 않는다 */
+  /** 내용이 이미 `~/.agents`로 가는 자리. 링크가 여기를 가리켰으면 '옮기지 않았다'고 알리지 않는다 */
   handledPaths: string[];
 }
 
+/** 자리 하나를 고치는 단계. sync와 doctor --fix가 같이 쓴다 */
 export function fixSlotSteps(slot: InspectedSlot, ctx: PlanContext, opts: SlotFixOptions): Plan {
   const { t } = ctx;
   const label = slot.target.label;
@@ -216,13 +207,13 @@ export function fixSlotSteps(slot: InspectedSlot, ctx: PlanContext, opts: SlotFi
     if (stashes.length > 0) {
       // 겹친 항목은 그 자리에 두고 아래 링크 걸기에서 폴더째 백업한다. 따로 치우면 같은 백업 자리를 두 번 쓴다
       hints.push(
-        `${label}: 원본에 이미 있는 ${stashes.join(', ')}는 원본을 남겼어요. 이쪽 것은 백업 폴더에만 있으니 필요하면 꺼내 원본에 직접 합쳐 주세요`,
+        `${label}: ${to}에 이미 있는 ${stashes.join(', ')}는 ${to} 쪽을 남겼어요. 이쪽 것은 백업 폴더에만 있으니 필요하면 꺼내 ${to}에 직접 합쳐 주세요`,
       );
     }
     steps.push({
       summary:
         stashes.length > 0
-          ? `${label}: 원본에 이미 있는 ${stashes.length}개(${stashes.join(', ')})만 남은 ${t(slot.path)}를 백업하고 ${to} 링크로 바꿈`
+          ? `${label}: ${to}에 이미 있는 ${stashes.length}개(${stashes.join(', ')})만 남은 ${t(slot.path)}를 백업하고 ${to} 링크로 바꿈`
           : `${label}: 빈 ${t(slot.path)}를 ${to} 링크로 바꿈`,
       apply: (run) => placeLink(run, slot.path, slot.linkTo),
     });
@@ -233,7 +224,7 @@ export function fixSlotSteps(slot: InspectedSlot, ctx: PlanContext, opts: SlotFi
     const extra = readdirSync(slot.path).filter((n) => !pathExists(join(slot.linkTo, n)));
     if (extra.length > 0) {
       hints.push(
-        `${label}: 원본에 없는 ${extra.join(', ')}는 백업 폴더에만 있어요. 필요하면 ${to}로 옮겨 주세요`,
+        `${label}: ${to}에 없는 ${extra.join(', ')}는 백업 폴더에만 있어요. 필요하면 ${to}로 옮겨 주세요`,
       );
     }
   }
@@ -242,7 +233,7 @@ export function fixSlotSteps(slot: InspectedSlot, ctx: PlanContext, opts: SlotFi
   }
   if (st.state === 'replaced_by_file' && !st.isDir && slot.name === 'rules') {
     hints.push(
-      `${label}: 원래 ${t(slot.path)} 내용은 백업 폴더에만 있어요. 공용으로 쓸 줄이 있으면 원본에 옮겨 주세요`,
+      `${label}: 원래 ${t(slot.path)} 내용은 백업 폴더에만 있어요. 공용으로 쓸 줄이 있으면 ${to}에 옮겨 주세요`,
     );
   }
   const what =
@@ -259,8 +250,6 @@ export function fixSlotSteps(slot: InspectedSlot, ctx: PlanContext, opts: SlotFi
   });
   return { steps, hints };
 }
-
-// ---- sync 계획 ----
 
 export interface SyncInput {
   home: string;
@@ -283,7 +272,7 @@ function sourceRulesPlan(
   const hints: string[] = [];
   const needRoot = !lstatOrNull(src.root);
   const mkRoot: PlanStep[] = needRoot
-    ? [{ summary: `원본: ${t(src.root)} 폴더를 만듦`, apply: (run) => ensureDir(run, src.root) }]
+    ? [{ summary: `${t(src.root)} 폴더를 만듦`, apply: (run) => ensureDir(run, src.root) }]
     : [];
 
   if (lstatOrNull(src.rulesFile)) return { steps, hints, claudeHandled: false };
@@ -292,7 +281,7 @@ function sourceRulesPlan(
   const realFile = claudeFile && pathExists(claudeFile) ? realpathSync(claudeFile) : null;
   if (!claudeFile || !realFile || !lstatOrNull(realFile)?.isFile()) {
     steps.push(...mkRoot, {
-      summary: `원본: 옮길 CLAUDE.md가 없어 빈 ${t(src.rulesFile)}를 만듦`,
+      summary: `옮길 CLAUDE.md가 없어 빈 ${t(src.rulesFile)}를 만듦`,
       apply: (run) => placeFile(run, src.rulesFile, ''),
     });
     return { steps, hints, claudeHandled: false };
@@ -309,7 +298,7 @@ function sourceRulesPlan(
   steps.push(
     ...mkRoot,
     {
-      summary: `원본: ${where}의 공용 규칙 ${sharedLines}줄로 ${t(src.rulesFile)}를 만듦`,
+      summary: `${where}의 공용 규칙 ${sharedLines}줄로 ${t(src.rulesFile)}를 만듦`,
       apply: (run) => placeFile(run, src.rulesFile, split.shared),
     },
     {
@@ -329,7 +318,7 @@ function sourceRulesPlan(
   return { steps, hints, claudeHandled: true };
 }
 
-/** 시스템 홈의 규칙 파일. 이 내용은 원본에 들어가 있거나 원본을 가져오므로 링크가 여기를 가리켰어도 잃는 게 없다 */
+/** 시스템 홈의 규칙 파일. 이 내용은 `~/.agents/AGENTS.md`에 들어가 있거나 그 파일을 가져오므로 링크가 여기를 가리켰어도 잃는 게 없다 */
 export function systemHomeRules(targets: Target[]): string[] {
   return targets
     .filter((x) => x.scope === 'system')
@@ -346,7 +335,7 @@ export function planSync(input: SyncInput): Plan {
 
   if (!lstatOrNull(src.skillsDir)) {
     steps.push({
-      summary: `원본: ${t(src.skillsDir)} 폴더를 만듦`,
+      summary: `${t(src.skillsDir)} 폴더를 만듦`,
       apply: (run) => ensureDir(run, src.skillsDir),
     });
   }
@@ -356,7 +345,7 @@ export function planSync(input: SyncInput): Plan {
     lstatOrNull(src.skillsDir)?.isDirectory() ? readdirSync(src.skillsDir) : [],
   );
   for (const slot of inspectTargets(input.targets, src)) {
-    // 원본을 처음 만들 때 시스템 CLAUDE.md는 위에서 같이 고쳤다
+    // `~/.agents/AGENTS.md`를 처음 만들 때 시스템 CLAUDE.md는 위에서 같이 고쳤다
     if (rules.claudeHandled && slot.target === systemClaude && slot.name === 'rules') continue;
     const fix = fixSlotSteps(slot, ctx, { mergeSkills: true, sourceNames, handledPaths });
     steps.push(...fix.steps);
@@ -372,7 +361,10 @@ export interface ApplyResult {
   run?: { runId: string; dir: string; recordFile: string };
 }
 
-/** 계획을 실행한다. 중간에 실패하면 거기까지 기록을 남기고 기록 자리를 붙여 다시 던진다 */
+/**
+ * 계획을 실행한다. 단계가 에러를 던지면 실패한 단계를 changes에 더해 저장하고 기록 자리를 붙여 다시 던진다.
+ * 거기까지 한 동작은 이미 run.json에 있어 되돌리기가 읽는다.
+ */
 export function applyPlan(plan: Plan, run: RunWriter): void {
   for (const step of plan.steps) {
     try {
