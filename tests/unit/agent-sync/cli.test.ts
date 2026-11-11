@@ -57,6 +57,7 @@ describe('gestalt sync / doctor CLI (AC15)', () => {
       changes: string[];
     };
     expect(plan.command).toBe('sync');
+    expect(plan).not.toHaveProperty('knownHomes');
     expect(plan.dryRun).toBe(true);
     expect(plan.targets.map((t) => t.label)).toEqual([
       'Claude 시스템',
@@ -90,6 +91,7 @@ describe('gestalt sync / doctor CLI (AC15)', () => {
     expect(broken.status).toBe(1);
     const report = JSON.parse(broken.stdout) as { ok: boolean; remaining: unknown[] };
     expect(report.ok).toBe(true);
+    expect(report).not.toHaveProperty('knownHomes');
     expect(report.remaining.length).toBeGreaterThan(0);
   });
 

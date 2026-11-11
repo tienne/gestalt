@@ -32,6 +32,11 @@ function setup(deps: AgentSyncDeps): Setup {
   return { home, config, discovery: discoverTargets({ home, config, listOrcaAccounts: list }) };
 }
 
+/** knownHomes는 되돌리기 허용 경로를 만드는 내부 값이라 `--json` 출력에 싣지 않는다 */
+function shownDiscovery({ targets, skipped, warnings }: TargetDiscovery) {
+  return { targets, skipped, warnings };
+}
+
 /** `--json`을 준 호출자는 stdout을 JSON으로 읽으니 에러도 같은 꼴로 낸다 */
 function fail(e: unknown, json: boolean | undefined): void {
   const error = e instanceof Error ? e.message : String(e);
@@ -71,7 +76,11 @@ export function syncCommand(opts: SyncCommandOptions, deps: AgentSyncDeps = {}):
     const result = runSync({ home, targets: discovery.targets, config, dryRun, now: deps.now });
     if (opts.json) {
       console.log(
-        JSON.stringify({ ok: true, command: 'sync', dryRun, ...discovery, ...result }, null, 2),
+        JSON.stringify(
+          { ok: true, command: 'sync', dryRun, ...shownDiscovery(discovery), ...result },
+          null,
+          2,
+        ),
       );
     } else {
       console.log(formatSync(home, discovery, result, dryRun));
@@ -101,7 +110,11 @@ export function doctorCommand(opts: DoctorCommandOptions, deps: AgentSyncDeps = 
     });
     if (opts.json) {
       console.log(
-        JSON.stringify({ ok: true, command: 'doctor', fix, ...discovery, ...result }, null, 2),
+        JSON.stringify(
+          { ok: true, command: 'doctor', fix, ...shownDiscovery(discovery), ...result },
+          null,
+          2,
+        ),
       );
     } else {
       console.log(formatDoctor(home, discovery, result, fix));
