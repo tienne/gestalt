@@ -328,7 +328,7 @@ describe('Spec Patch Applier', () => {
       1,
     );
 
-    newSpec.ontologySchema.entities[0]?.attributes?.push('mutated');
+    newSpec.ontologySchema.entities[0]!.attributes!.push('mutated');
 
     expect(spec.ontologySchema.entities).toEqual(original.ontologySchema.entities);
   });
