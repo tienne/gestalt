@@ -21,6 +21,7 @@ import {
   reviewLoopStateCommand,
 } from './commands/review-loop.js';
 import { approveGateCommand, reviewRoundsCommand } from './commands/approve-gate.js';
+import { doctorCommand, syncCommand } from './commands/agent-sync.js';
 import {
   shipCheckpointCheckCommand,
   shipCheckpointSaveCommand,
@@ -110,6 +111,11 @@ function parentOpts<T>(cmd: ParentedCommand): T {
   return (cmd.parent?.opts() ?? {}) as T;
 }
 
+const AGENT_SYNC_HELP = `
+사용자 설정  ~/.gestalt/agent-sync.json (계정 이름, 확인할 도구, Claude 전용 줄)
+백업과 기록  ~/.gestalt/backups/<날짜>-<실행id>/ (run.json, 6개월 보관. 아직 되돌리지 않은 가장 최근 sync와 읽지 못한 기록은 기간이 지나도 남긴다)
+자세한 설명  docs/agent-sync.md`;
+
 export function createCli(): Command {
   const program = new Command();
 
@@ -189,6 +195,31 @@ export function createCli(): Command {
     .action(async () => {
       await updateCommand();
     });
+
+  program
+    .command('sync')
+    .description('Claude와 Codex 홈을 ~/.agents(AGENTS.md와 skills/)에 연결한다')
+    .option('--dry-run', '바꿀 것만 보여주고 아무것도 안 쓴다')
+    .option(
+      '--revert [runId]',
+      'sync 실행을 되돌린다. id를 안 주면 아직 안 되돌린 가장 최근 실행. --dry-run과 같이 쓰면 할 일만 보여준다',
+    )
+    .option('--json', 'stdout에 JSON만')
+    .addHelpText('after', AGENT_SYNC_HELP)
+    .action((o: { dryRun?: boolean; revert?: string | boolean; json?: boolean }) => syncCommand(o));
+
+  program
+    .command('doctor')
+    .description(
+      '~/.agents와 어긋난 연결을 찾고 설정에 적힌 도구가 없는 호스트를 경고한다. --fix를 주면 고친다',
+    )
+    .option('--fix', '백업하고 그 자리에서 고친다. 없으면 보고만 한다')
+    .option('--json', 'stdout에 JSON만')
+    .addHelpText(
+      'after',
+      `${AGENT_SYNC_HELP}\n남은 문제가 있으면 종료 코드 1, 도구 경고만 있으면 0`,
+    )
+    .action((o: { fix?: boolean; json?: boolean }) => doctorCommand(o));
 
   program
     .command('memory-merge <base> <ours> <theirs>')

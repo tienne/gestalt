@@ -1,0 +1,379 @@
+import { readdirSync, rmdirSync, unlinkSync } from 'node:fs';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
+import { copyPath, isEmptyDir, lstatOrNull, linkTargetOf, movePath, samePath } from './fs-ops.js';
+import { slotsFor } from './inspect.js';
+import { isInside, sourcePaths, tildify } from './paths.js';
+import {
+  backupPathIn,
+  listRunsNewestFirst,
+  pruneRuns,
+  runDir,
+  RunWriter,
+  writeRun,
+  type CorruptRun,
+  type RunAction,
+  type RunRecord,
+} from './run-store.js';
+import type { Target } from './targets.js';
+
+export class RevertError extends Error {}
+
+/**
+ * 되돌릴 sync 실행을 고른다. 아무것도 안 주면 아직 안 되돌린 가장 최근 sync다.
+ * 아직 되돌리지 않은 더 새 sync가 있으면 예전 실행은 거부한다. 그 사이에 바뀐 것이 뒤엉킨다.
+ */
+export function pickRun(runs: RunRecord[], wanted?: string): RunRecord {
+  const syncs = runs.filter((r) => r.kind === 'sync');
+  if (!wanted) {
+    const latest = syncs.find((r) => !r.revertedAt);
+    if (!latest) throw new RevertError('되돌릴 sync 실행이 없어요');
+    return latest;
+  }
+  const found = runs.find((r) => r.runId === wanted || r.dirName === wanted);
+  if (!found) throw new RevertError(`${wanted} 실행 기록을 못 찾았어요`);
+  if (found.kind === 'doctor')
+    throw new RevertError('doctor가 고친 것은 되돌리기 대상이 아니에요. sync 실행만 되돌려요');
+  if (found.kind !== 'sync')
+    throw new RevertError(`${wanted}는 되돌리기 실행이라 다시 되돌릴 수 없어요`);
+  if (found.revertedAt) throw new RevertError(`${wanted}는 이미 ${found.revertedAt}에 되돌렸어요`);
+  const newer = syncs.find((r) => !r.revertedAt && r.createdAt > found.createdAt);
+  if (newer) {
+    throw new RevertError(
+      `더 새 sync 실행 ${newer.runId}가 있어요. 그것부터 되돌린 뒤에 다시 해 주세요`,
+    );
+  }
+  return found;
+}
+
+interface RevertStep {
+  summary: string;
+  apply(run: RunWriter, notes: string[]): void;
+}
+
+function stepFor(action: RunAction, t: (p: string) => string): RevertStep | null {
+  /** 그 자리에 sync 뒤로 생긴 게 있으면 새 실행 폴더에 백업하고 치운다 */
+  const clear = (run: RunWriter, notes: string[], path: string) => {
+    if (!lstatOrNull(path)) return;
+    const backup = run.moveToBackup('backup', path);
+    notes.push(`${t(path)}에 sync 뒤로 바뀐 것이 있어 ${t(backup)}에 백업했어요`);
+  };
+
+  switch (action.op) {
+    case 'create_link':
+      return {
+        summary: `sync가 만든 ${t(action.path)} 링크를 지움`,
+        apply: (run, notes) => {
+          const st = lstatOrNull(action.path);
+          if (!st) return;
+          if (st.isSymbolicLink() && samePath(linkTargetOf(action.path), action.target)) {
+            unlinkSync(action.path);
+            run.log({ op: 'remove', path: action.path });
+            return;
+          }
+          clear(run, notes, action.path);
+        },
+      };
+    case 'stash':
+      return {
+        summary: `백업해 둔 ${t(action.path)}를 제자리로 돌림`,
+        apply: (run, notes) => {
+          if (!lstatOrNull(action.backup)) {
+            notes.push(`${t(action.path)}의 백업 ${t(action.backup)}가 없어 돌리지 못했어요`);
+            return;
+          }
+          clear(run, notes, action.path);
+          movePath(action.backup, action.path);
+          run.log({ op: 'restore', path: action.path });
+        },
+      };
+    case 'move':
+      return {
+        summary: `${t(action.to)}를 ${t(action.from)}로 다시 옮김`,
+        apply: (run, notes) => {
+          if (!lstatOrNull(action.to)) {
+            notes.push(`옮겨 둔 ${t(action.to)}가 없어 ${t(action.from)}로 돌리지 못했어요`);
+            return;
+          }
+          clear(run, notes, action.from);
+          movePath(action.to, action.from);
+          run.log({ op: 'restore', path: action.from });
+        },
+      };
+    case 'create_file':
+      return {
+        summary: `sync가 만든 ${t(action.path)}를 치움 (지우지 않고 백업에 둠)`,
+        apply: (run) => {
+          if (lstatOrNull(action.path)) run.moveToBackup('backup', action.path);
+        },
+      };
+    case 'write_file':
+      return {
+        summary: `${t(action.path)}를 sync 전 내용으로 돌림`,
+        apply: (run, notes) => {
+          if (!lstatOrNull(action.backup)) {
+            notes.push(`${t(action.path)}의 백업 ${t(action.backup)}가 없어 돌리지 못했어요`);
+            return;
+          }
+          if (lstatOrNull(action.path)) run.moveToBackup('backup', action.path);
+          copyPath(action.backup, action.path);
+          run.log({ op: 'restore', path: action.path });
+        },
+      };
+    case 'mkdir':
+      return {
+        summary: `sync가 만든 ${t(action.path)} 폴더를 비어 있으면 지움`,
+        apply: (run, notes) => {
+          if (!lstatOrNull(action.path)) return;
+          if (isEmptyDir(action.path)) {
+            rmdirSync(action.path);
+            run.log({ op: 'remove', path: action.path });
+            return;
+          }
+          const left = lstatOrNull(action.path)?.isDirectory()
+            ? readdirSync(action.path).sort()
+            : [];
+          notes.push(
+            `${t(action.path)}에 sync 뒤로 생긴 항목이 있어 폴더를 남겼어요: ${left.join(', ')}`,
+          );
+        },
+      };
+    case 'pending': {
+      // 옮기다 멈춘 동작. 옮겨 갈 자리가 비어 있으면 원래 것이 제자리에 있으니 할 일이 없다
+      const inner = action.action;
+      const [from, landed] =
+        inner.op === 'move' ? [inner.from, inner.to] : [inner.path, inner.backup];
+      if (!lstatOrNull(landed)) return null;
+      const step = stepFor(inner, t);
+      if (!step) return null;
+      return {
+        summary: step.summary,
+        apply: (run, notes) => {
+          // 뒤 동작을 되돌린 다음에 봐야 한다. 그 전에는 뒤 동작이 원래 자리를 다시 채워 둔 것일 수 있다.
+          // 복사 도중에도 지우는 도중에도 둘 다 남으니 어느 쪽이 반쯤 남은 것인지 몰라 둘 다 둔다
+          if (lstatOrNull(from)) {
+            notes.push(
+              `${t(from)}를 옮기다 멈춘 흔적이에요. ${t(from)}와 ${t(landed)}가 둘 다 있어 어느 쪽이 온전한지 몰라 그대로 뒀어요. 확인해서 하나만 남겨 주세요`,
+            );
+            return;
+          }
+          step.apply(run, notes);
+        },
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * sync가 손댈 수 있는 자리 전부. 대상 홈마다의 슬롯 경로와 `~/.agents/AGENTS.md`다.
+ * 되돌리기는 이 집합과 정확히 같은 경로만 받는다. 이름만 맞춘 다른 폴더의 CLAUDE.md를 건드리지 않으려는 것이다
+ */
+export function revertSlotPaths(home: string, homes: Target[]): Set<string> {
+  const src = sourcePaths(home);
+  return new Set([src.rulesFile, ...homes.flatMap((h) => slotsFor(h, src).map((s) => s.path))]);
+}
+
+interface CheckContext {
+  dir: string;
+  home: string;
+  agents: string;
+  slotPaths: Set<string>;
+  t: (p: string) => string;
+}
+
+interface ActionProblem {
+  reason: string;
+  /** 지금 찾은 대상 홈에 없는 자리라서 걸렸다. sync 뒤 계정이 빠졌을 때도 이렇게 걸린다 */
+  slotMiss: boolean;
+}
+
+/** sync가 남길 수 없는 동작이면 그 이유 */
+function actionProblem(action: RunAction, ctx: CheckContext): ActionProblem | null {
+  const { dir, home, agents, slotPaths, t } = ctx;
+  const shape = (reason: string): ActionProblem => ({ reason, slotMiss: false });
+  const paths = Object.entries(action).flatMap(([k, v]) =>
+    k !== 'op' && typeof v === 'string' ? [v] : [],
+  );
+  const bad = paths.find((p) => !isAbsolute(p) || resolve(p) !== p);
+  if (bad)
+    return shape(
+      `절대 경로가 아니거나 \`.\`, \`..\`, 끝의 \`/\`, 겹친 \`/\`가 들어 있어요: ${bad}`,
+    );
+  const notSlot = (p: string): ActionProblem => ({
+    reason: `sync 대상 홈의 skills, CLAUDE.md, AGENTS.md나 ~/.agents/AGENTS.md가 아니에요: ${t(p)}`,
+    slotMiss: true,
+  });
+  const backupOk = (path: string, backup: string) =>
+    isInside(dir, backup) && backup === backupPathIn(dir, home, path);
+
+  switch (action.op) {
+    case 'mkdir':
+      return isInside(agents, action.path)
+        ? null
+        : shape(`~/.agents 밖에 만든 폴더예요: ${t(action.path)}`);
+    case 'create_file':
+      return slotPaths.has(action.path) ? null : notSlot(action.path);
+    case 'write_file':
+    case 'stash':
+      if (!slotPaths.has(action.path)) return notSlot(action.path);
+      return backupOk(action.path, action.backup)
+        ? null
+        : shape(`백업 경로가 실행 폴더 안의 제자리가 아니에요: ${t(action.backup)}`);
+    case 'create_link':
+      if (!slotPaths.has(action.path)) return notSlot(action.path);
+      return isInside(agents, action.target)
+        ? null
+        : shape(`~/.agents 밖을 가리키는 링크예요: ${t(action.target)}`);
+    case 'move': {
+      const parent = dirname(action.from);
+      const outside = `sync 대상 홈의 skills 폴더 밖에서 옮긴 항목이에요: ${t(action.from)}`;
+      if (basename(parent) !== 'skills') return shape(outside);
+      if (!slotPaths.has(parent)) return { reason: outside, slotMiss: true };
+      return isInside(agents, action.to)
+        ? null
+        : shape(`~/.agents 밖으로 옮긴 항목이에요: ${t(action.to)}`);
+    }
+    case 'pending':
+      return action.action.op === 'backup'
+        ? shape('sync 기록에 없어야 할 backup 동작이 있어요')
+        : actionProblem(action.action, ctx);
+    default:
+      return shape(`sync 기록에 없어야 할 ${action.op} 동작이 있어요`);
+  }
+}
+
+/**
+ * 기록을 믿고 옮기기 전에 sync가 남길 수 있는 모양인지 전부 본다.
+ * 하나라도 어긋나면 아무것도 바꾸지 않고 멈춘다. run.json을 누가 고쳤으면 임의 경로를 옮기게 된다.
+ */
+function checkRevertable(target: RunRecord, input: RevertInput, t: (p: string) => string): void {
+  const ctx: CheckContext = {
+    dir: runDir(target),
+    home: input.home,
+    agents: sourcePaths(input.home).root,
+    slotPaths: input.slotPaths,
+    t,
+  };
+  let slotMiss = false;
+  const problems = target.actions.flatMap((a, i) => {
+    const p = actionProblem(a, ctx);
+    if (!p) return [];
+    slotMiss ||= p.slotMiss;
+    return [`${i}번 동작: ${p.reason}`];
+  });
+  const progress = target.revertProgress;
+  if (progress !== undefined && progress > target.actions.length) {
+    problems.push(`revertProgress ${progress}가 동작 수 ${target.actions.length}보다 커요`);
+  }
+  if (problems.length === 0) return;
+  // 오르카 목록을 못 읽었으면 계정 홈이 집합에서 빠져 정상 기록도 걸린다
+  const warned = (input.discoveryWarnings ?? []).map(
+    (w) => `계정 홈을 다 못 찾았을 수 있어요: ${w}`,
+  );
+  // 변조 신호에까지 붙이면 사용자가 설정 탓으로 읽으니 슬롯 집합에서 걸렸을 때만 안내한다
+  const hint = slotMiss
+    ? [
+        `오르카에서 계정을 지웠거나 id가 바뀌었거나 orcaDataDir를 바꿨다면 sync할 때의 계정과 설정으로 되돌린 뒤 다시 실행해 주세요. 그럴 수 없으면 백업 폴더 ${t(ctx.dir)}에서 직접 꺼내 주세요`,
+      ]
+    : [];
+  throw new RevertError(
+    [
+      `${target.dirName}/run.json을 믿을 수 없어 아무것도 바꾸지 않았어요`,
+      ...problems,
+      ...warned,
+      ...hint,
+    ].join('\n'),
+  );
+}
+
+/** 날짜까지만 아는 깨진 기록이 고른 실행과 같은 날이거나 더 뒤면 그 사이에 무슨 일이 있었는지 몰라 거부한다 */
+function refuseNewerCorrupt(target: RunRecord, corrupt: CorruptRun[]): void {
+  const day = target.dirName.slice(0, 10);
+  const newer = corrupt.find((c) => c.dirName.slice(0, 10) >= day);
+  if (newer) {
+    throw new RevertError(
+      `${newer.dirName} 기록을 읽지 못했어요 (${newer.reason}). 더 새 실행일 수 있어 되돌리지 않았어요. 그 폴더를 확인한 뒤에 다시 해 주세요`,
+    );
+  }
+}
+
+export interface RevertInput {
+  home: string;
+  /** 기록의 경로가 이 안에 있어야 되돌린다. `revertSlotPaths`로 만든다 */
+  slotPaths: Set<string>;
+  /** 대상 홈을 찾을 때 난 경고. 기록이 거부되면 이유에 붙인다 */
+  discoveryWarnings?: string[];
+  runId?: string;
+  dryRun: boolean;
+  now?: Date;
+}
+
+export interface RevertResult {
+  reverted: { runId: string; dirName: string; createdAt: string };
+  changes: string[];
+  notes: string[];
+  pruned: string[];
+  run?: { runId: string; dir: string; recordFile: string };
+}
+
+export function runRevert(input: RevertInput): RevertResult {
+  const t = (p: string) => tildify(p, input.home);
+  const listing = listRunsNewestFirst();
+  const target = pickRun(listing.runs, input.runId);
+  refuseNewerCorrupt(target, listing.corrupt);
+  checkRevertable(target, input, t);
+
+  // 앞서 멈춘 되돌리기가 있으면 거기서 이어간다. 되돌린 항목을 다시 치우면 상태가 꼬인다
+  const todo: { index: number; step: RevertStep }[] = [];
+  for (let i = (target.revertProgress ?? target.actions.length) - 1; i >= 0; i--) {
+    const step = stepFor(target.actions[i]!, t);
+    if (step) todo.push({ index: i, step });
+  }
+  const reverted = { runId: target.runId, dirName: target.dirName, createdAt: target.createdAt };
+  const changes = todo.map((s) => s.step.summary);
+  const warnings = listing.corrupt.map((c) => `${c.dirName} 기록을 읽지 못했어요 (${c.reason})`);
+  if (input.dryRun) return { reverted, changes, notes: warnings, pruned: [] };
+
+  const now = input.now ?? new Date();
+  const run = new RunWriter('revert', input.home, now, target.runId);
+  const notes: string[] = [...warnings];
+  let progress: RunRecord = target;
+  for (const { index, step } of todo) {
+    try {
+      step.apply(run, notes);
+    } catch (e) {
+      run.record.changes.push(`(실패) ${step.summary}`);
+      run.save();
+      throw new RevertError(
+        `${step.summary} 중에 멈췄어요: ${(e as Error).message}\n여기까지 한 일은 ${run.recordFile}에 있어요. 다시 돌리면 멈춘 단계부터 이어서 해요`,
+        { cause: e },
+      );
+    }
+    run.record.changes.push(step.summary);
+    progress = { ...progress, revertProgress: index };
+    writeRun(progress);
+  }
+  // 바꾼 것도 알릴 것도 없으면 실행 폴더를 안 만든다. 그때 revertedBy는 없는 실행을 가리키게 된다
+  const saved = run.touched || notes.length > 0;
+  if (saved) {
+    run.record.changes.push(...notes.map((n) => `(참고) ${n}`));
+    run.save();
+  }
+  writeRun({
+    ...progress,
+    revertedAt: now.toISOString(),
+    ...(saved ? { revertedBy: run.record.runId } : {}),
+  });
+  // 고른 실행이 보관 기간 끝자락이어도 되돌린 다음에 정리한다
+  const pruned = pruneRuns(now);
+  return {
+    reverted,
+    changes,
+    notes,
+    pruned,
+    ...(saved
+      ? { run: { runId: run.record.runId, dir: run.dir, recordFile: run.recordFile } }
+      : {}),
+  };
+}
