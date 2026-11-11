@@ -30,6 +30,11 @@ describe('Codex와 Grok MCP 매니페스트', () => {
     },
   );
 
+  it.each(['plugin/mcp.json', 'plugin/.mcp.json'])('%s 가 플러그인 따라가기를 끈다', (path) => {
+    const server = readManifest(path).mcpServers.gestalt as { env?: Record<string, string> };
+    expect(server.env?.['GESTALT_FOLLOW_PLUGIN']).toBe('0');
+  });
+
   it('Grok이 읽는 점 파일이 plugin/mcp.json과 같다', () => {
     expect(readManifest('plugin/.mcp.json')).toEqual(readManifest('plugin/mcp.json'));
   });
@@ -42,6 +47,12 @@ describe('Claude MCP 매니페스트', () => {
   // .claude-plugin/ 기준인지 관측으로 못 가른다. 어느 쪽이 로드돼도 같도록 둘을 맞춘다.
   it('두 위치의 내용이 같다', () => {
     expect(readManifest('.claude-plugin/.mcp.json')).toEqual(readManifest('.mcp.json'));
+  });
+
+  // npx는 같은 버전이 전역에 있으면 전역 실행 파일을 부른다. 그 경로에서 핀이 풀리지 않게 한다
+  it.each(paths)('%s 의 npx 폴백이 플러그인 따라가기를 끈다', (path) => {
+    const command = readManifest(path).mcpServers.gestalt!.args[1]!;
+    expect(command).toContain('GESTALT_FOLLOW_PLUGIN=0 exec npx');
   });
 
   it.each(paths)('%s 가 런처를 거쳐 기동한다', (path) => {
@@ -173,7 +184,9 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
   function withStub<T>(body: (stub: string, dir: string) => T): T {
     const dir = mkdtempSync(join(tmpdir(), 'gestalt-launcher-'));
     const stub = join(dir, 'fake-gestalt');
-    writeFileSync(stub, '#!/bin/sh\necho "STUB $*"\n', { mode: 0o755 });
+    writeFileSync(stub, '#!/bin/sh\necho "STUB $* FOLLOW=$GESTALT_FOLLOW_PLUGIN"\n', {
+      mode: 0o755,
+    });
     try {
       return body(stub, dir);
     } finally {
@@ -188,7 +201,8 @@ describe('scripts/mcp-serve.sh 분기 순서', () => {
         encoding: 'utf-8',
         timeout: LAUNCHER_TIMEOUT_MS,
       });
-      expect(out.trim()).toBe('STUB serve');
+      // 오버라이드 분기도 전역 gestalt를 부를 수 있어 플러그인 따라가기를 꺼 둔 채로 넘긴다
+      expect(out.trim()).toBe('STUB serve FOLLOW=0');
     });
   });
 

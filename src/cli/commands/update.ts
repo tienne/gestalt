@@ -1,6 +1,9 @@
 import { execSync } from 'node:child_process';
 import { checkForUpdates } from '../../core/version.js';
 
+export const CODEX_ADD_COMMAND =
+  'codex mcp add gestalt --env GESTALT_FOLLOW_PLUGIN=0 -- npx -y @tienne/gestalt serve';
+
 function hasBinary(name: string): boolean {
   try {
     execSync(`which ${name}`, { stdio: 'pipe' });
@@ -14,6 +17,15 @@ function isCodexGestaltNpx(): boolean {
   try {
     const out = execSync('codex mcp get gestalt 2>/dev/null', { encoding: 'utf-8', stdio: 'pipe' });
     return out.includes('npx') && out.includes('@tienne/gestalt');
+  } catch {
+    return false;
+  }
+}
+
+function hasFollowPluginOff(): boolean {
+  try {
+    const out = execSync('codex mcp get gestalt --json', { encoding: 'utf-8', stdio: 'pipe' });
+    return JSON.parse(out)?.transport?.env?.GESTALT_FOLLOW_PLUGIN === '0';
   } catch {
     return false;
   }
@@ -61,17 +73,26 @@ export async function updateCommand(): Promise<void> {
       console.log(
         '✅ Codex: 다음 시작 시 자동으로 v' + result.latestVersion + '이 적용됩니다. (npx 방식)',
       );
+      // 다시 등록하면 버전 고정이나 다른 env 같은 사용자 설정이 날아가서 안내만 한다
+      if (!hasFollowPluginOff()) {
+        console.log(
+          '⚠ 전역에도 gestalt가 깔려 있으면 Codex MCP가 플러그인 쪽으로 넘어갈 수 있어요.',
+        );
+        console.log('  config.toml(CODEX_HOME, 없으면 ~/.codex)에 아래를 넣어 주세요:');
+        console.log('  [mcp_servers.gestalt.env]');
+        console.log('  GESTALT_FOLLOW_PLUGIN = "0"');
+      }
     } else {
       // global 설치 방식 — MCP 재등록
       console.log('● Codex MCP 재등록 중...');
       try {
         execSync('codex mcp remove gestalt', { stdio: 'pipe' });
-        execSync('codex mcp add gestalt -- npx -y @tienne/gestalt', { stdio: 'inherit' });
+        execSync(CODEX_ADD_COMMAND, { stdio: 'inherit' });
         console.log('✅ Codex MCP 재등록 완료!');
       } catch {
         console.error('✗ Codex MCP 재등록 실패. 수동으로 실행해주세요:');
         console.error('  codex mcp remove gestalt');
-        console.error('  codex mcp add gestalt -- npx -y @tienne/gestalt');
+        console.error(`  ${CODEX_ADD_COMMAND}`);
       }
     }
   }

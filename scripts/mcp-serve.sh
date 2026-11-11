@@ -20,6 +20,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/pick-node.sh
 . "$ROOT/scripts/lib/pick-node.sh"
 
+# A global gestalt hands itself to the highest installed plugin version whenever
+# the two versions differ, newer or older. Here the pin (or GESTALT_MCP_BIN)
+# already decided which build runs, so turn that off for the override, the probe,
+# and the server this script execs.
+export GESTALT_FOLLOW_PLUGIN=0
+
 # Before the Node search, because this branch does not need Node at all. Someone
 # pointing at their own build on a machine without a usable Node install should
 # not be turned away by a search whose result they were never going to use.
