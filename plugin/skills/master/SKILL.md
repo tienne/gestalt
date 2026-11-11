@@ -38,8 +38,9 @@ routing:
 
 - **워커 결과는 요약과 참조로만 받는다.** 워커 대화를 열어 로그나 diff를 읽지 않는다. 원문이 필요하면 보고의 `refs`에 적힌 파일 경로만 읽는다.
 - **상태는 저장소에 있다.** 세션이 압축되거나 다시 떠도 `gestalt master status`로 이어 간다. 대화 기억으로 진행 상황을 복원하지 않는다.
-- **워커 생성은 마스터만 한다.** 워커가 하위 워커를 원하면 보고의 `spawnRequest`로 올라오고 다음 tick이 새 주문으로 받는다.
+- **워커 생성은 마스터만 한다.** 워커가 하위 워커를 원하면 보고의 `spawnRequest`로 올라오고 다음 tick이 새 주문으로 받는다. 주문 하나에 하위 주문은 세 개까지고 하위 주문의 워커는 더 못 늘린다. 넘치면 만들지 않고 그 워커에 이유를 보낸다.
 - **이 스킬 자신은 워커 안에서 돌지 않는다.** `tick`과 `gate resolve`, `order add`, `deploy report`는 살아 있는 워커의 워크트리 안이거나 `GESTALT_MASTER_WORKER_ID`가 있는 세션이면 거절한다. 서브에이전트 워커는 마스터와 같은 자리에서 돌아서 이 검사에 안 걸리므로 지시서 규칙에만 기댄다.
+- **워커는 자기 id로만 보고한다.** `worker report`와 `checkpoint save`는 `GESTALT_MASTER_WORKER_ID`와 `--worker`가 다르면 거절한다. 이 환경 변수는 git 워크트리 워커에만 있어서 오르카와 서브에이전트 워커가 남의 id를 적는 건 못 막는다.
 
 ## 1. 주문 넣기
 
@@ -101,7 +102,7 @@ gestalt master gate resolve <gateId> --reject --json
 
 워커 안에서 도는 ship의 승인 단계 셋, ⓐ draft PR 올리기와 ⓑ Copilot 반영 계획, ⓒ ready 전환도 머지가 아니라서 사람에게 묻지 않는다. 워커가 진행하면서 `gestalt master worker report --status needs --need simple-approval --need-detail "ship ⓐ …"`로 남기고 답을 기다리지 않는다. tick이 이걸 bypass로 기록한다.
 
-기본 체인 solve → ship은 PR을 ready로 돌리면 끝나고 머지는 워커가 이어서 한다. 범위가 `merge-through`면 워커가 바로 머지한다. 그 밖의 범위면 워커가 `need merge-approval`로 올리고 기다리다가 `merge` 확인 자리에서 승인이 나면 머지한다. 머지한 워커는 `--merged`와 `--pr owner/name#번호`를 실어 보고한다.
+기본 체인 solve → ship은 PR을 ready로 돌리면 끝나고 머지는 워커가 이어서 한다. 범위가 `merge-through`면 워커가 바로 머지한다. 그 밖의 범위면 워커가 `need merge-approval`로 올리고 기다리다가 `merge` 확인 자리에서 승인이 나면 머지한다. 머지한 워커는 `--merged`와 `--pr owner/name#번호`를 실어 보고한다. ship이 draft PR을 만들면 Copilot 리뷰를 요청하기 전에 `--status progress --skill ship --pr owner/name#번호`로 바로 보고한다. 미루면 PR 감시가 그 PR에 `review-reply` 주문을 또 만든다.
 
 ## 5. 슬랙 초안
 

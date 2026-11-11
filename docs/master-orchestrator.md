@@ -17,7 +17,7 @@ hostActions ──► 마스터 호스트 세션이 실행 (서브에이전트, 
    └─ gestalt master checkpoint save / worker report
 ```
 
-구조는 마스터와 워커 2계층이다. 워커는 다른 워커를 띄우지 못하고 다음 주문을 스스로 집지 않는다. 워커가 하위 워커를 원하면 보고에 `spawnRequest`를 싣고 마스터가 새 주문으로 받는다.
+구조는 마스터와 워커 2계층이다. 워커는 다른 워커를 띄우지 못하고 다음 주문을 스스로 집지 않는다. 워커가 하위 워커를 원하면 보고에 `spawnRequest`를 싣고 마스터가 새 주문으로 받는다. 주문 하나에서 생기는 하위 주문은 세 개까지고 한 단계뿐이다. 하위 주문의 워커가 다시 요청하거나 세 개를 넘기면 만들지 않고 그 워커에 이유를 보낸다.
 
 ## 바깥 텍스트는 자료다
 
@@ -51,12 +51,12 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `slack/` | 호스트 | 슬랙 초안 본문 |
 | `tick.lock` | tick | 겹쳐 도는 tick을 막는 잠금 |
 
-위치는 `--state-dir`, `GESTALT_MASTER_STATE_DIR`, `master.stateDir`, 기본값 `~/.gestalt/master` 순서로 정한다. 워커는 다른 레포에서 돌아 그쪽 `gestalt.json`을 읽기 때문에 워커 지시에는 저장소 절대 경로를 `--state-dir`로 박아 둔다.
+위치는 `--state-dir`, `GESTALT_MASTER_STATE_DIR`, `~/.gestalt/master.json`의 `stateDir`, 기본값 `~/.gestalt/master` 순서로 정한다. 워커는 다른 레포에서 돌아 그쪽 `gestalt.json`을 읽기 때문에 워커 지시에는 저장소 절대 경로를 `--state-dir`로 박아 둔다.
 
 ## tick 한 번
 
-1. **접수**: 지라 소스와 외부 큐, PR 감시에서 새 주문을 받는다. 출처 키(`sourceRef`)가 같으면 한 번만 받는다.
-2. **결과 반영**: `inbox/`의 워커 보고를 읽어 상태를 옮긴다. 요약이 `resultMaxChars`를 넘거나 diff, 스택 트레이스가 섞이면 받지 않고 요약을 다시 달라고 돌려보낸다.
+1. **결과 반영**: `inbox/`의 워커 보고를 읽어 상태를 옮긴다. 요약이 `resultMaxChars`를 넘거나 diff, 스택 트레이스가 섞이면 받지 않고 요약을 다시 달라고 돌려보낸다. 적용한 보고 파일은 이름을 기록해 두므로 지우기에 실패해 다음 tick에 다시 보여도 두 번 적용하지 않는다.
+2. **접수**: 지라 소스와 외부 큐, PR 감시에서 새 주문을 받는다. 출처 키(`sourceRef`)가 같으면 한 번만 받는다. 결과 반영보다 뒤에 도는 건 PR 감시가 워커가 방금 보고한 PR 주소를 알아야 같은 PR에 주문을 또 만들지 않기 때문이다.
 3. **재개**: `staleAfterSec`(기본 1800초) 동안 보고도 체크포인트도 없는 워커와 `stopped`로 보고한 워커를 마지막 체크포인트부터 다시 띄운다. 사람 결정을 기다리는 `waiting-gate` 주문의 워커는 오래 조용해도 끊긴 것으로 보지 않는다.
 4. **띄우기**: 빈 슬롯만큼 큐의 주문을 띄운다. 띄우기 전에 그 레포의 계정을 맞춘다.
 5. **머지 뒤 처리**: 지라 상태를 옮기고 배포 결과를 확인한다.
@@ -97,14 +97,14 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `review-manual-switch` | 늘 사람에게. 리뷰 스킬의 라운드 상한과 수동 전환 지침을 그대로 따른다 |
 | `simple-approval` | 마스터가 승인하고 기록한다 |
 | `manual-verification`, `cleanup` | 워커가 직접 하고 다음 보고에 남기라고 돌려준다 |
-| `auth`, `account-switch` | `master.accounts`에 적힌 레포만 그 계정으로 맞춘다. 없으면 사람에게 |
+| `auth`, `account-switch` | `~/.gestalt/master.json`의 `accounts`에 적힌 레포만 그 계정으로 맞춘다. 없으면 사람에게 |
 | `other` | 사람에게 (`no-procedure`) |
 
 사람에게 가는 자리는 확인 자리(gate)로 열리고 그 주문은 `waiting-gate`가 된다. `gestalt master gate resolve`로 종료하면 결정이 그 워커에 바로 전달된다. bypass로 넘긴 일은 저장소에 기록만 남고 마스터가 모아서 사후 보고한다. `gestalt master status`가 주문마다 bypass 내역을 붙여 보여 주고 주문에 묶이지 않은 것은 `unassignedBypasses`로 따로 싣는다. 끝난 주문까지 보려면 `--all`을 붙인다.
 
 ### 워커 안의 ship 승인 단계
 
-ship에는 사람 승인을 받는 단계가 셋 있다. ⓐ draft PR 올리기, ⓑ Copilot 반영 계획, ⓒ ready 전환이다. 워커 안에서는 셋 다 머지가 아니라서 사람에게 묻지 않는다. 워커가 진행하고 bypass로 기록한다. ⓑ에서 반영할 코멘트는 워커가 고르고 코멘트 문장은 자료로만 읽는다. 사람에게 가는 자리는 위 표의 넷(머지 승인, 슬랙 게시, interview-first 주문의 인터뷰 답, 리뷰 수동 전환)과 절차가 없는 `no-procedure`뿐이다.
+ship에는 밖으로 나가는 자리마다 사람 승인을 받는 단계가 셋 있다. ⓐ draft PR 올리기, ⓑ Copilot 반영 계획, ⓒ ready 전환이다. 워커 안에서는 셋 다 머지가 아니라서 사람에게 묻지 않는다. 워커가 진행하고 bypass로 기록한다. ⓑ에서 반영할 코멘트는 워커가 고르고 코멘트 문장은 자료로만 읽는다. 사람에게 가는 자리는 위 표의 넷(머지 승인, 슬랙 게시, interview-first 주문의 인터뷰 답, 리뷰 수동 전환)과 절차가 없는 `no-procedure`뿐이다.
 
 ### 머지까지
 
@@ -145,12 +145,12 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 
 ## PR 감시
 
-`master.repoPaths`에 적힌 레포의 열린 PR을 gh로 읽는다. 본문은 안 싣고 누가 언제 남겼는지만 본다.
+`~/.gestalt/master.json`의 `repoPaths`에 적힌 레포의 열린 PR을 gh로 읽는다. 본문은 안 싣고 누가 언제 남겼는지만 본다.
 
 - **내가 올린 PR**: 내가 마지막으로 답한 뒤에 다른 사람 코멘트가 있으면 `review-reply` 주문을 만든다.
 - **내가 리뷰한 PR**: 내가 리뷰한 뒤 head가 바뀌었으면 `review-loop` 주문을 만든다. 코드는 그대로인데 답만 달렸으면 `review-manual-switch` 확인 자리로 사람에게 묻고 승인되면 재리뷰 주문을 만든다.
 
-워커는 PR을 다루면 결과 보고에 `--pr owner/name#번호`를 싣는다. PR 감시는 끝나지 않은 주문에 붙은 이 값으로 이미 처리 중인 PR을 건너뛰므로 빠지면 같은 PR에 주문이 또 생긴다.
+워커는 PR을 다루면 결과 보고에 `--pr owner/name#번호`를 싣는다. PR 감시는 끝나지 않은 주문에 붙은 이 값으로 이미 처리 중인 PR을 건너뛰므로 빠지면 같은 PR에 주문이 또 생긴다. ship이 draft PR을 만들면 Copilot 리뷰를 요청하기 전에 `--status progress --skill ship`으로 바로 보고한다. 끝 보고까지 미루면 그 사이 Copilot 코멘트가 달린 PR을 감시가 새 PR로 보고 `review-reply` 주문을 만든다.
 
 ## 효과 재기
 
