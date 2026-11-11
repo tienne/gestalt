@@ -32,8 +32,11 @@ function setup(deps: AgentSyncDeps): Setup {
   return { home, config, discovery: discoverTargets({ home, config, listOrcaAccounts: list }) };
 }
 
-function fail(e: unknown): void {
-  console.error(e instanceof Error ? e.message : String(e));
+/** `--json`을 준 호출자는 stdout을 JSON으로 읽으니 에러도 같은 꼴로 낸다 */
+function fail(e: unknown, json: boolean | undefined): void {
+  const error = e instanceof Error ? e.message : String(e);
+  if (json) console.log(JSON.stringify({ ok: false, error }, null, 2));
+  else console.error(error);
   process.exitCode = 1;
 }
 
@@ -53,7 +56,7 @@ export function syncCommand(opts: SyncCommandOptions, deps: AgentSyncDeps = {}):
       const result = runRevert({ home, runId, dryRun, now: deps.now });
       console.log(
         opts.json
-          ? JSON.stringify({ command: 'revert', dryRun, ...result }, null, 2)
+          ? JSON.stringify({ ok: true, command: 'revert', dryRun, ...result }, null, 2)
           : formatRevert(home, result, dryRun),
       );
       return;
@@ -61,12 +64,14 @@ export function syncCommand(opts: SyncCommandOptions, deps: AgentSyncDeps = {}):
     const { home, config, discovery } = setup(deps);
     const result = runSync({ home, targets: discovery.targets, config, dryRun, now: deps.now });
     if (opts.json) {
-      console.log(JSON.stringify({ command: 'sync', dryRun, ...discovery, ...result }, null, 2));
+      console.log(
+        JSON.stringify({ ok: true, command: 'sync', dryRun, ...discovery, ...result }, null, 2),
+      );
     } else {
       console.log(formatSync(home, discovery, result, dryRun));
     }
   } catch (e) {
-    fail(e);
+    fail(e, opts.json);
   }
 }
 
@@ -89,12 +94,14 @@ export function doctorCommand(opts: DoctorCommandOptions, deps: AgentSyncDeps = 
       now: deps.now,
     });
     if (opts.json) {
-      console.log(JSON.stringify({ command: 'doctor', fix, ...discovery, ...result }, null, 2));
+      console.log(
+        JSON.stringify({ ok: true, command: 'doctor', fix, ...discovery, ...result }, null, 2),
+      );
     } else {
       console.log(formatDoctor(home, discovery, result, fix));
     }
     if (result.remaining.length > 0) process.exitCode = 1;
   } catch (e) {
-    fail(e);
+    fail(e, opts.json);
   }
 }

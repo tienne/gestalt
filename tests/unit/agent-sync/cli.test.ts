@@ -88,7 +88,8 @@ describe('gestalt sync / doctor CLI (AC15)', () => {
 
     const broken = gestalt('doctor', '--json');
     expect(broken.status).toBe(1);
-    const report = JSON.parse(broken.stdout) as { remaining: unknown[] };
+    const report = JSON.parse(broken.stdout) as { ok: boolean; remaining: unknown[] };
+    expect(report.ok).toBe(true);
     expect(report.remaining.length).toBeGreaterThan(0);
   });
 
@@ -97,6 +98,20 @@ describe('gestalt sync / doctor CLI (AC15)', () => {
     const r = gestalt('doctor');
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('agent-sync.json');
+  });
+
+  it('--json이면 설정 에러도 stdout에 JSON으로 내고 1로 끝난다 (Q7)', { timeout: 30_000 }, () => {
+    f.write('.gestalt/agent-sync.json', '{');
+    for (const args of [
+      ['doctor', '--json'],
+      ['sync', '--json'],
+    ]) {
+      const r = gestalt(...args);
+      expect(r.status).toBe(1);
+      const out = JSON.parse(r.stdout) as { ok: boolean; error: string };
+      expect(out.ok).toBe(false);
+      expect(out.error).toContain('agent-sync.json');
+    }
   });
 
   it('--help에 옵션이 나온다', { timeout: 30_000 }, () => {
