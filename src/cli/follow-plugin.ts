@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, sep } from 'node:path';
 import { compareSemver } from '../core/version.js';
 
 /**
@@ -17,8 +17,9 @@ import { compareSemver } from '../core/version.js';
 /** 런처로 넘긴 자식과 MCP 기동 경로는 이 값을 `0`으로 둬서 넘기지 않게 한다 */
 export const FOLLOW_PLUGIN_ENV = 'GESTALT_FOLLOW_PLUGIN';
 
+const PLUGIN_NAME = 'gestalt';
 const MARKETPLACE = 'gestalt';
-const PLUGIN_KEY = `gestalt@${MARKETPLACE}`;
+const PLUGIN_KEY = `${PLUGIN_NAME}@${MARKETPLACE}`;
 
 export interface PluginLauncher {
   launcher: string;
@@ -34,7 +35,8 @@ interface Context {
 function readVersion(pluginRoot: string): string | null {
   try {
     const raw = readFileSync(join(pluginRoot, '.codex-plugin', 'plugin.json'), 'utf8');
-    const version = (JSON.parse(raw) as { version?: unknown }).version;
+    const { name, version } = JSON.parse(raw) as { name?: unknown; version?: unknown };
+    if (name !== PLUGIN_NAME) return null;
     return typeof version === 'string' && /^\d+\.\d+\.\d+$/.test(version) ? version : null;
   } catch {
     return null;
@@ -52,6 +54,26 @@ function absoluteDir(value: string | undefined): string | null {
   return value && isAbsolute(value) ? value : null;
 }
 
+/** 실제 경로가 마켓플레이스 캐시 아래에 있는지 본다. 어느 쪽이든 실제 경로를 못 구하면 아니라고 본다 */
+function insideCache(path: string, cacheRoot: string): boolean {
+  try {
+    return realpathSync(path).startsWith(realpathSync(cacheRoot) + sep);
+  } catch {
+    return false;
+  }
+}
+
+/** Claude settings.json에서 이 플러그인을 꺼 뒀는지 본다. 파일이 없거나 깨졌으면 켜진 것으로 본다 */
+function claudePluginDisabled(configDir: string): boolean {
+  try {
+    const raw = readFileSync(join(configDir, 'settings.json'), 'utf8');
+    const settings = JSON.parse(raw) as { enabledPlugins?: Record<string, unknown> };
+    return settings.enabledPlugins?.[PLUGIN_KEY] === false;
+  } catch {
+    return false;
+  }
+}
+
 function claudeLaunchers({ env, home }: Context): PluginLauncher[] {
   const dirs = new Set(
     [absoluteDir(env['CLAUDE_CONFIG_DIR']), join(home, '.claude')].filter(
@@ -60,6 +82,7 @@ function claudeLaunchers({ env, home }: Context): PluginLauncher[] {
   );
   const found: PluginLauncher[] = [];
   for (const dir of dirs) {
+    if (claudePluginDisabled(dir)) continue;
     let plugins: Record<string, unknown>;
     try {
       const raw = readFileSync(join(dir, 'plugins', 'installed_plugins.json'), 'utf8');
@@ -69,12 +92,14 @@ function claudeLaunchers({ env, home }: Context): PluginLauncher[] {
     }
     // 같은 이름의 플러그인을 다른 마켓플레이스에서 깔 수 있어 공식 마켓플레이스 키만 본다.
     // 프로젝트 범위 설치는 그 레포 안에서만 켜지므로 터미널 전체를 맡기지 않는다
+    // 등록부 한 줄만 바뀌어도 아무 스크립트나 돌 수 있어 마켓플레이스 캐시 안의 설치만 믿는다
     const entries = plugins[PLUGIN_KEY];
     if (!Array.isArray(entries)) continue;
+    const cacheRoot = join(dir, 'plugins', 'cache', MARKETPLACE, PLUGIN_NAME);
     for (const entry of entries as { installPath?: unknown; scope?: unknown }[]) {
       if (entry?.scope !== 'user') continue;
       const installPath = typeof entry.installPath === 'string' ? entry.installPath : undefined;
-      if (absoluteDir(installPath) === null) continue;
+      if (absoluteDir(installPath) === null || !insideCache(installPath!, cacheRoot)) continue;
       // Claude는 레포를 통째로 설치해서 플러그인 자산이 plugin/ 아래에 있다
       const hit = candidate(join(installPath!, 'plugin'), 'claude');
       if (hit) found.push(hit);
@@ -83,7 +108,10 @@ function claudeLaunchers({ env, home }: Context): PluginLauncher[] {
   return found;
 }
 
-/** Codex config.toml에서 이 플러그인을 꺼 뒀는지 본다. TOML 의존성 없이 해당 표만 읽는다 */
+/**
+ * Codex config.toml에서 이 플러그인을 꺼 뒀는지 본다. TOML 의존성 없이 해당 표만 읽는다.
+ * 키에 `#`이 들어갈 일이 없어 줄 끝 주석은 `#`부터 걷어낸다
+ */
 function codexPluginDisabled(codexHome: string): boolean {
   let raw: string;
   try {
@@ -93,7 +121,7 @@ function codexPluginDisabled(codexHome: string): boolean {
   }
   let inSection = false;
   for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
+    const trimmed = line.replace(/\s*#.*$/, '').trim();
     if (trimmed.startsWith('[')) {
       inSection = trimmed === `[plugins."${PLUGIN_KEY}"]`;
       continue;
@@ -106,7 +134,7 @@ function codexPluginDisabled(codexHome: string): boolean {
 function codexLaunchers({ env, home }: Context): PluginLauncher[] {
   const codexHome = env['CODEX_HOME'] ? absoluteDir(env['CODEX_HOME']) : join(home, '.codex');
   if (codexHome === null || codexPluginDisabled(codexHome)) return [];
-  const base = join(codexHome, 'plugins', 'cache', MARKETPLACE, 'gestalt');
+  const base = join(codexHome, 'plugins', 'cache', MARKETPLACE, PLUGIN_NAME);
   let versions: string[];
   try {
     versions = readdirSync(base);
@@ -115,6 +143,7 @@ function codexLaunchers({ env, home }: Context): PluginLauncher[] {
   }
   // Codex는 plugin/만 복사하므로 버전 디렉토리가 곧 플러그인 루트다
   return versions
+    .filter((version) => insideCache(join(base, version), base))
     .map((version) => candidate(join(base, version), 'codex'))
     .filter((hit): hit is PluginLauncher => hit !== null);
 }

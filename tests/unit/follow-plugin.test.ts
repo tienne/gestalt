@@ -22,11 +22,16 @@ function tempHome() {
   return dir;
 }
 
-function pluginRoot(root: string, version: string) {
+function pluginRoot(root: string, version: string, name = 'gestalt') {
   mkdirSync(join(root, 'scripts'), { recursive: true });
   mkdirSync(join(root, '.codex-plugin'), { recursive: true });
   writeFileSync(join(root, 'scripts', 'gestalt-cli.mjs'), '');
-  writeFileSync(join(root, '.codex-plugin', 'plugin.json'), JSON.stringify({ version }));
+  writeFileSync(join(root, '.codex-plugin', 'plugin.json'), JSON.stringify({ name, version }));
+}
+
+/** Claude가 플러그인을 까는 자리 <configDir>/plugins/cache/gestalt/gestalt/<버전> */
+function claudeRepo(configDir: string, version: string): string {
+  return join(configDir, 'plugins', 'cache', 'gestalt', 'gestalt', version);
 }
 
 function claudeInstall(
@@ -63,9 +68,9 @@ function npmGlobal(prefix: string): string {
 describe('findPluginLaunchers', () => {
   it('Claude 등록부와 Codex 캐시를 둘 다 훑는다', () => {
     const home = tempHome();
-    const claudeRepo = join(home, 'claude-cache', '0.126.0');
-    pluginRoot(join(claudeRepo, 'plugin'), '0.126.0');
-    claudeInstall(join(home, '.claude'), [claudeRepo]);
+    const repo = claudeRepo(join(home, '.claude'), '0.126.0');
+    pluginRoot(join(repo, 'plugin'), '0.126.0');
+    claudeInstall(join(home, '.claude'), [repo]);
     codexInstall(join(home, '.codex'), '0.127.0');
 
     const found = findPluginLaunchers({ env: {}, home });
@@ -78,7 +83,7 @@ describe('findPluginLaunchers', () => {
   it('CLAUDE_CONFIG_DIR와 CODEX_HOME을 따른다', () => {
     const home = tempHome();
     const other = join(home, 'profile');
-    const repo = join(home, 'repo');
+    const repo = claudeRepo(other, '0.130.0');
     pluginRoot(join(repo, 'plugin'), '0.130.0');
     claudeInstall(other, [repo]);
     const codexHome = join(home, 'codex-home');
@@ -93,13 +98,13 @@ describe('findPluginLaunchers', () => {
 
   it('런처가 없거나 매니페스트 버전이 깨진 설치는 건너뛴다', () => {
     const home = tempHome();
-    const noLauncher = join(home, 'a');
+    const noLauncher = claudeRepo(join(home, '.claude'), '1.0.0');
     mkdirSync(join(noLauncher, 'plugin', '.codex-plugin'), { recursive: true });
     writeFileSync(
       join(noLauncher, 'plugin', '.codex-plugin', 'plugin.json'),
       '{"version":"1.0.0"}',
     );
-    const badVersion = join(home, 'b');
+    const badVersion = claudeRepo(join(home, '.claude'), 'latest');
     pluginRoot(join(badVersion, 'plugin'), 'latest');
     claudeInstall(join(home, '.claude'), [noLauncher, badVersion]);
 
@@ -108,11 +113,13 @@ describe('findPluginLaunchers', () => {
 
   it('공식 마켓플레이스가 아닌 설치와 프로젝트 범위 설치는 건너뛴다', () => {
     const home = tempHome();
-    const repo = join(home, 'repo');
+    const repo = claudeRepo(join(home, '.claude'), '0.130.0');
     pluginRoot(join(repo, 'plugin'), '0.130.0');
     const other = join(home, 'other');
+    const otherRepo = claudeRepo(other, '0.130.0');
+    pluginRoot(join(otherRepo, 'plugin'), '0.130.0');
     claudeInstall(join(home, '.claude'), [repo], { key: 'gestalt@my-market' });
-    claudeInstall(other, [repo], { scope: 'project' });
+    claudeInstall(other, [otherRepo], { scope: 'project' });
     codexInstall(join(home, '.codex'), '0.129.0', 'my-market');
 
     expect(findPluginLaunchers({ env: { CLAUDE_CONFIG_DIR: other }, home })).toEqual([]);
@@ -141,9 +148,71 @@ describe('findPluginLaunchers', () => {
     expect(findPluginLaunchers({ env: {}, home })).toEqual([]);
   });
 
+  it('Codex 표 머리와 값에 줄 끝 주석이 붙어도 꺼 둔 걸 알아본다', () => {
+    const home = tempHome();
+    codexInstall(join(home, '.codex'), '0.129.0');
+    writeFileSync(
+      join(home, '.codex', 'config.toml'),
+      '[plugins."gestalt@gestalt"] # 잠깐 끔\nenabled = false # 메모\n',
+    );
+    expect(findPluginLaunchers({ env: {}, home })).toEqual([]);
+  });
+
+  it('Claude settings.json에서 꺼 둔 플러그인은 건너뛰고 깨진 settings는 켜진 걸로 본다', () => {
+    const home = tempHome();
+    const claude = join(home, '.claude');
+    const repo = claudeRepo(claude, '0.126.0');
+    pluginRoot(join(repo, 'plugin'), '0.126.0');
+    claudeInstall(claude, [repo]);
+
+    writeFileSync(
+      join(claude, 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'gestalt@gestalt': false } }),
+    );
+    expect(findPluginLaunchers({ env: {}, home })).toEqual([]);
+
+    writeFileSync(join(claude, 'settings.json'), '{not json');
+    expect(findPluginLaunchers({ env: {}, home })).toHaveLength(1);
+  });
+
+  it('마켓플레이스 캐시 밖 설치와 이름이 다른 매니페스트는 건너뛴다', () => {
+    const home = tempHome();
+    const claude = join(home, '.claude');
+    const outside = join(home, 'elsewhere', '0.130.0');
+    pluginRoot(join(outside, 'plugin'), '0.130.0');
+    // 접두만 같은 이웃 디렉토리도 캐시 밖이다
+    const sibling = join(claude, 'plugins', 'cache', 'gestalt', 'gestalt-evil', '0.130.0');
+    pluginRoot(join(sibling, 'plugin'), '0.130.0');
+    const renamed = claudeRepo(claude, '0.131.0');
+    pluginRoot(join(renamed, 'plugin'), '0.131.0', 'not-gestalt');
+    claudeInstall(claude, [outside, sibling, renamed]);
+    pluginRoot(
+      join(home, '.codex', 'plugins', 'cache', 'gestalt', 'gestalt', '0.132.0'),
+      '0.132.0',
+      'x',
+    );
+
+    expect(findPluginLaunchers({ env: {}, home })).toEqual([]);
+  });
+
+  it('plugins 디렉토리가 심링크여도 실제 경로로 캐시 안을 판정한다', () => {
+    const home = tempHome();
+    const shared = join(home, 'shared-plugins');
+    const repo = join(shared, 'cache', 'gestalt', 'gestalt', '0.126.0');
+    pluginRoot(join(repo, 'plugin'), '0.126.0');
+    const profile = join(home, 'profile');
+    mkdirSync(profile, { recursive: true });
+    symlinkSync(shared, join(profile, 'plugins'));
+    claudeInstall(profile, [repo]);
+    // 심링크 밖의 진짜 경로로 적혀 있어도 같은 캐시다
+    expect(
+      findPluginLaunchers({ env: { CLAUDE_CONFIG_DIR: profile }, home }).map((f) => f.version),
+    ).toEqual(['0.126.0']);
+  });
+
   it('CLAUDE_CONFIG_DIR가 ~/.claude와 같은 설치를 가리키면 한 번만 센다', () => {
     const home = tempHome();
-    const repo = join(home, 'repo');
+    const repo = claudeRepo(join(home, '.claude'), '0.126.0');
     pluginRoot(join(repo, 'plugin'), '0.126.0');
     claudeInstall(join(home, '.claude'), [repo]);
     const linked = join(home, 'linked-claude');
