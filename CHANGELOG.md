@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.128.0] - 2026-11-11
+
+### Added
+
+- **`npm i -g`로 깐 전역 `gestalt`가 설치된 gestalt 플러그인 중 가장 높은 버전을 따라가요(#118).** 지금까지는 플러그인을 올려도 터미널 CLI만 옛 버전으로 남아서 `npm i -g`를 따로 돌려야 했어요.
+  - 시작할 때 Claude의 `installed_plugins.json`(`CLAUDE_CONFIG_DIR`과 `~/.claude` 둘 다)과 Codex의 플러그인 캐시(`CODEX_HOME`이나 `~/.codex`)를 훑어요. 버전이 다르면 그 플러그인의 `plugin/scripts/gestalt-cli.mjs`로 인자와 종료 코드, 시그널을 그대로 넘겨요. 전역 쪽이 더 새 버전이어도 플러그인을 따라요.
+  - 사용자 범위로 설치한 `gestalt@gestalt`만 봐요. 설치 경로를 실제 경로로 풀었을 때 `plugins/cache/gestalt/gestalt` 안에 있고 매니페스트 이름이 `gestalt`여야 그 런처를 믿어요. 설치 기록 한 줄만 바뀌어도 아무 스크립트나 돌 수 있어서요.
+  - Claude `settings.json`이나 Codex `config.toml`에서 꺼 둔 플러그인은 건너뛰어요. Codex는 `[plugins."gestalt@gestalt"]` 표 말고도 점 키와 한 줄 인라인 표로 끈 경우까지 읽어요.
+  - 레포 체크아웃이나 프로젝트 의존성, npx, pnpm dlx, bunx로 돈 `gestalt`는 넘기지 않아요. `GESTALT_FOLLOW_PLUGIN=0`으로 끌 수 있어요.
+
+### Changed
+
+- **MCP 서버 기동은 따라가기를 꺼요.** 매니페스트 핀이 이미 버전을 정해 두는데 npx는 같은 버전이 전역에 깔려 있으면 전역 실행 파일을 부르거든요. `scripts/mcp-serve.sh`와 매니페스트 네 개, `gestalt update`가 Codex에 등록하는 명령에 `GESTALT_FOLLOW_PLUGIN=0`을 넣었어요.
+  - 이미 npx로 Codex에 등록해 둔 경우는 `gestalt update`가 다시 등록하지 않고 `config.toml`의 `[mcp_servers.gestalt.env]`에 값을 넣으라고 안내만 해요. 다시 등록하면 버전 핀이나 다른 env가 같이 날아가서요.
+  - README 두 벌의 수동 등록 예시에도 같은 env를 넣었어요.
+
+### 검증 범위
+
+- 로컬 리뷰를 5라운드 돌렸어요. 마지막 라운드는 리뷰어 다섯이 모두 승인했고 warning 1건이 남았어요. 리뷰마다 Codex 끄기 표기를 하나씩 더 찾아내서 표 머리 띄어쓰기, 루트 점 키, 인라인 표, 첫 표 머리 앞 인라인 표 순으로 넓혔어요. 마지막 수정(bde3cfa8)은 재리뷰 없이 gate만 통과했어요.
+- 단위 테스트 37개가 탐색과 끄기 표기, 걸리면 안 되는 반례, 전역 설치 판별, 인자와 종료 코드, SIGTERM 전달을 봐요. 실제 설치된 플러그인 0.126.0 기준으로 전역 0.127.0 빌드의 `--version`이 0.126.0을 출력하는 것도 확인했어요.
+
+### 남긴 것
+
+- 이 버전은 한 번은 `npm i -g`로 직접 깔아야 해요. 그다음부터는 플러그인만 올리면 돼요.
+- 넘길 때마다 npm 캐시에서 해당 버전을 찾느라 2초 남짓 더 걸려요. 런처가 찾은 실행 파일을 캐시해서 줄이는 일은 후속 PR로 미뤘어요.
+
 ## [0.127.0] - 2026-11-11
 
 ### Added
