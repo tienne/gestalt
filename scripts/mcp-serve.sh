@@ -57,6 +57,11 @@ if [[ "$SPEC" == "@tienne/gestalt" ]]; then
   echo "gestalt MCP: no version pin (unreadable $ROOT/package.json) — resolving latest." >&2
 fi
 
+# A newer global gestalt hands itself to the highest installed plugin
+# version. Here the pin already decided which version runs, so turn that off for
+# the probe and for the server it execs.
+export GESTALT_FOLLOW_PLUGIN=0
+
 # A global install is the fast path (no npx round), but only while it is the same
 # version as the pin. A stale `npm i -g` that kept serving would leave the server
 # behind the skills after a plugin update. The plugin version is what the user
