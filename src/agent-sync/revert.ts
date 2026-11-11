@@ -1,6 +1,7 @@
 import { readdirSync, rmdirSync, unlinkSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { copyPath, isEmptyDir, lstatOrNull, linkTargetOf, movePath, samePath } from './fs-ops.js';
+import { slotsFor } from './inspect.js';
 import { isInside, sourcePaths, tildify } from './paths.js';
 import {
   backupPathIn,
@@ -13,6 +14,7 @@ import {
   type RunAction,
   type RunRecord,
 } from './run-store.js';
+import type { Target } from './targets.js';
 
 export class RevertError extends Error {}
 
@@ -146,20 +148,34 @@ function stepFor(action: RunAction, t: (p: string) => string): RevertStep | null
   }
 }
 
-const SLOT_NAMES = new Set(['skills', 'CLAUDE.md', 'AGENTS.md']);
+/**
+ * sync가 손댈 수 있는 자리 전부. 대상 홈마다의 슬롯 경로와 `~/.agents/AGENTS.md`다.
+ * 되돌리기는 이 집합과 정확히 같은 경로만 받는다. 이름만 맞춘 다른 폴더의 CLAUDE.md를 건드리지 않으려는 것이다
+ */
+export function revertSlotPaths(home: string, homes: Target[]): Set<string> {
+  const src = sourcePaths(home);
+  return new Set([src.rulesFile, ...homes.flatMap((h) => slotsFor(h, src).map((s) => s.path))]);
+}
 
-/** sync가 남길 수 없는 동작이면 그 이유. 경로는 홈 아래로 묶지 않는다. 오르카 데이터 폴더가 홈 밖일 수 있다 */
-function actionProblem(
-  action: RunAction,
-  ctx: { dir: string; home: string; agents: string; t: (p: string) => string },
-): string | null {
-  const { dir, home, agents, t } = ctx;
+interface CheckContext {
+  dir: string;
+  home: string;
+  agents: string;
+  slotPaths: Set<string>;
+  t: (p: string) => string;
+}
+
+/** sync가 남길 수 없는 동작이면 그 이유 */
+function actionProblem(action: RunAction, ctx: CheckContext): string | null {
+  const { dir, home, agents, slotPaths, t } = ctx;
   const paths = Object.entries(action).flatMap(([k, v]) =>
     k !== 'op' && typeof v === 'string' ? [v] : [],
   );
   const bad = paths.find((p) => !isAbsolute(p) || resolve(p) !== p);
-  if (bad) return `정리된 절대 경로가 아니에요: ${bad}`;
-  const slotOk = (p: string) => SLOT_NAMES.has(basename(p));
+  if (bad)
+    return `절대 경로가 아니거나 \`.\`, \`..\`, 끝의 \`/\`, 겹친 \`/\`가 들어 있어요: ${bad}`;
+  const notSlot = (p: string) =>
+    `sync 대상 홈의 skills, CLAUDE.md, AGENTS.md나 ~/.agents/AGENTS.md가 아니에요: ${t(p)}`;
   const backupOk = (path: string, backup: string) =>
     isInside(dir, backup) && backup === backupPathIn(dir, home, path);
 
@@ -169,24 +185,26 @@ function actionProblem(
         ? null
         : `~/.agents 밖에 만든 폴더예요: ${t(action.path)}`;
     case 'create_file':
-      return slotOk(action.path) ? null : `다루지 않는 자리예요: ${t(action.path)}`;
+      return slotPaths.has(action.path) ? null : notSlot(action.path);
     case 'write_file':
     case 'stash':
-      if (!slotOk(action.path)) return `다루지 않는 자리예요: ${t(action.path)}`;
+      if (!slotPaths.has(action.path)) return notSlot(action.path);
       return backupOk(action.path, action.backup)
         ? null
         : `백업 경로가 실행 폴더 안의 제자리가 아니에요: ${t(action.backup)}`;
     case 'create_link':
-      if (!slotOk(action.path)) return `다루지 않는 자리예요: ${t(action.path)}`;
+      if (!slotPaths.has(action.path)) return notSlot(action.path);
       return isInside(agents, action.target)
         ? null
         : `~/.agents 밖을 가리키는 링크예요: ${t(action.target)}`;
-    case 'move':
-      if (basename(dirname(action.from)) !== 'skills')
-        return `skills 폴더 밖에서 옮긴 항목이에요: ${t(action.from)}`;
+    case 'move': {
+      const parent = dirname(action.from);
+      if (basename(parent) !== 'skills' || !slotPaths.has(parent))
+        return `sync 대상 홈의 skills 폴더 밖에서 옮긴 항목이에요: ${t(action.from)}`;
       return isInside(agents, action.to)
         ? null
         : `~/.agents 밖으로 옮긴 항목이에요: ${t(action.to)}`;
+    }
     case 'pending':
       return action.action.op === 'backup'
         ? 'sync 기록에 없어야 할 backup 동작이 있어요'
@@ -200,17 +218,34 @@ function actionProblem(
  * 기록을 믿고 옮기기 전에 sync가 남길 수 있는 모양인지 전부 본다.
  * 하나라도 어긋나면 아무것도 바꾸지 않고 멈춘다. run.json을 누가 고쳤으면 임의 경로를 옮기게 된다.
  */
-function checkRevertable(target: RunRecord, home: string, t: (p: string) => string): void {
-  const ctx = { dir: runDir(target), home, agents: sourcePaths(home).root, t };
+function checkRevertable(target: RunRecord, input: RevertInput, t: (p: string) => string): void {
+  const ctx: CheckContext = {
+    dir: runDir(target),
+    home: input.home,
+    agents: sourcePaths(input.home).root,
+    slotPaths: input.slotPaths,
+    t,
+  };
   const problems = target.actions.flatMap((a, i) => {
     const p = actionProblem(a, ctx);
     return p ? [`${i}번 동작: ${p}`] : [];
   });
-  if (problems.length > 0) {
-    throw new RevertError(
-      `${target.dirName}/run.json을 믿을 수 없어 아무것도 바꾸지 않았어요\n${problems.join('\n')}`,
-    );
+  const progress = target.revertProgress;
+  if (progress !== undefined && progress > target.actions.length) {
+    problems.push(`revertProgress ${progress}가 동작 수 ${target.actions.length}보다 커요`);
   }
+  if (problems.length === 0) return;
+  // 오르카 목록을 못 읽었으면 계정 홈이 집합에서 빠져 정상 기록도 걸린다
+  const warned = (input.discoveryWarnings ?? []).map(
+    (w) => `계정 홈을 다 못 찾았을 수 있어요: ${w}`,
+  );
+  throw new RevertError(
+    [
+      `${target.dirName}/run.json을 믿을 수 없어 아무것도 바꾸지 않았어요`,
+      ...problems,
+      ...warned,
+    ].join('\n'),
+  );
 }
 
 /** 날짜까지만 아는 깨진 기록이 고른 실행과 같은 날이거나 더 뒤면 그 사이에 무슨 일이 있었는지 몰라 거부한다 */
@@ -226,6 +261,10 @@ function refuseNewerCorrupt(target: RunRecord, corrupt: CorruptRun[]): void {
 
 export interface RevertInput {
   home: string;
+  /** 기록의 경로가 이 안에 있어야 되돌린다. `revertSlotPaths`로 만든다 */
+  slotPaths: Set<string>;
+  /** 대상 홈을 찾을 때 난 경고. 기록이 거부되면 이유에 붙인다 */
+  discoveryWarnings?: string[];
   runId?: string;
   dryRun: boolean;
   now?: Date;
@@ -244,7 +283,7 @@ export function runRevert(input: RevertInput): RevertResult {
   const listing = listRunsNewestFirst();
   const target = pickRun(listing.runs, input.runId);
   refuseNewerCorrupt(target, listing.corrupt);
-  checkRevertable(target, input.home, t);
+  checkRevertable(target, input, t);
 
   // 앞서 멈춘 되돌리기가 있으면 거기서 이어간다. 되돌린 항목을 다시 치우면 상태가 꼬인다
   const todo: { index: number; step: RevertStep }[] = [];

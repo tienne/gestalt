@@ -25,6 +25,11 @@ export interface TargetDiscovery {
   targets: Target[];
   skipped: SkippedTarget[];
   warnings: string[];
+  /**
+   * 대상 홈에 더해 허용 범위 안이지만 폴더가 없거나 사용자 설정으로 건너뛴 계정 홈.
+   * 되돌리기는 sync 때 대상이었다가 지금 빠진 홈의 기록도 받아야 한다
+   */
+  knownHomes: Target[];
 }
 
 export interface DiscoverOptions {
@@ -67,9 +72,11 @@ export function discoverTargets(opts: DiscoverOptions): TargetDiscovery {
   const warnings = listing.warning ? [listing.warning] : [];
   const targets: Target[] = [];
   const skipped: SkippedTarget[] = [];
+  const knownHomes: Target[] = [];
   const seen = new Set<string>();
 
   const add = (t: Target) => {
+    knownHomes.push(t);
     if (!isDir(t.home)) {
       skipped.push({ label: t.label, home: t.home, reason: '폴더가 없어요' });
       return;
@@ -120,11 +127,18 @@ export function discoverTargets(opts: DiscoverOptions): TargetDiscovery {
       continue;
     }
     if (userEntry?.skip) {
+      knownHomes.push({
+        kind: account.kind,
+        scope: 'account',
+        id: account.id,
+        label,
+        home: accountHome,
+      });
       skipped.push({ label, home: accountHome, reason: '사용자 설정에서 제외했어요' });
       continue;
     }
     add({ kind: account.kind, scope: 'account', id: account.id, label, home: accountHome });
   }
 
-  return { targets, skipped, warnings };
+  return { targets, skipped, warnings, knownHomes };
 }

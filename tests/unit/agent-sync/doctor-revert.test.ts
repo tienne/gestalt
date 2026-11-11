@@ -17,7 +17,7 @@ import { runDoctor, type Which } from '../../../src/agent-sync/doctor.js';
 import { formatDoctor } from '../../../src/agent-sync/format.js';
 import { movePath } from '../../../src/agent-sync/fs-ops.js';
 import { isInside, tildify } from '../../../src/agent-sync/paths.js';
-import { runRevert, RevertError } from '../../../src/agent-sync/revert.js';
+import { revertSlotPaths, runRevert, RevertError } from '../../../src/agent-sync/revert.js';
 import {
   backupPathIn,
   listRunsNewestFirst,
@@ -29,6 +29,7 @@ import {
 import { runSync } from '../../../src/agent-sync/sync.js';
 import type { Target } from '../../../src/agent-sync/targets.js';
 import {
+  CLAUDE_ONLY_MARK,
   hashFile,
   linkOf,
   makeFixture,
@@ -80,6 +81,11 @@ const allTools: Which = () => true;
 
 function sync(targets: Target[] = f.discover().targets, now?: Date) {
   return runSync({ home: f.home, targets, config: f.config(), dryRun: false, now });
+}
+
+/** 되돌리기가 받을 자리. CLI처럼 지금 찾은 홈으로 만든다 */
+function scope() {
+  return { home: f.home, slotPaths: revertSlotPaths(f.home, f.discover().knownHomes) };
 }
 
 function doctor(fix: boolean, which: Which = allTools, now?: Date) {
@@ -207,7 +213,7 @@ describe('gestalt doctor', () => {
     sync();
     rmSync(join(f.home, '.claude/skills'));
     doctor(true);
-    runRevert({ home: f.home, dryRun: false });
+    runRevert({ ...scope(), dryRun: false });
     expect(files.map(hashFile)).toEqual(before);
   });
 });
@@ -218,25 +224,25 @@ describe('gestalt sync --revert', () => {
     const synced = sync();
     expect(snapshot(f.home)).not.toEqual(before);
 
-    const preview = runRevert({ home: f.home, dryRun: true });
+    const preview = runRevert({ ...scope(), dryRun: true });
     expect(preview.reverted.runId).toBe(synced.run!.runId);
     expect(preview.changes.length).toBeGreaterThan(0);
     expect(preview.run).toBeUndefined();
 
-    const result = runRevert({ home: f.home, dryRun: false });
+    const result = runRevert({ ...scope(), dryRun: false });
     expect(result.notes).toEqual([]);
     expect(snapshot(f.home)).toEqual(before);
 
     const record = recordOf(synced.run!.dir);
     expect(record.revertedBy).toBe(result.run!.runId);
-    expect(() => runRevert({ home: f.home, dryRun: false })).toThrow('되돌릴 sync 실행이 없어요');
+    expect(() => runRevert({ ...scope(), dryRun: false })).toThrow('되돌릴 sync 실행이 없어요');
   });
 
   it('sync 뒤에 생긴 것은 지우지 않고 되돌리기 백업에 둔다', () => {
     sync();
     writeFileSync(join(f.home, '.agents/skills/alpha/extra.md'), 'sync 뒤에 쓴 것\n');
     mkdirSync(join(f.home, '.agents/skills/gamma'));
-    const result = runRevert({ home: f.home, dryRun: false });
+    const result = runRevert({ ...scope(), dryRun: false });
     expect(readFileSync(join(f.home, '.claude/skills/alpha/extra.md'), 'utf-8')).toBe(
       'sync 뒤에 쓴 것\n',
     );
@@ -254,18 +260,43 @@ describe('gestalt sync --revert', () => {
     expect(linkOf(skillsB)).toBe(join(f.home, '.agents/skills'));
     const doctorRun = fixed.result.run!;
 
-    expect(() => runRevert({ home: f.home, runId: doctorRun.runId, dryRun: false })).toThrow(
+    expect(() => runRevert({ ...scope(), runId: doctorRun.runId, dryRun: false })).toThrow(
       RevertError,
     );
-    expect(() => runRevert({ home: f.home, runId: doctorRun.runId, dryRun: false })).toThrow(
+    expect(() => runRevert({ ...scope(), runId: doctorRun.runId, dryRun: false })).toThrow(
       'doctor가 고친 것은 되돌리기 대상이 아니에요',
     );
 
-    const result = runRevert({ home: f.home, runId: synced.run!.runId, dryRun: false });
+    const result = runRevert({ ...scope(), runId: synced.run!.runId, dryRun: false });
     expect(result.reverted.runId).toBe(synced.run!.runId);
     expect(linkOf(skillsB)).toBe(join(f.home, '.agents/skills'));
     expect(readFileSync(join(f.claudeB, 'CLAUDE.md'), 'utf-8')).toBe('@~/.claude/CLAUDE.md\n');
     expect(linkOf(join(f.home, '.claude/skills'))).toBeNull();
+  });
+
+  it('orcaDataDir를 홈 밖으로 두고 시스템 홈만 sync해도 되돌린다 (sec-r2-1)', () => {
+    f.writeConfig({
+      rules: { claudeOnly: [CLAUDE_ONLY_MARK] },
+      orcaDataDir: join(f.root, 'orca-out'),
+    });
+    const before = snapshot(f.home);
+    const { run } = sync();
+    expect(recordOf(run!.dir).actions.length).toBeGreaterThan(0);
+    runRevert({ ...scope(), dryRun: false });
+    expect(snapshot(f.home)).toEqual(before);
+  });
+
+  it('sync 뒤에 계정을 skip해도 그 계정 홈까지 되돌린다 (sec-r2-1)', () => {
+    const before = snapshot(f.home);
+    sync();
+    f.writeConfig({
+      rules: { claudeOnly: [CLAUDE_ONLY_MARK] },
+      accounts: { 'acct-a': { skip: true } },
+    });
+    expect(f.discover().targets.map((t) => t.home)).not.toContain(f.claudeA);
+    const result = runRevert({ ...scope(), dryRun: false });
+    expect(result.notes).toEqual([]);
+    expect(snapshot(f.home)).toEqual(before);
   });
 
   it('아직 되돌리지 않은 더 새 sync가 있으면 예전 실행은 거부한다', () => {
@@ -273,7 +304,7 @@ describe('gestalt sync --revert', () => {
     rmSync(join(f.home, '.claude/skills'));
     const second = sync();
     expect(second.run).toBeDefined();
-    expect(() => runRevert({ home: f.home, runId: first.run!.runId, dryRun: false })).toThrow(
+    expect(() => runRevert({ ...scope(), runId: first.run!.runId, dryRun: false })).toThrow(
       `더 새 sync 실행 ${second.run!.runId}`,
     );
   });
@@ -351,7 +382,7 @@ describe('깨진 실행 기록 (Q2)', () => {
     expect(result.recordWarnings[0]).toContain(junk.record.dirName);
     expect(formatDoctor(f.home, discovery, result, false)).toContain(junk.record.dirName);
 
-    expect(() => runRevert({ home: f.home, dryRun: false })).toThrow('기록을 읽지 못했어요');
+    expect(() => runRevert({ ...scope(), dryRun: false })).toThrow('기록을 읽지 못했어요');
     expect(snapshot(f.home)).toEqual(afterSync);
     expect(pruneRuns(new Date('2099-01-01T00:00:00'))).toEqual([]);
     expect(existsSync(junk.dir)).toBe(true);
@@ -361,7 +392,7 @@ describe('깨진 실행 기록 (Q2)', () => {
     const junk = corruptRun(new Date('2026-01-01T00:00:00'));
     const before = snapshot(f.home);
     sync();
-    const result = runRevert({ home: f.home, dryRun: false });
+    const result = runRevert({ ...scope(), dryRun: false });
     expect(result.notes).toEqual([expect.stringContaining(junk.record.dirName)]);
     expect(snapshot(f.home)).toEqual(before);
   });
@@ -409,6 +440,46 @@ describe('변조된 run.json (SEC-1)', () => {
       },
     ],
     ['모르는 동작', (raw) => void raw.actions.push({ op: 'chmod', path: '/etc/passwd' })],
+    ...(['work/proj/CLAUDE.md', 'Documents/skills'] as const).flatMap(
+      (rel): [string, (raw: Raw, home: string) => void][] => [
+        [
+          `이름만 슬롯인 ${rel}로 stash`,
+          (raw, home) => {
+            const stash = raw.actions.find((a) => a['op'] === 'stash')!;
+            stash['path'] = join(home, rel);
+            stash['backup'] = backupPathIn(join(backupsRoot(), raw.dirName), home, join(home, rel));
+          },
+        ],
+        [
+          `이름만 슬롯인 ${rel}로 write_file`,
+          (raw, home) => {
+            raw.actions.push({
+              op: 'write_file',
+              path: join(home, rel),
+              backup: backupPathIn(join(backupsRoot(), raw.dirName), home, join(home, rel)),
+            });
+          },
+        ],
+        [
+          `이름만 슬롯인 ${rel}로 create_link`,
+          (raw, home) => {
+            raw.actions.find((a) => a['op'] === 'create_link')!['path'] = join(home, rel);
+          },
+        ],
+      ],
+    ),
+    [
+      '대상 홈 밖 skills 폴더에서 온 move',
+      (raw) => {
+        raw.actions.find((a) => a['op'] === 'move')!['from'] = '/tmp/x/skills/alpha';
+      },
+    ],
+    [
+      '동작 수보다 큰 revertProgress',
+      (raw) => {
+        (raw as Raw & { revertProgress?: number }).revertProgress = raw.actions.length + 1;
+      },
+    ],
     ['폴더 이름과 다른 dirName', (raw) => void (raw.dirName = '2020-01-01-00000000')],
   ];
 
@@ -419,10 +490,8 @@ describe('변조된 run.json (SEC-1)', () => {
     tamper(raw, f.home);
     writeFileSync(run!.recordFile, JSON.stringify(raw));
 
-    expect(() => runRevert({ home: f.home, runId: run!.runId, dryRun: false })).toThrow(
-      RevertError,
-    );
-    expect(() => runRevert({ home: f.home, dryRun: true })).toThrow(RevertError);
+    expect(() => runRevert({ ...scope(), runId: run!.runId, dryRun: false })).toThrow(RevertError);
+    expect(() => runRevert({ ...scope(), dryRun: true })).toThrow(RevertError);
     expect(snapshot(f.home)).toEqual(afterSync);
   });
 });
@@ -446,27 +515,27 @@ describe('실패 경로 (Q6)', () => {
 
     sync();
     expect(doctor(false).result.issues).toEqual([]);
-    runRevert({ home: f.home, dryRun: false });
-    runRevert({ home: f.home, dryRun: false });
+    runRevert({ ...scope(), dryRun: false });
+    runRevert({ ...scope(), dryRun: false });
     expect(snapshot(f.home)).toEqual(before);
   });
 
   it('되돌리기가 중간에 멈추면 다시 돌릴 때 멈춘 단계부터 이어간다 (Q1)', () => {
     const before = snapshot(f.home);
     sync();
-    const all = runRevert({ home: f.home, dryRun: true }).changes;
+    const all = runRevert({ ...scope(), dryRun: true }).changes;
 
     failRename((to) => to === alphaOut(), 'EIO', true);
-    expect(() => runRevert({ home: f.home, dryRun: false })).toThrow(RevertError);
+    expect(() => runRevert({ ...scope(), dryRun: false })).toThrow(RevertError);
     const target = listRunsNewestFirst().runs.find((r) => r.kind === 'sync')!;
     expect(target.revertedAt).toBeUndefined();
     expect(target.revertProgress).toBeGreaterThan(0);
 
-    const left = runRevert({ home: f.home, dryRun: true }).changes;
+    const left = runRevert({ ...scope(), dryRun: true }).changes;
     expect(left.length).toBeLessThan(all.length);
     expect(all.slice(all.length - left.length)).toEqual(left);
 
-    const result = runRevert({ home: f.home, dryRun: false });
+    const result = runRevert({ ...scope(), dryRun: false });
     expect(result.notes).toEqual([]);
     expect(snapshot(f.home)).toEqual(before);
   });
@@ -477,7 +546,7 @@ describe('실패 경로 (Q6)', () => {
     const missing = backupPathIn(run!.dir, f.home, codexRules);
     rmSync(missing);
 
-    const result = runRevert({ home: f.home, dryRun: false });
+    const result = runRevert({ ...scope(), dryRun: false });
     expect(result.notes).toEqual([
       `~/.codex/AGENTS.md의 백업 ${tildify(missing, f.home)}가 없어 돌리지 못했어요`,
     ]);
@@ -495,7 +564,7 @@ describe('실패 경로 (Q6)', () => {
     );
     writeFileSync(run!.recordFile, JSON.stringify(raw));
 
-    const result = runRevert({ home: f.home, dryRun: false });
+    const result = runRevert({ ...scope(), dryRun: false });
     expect(result.notes).toEqual([]);
     expect(snapshot(f.home)).toEqual(before);
   });
@@ -507,7 +576,7 @@ describe('실패 경로 (Q6)', () => {
     expect(linkOf(join(f.home, '.agents/skills/rel'))).toBe(join(f.home, 'shared/rel-skill'));
     expect(readFileSync(join(f.home, '.agents/skills/rel/SKILL.md'), 'utf-8')).toBe('# rel\n');
 
-    runRevert({ home: f.home, dryRun: false });
+    runRevert({ ...scope(), dryRun: false });
     expect(readFileSync(join(f.home, '.claude/skills/rel/SKILL.md'), 'utf-8')).toBe('# rel\n');
   });
 
@@ -519,7 +588,7 @@ describe('실패 경로 (Q6)', () => {
     expect(readFileSync(join(alphaIn(), 'SKILL.md'), 'utf-8')).toBe('# alpha\n');
     expect(linkOf(join(f.home, '.claude/skills'))).toBe(join(f.home, '.agents/skills'));
 
-    runRevert({ home: f.home, dryRun: false });
+    runRevert({ ...scope(), dryRun: false });
     expect(snapshot(f.home)).toEqual(before);
   });
 
@@ -546,7 +615,7 @@ describe('실패 경로 (Q6)', () => {
     unlinkSync(codexRules);
     writeFileSync(codexRules, '# sync 뒤에 쓴 것\n');
 
-    const result = runRevert({ home: f.home, dryRun: false });
+    const result = runRevert({ ...scope(), dryRun: false });
     expect(result.notes).toHaveLength(1);
     expect(result.notes[0]).toContain('~/.codex/AGENTS.md에 sync 뒤로 바뀐 것이 있어');
     const backup = recordOf(result.run!.dir).actions.find(

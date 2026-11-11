@@ -7,7 +7,7 @@ import {
   type ListOrcaAccounts,
 } from '../../agent-sync/orca.js';
 import { userHome } from '../../agent-sync/paths.js';
-import { runRevert } from '../../agent-sync/revert.js';
+import { revertSlotPaths, runRevert } from '../../agent-sync/revert.js';
 import { runSync } from '../../agent-sync/sync.js';
 import { discoverTargets, type TargetDiscovery } from '../../agent-sync/targets.js';
 
@@ -50,10 +50,17 @@ export interface SyncCommandOptions {
 export function syncCommand(opts: SyncCommandOptions, deps: AgentSyncDeps = {}): void {
   try {
     const dryRun = opts.dryRun ?? false;
+    const { home, config, discovery } = setup(deps);
     if (opts.revert !== undefined && opts.revert !== false) {
-      const home = userHome();
       const runId = typeof opts.revert === 'string' ? opts.revert : undefined;
-      const result = runRevert({ home, runId, dryRun, now: deps.now });
+      const result = runRevert({
+        home,
+        slotPaths: revertSlotPaths(home, discovery.knownHomes),
+        discoveryWarnings: discovery.warnings,
+        runId,
+        dryRun,
+        now: deps.now,
+      });
       console.log(
         opts.json
           ? JSON.stringify({ ok: true, command: 'revert', dryRun, ...result }, null, 2)
@@ -61,7 +68,6 @@ export function syncCommand(opts: SyncCommandOptions, deps: AgentSyncDeps = {}):
       );
       return;
     }
-    const { home, config, discovery } = setup(deps);
     const result = runSync({ home, targets: discovery.targets, config, dryRun, now: deps.now });
     if (opts.json) {
       console.log(
