@@ -128,6 +128,17 @@ describe('PassthroughSpecGenerator', () => {
     expect(isErr(result)).toBe(true);
   });
 
+  it('validateAndStore rejects an entity that omits description and attributes', () => {
+    const spec = {
+      ...validExternalSpec,
+      ontologySchema: { ...validExternalSpec.ontologySchema, entities: [{ name: 'Payment' }] },
+    };
+
+    const result = generator.validateAndStore(makeSession(), spec);
+
+    expect(isErr(result)).toBe(true);
+  });
+
   it('validateAndStore with low resolution and force=false returns ResolutionThresholdError', () => {
     const session = makeSession({
       resolutionScore: { overall: 0.5, dimensions: [], isReady: false },
@@ -233,6 +244,17 @@ describe('PassthroughSpecGenerator.validateAndStoreFromText', () => {
       expect(result.value.metadata.resolutionScore).toBeNull();
       expect(result.value.metadata.resolutionScore).not.toBe(1);
     }
+  });
+
+  it('rejects an entity that omits description and attributes', () => {
+    const spec = {
+      ...validExternalSpec,
+      ontologySchema: { ...validExternalSpec.ontologySchema, entities: [{ name: 'Payment' }] },
+    };
+
+    const result = generator.validateAndStoreFromText(spec);
+
+    expect(isErr(result)).toBe(true);
   });
 
   describe('검증 결과 반환', () => {
