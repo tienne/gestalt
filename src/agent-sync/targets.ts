@@ -19,6 +19,8 @@ export interface SkippedTarget {
   label: string;
   home: string;
   reason: string;
+  /** 오르카가 준 id가 이상해 뺀 계정이면 그 id. 출력할 때 따옴표로 감싼다 */
+  rejectedId?: string;
 }
 
 export interface TargetDiscovery {
@@ -138,6 +140,15 @@ export function discoverTargets(opts: DiscoverOptions): TargetDiscovery {
       continue;
     }
     add({ kind: account.kind, scope: 'account', id: account.id, label, home: accountHome });
+  }
+
+  for (const r of listing.rejected ?? []) {
+    skipped.push({
+      label: `${hostName(r.kind)} 계정`,
+      home: '',
+      reason: r.reason,
+      rejectedId: r.id,
+    });
   }
 
   return { targets, skipped, warnings, knownHomes };

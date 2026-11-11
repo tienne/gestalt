@@ -70,6 +70,7 @@ export function makeFixture(): Fixture {
       { kind: 'claude', id: 'acct-b', home: claudeB, label: 'org-b' },
       { kind: 'codex', id: 'cx-1', label: 'ws-x' },
     ],
+    rejected: [],
   };
 
   const write = (rel: string, content: string) => {

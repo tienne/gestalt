@@ -11,10 +11,22 @@ import {
   parseOrcaAccountList,
   resolveOrcaCommand,
 } from '../../../src/agent-sync/orca.js';
+import type { DoctorResult } from '../../../src/agent-sync/doctor.js';
+import { formatDoctor } from '../../../src/agent-sync/format.js';
 import { discoverTargets } from '../../../src/agent-sync/targets.js';
 import { makeFixture, type Fixture } from './fixture.js';
 
 let f: Fixture;
+
+const emptyDoctor: DoctorResult = {
+  issues: [],
+  toolWarnings: [],
+  recordWarnings: [],
+  fixed: [],
+  hints: [],
+  remaining: [],
+  pruned: [],
+};
 
 beforeEach(() => {
   f = makeFixture();
@@ -74,8 +86,12 @@ describe('오르카 계정 목록', () => {
       { kind: 'claude', id: 'c1', home: '/x/claude-profiles/c1/home', label: 'org-a' },
       { kind: 'codex', id: 'x1', home: undefined, label: 'ws-b' },
     ];
-    expect(parseOrcaAccountList(JSON.stringify(raw))).toEqual(expected);
-    expect(parseOrcaAccountList(JSON.stringify(raw.result))).toEqual(expected);
+    const rejected = [{ kind: 'claude', id: '', reason: '계정 id가 없어요' }];
+    expect(parseOrcaAccountList(JSON.stringify(raw))).toEqual({ accounts: expected, rejected });
+    expect(parseOrcaAccountList(JSON.stringify(raw.result))).toEqual({
+      accounts: expected,
+      rejected,
+    });
   });
 
   it('명령은 설정값, ORCA_CLI_COMMAND, orca 순서로 고른다', () => {
@@ -107,7 +123,7 @@ describe('오르카 계정 목록', () => {
     expect(listing.accounts.map((a) => a.id)).toEqual(['c1', 'x1']);
   });
 
-  it('id에 경로 문자가 있거나 홈이 정리된 절대 경로가 아닌 계정은 버린다 (SEC-3)', () => {
+  it('id에 경로 문자가 있거나 홈이 절대 경로가 아니거나 `..`이 든 계정은 이유와 함께 뺀다 (SEC-3)', () => {
     const claude = (id: string, home?: string) => ({ id, home, managedAuthRuntime: 'host' });
     const listed = parseOrcaAccountList(
       JSON.stringify({
@@ -119,11 +135,57 @@ describe('오르카 계정 목록', () => {
             claude('..', '/x/home'),
             claude('rel', 'x/home'),
             claude('dots', '/x/../etc'),
+            claude('slash', '/x/home/'),
           ],
         },
       }),
     );
-    expect(listed.map((a) => a.id)).toEqual(['ok-1']);
+    expect(listed.accounts.map((a) => a.id)).toEqual(['ok-1']);
+    expect(listed.rejected.map((r) => r.id)).toEqual([
+      '../up',
+      'a/b',
+      '..',
+      'rel',
+      'dots',
+      'slash',
+    ]);
+    expect(listed.rejected.every((r) => r.reason.length > 0)).toBe(true);
+  });
+
+  it('거절된 계정은 건너뛴 홈에 이유와 함께 나오고 id는 따옴표로 감싸 출력한다 (q-r2-2)', () => {
+    for (const p of ['.claude', '.codex']) mkdirSync(join(f.home, p), { recursive: true });
+    const script = join(f.root, 'fake-orca-bad');
+    const bad = {
+      claude: {
+        accounts: [
+          { id: 'c-ok', home: '../x', managedAuthRuntime: 'host' },
+          { id: '../x', home: f.claudeA, managedAuthRuntime: 'host' },
+        ],
+      },
+    };
+    writeFileSync(script, `#!/bin/sh\necho '${JSON.stringify(bad)}'\n`);
+    chmodSync(script, 0o755);
+    const d = discoverTargets({
+      home: f.home,
+      config: loadAgentSyncConfig(),
+      listOrcaAccounts: defaultListOrcaAccounts(script),
+    });
+    expect(d.skipped).toEqual([
+      {
+        label: 'Claude 계정',
+        home: '',
+        reason: '계정 홈이 절대 경로가 아니거나 `.`, `..`, 끝의 `/`, 겹친 `/`가 들어 있어요',
+        rejectedId: 'c-ok',
+      },
+      {
+        label: 'Claude 계정',
+        home: '',
+        reason: '계정 id에 쓸 수 없는 글자가 있어요',
+        rejectedId: '../x',
+      },
+    ]);
+    const out = formatDoctor(f.home, d, emptyDoctor, false);
+    expect(out).toContain('Claude 계정 "../x"  (경로 없음)  계정 id에 쓸 수 없는 글자가 있어요');
   });
 
   it('설정이나 ORCA_CLI_COMMAND의 상대 경로 명령은 거부한다 (SEC-3)', () => {

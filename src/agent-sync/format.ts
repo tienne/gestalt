@@ -15,7 +15,12 @@ function targetLines(d: TargetDiscovery, t: T): string[] {
   if (d.skipped.length > 0) {
     lines.push(
       '건너뛴 홈',
-      ...d.skipped.map((s) => `  - ${s.label}  ${s.home ? t(s.home) : '(경로 없음)'}  ${s.reason}`),
+      ...d.skipped.map((s) => {
+        // 거절된 id는 경로에 못 쓰는 글자가 든 값이라 따옴표로 감싸 경계를 보인다
+        const label =
+          s.rejectedId === undefined ? s.label : `${s.label} ${JSON.stringify(s.rejectedId)}`;
+        return `  - ${label}  ${s.home ? t(s.home) : '(경로 없음)'}  ${s.reason}`;
+      }),
     );
   }
   return lines;
