@@ -125,7 +125,7 @@ Spec과 실행 결과는 레포 루트의 `.gestalt/memory.json`에 자동으로
 
 ## 설치
 
-> **Windows 호스트는 지원하지 않아요.** 플러그인이 MCP 서버를 `sh -c`로 띄우는데 Windows 호스트에서는 이게 안 돌고 CI도 Ubuntu와 macOS에서만 돌려요. 그래도 Windows에서 써보려면 `npm i -g @tienne/gestalt`로 전역 설치한 다음 MCP 설정에 `"command": "gestalt"`, `"args": ["serve"]`를 직접 넣으세요. [옵션 3](#옵션-3-claude-code-cli)과 같은 방식이에요.
+> **Windows 호스트는 지원하지 않아요.** 플러그인이 MCP 서버를 `sh -c`로 띄우는데 Windows 호스트에서는 이게 안 돌고 CI도 Ubuntu와 macOS에서만 돌려요. 그래도 Windows에서 써보려면 `npm i -g @tienne/gestalt`로 전역 설치한 다음 MCP 설정에 `"command": "gestalt"`, `"args": ["serve"]`, `"env": { "GESTALT_FOLLOW_PLUGIN": "0" }`을 직접 넣으세요. [옵션 3](#옵션-3-claude-code-cli)과 같은 방식이에요.
 
 ### 옵션 1: Claude Code 플러그인 (권장)
 
@@ -173,7 +173,8 @@ npm install -g @tienne/gestalt
   "mcpServers": {
     "gestalt": {
       "command": "gestalt",
-      "args": ["serve"]
+      "args": ["serve"],
+      "env": { "GESTALT_FOLLOW_PLUGIN": "0" }
     }
   }
 }
@@ -189,7 +190,7 @@ Claude Code Desktop을 재시작하면 MCP 도구가 즉시 사용 가능해요.
 
 ```bash
 npm install -g @tienne/gestalt
-claude mcp add gestalt -- gestalt serve
+claude mcp add gestalt -e GESTALT_FOLLOW_PLUGIN=0 -- gestalt serve
 ```
 
 또는 `~/.claude/settings.json`을 직접 편집하세요:
@@ -199,7 +200,8 @@ claude mcp add gestalt -- gestalt serve
   "mcpServers": {
     "gestalt": {
       "command": "gestalt",
-      "args": ["serve"]
+      "args": ["serve"],
+      "env": { "GESTALT_FOLLOW_PLUGIN": "0" }
     }
   }
 }
@@ -227,9 +229,9 @@ claude mcp add gestalt -- gestalt serve
 
 터미널의 `gestalt`도 같은 식으로 플러그인을 따라가요. `npm i -g`로 깐 전역 설치본은 설치된 gestalt 플러그인을 찾아서 버전이 다르면 그 플러그인의 런처로 명령을 넘겨요. 그래서 플러그인만 업데이트해도 CLI가 같이 올라가요.
 
-찾는 자리는 Claude Code에서 사용자 범위로 설치한 `gestalt@gestalt`(`CLAUDE_CONFIG_DIR`이나 `~/.claude`의 `installed_plugins.json`)와 Codex에서 켜 둔 gestalt 마켓플레이스 플러그인(`CODEX_HOME`이나 `~/.codex`)이에요. 설치가 여럿이면 가장 높은 버전을 따르고 전역 쪽이 더 새 버전이어도 플러그인을 따라요.
+찾는 자리는 Claude Code에서 사용자 범위로 설치한 `gestalt@gestalt`(`CLAUDE_CONFIG_DIR`과 `~/.claude` 둘 다의 `installed_plugins.json`. `settings.json`에서 꺼 뒀으면 건너뜀)와 Codex에서 켜 둔 gestalt 마켓플레이스 플러그인(`CODEX_HOME`이나 `~/.codex`)이에요. 설치가 여럿이면 가장 높은 버전을 따르고 전역 쪽이 더 새 버전이어도 플러그인을 따라요.
 
-레포 체크아웃이나 프로젝트 의존성, npx 캐시에서 도는 실행은 그 버전 그대로 돌아요. 다만 npx는 같은 버전이 전역에 깔려 있으면 전역 실행 파일을 부르니, 버전을 꼭 고정해야 하면 `GESTALT_FOLLOW_PLUGIN=0`을 함께 주세요. 플러그인 매니페스트의 MCP 기동은 이미 그렇게 해 뒀어요. 넘길 때 npm 캐시를 한 번 거쳐서 전역 버전이 플러그인과 다시 같아질 때까지 호출마다 2초쯤 더 걸려요.
+레포 체크아웃이나 프로젝트 의존성, npx 캐시에서 도는 실행은 그 버전 그대로 돌아요. 다만 npx는 같은 버전이 전역에 깔려 있으면 전역 실행 파일을 부르니, 버전을 꼭 고정해야 하면 `GESTALT_FOLLOW_PLUGIN=0`을 함께 주세요. 플러그인 매니페스트의 MCP 기동과 `gestalt update`, 이 문서의 Claude Code와 Codex 예시는 이미 그렇게 해 뒀어요. Grok이나 Gemini 명령처럼 다른 방법으로 등록하면 그 env에도 같은 값을 넣어 주세요. 넘길 때 npm 캐시를 한 번 거쳐서 전역 버전이 플러그인과 다시 같아질 때까지 호출마다 2초쯤 더 걸려요.
 
 ---
 
@@ -279,7 +281,7 @@ Codex desktop 자체는 수동 설치한 플러그인의 훅을 지원하지만 
 스킬 없이 MCP 도구만 쓰려면 이렇게 해요.
 
 ```bash
-codex mcp add gestalt -- npx -y @tienne/gestalt serve
+codex mcp add gestalt --env GESTALT_FOLLOW_PLUGIN=0 -- npx -y @tienne/gestalt serve
 ```
 
 그리고 프로젝트의 `gestalt.json`에 `"client": "codex"`를 넣으면 실행 컨텍스트가 `AGENTS.md`에 기록돼요 (Codex가 자동으로 읽는 파일이에요).

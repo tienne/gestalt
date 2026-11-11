@@ -103,7 +103,7 @@ Then run the pipeline:
 
 ## Installation
 
-> **Windows hosts are not supported.** The plugin starts its MCP server through `sh -c`, which a Windows host cannot run, and CI covers only Ubuntu and macOS. If you want to try it on Windows anyway, install globally with `npm i -g @tienne/gestalt` and register the server yourself with `"command": "gestalt"` and `"args": ["serve"]`, as in [Option 3](#option-3-claude-code-cli).
+> **Windows hosts are not supported.** The plugin starts its MCP server through `sh -c`, which a Windows host cannot run, and CI covers only Ubuntu and macOS. If you want to try it on Windows anyway, install globally with `npm i -g @tienne/gestalt` and register the server yourself with `"command": "gestalt"`, `"args": ["serve"]`, and `"env": { "GESTALT_FOLLOW_PLUGIN": "0" }`, as in [Option 3](#option-3-claude-code-cli).
 
 ### Option 1: Claude Code Plugin (Recommended)
 
@@ -146,7 +146,8 @@ npm install -g @tienne/gestalt
   "mcpServers": {
     "gestalt": {
       "command": "gestalt",
-      "args": ["serve"]
+      "args": ["serve"],
+      "env": { "GESTALT_FOLLOW_PLUGIN": "0" }
     }
   }
 }
@@ -162,7 +163,7 @@ MCP tools are available immediately after restart. Slash commands require the pl
 
 ```bash
 npm install -g @tienne/gestalt
-claude mcp add gestalt -- gestalt serve
+claude mcp add gestalt -e GESTALT_FOLLOW_PLUGIN=0 -- gestalt serve
 ```
 
 Or add directly to `~/.claude/settings.json`:
@@ -172,7 +173,8 @@ Or add directly to `~/.claude/settings.json`:
   "mcpServers": {
     "gestalt": {
       "command": "gestalt",
-      "args": ["serve"]
+      "args": ["serve"],
+      "env": { "GESTALT_FOLLOW_PLUGIN": "0" }
     }
   }
 }
@@ -200,9 +202,9 @@ The plugin install (Option 1) already handles the first two through `scripts/mcp
 
 The terminal `gestalt` follows the plugin the same way. When an `npm i -g` install finds an installed gestalt plugin at a different version, it hands the command to that plugin's launcher, so updating the plugin also updates the CLI.
 
-It looks at the user-scope `gestalt@gestalt` install for Claude Code (`installed_plugins.json` under `CLAUDE_CONFIG_DIR` or `~/.claude`) and the enabled plugin from the gestalt marketplace for Codex (`CODEX_HOME` or `~/.codex`). With several installs it follows the highest version, even when the global itself is newer.
+It looks at the user-scope `gestalt@gestalt` install for Claude Code (`installed_plugins.json` under both `CLAUDE_CONFIG_DIR` and `~/.claude`, unless `settings.json` turns the plugin off) and the enabled plugin from the gestalt marketplace for Codex (`CODEX_HOME` or `~/.codex`). With several installs it follows the highest version, even when the global itself is newer.
 
-Runs from a repo checkout, a project dependency, or the npx cache keep their own version. npx still runs the global binary when the same version is installed globally, so set `GESTALT_FOLLOW_PLUGIN=0` wherever the version must stay pinned. The plugin's MCP manifests already do. Delegation goes through the npm cache, so each call takes about two seconds longer until the global matches the plugin again.
+Runs from a repo checkout, a project dependency, or the npx cache keep their own version. npx still runs the global binary when the same version is installed globally, so set `GESTALT_FOLLOW_PLUGIN=0` wherever the version must stay pinned. The plugin's MCP manifests and `gestalt update` already do, and so do the Claude Code and Codex examples in this README. If you register the server another way, such as the Grok and Gemini commands, add the same variable to its env. Delegation goes through the npm cache, so each call takes about two seconds longer until the global matches the plugin again.
 
 ---
 
@@ -262,7 +264,7 @@ the public directory. See [Codex hook support](./docs/codex-hooks.md) for the
 If you want the MCP tools without the bundled skills:
 
 ```bash
-codex mcp add gestalt -- npx -y @tienne/gestalt serve
+codex mcp add gestalt --env GESTALT_FOLLOW_PLUGIN=0 -- npx -y @tienne/gestalt serve
 ```
 
 Then add `"client": "codex"` to your project's `gestalt.json` so the active session context is written to `AGENTS.md` (which Codex reads automatically):
