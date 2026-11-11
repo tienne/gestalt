@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { classifyNeed, handleNeed, resolveGate } from '../../../src/master/gates.js';
+import { classifyNeed, handleNeed, openOrReuse, resolveGate } from '../../../src/master/gates.js';
 import { MasterStore } from '../../../src/master/store.js';
 import { NEED_KINDS, type OrderScope } from '../../../src/master/types.js';
 import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
@@ -99,5 +99,44 @@ describe('handleNeed', () => {
     if (out.kind !== 'gate') throw new Error('게이트가 열려야 한다');
     resolveGate(s, out.gate.id, 'approved');
     expect(s.order('ord-1')?.status).toBe('running');
+  });
+
+  it('열린 게이트를 다시 쓸 때 사유와 참조를 최신 값으로 바꾼다', () => {
+    const s = MasterStore.open(tempStateDir());
+    s.addOrder(order({ id: 'ord-1', status: 'running' }));
+    const first = openOrReuse(s, {
+      orderId: 'ord-1',
+      type: 'no-procedure',
+      reason: '계정을 못 맞췄어요',
+    });
+    const again = openOrReuse(s, {
+      orderId: 'ord-1',
+      type: 'no-procedure',
+      reason: '워커를 못 띄웠어요',
+      refs: ['log.txt'],
+    });
+    expect(again).toMatchObject({ reused: true, gate: { id: first.gate.id } });
+    expect(s.snapshot.gates[first.gate.id]).toMatchObject({
+      reason: '워커를 못 띄웠어요',
+      refs: ['log.txt'],
+    });
+    expect(MasterStore.open(s.dir).snapshot.gates[first.gate.id]!.reason).toBe(
+      '워커를 못 띄웠어요',
+    );
+  });
+
+  it('이미 머지된 주문의 게이트는 승인하면 merged로, 거절하면 escalated로 둔다', () => {
+    const s = MasterStore.open(tempStateDir());
+    for (const id of ['ord-ok', 'ord-no']) {
+      s.addOrder(order({ id, status: 'merged', mergedAt: '2026-11-01T00:00:00.000Z' }));
+      s.updateOrder(id, { status: 'escalated' });
+    }
+    const gate = (id: string) =>
+      openOrReuse(s, { orderId: id, type: 'no-procedure', reason: '배포 실패' }).gate.id;
+    expect(s.order('ord-ok')!.status).toBe('escalated');
+    resolveGate(s, gate('ord-ok'), 'approved');
+    resolveGate(s, gate('ord-no'), 'rejected');
+    expect(s.order('ord-ok')!.status).toBe('merged');
+    expect(s.order('ord-no')!.status).toBe('escalated');
   });
 });

@@ -1,6 +1,9 @@
+import { log } from '../core/log.js';
+import { normalizePrRef } from './pr-ref.js';
 import {
   isNeedKind,
   isStopReason,
+  isWorkerId,
   REPORT_STATUSES,
   type ReportStatus,
   type WorkerReport,
@@ -10,7 +13,7 @@ import {
  * 워커 결과 검증.
  *
  * 마스터는 요약과 참조만 받는다. diff나 스택 트레이스, 긴 로그가 요약에 섞여 들어오면
- * 그대로 마스터 대화에 쌓여 토큰이 샌다. 걸리면 받지 않고 워커에 요약을 다시 달라고
+ * 그대로 마스터 대화에 쌓여 토큰이 많이 든다. 걸리면 받지 않고 워커에 요약을 다시 달라고
  * 돌려보낸다. 원문은 파일로 두고 경로만 refs에 적으면 된다.
  */
 
@@ -71,6 +74,7 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
 
   const workerId = typeof r['workerId'] === 'string' ? r['workerId'] : '';
   if (!workerId) problems.push('workerId가 없어요');
+  else if (!isWorkerId(workerId)) problems.push('workerId는 영문, 숫자, -, _로 64자까지예요');
   const status = r['status'];
   if (typeof status !== 'string' || !(REPORT_STATUSES as readonly string[]).includes(status)) {
     problems.push(`status는 ${REPORT_STATUSES.join(', ')} 중 하나예요`);
@@ -98,9 +102,13 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
   }
 
   const report: WorkerReport = { workerId, status: status as ReportStatus, summary, refs };
-  for (const key of ['skill', 'prRef'] as const) {
-    const v = r[key];
-    if (typeof v === 'string' && v.trim()) report[key] = v.trim();
+  if (typeof r['skill'] === 'string' && r['skill'].trim()) report.skill = r['skill'].trim();
+  if (typeof r['prRef'] === 'string' && r['prRef'].trim()) {
+    // 주문의 prRef는 PR 감시의 중복 판정 키라 꼴이 다르면 같은 PR을 다른 PR로 본다
+    const prRef = normalizePrRef(r['prRef']);
+    if (prRef) report.prRef = prRef;
+    else
+      log(`워커 ${workerId} 결과의 prRef를 못 알아봐 버려요: ${r['prRef'].trim().slice(0, 200)}`);
   }
   if (r['merged'] === true) report.merged = true;
 

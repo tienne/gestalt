@@ -63,4 +63,23 @@ describe('워커 결과 검증', () => {
     );
     expect(r.spawnRequest?.title).toBe('문서 따로');
   });
+
+  it('경로 문자가 든 workerId는 거절한다', () => {
+    for (const workerId of ['../wrk-1', 'wrk/1', 'a'.repeat(65)]) {
+      expect(() => parseWorkerReport({ ...ok, workerId }, 2000)).toThrow(ReportRejected);
+    }
+  });
+
+  it('prRef는 owner/name#번호로 맞추고 알아볼 수 없으면 버린다', () => {
+    const url = parseWorkerReport(
+      { ...ok, prRef: 'https://github.com/acme/app/pull/012/files' },
+      2000,
+    );
+    expect(url.prRef).toBeUndefined();
+    expect(
+      parseWorkerReport({ ...ok, prRef: 'https://github.com/acme/app/pull/12' }, 2000).prRef,
+    ).toBe('acme/app#12');
+    expect(parseWorkerReport({ ...ok, prRef: ' acme/app#7 ' }, 2000).prRef).toBe('acme/app#7');
+    expect(parseWorkerReport({ ...ok, prRef: 'PR 12' }, 2000).prRef).toBeUndefined();
+  });
 });

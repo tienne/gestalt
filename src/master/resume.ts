@@ -7,7 +7,7 @@ import {
 import { openOrReuse } from './gates.js';
 import type { ResumeContext } from './launcher.js';
 import type { MasterStore } from './store.js';
-import type { Checkpoint, Gate, Order, Worker } from './types.js';
+import { isWorkerId, type Checkpoint, type Gate, type Order, type Worker } from './types.js';
 
 /** ship 체크포인트 파일을 읽는 자리. 테스트에서 git 호출 없이 바꿔 끼운다 */
 export type ShipReader = (dir: string) => CheckReport;
@@ -16,8 +16,6 @@ export const defaultShipReader: ShipReader = (dir) => checkCheckpoint(dir, defau
 
 /** 재개를 사람에게 올린 게이트임을 payload로 표시한다. 승인되면 시도 수를 다시 센다 */
 const RESUME_GATE_KIND = 'resume';
-
-// ─── 체크포인트 저장 ─────────────────────────────────────────────
 
 export interface CheckpointInput {
   workerId: string;
@@ -41,6 +39,9 @@ export function saveSkillCheckpoint(
   input: CheckpointInput,
   readShip: ShipReader = defaultShipReader,
 ): Checkpoint {
+  if (!isWorkerId(input.workerId)) {
+    throw new Error(`워커 id 꼴이 아니에요: ${input.workerId.slice(0, 80)}`);
+  }
   const worker = store.worker(input.workerId);
   if (!worker) throw new Error(`워커를 못 찾았어요: ${input.workerId}`);
   const order = store.order(worker.orderId);
@@ -80,8 +81,6 @@ export function saveSkillCheckpoint(
   return checkpoint;
 }
 
-// ─── 끊김 감지 ───────────────────────────────────────────────────
-
 /**
  * 소식이 끊긴 워커를 stopped로 바꾼다.
  *
@@ -94,6 +93,8 @@ export function detectStale(
 ): Worker[] {
   const stale: Worker[] = [];
   for (const w of store.activeWorkers()) {
+    // 사람 확인을 기다리는 워커는 보고 없이 멈춰 있는 게 정상이다. 끊김으로 보면 승인이 그 워커에 못 닿는다
+    if (store.order(w.orderId)?.status === 'waiting-gate') continue;
     const seen = Date.parse(w.lastSeenAt);
     if (Number.isNaN(seen) || opts.now.getTime() - seen < opts.staleAfterMs) continue;
     store.updateWorker(w.id, { status: 'stopped', stopReason: 'disconnected' });
@@ -101,8 +102,6 @@ export function detectStale(
   }
   return stale;
 }
-
-// ─── 재개 판단 ───────────────────────────────────────────────────
 
 /** 사람이 재개를 승인한 뒤로 띄운 워커 수. 승인하면 시도 수를 새로 센다 */
 function attemptsSinceApproval(store: MasterStore, orderId: string): number {
@@ -194,8 +193,6 @@ function describeCheckpoint(cp: Checkpoint): string {
     .join(' ');
   return `마지막 체크포인트: ${where}, 다음 ${cp.next} (${cp.savedAt})`;
 }
-
-// ─── 재개 지시서 ─────────────────────────────────────────────────
 
 export interface ResumeLaunch {
   context: ResumeContext;

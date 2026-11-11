@@ -256,7 +256,7 @@ export function compare(baseline: MetricsAverage, current: MetricsAverage): Comp
 export type LeakSite = 'masterContext' | 'polling' | 'results' | 'restart';
 
 /**
- * 토큰이 새는 네 자리를 따로 센다.
+ * 토큰이 많이 드는 네 자리를 따로 센다.
  *
  * 재개 세션은 통째로 restart다. 나머지는 assistant 메시지마다 그 메시지가 부른 명령으로
  * 가른다. 상태를 들여다보는 tick과 status는 polling, 워커 결과를 받는 report와 gate

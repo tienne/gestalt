@@ -67,6 +67,9 @@ describe('체크포인트', () => {
     expect(() =>
       saveSkillCheckpoint(store, { workerId: 'wrk-1', skill: 'ship', phase: '9', next: 'x' }),
     ).toThrow(/ship 단계/);
+    expect(() =>
+      saveSkillCheckpoint(store, { workerId: '../wrk-1', skill: 'solve', next: 'x' }),
+    ).toThrow(/워커 id 꼴/);
   });
 });
 

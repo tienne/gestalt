@@ -42,7 +42,8 @@ export interface PrWatchResult {
  * - 내가 리뷰한 PR의 head가 바뀌면 review-loop 주문을 만든다.
  * - 답만 오고 코드가 그대로면 review-loop의 REPLIES_ONLY 규칙대로 사람에게 올린다.
  *
- * 같은 PR에 끝나지 않은 주문이 있으면 건드리지 않는다. 그 워커가 이미 PR을 다루고 있어서
+ * 같은 PR에 끝나지 않은 주문이 있으면 건드리지 않는다. 사람 결정을 기다리는 escalated 주문도
+ * 끝나지 않은 주문이다. 그 워커가 이미 PR을 다루고 있거나 승인 뒤 다시 다룰 거라
  * 주문을 하나 더 만들면 두 워커가 같은 스레드에 답하게 된다.
  */
 export async function pollPrs(
@@ -109,7 +110,7 @@ export async function pollPrs(
       if (asked) continue;
       const { gate } = openOrReuse(store, {
         type: 'review-manual-switch',
-        reason: `답글만 오고 코드는 그대로예요: ${pr.ref} (답 ${pr.repliesSinceReview}건)`,
+        reason: `답글만 오고 코드는 그대로예요: ${pr.ref} (답 ${pr.repliesSinceReview}개)`,
         refs: [pr.ref],
         payload: { sourceRef, prRef: pr.ref },
       });

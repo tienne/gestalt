@@ -63,6 +63,22 @@ describe('PR 감시', () => {
     expect(r.created).toEqual([]);
   });
 
+  it('사람 결정을 기다리는 escalated 주문의 PR에도 새 주문을 만들지 않는다', async () => {
+    const s = MasterStore.open(tempStateDir());
+    const first = await pollPrs(
+      s,
+      source([{ ...base, ref: 'acme/app#1', latestOtherCommentId: 'c1' }], []),
+      config,
+    );
+    s.updateOrder(first.created[0]!.id, { status: 'escalated' });
+    const r = await pollPrs(
+      s,
+      source([{ ...base, ref: 'acme/app#1', latestOtherCommentId: 'c2' }], []),
+      config,
+    );
+    expect(r.created).toEqual([]);
+  });
+
   it('리뷰한 PR은 head가 바뀌면 재리뷰 주문, 답만 오면 사람에게 한 번 올린다', async () => {
     const s = MasterStore.open(tempStateDir());
     const moved = await pollPrs(

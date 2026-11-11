@@ -27,8 +27,8 @@ export interface DeploySource {
   status(order: Order): Promise<DeploySignal>;
 }
 
-/** 배포를 기다렸다가 In-QA로 가는 유형 */
-const QA_TYPES: ReadonlySet<IssueType> = new Set(['bug', 'task', 'sub-bug']);
+/** 배포를 기다렸다가 In-QA로 가는 유형. 엔진의 머지 뒤 정산도 이 집합으로 배포를 기다릴지 정한다 */
+export const QA_TYPES: ReadonlySet<IssueType> = new Set(['bug', 'task', 'sub-bug']);
 
 // 뒤로 가는 전환을 막는 데 쓴다. Done과 In-QA는 둘 다 끝 자리라 같은 값이다
 const RANK: Record<JiraStatus, number> = {

@@ -30,11 +30,14 @@ export const ORDER_STATUSES = [
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
-/** 끝난 주문. 슬롯을 차지하지 않고 tick이 더 손대지 않는다 */
+/**
+ * 끝난 주문. tick이 더 손대지 않는다.
+ * escalated는 여기 없다. 사람 결정을 기다리며 슬롯만 비운 상태라 게이트 승인으로 다시 움직인다.
+ * 그동안 PR 감시가 같은 PR에 주문을 또 만들면 안 된다
+ */
 export const TERMINAL_ORDER_STATUSES: ReadonlySet<OrderStatus> = new Set([
   'done',
   'failed',
-  'escalated',
   'cancelled',
 ]);
 
@@ -92,6 +95,13 @@ export const STOP_REASONS = [
 ] as const;
 export type StopReason = (typeof STOP_REASONS)[number];
 
+/** 워커 id는 inbox 파일 이름에 들어가므로 경로 문자가 없는 꼴만 받는다 */
+export const WORKER_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+export function isWorkerId(v: string): boolean {
+  return WORKER_ID_PATTERN.test(v);
+}
+
 export interface Worker {
   id: string;
   orderId: string;
@@ -101,7 +111,7 @@ export interface Worker {
   /** 같은 주문에서 몇 번째로 띄운 워커인지. 1부터 센다 */
   attempt: number;
   status: WorkerStatus;
-  /** 오르카 dispatch id, 워크트리 경로, 서브에이전트 이름 같은 런처별 손잡이 */
+  /** 런처가 워커를 다시 찾는 식별자. 오르카 dispatch id, 워크트리 경로, 서브에이전트 이름 중 하나다 */
   handle?: string;
   account?: string;
   startedAt: string;
@@ -214,6 +224,7 @@ export type MasterEvent =
     }
   | { type: 'checkpoint-saved'; at: string; checkpoint: Checkpoint }
   | { type: 'gate-opened'; at: string; gate: Gate }
+  | { type: 'gate-updated'; at: string; gateId: string; reason: string; refs: string[] }
   | {
       type: 'gate-resolved';
       at: string;
@@ -224,7 +235,9 @@ export type MasterEvent =
   | { type: 'bypass'; at: string; record: BypassRecord }
   | { type: 'jira-transition'; at: string; record: JiraTransitionRecord }
   | { type: 'slack-posted'; at: string; gateId: string; ref: string }
-  | { type: 'tick'; at: string };
+  | { type: 'tick'; at: string }
+  /** 앞 프로세스가 줄 중간에 죽은 꼬리를 개행으로 끊었다는 표시. replay가 바로 앞 깨진 줄을 건너뛴다 */
+  | { type: 'tail-repaired'; at: string };
 
 export interface MasterSnapshot {
   orders: Record<string, Order>;

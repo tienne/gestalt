@@ -121,7 +121,8 @@ interface GateRequest {
 
 /**
  * 같은 주문에 같은 종류의 게이트가 열려 있으면 새로 열지 않는다.
- * 워커가 같은 요청을 여러 번 올려도 사람이 받는 질문은 하나다.
+ * 워커가 같은 요청을 여러 번 올려도 사람이 받는 질문은 하나다. 다시 쓸 때는 사유와 참조를
+ * 최신 값으로 바꾼다. 같은 게이트에 다른 원인이 겹치면 사람이 보는 사유가 첫 원인에 묶이기 때문이다.
  */
 export function openOrReuse(
   store: MasterStore,
@@ -130,7 +131,22 @@ export function openOrReuse(
   const existing = store
     .openGates(req.orderId)
     .find((g) => g.type === req.type && (req.orderId !== undefined || g.reason === req.reason));
-  if (existing) return { kind: 'gate', gate: existing, reused: true };
+  if (existing) {
+    const refs = req.refs ?? existing.refs;
+    const changed =
+      existing.reason !== req.reason ||
+      refs.length !== existing.refs.length ||
+      refs.some((r, i) => r !== existing.refs[i]);
+    if (!changed) return { kind: 'gate', gate: existing, reused: true };
+    store.append({
+      type: 'gate-updated',
+      at: store.timestamp(),
+      gateId: existing.id,
+      reason: req.reason,
+      refs,
+    });
+    return { kind: 'gate', gate: store.snapshot.gates[existing.id]!, reused: true };
+  }
 
   const gate: Gate = {
     id: newId('gate'),
@@ -144,7 +160,12 @@ export function openOrReuse(
   };
   store.openGate(gate);
   const order = req.orderId ? store.order(req.orderId) : undefined;
-  if (order && !TERMINAL_ORDER_STATUSES.has(order.status) && order.status !== 'waiting-gate') {
+  if (
+    order &&
+    !TERMINAL_ORDER_STATUSES.has(order.status) &&
+    order.status !== 'waiting-gate' &&
+    order.status !== 'escalated'
+  ) {
     store.updateOrder(order.id, { status: 'waiting-gate' });
   }
   return { kind: 'gate', gate, reused: false };
@@ -155,6 +176,8 @@ export function openOrReuse(
  *
  * 주문의 다른 게이트가 다 닫히면 주문을 다시 움직인다. 워커가 살아 있으면 running으로,
  * 워커 없이 멈춘 주문이면 승인은 queued(다시 띄움), 거절은 cancelled로 둔다.
+ * 이미 머지된 주문(배포 실패로 올라온 주문)은 체인을 다시 돌릴 일이 없다. 승인하면 merged로
+ * 돌려 다음 tick이 정산을 다시 시도한다. 거절하면 escalated로 남겨 사람이 마무리한다.
  */
 export function resolveGate(
   store: MasterStore,
@@ -174,9 +197,20 @@ export function resolveGate(
   if (!order || (order.status !== 'waiting-gate' && order.status !== 'escalated')) return gate;
   if (store.openGates(order.id).length > 0) return gate;
 
+  if (order.mergedAt !== undefined) {
+    if (decision === 'approved') store.updateOrder(order.id, { status: 'merged' });
+    else if (order.status !== 'escalated') store.updateOrder(order.id, { status: 'escalated' });
+    return gate;
+  }
+
   const live = order.workerId ? store.worker(order.workerId) : undefined;
   const alive = live && (live.status === 'running' || live.status === 'starting');
-  if (alive) store.updateOrder(order.id, { status: 'running' });
-  else store.updateOrder(order.id, { status: decision === 'approved' ? 'queued' : 'cancelled' });
+  if (alive) {
+    // 게이트를 기다린 시간은 워커가 끊긴 시간이 아니다. 닫는 시점부터 다시 센다
+    store.updateWorker(live.id, { lastSeenAt: store.timestamp() });
+    store.updateOrder(order.id, { status: 'running' });
+  } else {
+    store.updateOrder(order.id, { status: decision === 'approved' ? 'queued' : 'cancelled' });
+  }
   return gate;
 }
