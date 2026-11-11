@@ -1,0 +1,261 @@
+import { randomUUID } from 'node:crypto';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { gestaltPath } from '../core/home.js';
+import { writeJsonAtomic } from '../core/json-file.js';
+import {
+  ACTIVE_WORKER_STATUSES,
+  type Checkpoint,
+  type Gate,
+  type MasterEvent,
+  type MasterSnapshot,
+  type Order,
+  type Worker,
+} from './types.js';
+
+/**
+ * 마스터 실행 상태 저장소.
+ *
+ * 이벤트를 `events.jsonl`에 한 줄씩 덧붙이고 상태는 그 로그를 처음부터 재생해서 만든다.
+ * 마스터 세션이 압축되거나 새로 떠도 이 디렉토리만 있으면 주문과 워커, 체크포인트,
+ * 승인 대기를 같게 복원한다. `snapshot.json`은 사람과 도구가 빨리 읽으라고 두는
+ * 사본이라 복원에는 쓰지 않는다. 둘이 어긋나면 로그가 맞다.
+ *
+ * 워커 프로세스도 `gestalt master checkpoint save`로 같은 로그에 덧붙인다. 한 줄짜리
+ * append는 O_APPEND라 줄끼리 섞이지 않는다. 결과 보고는 inbox에 파일로 두고 tick이 읽는다.
+ */
+
+export const EVENTS_FILE = 'events.jsonl';
+export const SNAPSHOT_FILE = 'snapshot.json';
+
+export function defaultStateDir(configured?: string): string {
+  return configured && configured.trim() ? configured : gestaltPath('master');
+}
+
+export function emptySnapshot(): MasterSnapshot {
+  return {
+    orders: {},
+    workers: {},
+    checkpoints: {},
+    gates: {},
+    bypasses: [],
+    jiraTransitions: [],
+    slackPosted: {},
+    ticks: 0,
+    eventCount: 0,
+  };
+}
+
+/** 이벤트 하나를 스냅샷에 반영한다. 재생과 실시간 반영이 같은 함수를 지나야 복원 결과가 같다 */
+export function applyEvent(s: MasterSnapshot, e: MasterEvent): void {
+  s.eventCount += 1;
+  switch (e.type) {
+    case 'order-added':
+      s.orders[e.order.id] = { ...e.order };
+      return;
+    case 'order-updated': {
+      const o = s.orders[e.orderId];
+      if (o) s.orders[e.orderId] = { ...o, ...e.patch, updatedAt: e.at };
+      return;
+    }
+    case 'worker-started':
+      s.workers[e.worker.id] = { ...e.worker };
+      return;
+    case 'worker-updated': {
+      const w = s.workers[e.workerId];
+      if (w) s.workers[e.workerId] = { ...w, ...e.patch };
+      return;
+    }
+    case 'checkpoint-saved':
+      s.checkpoints[e.checkpoint.orderId] = { ...e.checkpoint };
+      return;
+    case 'gate-opened':
+      s.gates[e.gate.id] = { ...e.gate };
+      return;
+    case 'gate-resolved': {
+      const g = s.gates[e.gateId];
+      if (g) {
+        s.gates[e.gateId] = {
+          ...g,
+          status: 'resolved',
+          decision: e.decision,
+          resolvedAt: e.at,
+          ...(e.answer !== undefined ? { answer: e.answer } : {}),
+        };
+      }
+      return;
+    }
+    case 'bypass':
+      s.bypasses.push(e.record);
+      return;
+    case 'jira-transition':
+      s.jiraTransitions.push(e.record);
+      return;
+    case 'slack-posted':
+      s.slackPosted[e.gateId] = e.ref;
+      return;
+    case 'tick':
+      s.ticks += 1;
+      s.lastTickAt = e.at;
+      return;
+  }
+}
+
+export function newId(prefix: 'ord' | 'wrk' | 'gate'): string {
+  return `${prefix}-${randomUUID().slice(0, 8)}`;
+}
+
+export class MasterStore {
+  readonly dir: string;
+  private state: MasterSnapshot;
+  private readonly now: () => Date;
+
+  private constructor(dir: string, state: MasterSnapshot, now: () => Date) {
+    this.dir = dir;
+    this.state = state;
+    this.now = now;
+  }
+
+  /** 로그를 처음부터 재생해 연다. 디렉토리가 없으면 만든다 */
+  static open(dir: string, opts: { now?: () => Date } = {}): MasterStore {
+    mkdirSync(dir, { recursive: true });
+    return new MasterStore(dir, replay(join(dir, EVENTS_FILE)), opts.now ?? (() => new Date()));
+  }
+
+  get snapshot(): Readonly<MasterSnapshot> {
+    return this.state;
+  }
+
+  timestamp(): string {
+    return this.now().toISOString();
+  }
+
+  /** 다른 프로세스가 덧붙인 이벤트까지 다시 읽는다 */
+  reload(): void {
+    this.state = replay(join(this.dir, EVENTS_FILE));
+  }
+
+  append(event: MasterEvent): void {
+    validate(event, this.state);
+    appendFileSync(join(this.dir, EVENTS_FILE), `${JSON.stringify(event)}\n`, 'utf-8');
+    applyEvent(this.state, event);
+    writeJsonAtomic(join(this.dir, SNAPSHOT_FILE), this.state);
+  }
+
+  addOrder(order: Order): void {
+    this.append({ type: 'order-added', at: this.timestamp(), order });
+  }
+
+  updateOrder(orderId: string, patch: Partial<Omit<Order, 'id'>>): void {
+    this.append({ type: 'order-updated', at: this.timestamp(), orderId, patch });
+  }
+
+  startWorker(worker: Worker): void {
+    this.append({ type: 'worker-started', at: this.timestamp(), worker });
+  }
+
+  updateWorker(workerId: string, patch: Partial<Omit<Worker, 'id' | 'spawnedBy'>>): void {
+    this.append({ type: 'worker-updated', at: this.timestamp(), workerId, patch });
+  }
+
+  saveCheckpoint(checkpoint: Checkpoint): void {
+    this.append({ type: 'checkpoint-saved', at: this.timestamp(), checkpoint });
+  }
+
+  openGate(gate: Gate): void {
+    this.append({ type: 'gate-opened', at: this.timestamp(), gate });
+  }
+
+  order(id: string): Order | undefined {
+    return this.state.orders[id];
+  }
+
+  worker(id: string): Worker | undefined {
+    return this.state.workers[id];
+  }
+
+  orders(): Order[] {
+    return Object.values(this.state.orders);
+  }
+
+  workers(): Worker[] {
+    return Object.values(this.state.workers);
+  }
+
+  activeWorkers(): Worker[] {
+    return this.workers().filter((w) => ACTIVE_WORKER_STATUSES.has(w.status));
+  }
+
+  /** 먼저 들어온 주문이 먼저 뜬다 */
+  queuedOrders(): Order[] {
+    return this.orders()
+      .filter((o) => o.status === 'queued')
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  openGates(orderId?: string): Gate[] {
+    return Object.values(this.state.gates).filter(
+      (g) => g.status === 'open' && (orderId === undefined || g.orderId === orderId),
+    );
+  }
+
+  findOrderBySourceRef(sourceRef: string): Order | undefined {
+    return this.orders().find((o) => o.sourceRef === sourceRef);
+  }
+
+  workersOf(orderId: string): Worker[] {
+    return this.workers()
+      .filter((w) => w.orderId === orderId)
+      .sort((a, b) => a.attempt - b.attempt);
+  }
+}
+
+function validate(event: MasterEvent, s: MasterSnapshot): void {
+  if (event.type === 'worker-started') {
+    // 타입으로 막아도 JSON으로 들어오는 값은 런타임에서 다시 본다
+    if ((event.worker as { spawnedBy: string }).spawnedBy !== 'master') {
+      throw new Error('워커는 마스터만 띄워요. 워커가 띄운 워커는 기록하지 않아요');
+    }
+    if (!s.orders[event.worker.orderId]) {
+      throw new Error(`모르는 주문의 워커예요: ${event.worker.orderId}`);
+    }
+  }
+  if (event.type === 'order-added' && s.orders[event.order.id]) {
+    throw new Error(`이미 있는 주문 id예요: ${event.order.id}`);
+  }
+  if (event.type === 'order-updated' && !s.orders[event.orderId]) {
+    throw new Error(`모르는 주문이에요: ${event.orderId}`);
+  }
+  if (event.type === 'worker-updated' && !s.workers[event.workerId]) {
+    throw new Error(`모르는 워커예요: ${event.workerId}`);
+  }
+  if (event.type === 'gate-resolved') {
+    const g = s.gates[event.gateId];
+    if (!g) throw new Error(`모르는 게이트예요: ${event.gateId}`);
+    if (g.status !== 'open') throw new Error(`이미 닫힌 게이트예요: ${event.gateId}`);
+  }
+}
+
+/**
+ * 로그를 재생한다. append 도중 끊겨 마지막 줄이 반쯤 써졌으면 그 줄만 버린다.
+ * 중간 줄이 깨졌으면 복원 결과를 믿을 수 없으니 멈춘다.
+ */
+export function replay(path: string): MasterSnapshot {
+  const s = emptySnapshot();
+  if (!existsSync(path)) return s;
+  const lines = readFileSync(path, 'utf-8').split('\n');
+  const last = lines.length - 1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (!line.trim()) continue;
+    let event: MasterEvent;
+    try {
+      event = JSON.parse(line) as MasterEvent;
+    } catch {
+      if (i >= last - 1) break;
+      throw new Error(`${path} ${i + 1}번째 줄을 못 읽어요. 저장소가 깨졌어요`);
+    }
+    applyEvent(s, event);
+  }
+  return s;
+}
