@@ -404,15 +404,7 @@ export const executeInputSchema = guardObject(
         constraints: z.array(z.string()).optional(),
         ontologySchema: z
           .object({
-            entities: z
-              .array(
-                z.object({
-                  name: z.string(),
-                  description: z.string(),
-                  attributes: z.array(z.string()),
-                }),
-              )
-              .optional(),
+            entities: z.array(ontologyEntitySchema).optional(),
             relations: z
               .array(
                 z.object({
@@ -490,15 +482,7 @@ export const executeInputSchema = guardObject(
           constraints: z.array(z.string()).optional(),
           ontologySchema: z
             .object({
-              entities: z
-                .array(
-                  z.object({
-                    name: z.string(),
-                    description: z.string(),
-                    attributes: z.array(z.string()),
-                  }),
-                )
-                .optional(),
+              entities: z.array(ontologyEntitySchema).optional(),
               relations: z
                 .array(
                   z.object({
