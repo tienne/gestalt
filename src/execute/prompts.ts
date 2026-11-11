@@ -111,7 +111,7 @@ Decompose the classified acceptance criteria into atomic, independently executab
 ${classified}
 
 **Ontology**:
-- Entities: ${spec.ontologySchema.entities.map((e) => `${e.name} (${e.attributes.join(', ')})`).join('; ')}
+- Entities: ${spec.ontologySchema.entities.map((e) => `${e.name} (${(e.attributes ?? []).join(', ')})`).join('; ')}
 - Relations: ${spec.ontologySchema.relations.map((r) => `${r.from} → ${r.to} [${r.type}]`).join('; ')}
 
 Respond with ONLY a JSON object:
