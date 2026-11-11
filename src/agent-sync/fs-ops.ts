@@ -47,7 +47,20 @@ export function samePath(a: string, b: string): boolean {
   return resolve(a) === resolve(b) || realOrSelf(a) === realOrSelf(b);
 }
 
-/** 옮길 자리가 다른 볼륨이면 rename이 EXDEV로 실패하니 복사하고 원래 것을 지운다 */
+/** 복사가 중간에 실패하면 반쯤 복사된 것을 지우고 원래 에러를 다시 던진다 */
+function copyOrClean(from: string, to: string): void {
+  try {
+    cpSync(from, to, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true });
+  } catch (e) {
+    rmSync(to, { recursive: true, force: true });
+    throw e;
+  }
+}
+
+/**
+ * 옮길 자리가 다른 볼륨이면 rename이 EXDEV로 실패하니 복사하고 원래 것을 지운다.
+ * 원래 것을 못 지우면 복사본은 남긴다. 두 곳 다 있으면 잃는 게 없다.
+ */
 export function movePath(from: string, to: string): void {
   if (lstatOrNull(to)) throw new Error(`옮길 자리에 이미 뭔가 있어요: ${to}`);
   mkdirSync(dirname(to), { recursive: true });
@@ -55,7 +68,7 @@ export function movePath(from: string, to: string): void {
     renameSync(from, to);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e;
-    cpSync(from, to, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true });
+    copyOrClean(from, to);
     rmSync(from, { recursive: true, force: true });
   }
 }
@@ -64,7 +77,7 @@ export function movePath(from: string, to: string): void {
 export function copyPath(from: string, to: string): void {
   if (lstatOrNull(to)) throw new Error(`복사할 자리에 이미 뭔가 있어요: ${to}`);
   mkdirSync(dirname(to), { recursive: true });
-  cpSync(from, to, { recursive: true, verbatimSymlinks: true, preserveTimestamps: true });
+  copyOrClean(from, to);
 }
 
 export function removePath(path: string): void {
