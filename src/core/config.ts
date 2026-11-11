@@ -372,6 +372,27 @@ const webFetchCacheConfigSchema = z.object({
   enabled: z.boolean().default(false),
 });
 
+const masterConfigSchema = z.object({
+  /** 동시에 도는 워커 수 상한. 넘치는 주문은 큐에 쌓였다가 자리가 나면 뜬다 */
+  maxConcurrentWorkers: z.number().int().min(1).max(100).default(10),
+  /** 진행 감시 주기(초). 마스터가 tick을 이 간격보다 자주 돌리지 않는다 */
+  pollIntervalSec: z.number().int().min(10).max(3600).default(60),
+  /** 같은 주문의 워커를 체크포인트부터 다시 띄우는 최대 횟수. 넘으면 사람에게 올린다 */
+  maxResumeAttempts: z.number().int().min(1).max(10).default(3),
+  /** 워커 소식(보고나 체크포인트)이 이 시간(초) 넘게 없으면 끊긴 것으로 보고 재개한다 */
+  staleAfterSec: z.number().int().min(60).max(86400).default(900),
+  /** 주문에 범위를 안 적었을 때. 머지 전에 사람 승인을 받는 쪽이 기본이다 */
+  defaultScope: z.enum(['merge-through', 'approval', 'interview-first']).default('approval'),
+  /** 워커 결과 요약의 글자 수 상한. 원문 로그가 마스터 대화로 새지 않게 막는다 */
+  resultMaxChars: z.number().int().min(200).max(20000).default(2000),
+  /** 실행 상태 저장소 위치. 비우면 `~/.gestalt/master` */
+  stateDir: z.string().optional(),
+  /** 레포(`owner/name`)마다 쓸 인증 계정. 워커를 띄우기 전에 이 값으로 확인하고 전환한다 */
+  accounts: z.record(z.string(), z.string()).default({}),
+  /** 레포(`owner/name`)의 로컬 경로. git 워크트리를 만들거나 오르카에 레포를 가리킬 때 쓴다 */
+  repoPaths: z.record(z.string(), z.string()).default({}),
+});
+
 /** 호스트 초기화 때 갱신하는 모델 필드와 그 기본값의 단일 정의. */
 const hostModelSchema = z.object({
   reasoningModel: reasoningModelSchema.default(DEFAULT_REASONING_MODEL),
@@ -420,6 +441,7 @@ const configSchema = z.object({
   notifications: z.boolean().default(false),
   codeGraph: codeGraphConfigSchema.default({}),
   webFetchCache: webFetchCacheConfigSchema.default({}),
+  master: masterConfigSchema.default({}),
   // 상수가 아니라 함수다. 모듈을 읽을 때 굳히면 테스트 setupFiles가 GESTALT_HOME을
   // 세우기 전에 값이 정해져서 진짜 홈을 가리킨다
   dbPath: z.string().default(() => gestaltPath('events.db')),
@@ -584,6 +606,14 @@ function buildEnvConfig(): Record<string, unknown> {
   const webFetchCacheEnabled = parseHooksEnv(env[WEBFETCH_CACHE_ENV]);
   if (webFetchCacheEnabled !== undefined) {
     result.webFetchCache = { enabled: webFetchCacheEnabled };
+  }
+
+  if (env['GESTALT_MASTER_MAX_WORKERS'] !== undefined) {
+    const n = Number(env['GESTALT_MASTER_MAX_WORKERS']);
+    // 숫자가 아니면 그대로 넘겨 스키마 검증에서 이유와 함께 걸리게 둔다
+    result.master = {
+      maxConcurrentWorkers: Number.isNaN(n) ? env['GESTALT_MASTER_MAX_WORKERS'] : n,
+    };
   }
 
   // top-level

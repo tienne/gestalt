@@ -228,6 +228,39 @@ describe('loadConfig — webFetchCache', () => {
   });
 });
 
+describe('loadConfig — master', () => {
+  const originalEnv = { ...process.env };
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+  const opts = { skipDotEnv: true, skipGestaltJson: true };
+
+  it('기본은 동시 워커 10개, approval 범위다', () => {
+    delete process.env['GESTALT_MASTER_MAX_WORKERS'];
+    const { master } = loadConfig({}, opts);
+    expect(master.maxConcurrentWorkers).toBe(10);
+    expect(master.defaultScope).toBe('approval');
+    expect(master.maxResumeAttempts).toBe(3);
+    expect(master.accounts).toEqual({});
+    expect(master.stateDir).toBeUndefined();
+  });
+
+  it('env로 동시 워커 상한을 바꾼다', () => {
+    process.env['GESTALT_MASTER_MAX_WORKERS'] = '4';
+    expect(loadConfig({}, opts).master.maxConcurrentWorkers).toBe(4);
+  });
+
+  it('overrides의 범위와 계정 맵을 받는다', () => {
+    const { master } = loadConfig(
+      { master: { defaultScope: 'merge-through', accounts: { 'acme/app': 'work' } } },
+      opts,
+    );
+    expect(master.defaultScope).toBe('merge-through');
+    expect(master.accounts).toEqual({ 'acme/app': 'work' });
+    expect(master.maxConcurrentWorkers).toBe(10);
+  });
+});
+
 describe('loadConfig — ruleSources', () => {
   const opts = { skipDotEnv: true, skipGestaltJson: true };
 

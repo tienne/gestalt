@@ -30,6 +30,7 @@
   "relatedRepos": ["acme/widget-kit"],
   "codeGraph": { "hooks": { "enabled": false } },
   "webFetchCache": { "enabled": false },
+  "master": { "maxConcurrentWorkers": 10, "defaultScope": "approval" },
   "dbPath": ".gestalt/gestalt.db",
   "logLevel": "info"
 }
@@ -68,6 +69,17 @@ interface GestaltConfig {
     hooks: { enabled: boolean }; // Claude Code 훅 자동 주입, 기본 false
   };
   webFetchCache: { enabled: boolean }; // WebFetch 디스크 캐시 훅, 기본 false
+  master: {
+    maxConcurrentWorkers: number; // 동시 워커 상한, 기본 10
+    pollIntervalSec: number; // 진행 감시 주기, 기본 60
+    maxResumeAttempts: number; // 체크포인트 재개 횟수 상한, 기본 3
+    staleAfterSec: number; // 소식이 이만큼(초) 없으면 끊긴 워커로 본다, 기본 900
+    defaultScope: 'merge-through' | 'approval' | 'interview-first'; // 기본 approval
+    resultMaxChars: number; // 워커 결과 요약 글자 수 상한, 기본 2000
+    stateDir?: string; // 실행 상태 저장소, 기본 ~/.gestalt/master
+    accounts: Record<string, string>; // 레포별 인증 계정
+    repoPaths: Record<string, string>; // 레포별 로컬 경로
+  };
   dbPath: string;
   skillsDir: string;
   agentsDir: string;
@@ -96,6 +108,7 @@ interface GestaltConfig {
 | `GESTALT_NOTIFICATIONS` | boolean | `false` | 완료/실패 시 OS 알림 전송 여부 (`"true"` 문자열로 설정) |
 | `GESTALT_CODE_GRAPH_HOOKS` | `"1"` \| `"true"` \| `"0"` \| `"false"` | — | Claude Code 플러그인 훅의 코드 그래프 자동 주입을 켜고 끈다. `0`/`false`는 `gestalt.json` 설정보다 우선해서 끈다. 동작은 [Claude Code 훅 (자동 주입)](./code-graph.md#claude-code-훅-자동-주입) |
 | `GESTALT_WEBFETCH_CACHE` | `"1"` \| `"true"` \| `"0"` \| `"false"` | — | WebFetch 디스크 캐시 훅을 켜고 끈다. `0`/`false`는 `gestalt.json` 설정보다 우선해서 끈다. 동작은 [WebFetch 디스크 캐시](./webfetch-cache.md) |
+| `GESTALT_MASTER_MAX_WORKERS` | number | `10` | 마스터 오케스트레이터의 동시 워커 상한. 동작은 [마스터 오케스트레이터](./master-orchestrator.md) |
 | `GESTALT_DB_PATH` | string | `"~/.gestalt/events.db"` | SQLite 이벤트 스토어 파일 경로 |
 | `GESTALT_SKILLS_DIR` | string | `"skills"` | 스킬 SKILL.md 파일들이 위치한 디렉터리 |
 | `GESTALT_AGENTS_DIR` | string | `"agents"` | 커스텀 에이전트 정의 디렉터리 |
@@ -130,6 +143,7 @@ interface GestaltConfig {
 | `GESTALT_NOTIFICATIONS` | `notifications` |
 | `GESTALT_CODE_GRAPH_HOOKS` | `codeGraph.hooks.enabled` |
 | `GESTALT_WEBFETCH_CACHE` | `webFetchCache.enabled` |
+| `GESTALT_MASTER_MAX_WORKERS` | `master.maxConcurrentWorkers` |
 | `GESTALT_DB_PATH` | `dbPath` |
 | `GESTALT_SKILLS_DIR` | `skillsDir` |
 | `GESTALT_AGENTS_DIR` | `agentsDir` |
@@ -234,6 +248,30 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 - 캐시는 레포 밖 `${XDG_CACHE_HOME:-$HOME/.cache}/gestalt/webfetch-cache/<프로젝트 해시>/`에 쌓인다. `jq`와 `curl`이 없으면 훅은 아무것도 하지 않고 지나간다
 
 저장 규칙과 한계는 [WebFetch 디스크 캐시](./webfetch-cache.md)에 있다.
+
+---
+
+## 마스터 오케스트레이터 (`master`)
+
+```json
+{
+  "master": {
+    "maxConcurrentWorkers": 10,
+    "defaultScope": "approval",
+    "accounts": { "acme/widget-kit": "work" },
+    "repoPaths": { "acme/widget-kit": "/path/to/widget-kit" }
+  }
+}
+```
+
+- `maxConcurrentWorkers`를 넘는 주문은 큐에 쌓였다가 자리가 나면 뜬다. 마스터가 진행을 볼 때마다 다시 읽으므로 돌고 있는 중에 바꿔도 다음 감시부터 적용된다
+- `defaultScope`는 주문에 범위를 안 적었을 때 쓴다. `merge-through`는 머지까지 승인 없이 가고 `approval`은 머지 전에 사람 승인을 받는다. `interview-first`는 인터뷰 답을 사람이 직접 한다
+- `accounts`에 적힌 레포는 워커를 띄우기 전에 그 계정으로 맞춘다. 맞추는 절차가 없으면 사람에게 올린다
+- `repoPaths`는 오르카가 없을 때 git 워크트리를 만들 원본 체크아웃 경로다. 오르카가 있으면 레포를 가리키는 데 쓰고 비어 있으면 레포 이름으로 찾는다
+- `staleAfterSec` 동안 보고도 체크포인트도 없는 워커는 끊긴 것으로 보고 마지막 체크포인트부터 다시 띄운다. CI를 오래 기다리는 워커는 그사이 진행 보고를 한 번씩 남겨야 한다
+- `resultMaxChars`를 넘는 결과 요약이나 diff, 스택 트레이스가 섞인 결과는 받지 않고 요약을 다시 달라고 돌려보낸다
+
+동작 전체는 [마스터 오케스트레이터](./master-orchestrator.md)에 있다.
 
 ---
 
