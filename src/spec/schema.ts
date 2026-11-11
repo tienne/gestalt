@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { GestaltPrinciple } from '../core/types.js';
 
-// ges_spec으로 만드는 스펙은 필드를 다 채우게 일부러 엄격하게 둔다(passthrough 입력도 여기서 다시 검사한다). optional로 받는 곳은 ges_execute의 spec, specPatch, lateralResult 입력뿐이다(mcp/schemas.ts).
+// 스펙은 필드를 다 채우게 일부러 엄격하게 둔다.
+// MCP 입력(mcp/schemas.ts)은 optional로 받는다. ges_spec의 passthrough 입력은 generator가 이 스키마로 다시 검사한다.
 const ontologyEntitySchema = z.object({
   name: z.string().min(1),
   description: z.string(),
