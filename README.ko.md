@@ -229,9 +229,9 @@ claude mcp add gestalt -e GESTALT_FOLLOW_PLUGIN=0 -- gestalt serve
 
 터미널의 `gestalt`도 같은 식으로 플러그인을 따라가요. `npm i -g`로 깐 전역 설치본은 설치된 gestalt 플러그인을 찾아서 버전이 다르면 그 플러그인의 런처로 명령을 넘겨요. 그래서 플러그인만 업데이트해도 CLI가 같이 올라가요.
 
-찾는 자리는 Claude Code에서 사용자 범위로 설치한 `gestalt@gestalt`(`CLAUDE_CONFIG_DIR`과 `~/.claude` 둘 다의 `installed_plugins.json`. `settings.json`에서 꺼 뒀으면 건너뜀)와 Codex에서 켜 둔 gestalt 마켓플레이스 플러그인(`CODEX_HOME`이나 `~/.codex`)이에요. 설치가 여럿이면 가장 높은 버전을 따르고 전역 쪽이 더 새 버전이어도 플러그인을 따라요.
+찾는 자리는 Claude Code에서 사용자 범위로 설치한 `gestalt@gestalt`와 Codex에서 켜 둔 gestalt 마켓플레이스 플러그인(`CODEX_HOME`이나 `~/.codex`)이에요. Claude Code는 `CLAUDE_CONFIG_DIR`과 `~/.claude`의 `installed_plugins.json`을 모두 보고 그 자리의 `settings.json`에서 플러그인을 꺼 뒀으면 건너뛰어요. 설치가 여럿이면 가장 높은 버전을 따르고 전역 쪽이 더 새 버전이어도 플러그인을 따라요.
 
-레포 체크아웃이나 프로젝트 의존성, npx 캐시에서 도는 실행은 그 버전 그대로 돌아요. 다만 npx는 같은 버전이 전역에 깔려 있으면 전역 실행 파일을 부르니, 버전을 꼭 고정해야 하면 `GESTALT_FOLLOW_PLUGIN=0`을 함께 주세요. 플러그인 매니페스트의 MCP 기동과 `gestalt update`, 이 문서의 Claude Code와 Codex 예시는 이미 그렇게 해 뒀어요. Grok이나 Gemini 명령처럼 다른 방법으로 등록하면 그 env에도 같은 값을 넣어 주세요. 넘길 때 npm 캐시를 한 번 거쳐서 전역 버전이 플러그인과 다시 같아질 때까지 호출마다 2초쯤 더 걸려요.
+레포 체크아웃이나 프로젝트 의존성, npx 캐시에서 도는 실행은 그 버전 그대로 돌아요. 다만 버전을 고정하지 않은 `npx -y @tienne/gestalt`는 전역에 어떤 버전이 깔려 있든 전역 실행 파일을 부르니, 버전을 꼭 고정해야 하면 `GESTALT_FOLLOW_PLUGIN=0`을 함께 주세요. 플러그인 매니페스트의 MCP 기동과 `gestalt update`, 이 문서의 Claude Code와 Codex 예시는 이미 그렇게 해 뒀어요. Grok이나 Gemini 명령처럼 다른 방법으로 등록하면 그 env에도 같은 값을 넣어 주세요. 이미 등록해 둔 Codex는 `config.toml`(`CODEX_HOME`이나 `~/.codex`)의 `[mcp_servers.gestalt.env]`에 `GESTALT_FOLLOW_PLUGIN = "0"`을 직접 넣어 주세요. `gestalt update`는 npx 등록을 건드리지 않아요. 넘길 때 npm 캐시를 한 번 거쳐서 전역 버전이 플러그인과 다시 같아질 때까지 호출마다 2초쯤 더 걸려요.
 
 ---
 
@@ -330,6 +330,8 @@ Grok도 호스트 패스스루로 동작해요 — Gestalt가 프롬프트와 �
 ```bash
 grok mcp add gestalt -- npx -y @tienne/gestalt serve
 ```
+
+`gestalt`를 전역에도 깔았다면 버전과 상관없이 이 서버 env에 `GESTALT_FOLLOW_PLUGIN=0`을 넣어 주세요.
 
 그리고 옵션 6처럼 `"client": "grok"`를 넣으면 실행 컨텍스트가 `.grok/rules/gestalt-active.md`에 기록돼요. 워크플로 스킬이 필요하면 옵션 6을 쓰세요.
 

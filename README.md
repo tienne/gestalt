@@ -204,7 +204,7 @@ The terminal `gestalt` follows the plugin the same way. When an `npm i -g` insta
 
 It looks at the user-scope `gestalt@gestalt` install for Claude Code (`installed_plugins.json` under both `CLAUDE_CONFIG_DIR` and `~/.claude`, unless `settings.json` turns the plugin off) and the enabled plugin from the gestalt marketplace for Codex (`CODEX_HOME` or `~/.codex`). With several installs it follows the highest version, even when the global itself is newer.
 
-Runs from a repo checkout, a project dependency, or the npx cache keep their own version. npx still runs the global binary when the same version is installed globally, so set `GESTALT_FOLLOW_PLUGIN=0` wherever the version must stay pinned. The plugin's MCP manifests and `gestalt update` already do, and so do the Claude Code and Codex examples in this README. If you register the server another way, such as the Grok and Gemini commands, add the same variable to its env. Delegation goes through the npm cache, so each call takes about two seconds longer until the global matches the plugin again.
+Runs from a repo checkout, a project dependency, or the npx cache keep their own version. An unpinned `npx -y @tienne/gestalt` still runs the global binary whatever version is installed there, so set `GESTALT_FOLLOW_PLUGIN=0` wherever the version must stay pinned. The plugin's MCP manifests and `gestalt update` already do, and so do the Claude Code and Codex examples in this README. If you register the server another way, such as the Grok and Gemini commands, add the same variable to its env. For an existing Codex registration, add `GESTALT_FOLLOW_PLUGIN = "0"` under `[mcp_servers.gestalt.env]` in `config.toml` (`CODEX_HOME` or `~/.codex`); `gestalt update` leaves npx registrations as they are. Delegation goes through the npm cache, so each call takes about two seconds longer until the global matches the plugin again.
 
 ---
 
@@ -322,6 +322,8 @@ If you want the MCP tools without the bundled skills:
 grok mcp add gestalt -- npx -y @tienne/gestalt serve
 ```
 
+If `gestalt` is also installed globally (any version), add `GESTALT_FOLLOW_PLUGIN=0` to this server's env.
+
 Then add `"client": "grok"` as in Option 6. This option ships no skills — the pipeline runs entirely through MCP tool calls. Use Option 6 if you want the workflow skills. During execution, active context is written to `.grok/rules/gestalt-active.md`.
 
 ---
@@ -332,6 +334,8 @@ Then add `"client": "grok"` as in Option 6. This option ships no skills — the 
 gemini mcp add gestalt -- npx -y @tienne/gestalt serve
 ```
 
+If `gestalt` is also installed globally (any version), add `GESTALT_FOLLOW_PLUGIN=0` to this server's env.
+
 Or add directly to `~/.gemini/settings.json`:
 
 ```json
@@ -339,7 +343,8 @@ Or add directly to `~/.gemini/settings.json`:
   "mcpServers": {
     "gestalt": {
       "command": "npx",
-      "args": ["-y", "@tienne/gestalt", "serve"]
+      "args": ["-y", "@tienne/gestalt", "serve"],
+      "env": { "GESTALT_FOLLOW_PLUGIN": "0" }
     }
   }
 }
