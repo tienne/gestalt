@@ -158,6 +158,27 @@ describe('findPluginLaunchers', () => {
     expect(findPluginLaunchers({ env: {}, home })).toEqual([]);
   });
 
+  it.each([
+    ['공백이 낀 표 머리', '[ plugins . "gestalt@gestalt" ]\nenabled = false\n'],
+    ['작은따옴표 키', "[plugins.'gestalt@gestalt']\nenabled = false\n"],
+    ['[plugins] 아래 점 키', '[plugins]\n"gestalt@gestalt".enabled = false\n'],
+  ])('Codex config.toml의 %s로 꺼 둔 것도 건너뛴다', (_label, toml) => {
+    const home = tempHome();
+    codexInstall(join(home, '.codex'), '0.129.0');
+    writeFileSync(join(home, '.codex', 'config.toml'), toml);
+    expect(findPluginLaunchers({ env: {}, home })).toEqual([]);
+  });
+
+  it('[plugins] 아래 다른 플러그인을 꺼 둔 건 gestalt를 건너뛰지 않는다', () => {
+    const home = tempHome();
+    codexInstall(join(home, '.codex'), '0.129.0');
+    writeFileSync(
+      join(home, '.codex', 'config.toml'),
+      '[plugins]\n"other@gestalt".enabled = false\n',
+    );
+    expect(findPluginLaunchers({ env: {}, home })).toHaveLength(1);
+  });
+
   it('Claude settings.json에서 꺼 둔 플러그인은 건너뛰고 깨진 settings는 켜진 걸로 본다', () => {
     const home = tempHome();
     const claude = join(home, '.claude');

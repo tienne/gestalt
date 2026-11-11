@@ -119,14 +119,23 @@ function codexPluginDisabled(codexHome: string): boolean {
   } catch {
     return false;
   }
-  let inSection = false;
+  // `[plugins."gestalt@gestalt"]` 표와 `[plugins]` 표 아래 점 키는 TOML에서 같은 값이다
+  let section: 'plugin' | 'plugins' | null = null;
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.replace(/\s*#.*$/, '').trim();
     if (trimmed.startsWith('[')) {
-      inSection = trimmed === `[plugins."${PLUGIN_KEY}"]`;
+      if (/^\[\s*plugins\s*\.\s*(["'])gestalt@gestalt\1\s*\]$/.test(trimmed)) section = 'plugin';
+      else if (/^\[\s*plugins\s*\]$/.test(trimmed)) section = 'plugins';
+      else section = null;
       continue;
     }
-    if (inSection && /^enabled\s*=\s*false\b/.test(trimmed)) return true;
+    if (section === 'plugin' && /^enabled\s*=\s*false\b/.test(trimmed)) return true;
+    if (
+      section === 'plugins' &&
+      /^(["'])gestalt@gestalt\1\s*\.\s*enabled\s*=\s*false\b/.test(trimmed)
+    ) {
+      return true;
+    }
   }
   return false;
 }
