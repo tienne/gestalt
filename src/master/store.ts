@@ -1,8 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+} from 'node:fs';
 import { join } from 'node:path';
-import { gestaltPath } from '../core/home.js';
 import { writeJsonAtomic } from '../core/json-file.js';
+import { log } from '../core/log.js';
 import {
   ACTIVE_WORKER_STATUSES,
   type Checkpoint,
@@ -19,18 +28,17 @@ import {
  * 이벤트를 `events.jsonl`에 한 줄씩 덧붙이고 상태는 그 로그를 처음부터 재생해서 만든다.
  * 마스터 세션이 압축되거나 새로 떠도 이 디렉토리만 있으면 주문과 워커, 체크포인트,
  * 승인 대기를 같게 복원한다. `snapshot.json`은 사람과 도구가 빨리 읽으라고 두는
- * 사본이라 복원에는 쓰지 않는다. 둘이 어긋나면 로그가 맞다.
+ * 사본이라 복원에는 쓰지 않는다. 둘이 어긋나면 로그가 맞다. tick처럼 이벤트를 몰아 쓰는
+ * 자리는 `deferSnapshot`으로 묶어 사본을 끝에 한 번만 쓴다.
  *
  * 워커 프로세스도 `gestalt master checkpoint save`로 같은 로그에 덧붙인다. 한 줄짜리
- * append는 O_APPEND라 줄끼리 섞이지 않는다. 결과 보고는 inbox에 파일로 두고 tick이 읽는다.
+ * append는 O_APPEND로 쓴다. 줄 단위로 섞이지 않는다는 전제는 store.test.ts의
+ * '두 프로세스가 동시에 덧붙여도 모든 줄이 온전하다'가 확인한다. 결과 보고는 inbox에
+ * 파일로 두고 tick이 읽는다.
  */
 
 export const EVENTS_FILE = 'events.jsonl';
 export const SNAPSHOT_FILE = 'snapshot.json';
-
-export function defaultStateDir(configured?: string): string {
-  return configured && configured.trim() ? configured : gestaltPath('master');
-}
 
 export function emptySnapshot(): MasterSnapshot {
   return {
@@ -72,6 +80,11 @@ export function applyEvent(s: MasterSnapshot, e: MasterEvent): void {
     case 'gate-opened':
       s.gates[e.gate.id] = { ...e.gate };
       return;
+    case 'gate-updated': {
+      const g = s.gates[e.gateId];
+      if (g) s.gates[e.gateId] = { ...g, reason: e.reason, refs: [...e.refs] };
+      return;
+    }
     case 'gate-resolved': {
       const g = s.gates[e.gateId];
       if (g) {
@@ -98,6 +111,8 @@ export function applyEvent(s: MasterSnapshot, e: MasterEvent): void {
       s.ticks += 1;
       s.lastTickAt = e.at;
       return;
+    case 'tail-repaired':
+      return;
   }
 }
 
@@ -109,6 +124,7 @@ export class MasterStore {
   readonly dir: string;
   private state: MasterSnapshot;
   private readonly now: () => Date;
+  private deferDepth = 0;
 
   private constructor(dir: string, state: MasterSnapshot, now: () => Date) {
     this.dir = dir;
@@ -137,9 +153,37 @@ export class MasterStore {
 
   append(event: MasterEvent): void {
     validate(event, this.state);
-    appendFileSync(join(this.dir, EVENTS_FILE), `${JSON.stringify(event)}\n`, 'utf-8');
+    const path = join(this.dir, EVENTS_FILE);
+    // 앞 프로세스가 줄 중간에 죽었으면 개행부터 붙인다. 안 그러면 깨진 꼬리와 새 이벤트가
+    // 한 줄로 합쳐져 중간 줄이 깨진 로그가 된다. 표시 이벤트를 같은 write에 실어 replay가
+    // 이 깨진 줄을 버려도 되는 줄로 알아본다
+    const repair: MasterEvent | undefined = endsWithoutNewline(path)
+      ? { type: 'tail-repaired', at: this.timestamp() }
+      : undefined;
+    const prefix = repair ? `\n${JSON.stringify(repair)}\n` : '';
+    appendFileSync(path, `${prefix}${JSON.stringify(event)}\n`, 'utf-8');
+    if (repair) applyEvent(this.state, repair);
     applyEvent(this.state, event);
+    if (this.deferDepth === 0) this.flushSnapshot();
+  }
+
+  /** 사람과 도구가 읽는 사본을 지금 상태로 쓴다 */
+  flushSnapshot(): void {
     writeJsonAtomic(join(this.dir, SNAPSHOT_FILE), this.state);
+  }
+
+  /**
+   * fn이 도는 동안 append마다 사본을 다시 쓰지 않고 끝에 한 번만 쓴다.
+   * 사본은 줄지 않는 목록까지 통째로 담아 이벤트마다 쓰면 tick 하나가 수십 번 직렬화한다
+   */
+  async deferSnapshot<T>(fn: () => Promise<T>): Promise<T> {
+    this.deferDepth += 1;
+    try {
+      return await fn();
+    } finally {
+      this.deferDepth -= 1;
+      if (this.deferDepth === 0) this.flushSnapshot();
+    }
   }
 
   addOrder(order: Order): void {
@@ -229,6 +273,9 @@ function validate(event: MasterEvent, s: MasterSnapshot): void {
   if (event.type === 'worker-updated' && !s.workers[event.workerId]) {
     throw new Error(`모르는 워커예요: ${event.workerId}`);
   }
+  if (event.type === 'gate-updated' && !s.gates[event.gateId]) {
+    throw new Error(`모르는 게이트예요: ${event.gateId}`);
+  }
   if (event.type === 'gate-resolved') {
     const g = s.gates[event.gateId];
     if (!g) throw new Error(`모르는 게이트예요: ${event.gateId}`);
@@ -236,15 +283,33 @@ function validate(event: MasterEvent, s: MasterSnapshot): void {
   }
 }
 
+function endsWithoutNewline(path: string): boolean {
+  let fd: number;
+  try {
+    fd = openSync(path, 'r');
+  } catch {
+    return false;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    if (size === 0) return false;
+    const buf = Buffer.alloc(1);
+    readSync(fd, buf, 0, 1, size - 1);
+    return buf[0] !== 0x0a;
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /**
- * 로그를 재생한다. append 도중 끊겨 마지막 줄이 반쯤 써졌으면 그 줄만 버린다.
- * 중간 줄이 깨졌으면 복원 결과를 믿을 수 없으니 멈춘다.
+ * 로그를 재생한다. append 도중 끊겨 반쯤 써진 줄은 둘 중 하나일 때만 버린다.
+ * 마지막 줄이거나, 다음 append가 개행을 붙이고 남긴 tail-repaired 표시가 바로 뒤에 올 때다.
+ * 그 밖의 중간 줄이 깨졌으면 복원 결과를 믿을 수 없으니 멈춘다.
  */
 export function replay(path: string): MasterSnapshot {
   const s = emptySnapshot();
   if (!existsSync(path)) return s;
   const lines = readFileSync(path, 'utf-8').split('\n');
-  const last = lines.length - 1;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     if (!line.trim()) continue;
@@ -252,10 +317,30 @@ export function replay(path: string): MasterSnapshot {
     try {
       event = JSON.parse(line) as MasterEvent;
     } catch {
-      if (i >= last - 1) break;
+      const next = nextNonEmpty(lines, i + 1);
+      if (next === undefined) break;
+      if (isTailRepaired(next)) {
+        log(`${path} ${i + 1}번째 줄이 반쯤 써져 있어 건너뛰어요`);
+        continue;
+      }
       throw new Error(`${path} ${i + 1}번째 줄을 못 읽어요. 저장소가 깨졌어요`);
     }
     applyEvent(s, event);
   }
   return s;
+}
+
+function nextNonEmpty(lines: string[], from: number): string | undefined {
+  for (let j = from; j < lines.length; j++) {
+    if (lines[j]!.trim()) return lines[j]!;
+  }
+  return undefined;
+}
+
+function isTailRepaired(line: string): boolean {
+  try {
+    return (JSON.parse(line) as { type?: unknown }).type === 'tail-repaired';
+  } catch {
+    return false;
+  }
 }

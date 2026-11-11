@@ -1,5 +1,7 @@
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EVENTS_FILE, MasterStore, SNAPSHOT_FILE, replay } from '../../../src/master/store.js';
 import type { Worker } from '../../../src/master/types.js';
@@ -118,4 +120,69 @@ describe('MasterStore', () => {
     master.reload();
     expect(master.order('ord-1')?.status).toBe('running');
   });
+
+  it('깨진 꼬리 뒤에 덧붙여도 새 이벤트를 잃지 않고 다시 열 수 있다', () => {
+    const dir = tempStateDir();
+    const s = MasterStore.open(dir);
+    s.addOrder(order({ id: 'ord-1' }));
+    appendFileSync(join(dir, EVENTS_FILE), '{"type":"order-ad');
+
+    const after = MasterStore.open(dir);
+    after.addOrder(order({ id: 'ord-2' }));
+    after.addOrder(order({ id: 'ord-3' }));
+
+    const reopened = MasterStore.open(dir);
+    expect(
+      reopened
+        .orders()
+        .map((o) => o.id)
+        .sort(),
+    ).toEqual(['ord-1', 'ord-2', 'ord-3']);
+    expect(reopened.snapshot.eventCount).toBe(after.snapshot.eventCount);
+  });
+
+  it('deferSnapshot 안에서는 사본을 끝에 한 번만 쓴다', async () => {
+    const dir = tempStateDir();
+    const s = MasterStore.open(dir);
+    await s.deferSnapshot(async () => {
+      s.addOrder(order({ id: 'ord-1' }));
+      expect(existsSync(join(dir, SNAPSHOT_FILE))).toBe(false);
+    });
+    const snap = JSON.parse(readFileSync(join(dir, SNAPSHOT_FILE), 'utf-8'));
+    expect(snap).toEqual(replay(join(dir, EVENTS_FILE)));
+  });
+
+  it('두 프로세스가 동시에 덧붙여도 모든 줄이 온전하다', async () => {
+    const dir = resolve(tempStateDir());
+    MasterStore.open(dir);
+    const storeUrl = pathToFileURL(resolve('src/master/store.ts')).href;
+    const perChild = 300;
+    // 줄이 길수록 write가 쪼개질 여지가 커서 일부러 길게 채운다
+    const code = `
+      const { MasterStore } = await import(${JSON.stringify(storeUrl)});
+      const s = MasterStore.open(process.argv[1]);
+      const pad = process.argv[2].repeat(2000);
+      for (let i = 0; i < ${perChild}; i++) {
+        s.append({ type: 'tick', at: process.argv[2] + '-' + i + '-' + pad });
+      }
+    `;
+    const run = (tag: string) =>
+      new Promise<void>((done, fail) => {
+        const child = spawn(
+          process.execPath,
+          ['--import', 'tsx', '--input-type=module', '-e', code, dir, tag],
+          { stdio: ['ignore', 'ignore', 'pipe'] },
+        );
+        let err = '';
+        child.stderr.on('data', (b: Buffer) => (err += b.toString()));
+        child.on('error', fail);
+        child.on('exit', (c) => (c === 0 ? done() : fail(new Error(`exit ${c}: ${err}`))));
+      });
+    await Promise.all([run('a'), run('b')]);
+
+    const lines = readFileSync(join(dir, EVENTS_FILE), 'utf-8').split('\n').filter(Boolean);
+    expect(lines).toHaveLength(perChild * 2);
+    for (const line of lines) expect(() => JSON.parse(line)).not.toThrow();
+    expect(MasterStore.open(dir).snapshot.ticks).toBe(perChild * 2);
+  }, 30_000);
 });
