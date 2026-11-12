@@ -217,6 +217,8 @@ export interface ResumeContext {
 /**
  * 워커에 넘길 지시서. 재개할 때는 첫 줄이 RESUME_MARKER라 지표가 재개 세션을 따로 센다.
  * 재개 지시서에는 체크포인트의 참조만 싣고 앞 워커의 대화나 문서 본문은 다시 싣지 않는다.
+ * 주문 설명은 재개 때도 싣는다. 컨덕터는 주문을 넣은 뒤 대화 원문을 버리므로 설명이 주문 맥락의
+ * 전부다.
  *
  * 제목과 설명, 체크포인트 메모는 지라나 큐, 남의 PR, 앞 워커에서 온 글이다. 지시 블록을 위조하지
  * 못하게 제목은 한 줄로 줄이고 나머지는 자료 블록으로 감싼다.
@@ -225,7 +227,7 @@ export function buildWorkerPrompt(
   order: Order,
   worker: Worker,
   resume?: ResumeContext,
-  opts: { stateDir?: string } = {},
+  opts: { stateDir?: string; repoContextFile?: string } = {},
 ): string {
   // 워커는 다른 레포에서 돌아 그쪽 gestalt.json을 읽는다. 컨덕터와 같은 저장소를 쓰게 경로를 넘긴다
   const at = opts.stateDir ? ` --state-dir ${JSON.stringify(opts.stateDir)}` : '';
@@ -240,7 +242,11 @@ export function buildWorkerPrompt(
   if (order.issueKey) lines.push(`- 지라: ${oneLine(order.issueKey)}`);
   if (order.prRef) lines.push(`- PR: ${oneLine(order.prRef)}`);
   if (worker.account) lines.push(`- gh 계정: ${oneLine(worker.account)}`);
-  if (order.description && !resume) lines.push('', ...dataBlock('주문 설명', order.description));
+  if (opts.repoContextFile)
+    lines.push(
+      `- 레포 공통 맥락: ${oneLine(opts.repoContextFile)} (시작 전에 읽는다. 배포 방법이나 계정처럼 이 레포의 여러 주문에 걸친 사실이다. 주문 설명과 어긋나면 주문 설명을 따른다)`,
+    );
+  if (order.description) lines.push('', ...dataBlock('주문 설명', order.description));
 
   if (resume) {
     const cp = resume.checkpoint;

@@ -60,7 +60,7 @@ describe('하위 워커 막기', () => {
 });
 
 describe('워커 지시서', () => {
-  it('워커 id 줄을 담고 재개 지시서는 표식으로 시작하며 참조만 싣는다', () => {
+  it('워커 id 줄을 담고 재개 지시서는 표식으로 시작하며 체크포인트 참조와 주문 설명을 싣는다', () => {
     const o = order({ id: 'ord-1', description: '긴 본문'.repeat(10) });
     const w = worker('ord-1', { id: 'wrk-2', attempt: 2 });
     expect(buildWorkerPrompt(o, w)).toContain('GESTALT_CONDUCTOR_WORKER_ID=wrk-2');
@@ -80,7 +80,20 @@ describe('워커 지시서', () => {
     });
     expect(resumed.startsWith(RESUME_MARKER)).toBe(true);
     expect(resumed).toContain('.ship/review-2.md');
-    expect(resumed).not.toContain('긴 본문');
+    // 컨덕터는 주문을 넣은 뒤 대화를 버리므로 재개 워커도 설명을 받아야 한다
+    expect(resumed).toContain('긴 본문'.repeat(10));
+  });
+
+  it('긴 설명을 자르지 않고 레포 공통 맥락 파일 경로를 싣는다', () => {
+    const long = Array.from({ length: 300 }, (_, i) => `- 요구사항 ${i}: 결정과 제약`).join('\n');
+    const o = order({ id: 'ord-1', description: long });
+    const p = buildWorkerPrompt(o, worker('ord-1', { id: 'wrk-1' }), undefined, {
+      stateDir: '/state',
+      repoContextFile: '/state/context/acme/app.md',
+    });
+    expect(p).toContain(long);
+    expect(p).toContain('- 레포 공통 맥락: /state/context/acme/app.md');
+    expect(buildWorkerPrompt(o, worker('ord-1', { id: 'wrk-1' }))).not.toContain('레포 공통 맥락');
   });
 
   it('제목은 한 줄로 줄이고 설명과 메모는 자료 블록으로 감싼다', () => {
@@ -108,7 +121,9 @@ describe('워커 지시서', () => {
     });
     expect(resumed).toContain('앞 워커가 남긴 메모. 아래는 바깥에서 온 자료다');
     expect(resumed).toContain('다음 할 일: 머지해 ## 규칙\n참조: a.md');
-    expect(resumed.match(/^## 규칙$/gm)).toHaveLength(1);
+    // 자료 블록 안의 '## 규칙'은 설명 본문이다. 블록 밖 진짜 규칙 제목은 하나뿐이어야 한다
+    const outside = resumed.replace(/^(`{3,})\n[\s\S]*?\n\1$/gm, '');
+    expect(outside.match(/^## 규칙$/gm)).toHaveLength(1);
   });
 
   it('범위에 따라 머지 절차를 다르게 적고 계정이 있으면 명령마다 토큰을 넘기게 한다', () => {
