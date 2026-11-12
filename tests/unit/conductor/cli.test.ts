@@ -404,7 +404,11 @@ describe('주문 상세와 에이전트', () => {
     out = [];
     conductorOrderShowCommand(o.id, { stateDir });
     const text = out.join('\n');
-    expect(text).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/u);
+    const controls = [...text].filter((ch) => {
+      const c = ch.codePointAt(0)!;
+      return ch !== '\n' && (c < 0x20 || (c >= 0x7f && c < 0xa0) || c === 0x2028 || c === 0x2029);
+    });
+    expect(controls).toEqual([]);
     expect(text).toContain(`첫 줄 [2J\n    상태: done 덮어쓰기 ${long}`);
     expect(text).toContain('정리\n    워커:');
     expect(text).toContain('reports/ ]8;;x a.md');
