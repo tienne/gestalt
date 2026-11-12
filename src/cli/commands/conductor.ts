@@ -23,7 +23,13 @@ import {
 } from '../../conductor/engine.js';
 import { existingRepoContext, repoContextPath } from '../../conductor/context.js';
 import { resolveGate } from '../../conductor/gates.js';
-import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS } from '../../conductor/intake.js';
+import {
+  intakeOrder,
+  isControlChar,
+  ISSUE_KEY_RE,
+  KNOWN_SKILLS,
+  oneLine,
+} from '../../conductor/intake.js';
 import type { DeploySignal } from '../../conductor/jira.js';
 import {
   assertCanSpawn,
@@ -48,6 +54,7 @@ import {
   JIRA_STATUSES,
   ORDER_SCOPES,
   WORKER_KINDS,
+  TERMINAL_ORDER_STATUSES,
   type IntakeKind,
   type IssueType,
   type JiraStatus,
@@ -147,6 +154,7 @@ export interface ConductorOrderAddOptions extends ConductorCommonOptions {
   scope?: string;
   skills?: string;
   workerKind?: string;
+  agent?: string;
   parentWorktree?: string;
   baseBranch?: string;
   source?: string;
@@ -183,6 +191,7 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
       ctx.store,
       {
         source,
+        ...(opts.agent !== undefined ? { agent: opts.agent } : {}),
         repo: opts.repo,
         title: opts.title,
         ...(opts.sourceRef ? { sourceRef: opts.sourceRef } : {}),
@@ -216,6 +225,62 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
     console.log(
       `${out.created ? '주문을 받았어요' : '이미 받은 주문이에요'}: ${out.order.id} (${out.order.scope})`,
     );
+  });
+}
+
+/**
+ * 워커 보고처럼 바깥에서 온 값을 터미널에 찍을 꼴로 바꾼다. ESC 같은 제어 문자가 화면을 조작하지 못하게
+ * 개행 말고는 공백으로 바꾸고 이어지는 줄은 들여써 다른 항목 줄로 보이지 않게 한다. 전문을 읽는 자리라 자르지 않는다
+ */
+function terminalText(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    out += ch !== '\n' && isControlChar(c) ? ' ' : ch;
+  }
+  return out.replace(/\n/g, '\n    ');
+}
+
+export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptions): void {
+  run(() => {
+    const { store } = open(opts);
+    const order = store.order(id);
+    if (!order) throw new Error(`모르는 주문이에요: ${id}`);
+    const workers = store.workersOf(id);
+    const reports = store.snapshot.reports[id] ?? [];
+    const gates = Object.values(store.snapshot.gates).filter((g) => g.orderId === id);
+    const bypasses = store.snapshot.bypasses.filter((b) => b.orderId === id);
+    const refs = [...new Set(reports.flatMap((r) => r.refs))];
+    if (opts.json) return print({ order, workers, reports, refs, gates, bypasses });
+    console.log(`${order.id}  ${terminalText(order.title)}`);
+    console.log(`레포: ${order.repo}  범위: ${order.scope}  상태: ${order.status}`);
+    console.log(`설명: ${order.description ? terminalText(order.description) : '없음'}`);
+    console.log(`체인: ${order.skillChain.join(' → ')}`);
+    console.log(`PR: ${order.prRef ? terminalText(order.prRef) : '없음'}`);
+    if (order.agent) console.log(`주문 에이전트: ${order.agent}`);
+    console.log('워커:');
+    for (const w of workers)
+      console.log(
+        `  ${w.id}  ${w.kind}  에이전트: ${w.agent ?? (w.kind === 'orca-worktree' ? 'claude (기존 기록)' : '호스트에서 결정')}  ${w.status}`,
+      );
+    console.log('보고 이력:');
+    for (const r of reports) {
+      console.log(`  ${r.at}  ${r.workerId}  ${r.status}  ${terminalText(r.summary)}`);
+      if (r.skill) console.log(`    스킬: ${terminalText(r.skill)}`);
+      if (r.prRef) console.log(`    PR: ${terminalText(r.prRef)}`);
+      if (r.merged !== undefined) console.log(`    머지: ${r.merged}`);
+      if (r.stopReason) console.log(`    중단: ${r.stopReason}`);
+      if (r.need) console.log(`    요청: ${r.need.kind}  ${terminalText(r.need.detail)}`);
+    }
+    console.log(`refs: ${refs.map(terminalText).join(', ') || '없음'}`);
+    console.log('gate:');
+    for (const g of gates)
+      console.log(
+        `  ${g.id}  ${g.type}  ${g.status}  ${g.decision ?? '-'}  ${terminalText(g.reason)}${g.answer ? `  답: ${terminalText(g.answer)}` : ''}`,
+      );
+    console.log('bypass:');
+    for (const b of bypasses)
+      console.log(`  ${b.at}  ${terminalText(b.need)}  ${terminalText(b.action)}`);
   });
 }
 
@@ -290,6 +355,9 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
           ...(o.workerId ? { worker: o.workerId } : {}),
           ...(o.prRef ? { pr: o.prRef } : {}),
           ...(o.issueKey ? { issue: o.issueKey } : {}),
+          ...(opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
+            ? { lastSummary: store.snapshot.reports[o.id]?.at(-1)?.summary ?? null }
+            : {}),
           bypasses: bypassesOf.get(o.id) ?? [],
         })),
         unassignedBypasses: bypassesOf.get('') ?? [],
@@ -303,7 +371,13 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
     }
     console.log(`마지막 tick: ${store.snapshot.lastTickAt ?? '없음'}`);
     for (const o of orders) {
-      console.log(`${o.id}  ${o.status}  ${o.scope}  ${o.repo}  ${o.title}`);
+      const summary =
+        opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
+          ? store.snapshot.reports[o.id]?.at(-1)?.summary
+          : undefined;
+      console.log(
+        `${o.id}  ${o.status}  ${o.scope}  ${o.repo}  ${o.title}${summary ? `  ${oneLine(summary, 100)}` : ''}`,
+      );
       for (const b of bypassesOf.get(o.id) ?? [])
         console.log(`  bypass ${b.at}  ${b.need}  ${b.action}`);
     }

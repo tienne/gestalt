@@ -82,4 +82,13 @@ describe('워커 결과 검증', () => {
     expect(parseWorkerReport({ ...ok, prRef: ' acme/app#7 ' }, 2000).prRef).toBe('acme/app#7');
     expect(parseWorkerReport({ ...ok, prRef: 'PR 12' }, 2000).prRef).toBeUndefined();
   });
+
+  it('skill은 64자 이하 한 줄만 남기고 아니면 보고는 받되 skill만 버린다', () => {
+    expect(parseWorkerReport({ ...ok, skill: ' ship ' }, 2000).skill).toBe('ship');
+    for (const skill of ['a'.repeat(65), 'ship\nreview', 'ship\u001b[2J']) {
+      const r = parseWorkerReport({ ...ok, skill }, 2000);
+      expect(r.skill).toBeUndefined();
+      expect(r.summary).toBe(ok.summary);
+    }
+  });
 });

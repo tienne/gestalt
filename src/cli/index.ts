@@ -35,6 +35,7 @@ import {
   conductorGateResolveCommand,
   conductorMetricsCommand,
   conductorOrderAddCommand,
+  conductorOrderShowCommand,
   conductorQueueAddCommand,
   conductorSlackDraftCommand,
   conductorStatusCommand,
@@ -1040,9 +1041,15 @@ export function createCli(): Command {
     );
   const collect = (v: string, prev: string[] = []) => [...prev, v];
 
-  conductor
-    .command('order')
-    .description('주문을 다룬다')
+  const conductorOrder = conductor.command('order').description('주문을 다룬다');
+  conductorOrder
+    .command('show <id>')
+    .description('주문의 상세 상태와 보고 이력, 참조를 보여준다')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action((id, o) => conductorOrderShowCommand(id, o));
+
+  conductorOrder
     .command('add')
     .description(
       '말로 던진 요청이나 호스트가 읽은 지라 티켓을 주문으로 받는다. 같은 출처는 한 번만 받는다',
@@ -1060,6 +1067,7 @@ export function createCli(): Command {
     )
     .option('--skills <a,b>', '스킬 체인. 게슈탈트 스킬 이름만 받는다. 없으면 solve,ship')
     .option('--worker-kind <kind>', 'subagent, orca-worktree, git-worktree 중 하나로 고정')
+    .option('--agent <id>', '이 주문의 오르카 워커 에이전트')
     .option(
       '--parent-worktree <path|selector>',
       '오르카 워커를 이 워크트리 아래 하위로 띄운다. 경로나 오르카 선택자(branch:x 등). 레포가 다르면 거절한다',

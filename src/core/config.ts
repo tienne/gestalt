@@ -16,6 +16,7 @@ import {
   EVOLVE_SUCCESS_THRESHOLD,
   EVOLVE_GOAL_ALIGNMENT_THRESHOLD,
   ORDER_SCOPES,
+  AGENT_ID_RE,
 } from './constants.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -387,6 +388,8 @@ const conductorConfigSchema = z.object({
    * 레포의 gestalt.json이 바꿀 수 있는 칸은 REPO_CONDUCTOR_KEYS가 정한다. 이 칸은 못 바꾼다
    */
   defaultScope: z.enum(ORDER_SCOPES).default('approval'),
+  defaultAgent: z.string().regex(AGENT_ID_RE).default('claude'),
+  repoAgents: z.record(z.string(), z.string().regex(AGENT_ID_RE)).default({}),
   /** 워커 결과 요약의 글자 수 상한. 원문 로그가 컨덕터 대화로 새지 않게 막는다 */
   resultMaxChars: z.number().int().min(200).max(20000).default(2000),
   /** 실행 상태 저장소 위치. 비우면 `~/.gestalt/conductor` */

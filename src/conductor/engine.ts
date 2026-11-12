@@ -47,6 +47,7 @@ import type {
   JiraStatus,
   Order,
   OrderScope,
+  StoredReport,
   Worker,
   WorkerKind,
   WorkerReport,
@@ -130,6 +131,8 @@ const CLEANUP_FAILED = 'cleanup-failed';
 export const MAX_SPAWN_PER_ORDER = 3;
 /** 보고를 적용하다 실패한 원문을 남기는 자리. inbox 아래에 둔다 */
 export const FAILED_REPORTS_DIR = 'failed';
+/** 적용은 끝났는데 report-applied 기록만 실패한 원문. 다음 tick이 다시 적용하지 않고 기록만 남긴다 */
+export const UNRECORDED_REPORTS_DIR = 'unrecorded';
 
 /**
  * 사람 확인 자리가 아닌 요청을 컨덕터가 대신 넘기는 기본 절차. 호스트가 `deps.bypass`로 덮어쓸 수 있다.
@@ -295,6 +298,7 @@ async function ingestReports(
   const cleared: string[] = [];
   const dir = inboxDirOf(store, deps);
   if (!existsSync(dir)) return cleared;
+  recordUnrecorded(store, deps, report, dir, cleared);
   const files = readdirSync(dir)
     .filter((f) => f.endsWith('.json') && !f.startsWith('.'))
     .sort();
@@ -302,18 +306,30 @@ async function ingestReports(
     const path = join(dir, f);
     // 앞 tick이 적용만 하고 못 지운 파일이다. 다시 적용하면 needs의 bypass와 전하기가 한 번 더 돈다
     if (store.snapshot.appliedReports[f] === undefined) {
+      let r: WorkerReport;
       try {
-        const r = parseWorkerReport(
-          JSON.parse(readFileSync(path, 'utf-8')),
-          deps.config.resultMaxChars,
-        );
+        r = parseWorkerReport(JSON.parse(readFileSync(path, 'utf-8')), deps.config.resultMaxChars);
         await applyReport(store, deps, report, r);
       } catch (err) {
         // 지우면 done merged나 needs 같은 보고를 되살릴 길이 없다. 원문을 옮겨 두고 사람이 본다
         report.errors.push(`결과 ${f}: ${message(err)} (${moveToFailed(dir, f)})`);
         continue;
       }
-      store.append({ type: 'report-applied', at: report.at, name: f });
+      try {
+        store.append({
+          type: 'report-applied',
+          at: report.at,
+          name: f,
+          report: pickStoredReport(r),
+        });
+      } catch (err) {
+        // inbox에 두면 다음 tick이 다시 적용하고 failed로 보내면 사람이 다시 넣을 수 있다.
+        // 둘 다 bypass와 전하기, 하위 주문을 한 번 더 돌리므로 기록만 다시 하는 자리로 옮긴다
+        report.errors.push(
+          `결과 ${f}: 적용은 됐고 이력 기록만 실패했어요: ${message(err)} (${moveAside(dir, f, UNRECORDED_REPORTS_DIR)})`,
+        );
+        continue;
+      }
     }
     try {
       unlinkSync(path);
@@ -325,14 +341,70 @@ async function ingestReports(
   return cleared;
 }
 
+/** 적용은 끝난 보고의 기록만 다시 남긴다. applyReport를 다시 부르지 않는다 */
+function recordUnrecorded(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+  dir: string,
+  cleared: string[],
+): void {
+  const sub = join(dir, UNRECORDED_REPORTS_DIR);
+  if (!existsSync(sub)) return;
+  const files = readdirSync(sub)
+    .filter((f) => f.endsWith('.json') && !f.startsWith('.'))
+    .sort();
+  for (const f of files) {
+    const path = join(sub, f);
+    try {
+      if (store.snapshot.appliedReports[f] === undefined) {
+        const r = parseWorkerReport(
+          JSON.parse(readFileSync(path, 'utf-8')),
+          deps.config.resultMaxChars,
+        );
+        store.append({
+          type: 'report-applied',
+          at: report.at,
+          name: f,
+          report: pickStoredReport(r),
+        });
+      }
+      unlinkSync(path);
+      cleared.push(f);
+    } catch (err) {
+      report.errors.push(
+        `결과 ${UNRECORDED_REPORTS_DIR}/${f}의 이력을 아직 못 남겼어요: ${message(err)}`,
+      );
+    }
+  }
+}
+
+/** 이력에 남길 칸만 고른다. 하위 주문 요청은 적용할 때 주문으로 옮겨졌다 */
+function pickStoredReport(r: WorkerReport): StoredReport {
+  return {
+    workerId: r.workerId,
+    status: r.status,
+    summary: r.summary,
+    refs: r.refs,
+    ...(r.skill !== undefined ? { skill: r.skill } : {}),
+    ...(r.prRef !== undefined ? { prRef: r.prRef } : {}),
+    ...(r.merged !== undefined ? { merged: r.merged } : {}),
+    ...(r.stopReason !== undefined ? { stopReason: r.stopReason } : {}),
+    ...(r.need !== undefined ? { need: r.need } : {}),
+  };
+}
+
 function moveToFailed(dir: string, f: string): string {
-  const failedDir = join(dir, FAILED_REPORTS_DIR);
+  return moveAside(dir, f, FAILED_REPORTS_DIR);
+}
+
+function moveAside(dir: string, f: string, subdir: string): string {
   try {
-    mkdirSync(failedDir, { recursive: true });
-    renameSync(join(dir, f), join(failedDir, f));
-    return `${FAILED_REPORTS_DIR}/${f}로 옮겼어요`;
+    mkdirSync(join(dir, subdir), { recursive: true });
+    renameSync(join(dir, f), join(dir, subdir, f));
+    return `${subdir}/${f}로 옮겼어요`;
   } catch (err) {
-    return `${FAILED_REPORTS_DIR}로 못 옮겼어요: ${message(err)}`;
+    return `${subdir}로 못 옮겼어요: ${message(err)}`;
   }
 }
 
@@ -501,6 +573,25 @@ async function sendTo(
   }
 }
 
+/**
+ * 오르카 워커가 쓸 에이전트. 주문 > 앞 오르카 워커 > 레포 설정 > 기본 설정 순이다.
+ * 앞 워커는 마지막 오르카 워커를 본다. 중간에 git-worktree로 돌았어도 설정 변경으로 에이전트가 바뀌지 않게 한다.
+ * 에이전트 기록이 없는 옛 오르카 워커는 그때 기본값인 claude로 이어 간다
+ */
+export function resolveWorkerAgent(
+  order: Pick<Order, 'agent' | 'repo'>,
+  workers: readonly Pick<Worker, 'kind' | 'agent'>[],
+  config: Pick<ConductorConfig, 'repoAgents' | 'defaultAgent'>,
+): string {
+  const lastOrca = workers.filter((w) => w.kind === 'orca-worktree').at(-1);
+  return (
+    order.agent ??
+    (lastOrca ? (lastOrca.agent ?? 'claude') : undefined) ??
+    config.repoAgents[order.repo] ??
+    config.defaultAgent
+  );
+}
+
 async function launchQueued(
   store: ConductorStore,
   deps: EngineDeps,
@@ -528,6 +619,9 @@ async function launchQueued(
       id: newId('wrk'),
       orderId: order.id,
       kind,
+      ...(kind === 'orca-worktree'
+        ? { agent: resolveWorkerAgent(order, store.workersOf(order.id), deps.config) }
+        : {}),
       spawnedBy: 'conductor',
       attempt: store.workersOf(order.id).length + 1,
       status: 'starting',

@@ -4,6 +4,7 @@ import type { ConductorConfig } from './scheduler.js';
 import { openOrReuse } from './gates.js';
 import { newId, type ConductorStore } from './store.js';
 import {
+  AGENT_ID_RE,
   isIssueType,
   isJiraStatus,
   isOrderScope,
@@ -49,12 +50,17 @@ export const KNOWN_SKILLS: ReadonlySet<string> = new Set([
 
 export const ISSUE_KEY_RE = /^[A-Z][A-Z0-9_]*-\d+$/;
 
+/** 개행을 포함한 C0, C1 제어 문자와 U+2028/2029. 저장 때 거르는 문자와 출력 때 지우는 문자를 같게 둔다 */
+export function isControlChar(c: number): boolean {
+  return c < 0x20 || (c >= 0x7f && c < 0xa0) || c === 0x2028 || c === 0x2029;
+}
+
 /** 지시서 한 줄에 들어갈 값. 개행과 제어 문자로 지시 블록을 위조하지 못하게 공백으로 바꾸고 자른다 */
 export function oneLine(text: string, max = 200): string {
   let out = '';
   for (const ch of text) {
     const c = ch.codePointAt(0)!;
-    out += c < 0x20 || (c >= 0x7f && c < 0xa0) || c === 0x2028 || c === 0x2029 ? ' ' : ch;
+    out += isControlChar(c) ? ' ' : ch;
   }
   return [...out.replace(/\s+/g, ' ').trim()].slice(0, max).join('');
 }
@@ -87,6 +93,7 @@ export interface IntakeInput {
   issueType?: IssueType;
   skillChain?: string[];
   workerKind?: WorkerKind;
+  agent?: string;
   /** 접수 전에 resolveParentWorktree로 레포와 맞는지 확인한 절대 경로 */
   parentWorktree?: string;
   baseBranch?: string;
@@ -140,6 +147,10 @@ export function intakeOrder(
 ): IntakeResult {
   if (!REPO_RE.test(input.repo))
     throw new Error(`레포는 owner/name 꼴로 적어 주세요: ${input.repo}`);
+  if (input.agent !== undefined && !AGENT_ID_RE.test(input.agent))
+    throw new Error(
+      'agent는 영문자나 숫자로 시작하고 영문자, 숫자, `.`, `_`, `:`, `-`만 쓴 64자 이하 id로 적어 주세요',
+    );
   const title = oneLine(input.title);
   if (!title) throw new Error('주문 제목이 비었어요');
   if (input.baseBranch !== undefined && !isRefName(input.baseBranch))
@@ -181,6 +192,7 @@ export function intakeOrder(
     ...(input.issueKey ? { issueKey: input.issueKey } : {}),
     ...(input.issueType ? { issueType: input.issueType } : {}),
     ...(input.workerKind ? { workerKind: input.workerKind } : {}),
+    ...(input.agent !== undefined ? { agent: input.agent } : {}),
     ...(input.parentWorktree ? { parentWorktree: input.parentWorktree } : {}),
     ...(input.baseBranch ? { baseBranch: input.baseBranch } : {}),
     ...(input.explicitJiraStatus ? { explicitJiraStatus: input.explicitJiraStatus } : {}),
