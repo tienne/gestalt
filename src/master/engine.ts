@@ -14,6 +14,7 @@ import {
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
+import { isAccountName } from './account-name.js';
 import { handleNeed, openOrReuse, type BypassHandlers } from './gates.js';
 import {
   intakeOrder,
@@ -130,6 +131,8 @@ function policyBypass(deps: EngineDeps): BypassHandlers {
   const switchAccount = async ({ order }: { order?: Order }): Promise<string> => {
     const wanted = order ? deps.config.accounts[order.repo] : undefined;
     if (!order || !wanted || !deps.accounts) throw new Error('맞출 계정이 설정에 없어요');
+    if (!isAccountName(wanted))
+      throw new Error(`${order.repo}에 적힌 계정이 계정 이름 꼴이 아니에요`);
     await deps.accounts.switchTo(order.repo, wanted);
     return `${order.repo} 계정을 ${wanted}로 맞췄어요`;
   };

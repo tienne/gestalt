@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { log } from '../core/log.js';
+import { isAccountName } from './account-name.js';
 import type { DeploySignal, DeploySource, JiraClient } from './jira.js';
 import {
   execRunner,
@@ -125,6 +126,8 @@ export class GhAccounts {
 
   /** 계정의 토큰. 그 계정으로 로그인한 적이 없으면 던진다 */
   token(account: string): Promise<string> {
+    if (!isAccountName(account))
+      return Promise.reject(new Error(`gh 계정 이름 꼴이 아니에요: ${JSON.stringify(account)}`));
     let t = this.tokens.get(account);
     if (!t) {
       t = this.runner('gh', ['auth', 'token', '--user', account]).then((r) => {

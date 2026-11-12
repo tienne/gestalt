@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { isAccountName } from './account-name.js';
 import { handleNeed, openOrReuse } from './gates.js';
 import { oneLine } from './intake.js';
 import { RESUME_MARKER } from './metrics.js';
@@ -522,13 +523,6 @@ export interface AccountSwitcher {
  * 워커를 띄우기 전에 그 레포의 계정을 맞춘다. 전환은 bypass로 처리하고 기록을 남긴다.
  * 전환이 실패하면 no-procedure 게이트를 열고 false를 돌려준다. 그 주문은 이번에 안 띄운다.
  */
-/** GitHub 계정 이름 꼴. 엔터프라이즈 관리형 계정의 `_`까지 받는다 */
-const ACCOUNT_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/;
-
-export function isAccountName(v: string): boolean {
-  return ACCOUNT_RE.test(v);
-}
-
 export async function ensureAccount(
   store: MasterStore,
   order: Order,

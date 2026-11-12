@@ -134,6 +134,13 @@ describe('gh 읽기', () => {
     await expect(sw.switchTo('acme/app', 'other')).rejects.toThrow('no such user');
   });
 
+  it('계정 이름 꼴이 아니면 gh를 부르지 않고 던진다', async () => {
+    const { runner, calls } = ghRunner({ author: [], reviewing: [] });
+    const sw = new GhAccountSwitcher({ runner });
+    await expect(sw.switchTo('acme/app', '--hostname=evil')).rejects.toThrow('계정 이름 꼴');
+    expect(calls.some((c) => c.includes('--hostname=evil'))).toBe(false);
+  });
+
   it('PR이 상한에 닿은 레포는 잘렸다고 표시한다', async () => {
     const many = Array.from({ length: PR_LIST_LIMIT }, (_, i) => pr(i + 1, {}));
     const { runner } = ghRunner({ author: many, reviewing: [] });
