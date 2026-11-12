@@ -199,6 +199,70 @@
       },
       "additionalProperties": false
     },
+    "conductor": {
+      "type": "object",
+      "description": "Conductor orchestrator (/conductor skill): takes orders, hands them to workers and drives each to its scope's end point",
+      "properties": {
+        "maxConcurrentWorkers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Upper bound on workers running at once. Orders beyond it wait in the queue (env: GESTALT_CONDUCTOR_MAX_WORKERS)",
+          "default": 10
+        },
+        "pollIntervalSec": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 3600,
+          "description": "Seconds between progress checks",
+          "default": 60
+        },
+        "maxResumeAttempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "How many times a stopped worker is relaunched from its checkpoint before the order goes to a human",
+          "default": 3
+        },
+        "staleAfterSec": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400,
+          "description": "Seconds without a report or checkpoint before a worker counts as disconnected and is resumed",
+          "default": 1800
+        },
+        "defaultScope": {
+          "type": "string",
+          "enum": ["merge-through", "approval", "interview-first"],
+          "description": "Scope for orders that do not name one. Read only from ~/.gestalt/conductor.json; a repo gestalt.json value is ignored",
+          "default": "approval"
+        },
+        "resultMaxChars": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 20000,
+          "description": "Character limit for a worker result summary. Longer summaries are rejected so raw logs stay out of the conductor conversation",
+          "default": 2000
+        },
+        "stateDir": {
+          "type": "string",
+          "description": "Where the execution state lives. Defaults to ~/.gestalt/conductor. Read only from ~/.gestalt/conductor.json; a repo gestalt.json value is ignored"
+        },
+        "accounts": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Auth account per repo (owner/name). Checked and switched before a worker starts in that repo. Read only from ~/.gestalt/conductor.json; a repo gestalt.json value is ignored",
+          "default": {}
+        },
+        "repoPaths": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Local checkout path per repo (owner/name). Used to create git worktrees or point Orca at the repo. Read only from ~/.gestalt/conductor.json; a repo gestalt.json value is ignored",
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    },
     "lens": {
       "type": "object",
       "description": "Reading lens (/lens skill) settings",
