@@ -289,7 +289,7 @@ describe('gestalt conductor', () => {
 });
 
 describe('주문 상세와 에이전트', () => {
-  it('주문의 agent를 이벤트로 보존하고 공백은 거절한다', () => {
+  it('주문의 agent를 이벤트로 보존하고 허용 꼴이 아니면 거절한다', () => {
     const stateDir = tempStateDir();
     conductorOrderAddCommand({
       stateDir,
@@ -299,7 +299,7 @@ describe('주문 상세와 에이전트', () => {
       json: true,
     });
     expect(ConductorStore.open(stateDir).orders()[0]!.agent).toBe('custom:v2');
-    for (const agent of ['', ' ', 'codex agent', 'codex\n']) {
+    for (const agent of ['', ' ', 'codex agent', 'codex\n', '--keep-open', '-x', 'a'.repeat(65)]) {
       expect(() =>
         conductorOrderAddCommand({ stateDir, repo: 'acme/app', title: '고치기', agent }),
       ).toThrow('exit 1');

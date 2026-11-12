@@ -3,6 +3,7 @@ import type { ConductorConfig } from './scheduler.js';
 import { openOrReuse } from './gates.js';
 import { newId, type ConductorStore } from './store.js';
 import {
+  AGENT_ID_RE,
   isIssueType,
   isJiraStatus,
   isOrderScope,
@@ -123,8 +124,10 @@ export function intakeOrder(
 ): IntakeResult {
   if (!REPO_RE.test(input.repo))
     throw new Error(`레포는 owner/name 꼴로 적어 주세요: ${input.repo}`);
-  if (input.agent !== undefined && !/^\S+$/u.test(input.agent))
-    throw new Error('agent는 공백 없는 에이전트 id로 적어 주세요');
+  if (input.agent !== undefined && !AGENT_ID_RE.test(input.agent))
+    throw new Error(
+      'agent는 영문자나 숫자로 시작하고 영문자, 숫자, `.`, `_`, `:`, `-`만 쓴 64자 이하 id로 적어 주세요',
+    );
   const title = oneLine(input.title);
   if (!title) throw new Error('주문 제목이 비었어요');
   const trusted = opts.trusted === true || input.source === 'spoken';

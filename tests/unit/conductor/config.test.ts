@@ -24,8 +24,8 @@ describe('컨덕터 에이전트 설정', () => {
     expect(config.conductor.repoAgents).toEqual({ 'acme/app': 'codex' });
   });
 
-  it.each(['', ' ', 'codex agent', 'codex\n'])(
-    '공백이나 빈 에이전트는 설정 검증에서 거절한다: %j',
+  it.each(['', ' ', 'codex agent', 'codex\n', '--keep-open', '-x', 'a'.repeat(65)])(
+    '허용 꼴이 아닌 에이전트는 설정 검증에서 거절한다: %j',
     (agent) => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       expect(

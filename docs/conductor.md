@@ -179,7 +179,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 gestalt conductor order add --repo acme/app --title "배너 문구 고치기" --agent cursor
 ```
 
-첫 실행의 우선순위는 주문의 `--agent` > `repoAgents[레포]` > `defaultAgent` > `claude`다. ID는 빈 문자열과 공백을 거르고 지원 여부는 오르카가 판단한다. `claude`, `codex`, `cursor`, `opencode` 외의 ID도 받는다. 주문의 선택은 주문 이벤트에, 실제 실행값은 워커 이벤트에 남는다. 재개할 때는 앞 워커의 에이전트를 유지하므로 설정을 바꿔도 실행 도중 에이전트가 바뀌지 않는다. 에이전트 기록이 없는 옛 오르카 워커는 기존 동작인 `claude`로 재개한다.
+첫 실행의 우선순위는 주문의 `--agent` > `repoAgents[레포]` > `defaultAgent` > `claude`다. ID는 영문자나 숫자로 시작하고 영문자, 숫자, `.`, `_`, `:`, `-`만 쓴 64자 이하여야 한다. `-`로 시작하는 값은 오르카 CLI가 옵션으로 읽으므로 받지 않는다. 지원 여부는 오르카가 판단한다. `claude`, `codex`, `cursor`, `opencode` 외의 ID도 받는다. 주문의 선택은 주문 이벤트에, 실제 실행값은 워커 이벤트에 남는다. 재개할 때는 앞 워커의 에이전트를 유지하므로 설정을 바꿔도 실행 도중 에이전트가 바뀌지 않는다. 에이전트 기록이 없는 옛 오르카 워커는 기존 동작인 `claude`로 재개한다.
 
 이 선택은 `orca-worktree`에만 적용한다. `subagent`는 호스트 세션 안에서 뜨므로 agent를 무시한다. `git-worktree`의 `open-session`도 agent를 싣지 않고 호스트의 세션 여는 방식을 따른다. 호스트마다 에이전트 CLI 실행법이 달라 컨덕터가 특정 실행법을 가정하지 않기 때문이다.
 

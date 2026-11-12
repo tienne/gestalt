@@ -5,9 +5,9 @@
  * 저장소(`store.ts`)에 이벤트로 쌓는다. 여기 타입은 그 이벤트와 스냅샷의 꼴이다.
  */
 
-import { ORDER_SCOPES } from '../core/constants.js';
+import { AGENT_ID_RE, ORDER_SCOPES } from '../core/constants.js';
 
-export { ORDER_SCOPES };
+export { AGENT_ID_RE, ORDER_SCOPES };
 /** 주문 하나가 사람 손을 어디서 거치는지. merge-through는 머지까지 무승인이다 */
 export type OrderScope = (typeof ORDER_SCOPES)[number];
 
