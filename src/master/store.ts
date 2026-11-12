@@ -114,6 +114,7 @@ export function applyEvent(s: MasterSnapshot, e: MasterEvent): void {
     case 'tick':
       s.ticks += 1;
       s.lastTickAt = e.at;
+      for (const name of e.clearedReports ?? []) delete s.appliedReports[name];
       return;
     case 'tail-repaired':
       return;

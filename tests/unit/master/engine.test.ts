@@ -1,4 +1,12 @@
-import { existsSync, readFileSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -298,30 +306,101 @@ describe('마스터 tick', () => {
     expect(git.sent.at(-1)?.message).toContain('하위 주문을 만들지 않았어요');
   });
 
-  it('한 번 적용한 보고 파일은 지우지 못해 남아 있어도 다시 적용하지 않는다', async () => {
+  // root는 권한과 무관하게 지울 수 있어 지우기 실패를 흉내낼 수 없다
+  it.skipIf(process.getuid?.() === 0)(
+    '한 번 적용한 보고 파일은 지우지 못해 남아 있어도 다시 적용하지 않고 지운 뒤에는 기록에서 뺀다',
+    async () => {
+      const { store } = clockedStore();
+      store.addOrder(order({ id: 'ord-1' }));
+      const { deps: d, git } = deps();
+      await tick(store, d, { force: true });
+      const wid = store.order('ord-1')!.workerId!;
+      report(store, d, {
+        workerId: wid,
+        status: 'needs',
+        need: { kind: 'simple-approval', detail: '부탁해요' },
+        spawnRequest: { title: '하위', detail: 'x' },
+      });
+      const inbox = inboxDirOf(store, d);
+      const name = readdirSync(inbox).find((f) => f.endsWith('.json'))!;
+
+      chmodSync(inbox, 0o555);
+      try {
+        const first = await tick(store, d, { force: true });
+        expect(first.errors.some((e) => e.includes('못 지웠어요'))).toBe(true);
+        expect(store.snapshot.appliedReports[name]).toBeDefined();
+        const orders = store.orders().length;
+        const sent = git.sent.length;
+
+        await tick(store, d, { force: true });
+        expect(store.orders()).toHaveLength(orders);
+        expect(git.sent).toHaveLength(sent);
+        expect(store.snapshot.appliedReports[name]).toBeDefined();
+      } finally {
+        chmodSync(inbox, 0o755);
+      }
+
+      const orders = store.orders().length;
+      const r = await tick(store, d, { force: true });
+      expect(r.errors).toEqual([]);
+      expect(store.orders()).toHaveLength(orders);
+      expect(existsSync(join(inbox, name))).toBe(false);
+      expect(store.snapshot.appliedReports[name]).toBeUndefined();
+      // 다시 연 저장소도 이벤트를 다시 읽어 같은 기록을 얻는다
+      expect(MasterStore.open(store.dir).snapshot.appliedReports[name]).toBeUndefined();
+    },
+  );
+
+  it('need가 없는 needs 보고는 적용하지 않고 원문을 failed로 옮긴다', async () => {
     const { store } = clockedStore();
     store.addOrder(order({ id: 'ord-1' }));
+    const { deps: d, git } = deps();
+    await tick(store, d, { force: true });
+    const inbox = inboxDirOf(store, d);
+    // writeReport는 need 없는 needs를 받지 않아 파일을 직접 쓴다
+    mkdirSync(inbox, { recursive: true });
+    writeFileSync(
+      join(inbox, 'manual.json'),
+      JSON.stringify({
+        workerId: store.order('ord-1')!.workerId,
+        status: 'needs',
+        summary: '부탁해요',
+        refs: [],
+      }),
+    );
+    const r = await tick(store, d, { force: true });
+    expect(r.errors.some((e) => e.includes('manual.json'))).toBe(true);
+    expect(git.sent).toEqual([]);
+    expect(store.snapshot.appliedReports['manual.json']).toBeUndefined();
+    expect(existsSync(join(inbox, 'failed', 'manual.json'))).toBe(true);
+  });
+
+  it('같은 tick에 온 워커 보고의 PR은 PR 감시가 새 주문으로 받지 않는다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-1', repo: 'acme/app' }));
+    const prSource = {
+      authored: async () => [
+        {
+          repo: 'acme/app',
+          title: '배너',
+          headSha: 'b',
+          ref: 'acme/app#5',
+          latestOtherCommentId: 'c1',
+        },
+      ],
+      reviewing: async () => [],
+    };
     const { deps: d } = deps();
     await tick(store, d, { force: true });
-    const wid = store.order('ord-1')!.workerId!;
     report(store, d, {
-      workerId: wid,
+      workerId: store.order('ord-1')!.workerId!,
       status: 'progress',
-      spawnRequest: { title: '하위', detail: 'x' },
+      prRef: 'acme/app#5',
     });
-    const inbox = inboxDirOf(store, d);
-    const name = readdirSync(inbox).find((f) => f.endsWith('.json'))!;
-    const body = readFileSync(join(inbox, name), 'utf-8');
-    await tick(store, d, { force: true });
-    expect(store.snapshot.appliedReports[name]).toBeDefined();
-    const ordersAfterFirst = store.orders().length;
-
-    // 지우기에 실패한 상황을 같은 이름의 파일을 되살려 흉내낸다
-    writeFileSync(join(inbox, name), body);
-    const r = await tick(store, d, { force: true });
-    expect(r.errors).toEqual([]);
-    expect(store.orders()).toHaveLength(ordersAfterFirst);
-    expect(existsSync(join(inbox, name))).toBe(false);
+    const r = await tick(store, { ...d, prSource }, { force: true });
+    expect(r.created).toEqual([]);
+    expect(store.orders()).toHaveLength(1);
+    expect(store.order('ord-1')!.prRef).toBe('acme/app#5');
   });
 
   it('워커 정리가 실패하면 주문에 안 묶인 게이트를 열고 주문은 그대로 정산한다', async () => {

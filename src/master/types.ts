@@ -239,7 +239,8 @@ export type MasterEvent =
   | { type: 'bypass'; at: string; record: BypassRecord }
   | { type: 'jira-transition'; at: string; record: JiraTransitionRecord }
   | { type: 'slack-posted'; at: string; gateId: string; ref: string }
-  | { type: 'tick'; at: string }
+  /** clearedReports는 이번 tick이 inbox에서 지운 보고 파일이다. 적용 기록에서 뺀다 */
+  | { type: 'tick'; at: string; clearedReports?: string[] }
   /** inbox의 보고 파일 하나를 적용했다. 지우기에 실패해 다음 tick에 다시 보여도 또 적용하지 않는다 */
   | { type: 'report-applied'; at: string; name: string }
   /** 앞 프로세스가 줄 중간에 죽은 꼬리를 개행으로 끊었다는 표시. replay가 바로 앞 깨진 줄을 건너뛴다 */

@@ -183,7 +183,8 @@ async function runTick(
   report: TickReport,
 ): Promise<TickReport> {
   let unanswered = 0;
-  await step(report, () => ingestReports(store, deps, report));
+  let cleared: string[] = [];
+  await step(report, () => ingestReports(store, deps, report).then((c) => (cleared = c)));
   await step(report, () => intake(store, deps, report).then((n) => (unanswered = n)));
   await step(report, async () => {
     detectStale(store, {
@@ -208,7 +209,11 @@ async function runTick(
     });
   }
   await step(report, () => cleanupWorkers(store, deps, report));
-  store.append({ type: 'tick', at: report.at });
+  store.append({
+    type: 'tick',
+    at: report.at,
+    ...(cleared.length > 0 ? { clearedReports: cleared } : {}),
+  });
   return { ...report, counts: counts(store, unanswered) };
 }
 
@@ -268,13 +273,15 @@ export function writeReport(inboxDir: string, raw: unknown, maxChars: number): s
   return name;
 }
 
+/** 지운 보고 파일 이름을 돌려준다. 이 이름은 다시 안 보이니 tick 이벤트가 적용 기록에서 뺀다 */
 async function ingestReports(
   store: MasterStore,
   deps: EngineDeps,
   report: TickReport,
-): Promise<void> {
+): Promise<string[]> {
+  const cleared: string[] = [];
   const dir = inboxDirOf(store, deps);
-  if (!existsSync(dir)) return;
+  if (!existsSync(dir)) return cleared;
   const files = readdirSync(dir)
     .filter((f) => f.endsWith('.json') && !f.startsWith('.'))
     .sort();
@@ -297,10 +304,12 @@ async function ingestReports(
     }
     try {
       unlinkSync(path);
+      cleared.push(f);
     } catch (err) {
       report.errors.push(`결과 ${f}를 못 지웠어요: ${message(err)}`);
     }
   }
+  return cleared;
 }
 
 function moveToFailed(dir: string, f: string): string {
