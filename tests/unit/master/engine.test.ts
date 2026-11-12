@@ -600,6 +600,8 @@ describe('마스터 tick', () => {
     expect(readdirSync(dir).filter((f) => f.includes('tick.lock'))).toEqual([]);
   });
 
+  // 줄이 끝내 안 비는 경로라 RELEASE_RETRIES x RELEASE_RETRY_MS(약 1초)를 실제로 다 기다린다.
+  // 재시도 값을 옵션으로 열면 0을 넘겨 steal 줄을 건너뛰는 길이 생겨서 열지 않았다
   it('잠금을 풀 때 steal 줄에 서고 줄이 안 비어도 끝내 자기 잠금은 지운다', async () => {
     const { store, dir } = clockedStore();
     store.addOrder(order({ id: 'ord-1' }));
