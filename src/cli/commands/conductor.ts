@@ -30,6 +30,7 @@ import {
   detectOrca,
   GitWorktreeLauncher,
   OrcaLauncher,
+  orcaWorktreeName,
   SubagentLauncher,
   workerAt,
   type HostAction,
@@ -280,24 +281,34 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
     }
     if (opts.json) {
       return print({
+        stateDir: store.dir,
         lastTickAt: store.snapshot.lastTickAt ?? null,
-        orders: orders.map((o) => ({
-          id: o.id,
-          status: o.status,
-          scope: o.scope,
-          repo: o.repo,
-          title: o.title,
-          ...(o.workerId ? { worker: o.workerId } : {}),
-          ...(o.prRef ? { pr: o.prRef } : {}),
-          ...(o.issueKey ? { issue: o.issueKey } : {}),
-          bypasses: bypassesOf.get(o.id) ?? [],
-        })),
+        orders: orders.map((o) => {
+          const w = o.workerId ? store.worker(o.workerId) : undefined;
+          return {
+            id: o.id,
+            status: o.status,
+            scope: o.scope,
+            repo: o.repo,
+            title: o.title,
+            updatedAt: o.updatedAt,
+            ...(o.workerId ? { worker: o.workerId } : {}),
+            // 오르카 플러그인 같은 바깥 도구가 워커 워크트리를 찾아 열 때 쓴다
+            ...(w ? { workerKind: w.kind, workerStatus: w.status } : {}),
+            ...(w?.handle ? { workerHandle: w.handle } : {}),
+            ...(w?.kind === 'orca-worktree' ? { worktreeName: orcaWorktreeName(w) } : {}),
+            ...(o.prRef ? { pr: o.prRef } : {}),
+            ...(o.issueKey ? { issue: o.issueKey } : {}),
+            bypasses: bypassesOf.get(o.id) ?? [],
+          };
+        }),
         unassignedBypasses: bypassesOf.get('') ?? [],
         gates: gates.map((g) => ({
           id: g.id,
           type: g.type,
           orderId: g.orderId ?? null,
           reason: g.reason,
+          openedAt: g.openedAt,
         })),
       });
     }

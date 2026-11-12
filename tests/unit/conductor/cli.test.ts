@@ -104,6 +104,37 @@ describe('gestalt conductor', () => {
     );
   });
 
+  it('status JSON에 저장소 경로와 워커 워크트리를 찾을 값을 싣는다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: '배너 고치기' });
+    const orcaOrder = (last()['order'] as { id: string }).id;
+    conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: '버튼 고치기' });
+    const subOrder = (last()['order'] as { id: string }).id;
+    const store = ConductorStore.open(stateDir);
+    const ow = worker(orcaOrder, { kind: 'orca-worktree', attempt: 2, handle: 'ctx_1' });
+    store.startWorker(ow);
+    store.updateOrder(orcaOrder, { status: 'running', workerId: ow.id });
+    const sw = worker(subOrder);
+    store.startWorker(sw);
+    store.updateOrder(subOrder, { status: 'running', workerId: sw.id });
+
+    conductorStatusCommand({ stateDir, json: true });
+    const status = last();
+    expect(status['stateDir']).toBe(resolve(stateDir));
+    const orders = status['orders'] as Record<string, unknown>[];
+    expect(orders.find((o) => o['id'] === orcaOrder)).toMatchObject({
+      worker: ow.id,
+      workerKind: 'orca-worktree',
+      workerStatus: 'running',
+      workerHandle: 'ctx_1',
+      worktreeName: `${orcaOrder}-2`,
+      updatedAt: expect.any(String),
+    });
+    const sub = orders.find((o) => o['id'] === subOrder)!;
+    expect(sub).toMatchObject({ workerKind: 'subagent' });
+    expect(sub).not.toHaveProperty('worktreeName');
+  });
+
   it('잘못된 값은 stderr와 exit 1로 끝낸다', () => {
     const stateDir = tempStateDir();
     expect(() =>
