@@ -199,7 +199,7 @@ describe('ConductorStore', () => {
     const a = ConductorStore.open(dir);
     a.addOrder(order({ id: 'ord-1', sourceRef: 'jira:APP-1', parentOrderId: 'ord-0' }));
     a.addOrder(order({ id: 'ord-2' }));
-    a.startWorker(worker('ord-1', { id: 'wrk-1', status: 'stopped' }));
+    a.startWorker(worker('ord-1', { id: 'wrk-1', status: 'finished' }));
     a.openGate({
       id: 'gate-1',
       orderId: 'ord-1',
@@ -214,6 +214,29 @@ describe('ConductorStore', () => {
       at: a.timestamp(),
       record: { orderId: 'ord-1', need: 'cleanup', action: '수동 정리', at: a.timestamp() },
     });
+    a.saveCheckpoint({
+      orderId: 'ord-1',
+      workerId: 'wrk-1',
+      skill: 'ship',
+      phase: '5',
+      round: 1,
+      next: '끝',
+      completedSkills: ['ship'],
+      refs: [],
+      savedAt: a.timestamp(),
+    });
+    a.append({
+      type: 'jira-transition',
+      at: a.timestamp(),
+      record: { orderId: 'ord-1', issueKey: 'APP-1', to: 'Done', at: a.timestamp() },
+    });
+    a.append({
+      type: 'report-applied',
+      at: a.timestamp(),
+      name: 'r-1.json',
+      report: { workerId: 'wrk-1', status: 'done', summary: '머지함', refs: [] },
+    });
+    expect(a.snapshot.reports['ord-1']).toHaveLength(1);
 
     expect(() => a.removeOrder('ord-1')).toThrow(/끝난 주문만/);
     a.updateOrder('ord-1', { status: 'done' });
@@ -227,6 +250,9 @@ describe('ConductorStore', () => {
       expect(s.workers).toEqual({});
       expect(s.gates).toEqual({});
       expect(s.bypasses).toEqual([]);
+      expect(s.checkpoints).toEqual({});
+      expect(s.jiraTransitions).toEqual([]);
+      expect(s.reports).toEqual({});
       expect(s.removedOrders['ord-1']).toMatchObject({
         sourceRef: 'jira:APP-1',
         parentOrderId: 'ord-0',
@@ -241,5 +267,55 @@ describe('ConductorStore', () => {
     a.addOrder(order({ id: 'ord-1', status: 'failed' }));
     a.startWorker(worker('ord-1', { id: 'wrk-1', status: 'running' }));
     expect(() => a.removeOrder('ord-1')).toThrow(/도는 워커/);
+  });
+
+  it('멈춘 워커가 남은 주문은 워크트리 가드를 지키려고 못 지운다', () => {
+    const a = ConductorStore.open(tempStateDir());
+    a.addOrder(order({ id: 'ord-1', status: 'cancelled' }));
+    a.startWorker(worker('ord-1', { id: 'wrk-1', status: 'stopped' }));
+    expect(() => a.removeOrder('ord-1')).toThrow(/멈춘 워커/);
+    expect(a.worker('wrk-1')).toBeDefined();
+  });
+
+  it('지우기와 경합해 게이트가 먼저 열린 로그는 재생할 때 지우기를 무시한다', () => {
+    const dir = tempStateDir();
+    const a = ConductorStore.open(dir);
+    a.addOrder(order({ id: 'ord-1', status: 'done' }));
+    // 다른 프로세스가 잠금 없이 게이트를 연 뒤 지우기가 낡은 상태로 덧붙인 꼴을 그대로 적는다
+    const at = a.timestamp();
+    appendFileSync(
+      join(dir, EVENTS_FILE),
+      `${JSON.stringify({
+        type: 'gate-opened',
+        at,
+        gate: {
+          id: 'gate-1',
+          orderId: 'ord-1',
+          type: 'merge',
+          reason: '머지할까요?',
+          refs: [],
+          status: 'open',
+          openedAt: at,
+        },
+      })}\n${JSON.stringify({ type: 'order-removed', at, orderId: 'ord-1' })}\n`,
+    );
+    const s = ConductorStore.open(dir).snapshot;
+    expect(s.orders['ord-1']).toBeDefined();
+    expect(s.gates['gate-1']).toBeDefined();
+    expect(s.removedOrders).toEqual({});
+  });
+
+  it('지운 출처 색인은 새로 지운 주문과 다시 읽은 로그를 따라간다', () => {
+    const dir = tempStateDir();
+    const a = ConductorStore.open(dir);
+    a.addOrder(order({ id: 'ord-1', status: 'done', sourceRef: 'jira:APP-1' }));
+    a.addOrder(order({ id: 'ord-2', status: 'done', sourceRef: 'jira:APP-2' }));
+    expect(a.removedAtOf('jira:APP-1')).toBeUndefined();
+    a.removeOrder('ord-1');
+    expect(a.removedAtOf('jira:APP-1')).toBeDefined();
+    const b = ConductorStore.open(dir);
+    b.removeOrder('ord-2');
+    a.reload();
+    expect(a.removedAtOf('jira:APP-2')).toBeDefined();
   });
 });

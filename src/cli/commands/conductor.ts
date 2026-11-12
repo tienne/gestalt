@@ -16,6 +16,7 @@ import {
   writeQueueMessage,
 } from '../../conductor/adapters.js';
 import {
+  acquireLock,
   deliverGateDecision,
   inboxDirOf,
   tick,
@@ -259,25 +260,35 @@ export async function conductorOrderRemoveCommand(
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'order remove');
+    // tick이 게이트를 열거나 워커를 띄우는 사이에 지우지 않게 같은 잠금을 잡고 다시 읽는다
+    const lock = acquireLock(ctx.store.dir);
+    if (!lock.ok)
+      throw new Error(
+        `컨덕터 tick이 도는 중이라 못 지웠어요${lock.holder ? ` (pid ${lock.holder})` : ''}. 잠시 뒤 다시 불러 주세요`,
+      );
     const removed: string[] = [];
     const skipped: { id: string; reason: string }[] = [];
-    await ctx.store.deferSnapshot(async () => {
-      for (const id of new Set(orderIds)) {
-        try {
-          ctx.store.removeOrder(id);
-          removed.push(id);
-        } catch (e) {
-          skipped.push({ id, reason: e instanceof Error ? e.message : String(e) });
+    try {
+      ctx.store.reload();
+      await ctx.store.deferSnapshot(async () => {
+        for (const id of new Set(orderIds)) {
+          try {
+            ctx.store.removeOrder(id);
+            removed.push(id);
+          } catch (e) {
+            skipped.push({ id, reason: e instanceof Error ? e.message : String(e) });
+          }
         }
-      }
-    });
+      });
+    } finally {
+      lock.release();
+    }
     if (opts.json) print({ removed, skipped });
-    else {
-      if (removed.length > 0)
-        console.log(`주문 ${removed.length}개를 지웠어요: ${removed.join(', ')}`);
+    else if (removed.length > 0) {
+      console.log(`주문 ${removed.length}개를 지웠어요: ${removed.join(', ')}`);
       for (const s of skipped) console.log(`못 지웠어요: ${s.reason}`);
     }
-    // 플러그인처럼 실패하면 stderr만 보는 호출자도 이유를 받게 한다
+    // 하나도 못 지우면 이유를 stderr로 한 번만 낸다. 플러그인처럼 실패하면 stderr만 보는 호출자도 받는다
     if (removed.length === 0 && skipped.length > 0)
       exitWithError(new Error(skipped.map((s) => s.reason).join('\n')));
   } catch (e) {

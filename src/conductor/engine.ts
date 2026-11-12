@@ -844,7 +844,7 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-type LockResult = { ok: true; release: () => void } | { ok: false; holder?: number };
+export type LockResult = { ok: true; release: () => void } | { ok: false; holder?: number };
 
 interface LockInfo {
   pid: number;
@@ -861,7 +861,7 @@ interface LockInfo {
  * 잠금을 다시 읽어 낡았다고 본 그 내용일 때만 지우고 새로 잡는다.
  * 풀 때도 같은 steal 줄에 서서 자기 토큰일 때만 지운다(releaseLock).
  */
-function acquireLock(dir: string): LockResult {
+export function acquireLock(dir: string): LockResult {
   const path = join(dir, LOCK_FILE);
   const token = `${process.pid}:${Date.now()}:${hostname()}:${randomUUID()}`;
   const release = () => releaseLock(path, token);

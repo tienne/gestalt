@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -287,7 +287,19 @@ describe('gestalt conductor', () => {
     });
     expect(last()).toMatchObject({ created: false, removedAt: expect.any(String) });
 
+    out = [];
+    err = [];
     await expect(conductorOrderRemoveCommand([queued], { stateDir })).rejects.toThrow('exit 1');
+    // 전부 못 지우면 이유는 stderr로 한 번만 나간다
+    expect(out).toEqual([]);
+    expect(err.join('\n').match(/끝난 주문만/g)).toHaveLength(1);
+
+    store.reload();
+    store.updateOrder(queued, { status: 'done' });
+    writeFileSync(join(stateDir, 'tick.lock'), `${process.pid}:${Date.now()}:${hostname()}:x`);
+    await expect(conductorOrderRemoveCommand([queued], { stateDir })).rejects.toThrow('exit 1');
+    expect(err.join('\n')).toContain('tick이 도는 중');
+    expect(ConductorStore.open(stateDir).order(queued)).toBeDefined();
   });
 
   it('슬랙 초안은 게이트로 올라가고 resolve로 닫힌다', async () => {

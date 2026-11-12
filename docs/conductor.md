@@ -172,7 +172,7 @@ gestalt conductor order show <id> --json
 
 `status --all`은 끝난 주문 줄에 마지막 보고 요약을 100자까지 붙인다. `status --all --json`의 `lastSummary`에는 요약 전문이 실린다. 이전 진행 보고는 `order show`로 읽는다. 새 컨덕터 세션에서도 같은 결과를 볼 수 있다. 보고 본문을 저장하지 않던 옛 로그는 복원할 수 없어 빈 이력으로 보인다.
 
-끝난 주문(done, failed, cancelled)이 쌓여 보기 번거로우면 `gestalt conductor order remove <주문 id...> [--json]`으로 지운다. 저장소에 `order-removed` 이벤트를 덧붙이는 방식이라 로그 기록은 남고 status에서만 빠진다. 주문의 워커와 체크포인트, 게이트, bypass 기록도 같이 빠진다. 열린 게이트가 있거나 워커가 아직 도는 주문은 거절한다. 지운 주문의 출처(지라 티켓, PR, 큐 메시지)는 따로 기억해 두고 다음 tick이 같은 주문을 다시 만들지 않는다. 지운 하위 주문도 상위 주문의 하위 주문 상한에 그대로 센다. 워크트리와 브랜치는 건드리지 않으니 필요하면 따로 정리한다. 여러 id를 넘기면 지울 수 있는 것만 지우고 나머지는 이유와 함께 알려 준다. 하나도 못 지우면 exit 1이다.
+끝난 주문(done, failed, cancelled)이 쌓여 보기 번거로우면 `gestalt conductor order remove <주문 id...> [--json]`으로 지운다. 저장소에 `order-removed` 이벤트를 덧붙이는 방식이라 로그 기록은 남고 status에서만 빠진다. 주문의 워커와 체크포인트, 게이트, bypass 기록도 같이 빠진다. 열린 게이트가 있거나 워커가 아직 돌거나 멈춘 워커가 남은 주문은 거절한다. 멈춘 워커는 워크트리가 남아 있을 수 있어서 기록을 지우면 그 워크트리에서 컨덕터 명령을 막던 가드가 풀린다. tick과 같은 잠금을 잡고 지우니 tick이 도는 중이면 잠시 뒤 다시 부른다. 지운 주문의 출처(지라 티켓, PR, 큐 메시지)는 따로 기억해 두고 다음 tick이 같은 주문을 다시 만들지 않는다. 지운 하위 주문도 상위 주문의 하위 주문 상한에 그대로 센다. 워크트리와 브랜치는 건드리지 않으니 필요하면 따로 정리한다. 여러 id를 넘기면 지울 수 있는 것만 지우고 나머지는 이유와 함께 알려 준다. 하나도 못 지우면 exit 1이다.
 
 효과를 재려면 `gestalt conductor metrics --since <날짜>`를 쓴다. 무엇을 비교하는지는 [효과 재기](#효과-재기)에 있다.
 
@@ -186,7 +186,7 @@ orca plugin dev load ./orca-plugin --json
 
 처음 부르면 `approval_required`와 함께 받을 권한 목록과 `--approve <fingerprint>`를 붙인 명령이 나온다. 권한을 읽어 보고 그 명령을 직접 다시 부르면 켜진다. 승인은 사람이 한다.
 
-설정의 `gestaltPath`는 오르카가 셸 PATH를 못 물려받을 때 gestalt 절대 경로를 적는 자리다. `stateDir`은 `conductor.json`에 저장소 위치를 따로 정했을 때 같은 경로를 적는다. 둘 다 비워 두면 PATH의 gestalt와 CLI 기본 위치를 쓴다.
+설정의 `gestaltPath`는 오르카가 셸 PATH를 못 물려받을 때 gestalt 절대 경로를 적는 자리다. `stateDir`은 status JSON에 `stateDir`을 안 싣는 옛 CLI를 쓰면서 저장소를 기본 위치 밖에 뒀을 때만 적는다. 둘 다 비워 두면 PATH의 gestalt와 status JSON이 알려 준 저장소를 쓴다.
 
 오르카 모바일은 플러그인 패널을 못 그린다. 폰에서 보려면 설정의 `mobilePort`에 포트를 적는다. 그러면 워커가 그 포트로 이 맥의 루프백에만 보기 전용 페이지를 연다. `tailscale serve`로 그 포트를 테일넷에 이어 폰에서 연다. 게이트와 주문 위계를 보여 주기만 하고 승인과 거절, 지우기는 데스크톱에서 한다. 명령과 보안 경계는 [`orca-plugin/README.md`](../orca-plugin/README.md#폰에서-보기)에 있다.
 
