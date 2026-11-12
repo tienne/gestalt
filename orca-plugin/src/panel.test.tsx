@@ -39,6 +39,7 @@ const base: ConductorView = {
 function setup(view: ConductorView = base) {
   const resolved: GateResolveInput[] = []
   const opened: string[] = []
+  const removed: string[][] = []
   const host = mockHost({
     requests: {
       'conductor.status': () => view,
@@ -56,10 +57,19 @@ function setup(view: ConductorView = base) {
       'worker.open': (input) => {
         opened.push(input.orderId)
         return { opened: true }
+      },
+      'order.remove': (input) => {
+        removed.push(input.orderIds)
+        const [first, ...rest] = input.orderIds
+        return {
+          ok: true,
+          removed: first ? [first] : [],
+          skipped: rest.map((id) => ({ id, reason: `열린 게이트가 있어서 못 지워요: ${id}` }))
+        }
       }
     }
   })
-  return { host, resolved, opened }
+  return { host, resolved, opened, removed }
 }
 
 test('저장소가 없으면 저장소 없음 안내를 띄운다', async () => {
@@ -231,5 +241,42 @@ test('위계가 없는 레포에는 트리를 그리지 않는다', async () => 
   const view = await mount(panel, { host })
   await view.press({ type: 'Button', text: 'web' })
   assert.equal(view.find({ type: 'Tree' }), null)
+  await view.unmount()
+})
+
+test('끝난 주문은 두 번째 누름에서만 지우고 남긴 주문은 이유와 함께 보여 준다', async () => {
+  const finished: ConductorView = {
+    ...base,
+    orders: [
+      ...base.orders,
+      { id: 'ord-d1', status: 'done', scope: 'pr', repo: 'web', title: '끝난 일', bypasses: [] },
+      { id: 'ord-d2', status: 'cancelled', scope: 'pr', repo: 'web', title: '취소한 일', bypasses: [] }
+    ]
+  }
+  const { host, removed } = setup(finished)
+  const view = await mount(panel, { host })
+  await view.press({ type: 'Button', text: 'web' })
+  assert.equal(view.findAll({ label: '주문 지우기' }).length, 0, '끝난 주문 그룹은 접혀 있다')
+  await view.toggle({ type: 'Collapsible', label: '끝남 1' })
+  await view.toggle({ type: 'Collapsible', label: '취소 1' })
+  assert.equal(view.findAll({ label: '주문 지우기' }).length, 2, '진행 중인 주문에는 지우기가 없다')
+
+  await view.press({ text: '끝난 주문 2개 지우기' })
+  assert.deepEqual(removed, [], '첫 누름은 확인만 묻는다')
+  assert.ok(view.find({ text: /끝난 주문 2개를 지울까요/ }))
+  await view.press({ text: '취소' })
+  assert.equal(view.find({ text: '지우기 확정' }), null)
+
+  await view.press({ text: '끝난 주문 2개 지우기' })
+  await view.press({ text: '지우기 확정' })
+  assert.deepEqual(removed, [['ord-d1', 'ord-d2']])
+  assert.ok(view.find({ text: /주문 1개를 지웠어요/ }))
+  assert.ok(view.find({ text: /열린 게이트가 있어서 못 지워요: ord-d2/ }))
+
+  await view.press(view.findAll({ label: '주문 지우기' })[0]!)
+  assert.ok(view.find({ text: /이 주문을 지울까요/ }))
+  await view.press({ text: '지우기 확정' })
+  assert.deepEqual(removed.at(-1), ['ord-d1'])
+  assert.deepEqual(view.errors, [])
   await view.unmount()
 })

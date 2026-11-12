@@ -5,7 +5,7 @@ import { existsSync, watch, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { runGestalt } from './cli'
-import type { ConductorView, GateResolveInput, GateResolveResult, GateView } from './protocol'
+import type { ConductorView, GateResolveInput, GateResolveResult, GateView, OrderRemoveResult } from './protocol'
 import {
   diffGates,
   emptyView,
@@ -28,6 +28,7 @@ const RETRY_MS = 5000
 const STATUS_TIMEOUT_MS = 20_000
 const RESOLVE_TIMEOUT_MS = 100_000
 const MAX_ANSWER = 4000
+const MAX_REMOVE = 200
 
 type Config = { command: string; stateDir: string }
 
@@ -268,6 +269,35 @@ class Conductor {
     }
   }
 
+  async removeOrders(orderIds: unknown): Promise<OrderRemoveResult> {
+    const fail = (error: string): OrderRemoveResult => ({ ok: false, removed: [], skipped: [], error })
+    if (!Array.isArray(orderIds) || orderIds.length === 0) return fail('지울 주문을 골라 주세요')
+    if (orderIds.length > MAX_REMOVE) return fail(`한 번에 ${MAX_REMOVE}개까지 지울 수 있어요`)
+    if (!orderIds.every((id): id is string => typeof id === 'string' && isSafeId(id)))
+      return fail('주문 id 꼴이 아니에요')
+    const cfg = await this.config()
+    const args = ['conductor', 'order', 'remove', ...new Set(orderIds), '--json', ...this.dirArgs(cfg)]
+    try {
+      const out = await runGestalt(cfg.command, args, {
+        cwd: this.cwd(cfg.stateDir || this.view?.stateDir || null),
+        timeoutMs: STATUS_TIMEOUT_MS
+      })
+      const parsed = parseJsonOutput(out) as { removed?: unknown; skipped?: unknown }
+      const removed = Array.isArray(parsed.removed) ? parsed.removed.map(String) : []
+      const skipped = Array.isArray(parsed.skipped)
+        ? parsed.skipped.map((v) => {
+            const r = (v ?? {}) as { id?: unknown; reason?: unknown }
+            return { id: String(r.id ?? ''), reason: String(r.reason ?? '') }
+          })
+        : []
+      return { ok: true, removed, skipped }
+    } catch (e) {
+      return fail(message(e))
+    } finally {
+      void this.refresh()
+    }
+  }
+
   async openWorker(orderId: string): Promise<{ opened: boolean; error?: string }> {
     const order = this.raw?.orders.find((o) => o.id === orderId)
     if (!order) return { opened: false, error: '모르는 주문이에요' }
@@ -320,6 +350,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
   orca.panels.handle('gate.resolve', (input) => conductor.resolveGate(input))
   orca.panels.handle('worker.open', (input) => conductor.openWorker(input.orderId))
+  orca.panels.handle('order.remove', (input) => conductor.removeOrders(input.orderIds))
   orca.commands.register('conductor.refresh', async () => {
     await conductor.refresh()
     const view = await conductor.current()

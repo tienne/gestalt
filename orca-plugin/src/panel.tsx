@@ -43,6 +43,7 @@ import {
   type GateDecision,
   type GateResolveResult,
   type GateView,
+  type OrderRemoveResult,
   type OrderView
 } from './protocol'
 
@@ -56,6 +57,10 @@ const lastResult = atom<GateResolveResult | null>(null)
 const openError = atom<string | null>(null)
 /** null이면 레포 지도, 값이 있으면 그 레포의 상세 */
 const selectedRepo = atom<string | null>(null)
+/** 지우기 확인을 기다리는 자리. 주문 하나면 'order:<id>', 레포의 끝난 주문 전부면 'repo:<레포>' */
+const removing = atom<{ key: string; ids: string[] } | null>(null)
+const removeBusy = atom(false)
+const removeResult = atom<OrderRemoveResult | null>(null)
 
 const RESOLVE_TIMEOUT_MS = 120_000
 
@@ -110,6 +115,81 @@ async function confirm(gate: GateView, decision: GateDecision): Promise<void> {
     set(busy, null)
     set(pending, null)
   }
+}
+
+async function removeOrders(ids: string[]): Promise<void> {
+  set(removeBusy, true)
+  try {
+    set(removeResult, await plugin.request('order.remove', { orderIds: ids }, { timeoutMs: RESOLVE_TIMEOUT_MS }))
+  } catch (e) {
+    set(removeResult, { ok: false, removed: [], skipped: [], error: errorText(e) })
+  } finally {
+    set(removeBusy, false)
+    set(removing, null)
+  }
+}
+
+/** 레포를 옮기면 앞 레포에서 띄운 지우기 확인과 결과를 걷는다 */
+function selectRepo(repo: string | null): void {
+  set(removing, null)
+  set(removeResult, null)
+  set(selectedRepo, repo)
+}
+
+function askRemove(key: string, ids: string[]): void {
+  set(removeResult, null)
+  set(removing, { key, ids })
+}
+
+/** 지우기 버튼을 누른 자리에만 뜨는 확인 칸 */
+function RemoveConfirm({ at }: { at: string }) {
+  const r = read(removing)
+  if (r?.key !== at) return null
+  const inFlight = read(removeBusy)
+  return (
+    <Callout tone="danger" title={r.ids.length > 1 ? `끝난 주문 ${r.ids.length}개를 지울까요?` : '이 주문을 지울까요?'}>
+      <Stack gap="xs">
+        <Text size="xs">
+          컨덕터 저장소에서 지워져 다시 볼 수 없어요. 같은 지라 티켓이나 PR로 주문이 다시 생기지도 않아요. 워크트리와 브랜치는 그대로 남아요.
+        </Text>
+        <Row gap="xs">
+          <Button tone="danger" disabled={inFlight} onPress={() => removeOrders(r.ids)}>
+            {inFlight ? '지우는 중' : '지우기 확정'}
+          </Button>
+          <Button variant="ghost" disabled={inFlight} onPress={() => set(removing, null)}>
+            취소
+          </Button>
+        </Row>
+      </Stack>
+    </Callout>
+  )
+}
+
+function RemoveResultCallout({ result }: { result: OrderRemoveResult }) {
+  return (
+    <Stack gap="xs">
+      {result.ok && result.removed.length > 0 ? (
+        <Callout tone="success" title={`주문 ${result.removed.length}개를 지웠어요`} icon="check" />
+      ) : null}
+      {!result.ok ? (
+        <Callout tone="danger" title="못 지웠어요" icon="error">
+          <Text size="xs">{result.error ?? '이유를 못 받았어요'}</Text>
+        </Callout>
+      ) : null}
+      {result.skipped.length > 0 ? (
+        <Callout tone="warning" title={`${result.skipped.length}개는 남겼어요`}>
+          <Stack gap="xs">
+            {result.skipped.map((s) => (
+              <Text size="xs">{s.reason}</Text>
+            ))}
+          </Stack>
+        </Callout>
+      ) : null}
+      <Button size="xs" variant="ghost" onPress={() => set(removeResult, null)}>
+        닫기
+      </Button>
+    </Stack>
+  )
 }
 
 async function openWorker(orderId: string): Promise<void> {
@@ -233,16 +313,29 @@ function OrderRow({ order }: { order: OrderView }) {
       <Stack gap="xs">
         <Row justify="between" align="start">
           <Text weight="medium">{order.title || '(제목 없음)'}</Text>
-          {order.workspaceId ? (
-            <IconButton
-              icon="open-external"
-              label="워크트리 열기"
-              tooltip="워커의 오르카 워크트리 열기"
-              size="xs"
-              variant="ghost"
-              onPress={() => openWorker(order.id)}
-            />
-          ) : null}
+          <Row gap="xs">
+            {order.workspaceId ? (
+              <IconButton
+                icon="open-external"
+                label="워크트리 열기"
+                tooltip="워커의 오르카 워크트리 열기"
+                size="xs"
+                variant="ghost"
+                onPress={() => openWorker(order.id)}
+              />
+            ) : null}
+            {isTerminal(order.status) ? (
+              <IconButton
+                icon="delete"
+                label="주문 지우기"
+                tooltip="컨덕터 저장소에서 이 주문 지우기"
+                size="xs"
+                variant="ghost"
+                disabled={read(removeBusy)}
+                onPress={() => askRemove(`order:${order.id}`, [order.id])}
+              />
+            ) : null}
+          </Row>
         </Row>
         <Row gap="xs" wrap>
           <Code>{order.id}</Code>
@@ -253,6 +346,7 @@ function OrderRow({ order }: { order: OrderView }) {
           {order.issue ? <Text size="xs">이슈 {order.issue}</Text> : null}
           {at !== null ? <RelativeTime at={at} muted /> : null}
         </Row>
+        <RemoveConfirm at={`order:${order.id}`} />
       </Stack>
     </Box>
   )
@@ -302,7 +396,7 @@ function RepoTile({ s }: { s: RepoSummary }) {
   return (
     <Box key={s.repo} border={border} radius="md" padding="sm" background={s.active > 0 || s.gates.length > 0 ? 'card' : 'muted'}>
       <Stack gap="xs">
-        <Button variant="ghost" size="sm" tooltip={`${s.repo} 자세히 보기`} onPress={() => set(selectedRepo, s.repo)}>
+        <Button variant="ghost" size="sm" tooltip={`${s.repo} 자세히 보기`} onPress={() => selectRepo(s.repo)}>
           {name}
         </Button>
         {owner ? (
@@ -412,13 +506,39 @@ function Hierarchy({ orders }: { orders: readonly OrderView[] }) {
   )
 }
 
+function FinishedCleanup({ s }: { s: RepoSummary }) {
+  const ids = s.orders.filter((o) => isTerminal(o.status)).map((o) => o.id)
+  const result = read(removeResult)
+  if (ids.length === 0 && !result) return null
+  return (
+    <Stack gap="xs">
+      {result ? <RemoveResultCallout result={result} /> : null}
+      {ids.length > 0 ? (
+        <Row>
+          <Button
+            size="sm"
+            variant="outline"
+            tone="danger"
+            icon="delete"
+            disabled={read(removeBusy)}
+            onPress={() => askRemove(`repo:${s.repo}`, ids)}
+          >
+            {`끝난 주문 ${ids.length}개 지우기`}
+          </Button>
+        </Row>
+      ) : null}
+      <RemoveConfirm at={`repo:${s.repo}`} />
+    </Stack>
+  )
+}
+
 function RepoDetail({ s }: { s: RepoSummary }) {
   const { name, owner } = splitRepo(s.repo)
   return (
     <Stack gap="md">
       <Stack gap="xs">
         <Row>
-          <Button variant="ghost" size="xs" onPress={() => set(selectedRepo, null)}>
+          <Button variant="ghost" size="xs" onPress={() => selectRepo(null)}>
             ← 지도
           </Button>
         </Row>
@@ -441,6 +561,7 @@ function RepoDetail({ s }: { s: RepoSummary }) {
         </Stack>
       ) : null}
       <Hierarchy orders={s.orders} />
+      <FinishedCleanup s={s} />
       {groupOrders(s.orders).map(([status, orders]) => (
         <Collapsible
           key={status}

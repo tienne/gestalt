@@ -195,6 +195,48 @@ test('gate.resolve는 옵션처럼 읽히는 게이트 id를 CLI에 넘기지 �
   })
 })
 
+test('order.remove는 겹친 id를 한 번만 넘기고 지운 주문과 남긴 이유를 돌려준다', async () => {
+  const s = store(STATUS)
+  writeFileSync(
+    join(s.dir, 'fake-remove.json'),
+    JSON.stringify({ removed: ['ord-b'], skipped: [{ id: 'ord-a', reason: '끝난 주문만 지울 수 있어요: ord-a(running)' }] })
+  )
+  await run(s, host(s.dir), async (worker) => {
+    const out = await worker.request('order.remove', { orderIds: ['ord-b', 'ord-a', 'ord-b'] })
+    assert.deepEqual(out, {
+      ok: true,
+      removed: ['ord-b'],
+      skipped: [{ id: 'ord-a', reason: '끝난 주문만 지울 수 있어요: ord-a(running)' }]
+    })
+    const remove = s.calls().find((c) => c.args[1] === 'order')!
+    assert.deepEqual(remove.args, ['conductor', 'order', 'remove', 'ord-b', 'ord-a', '--json', `--state-dir=${s.dir}`])
+  })
+})
+
+test('order.remove는 빈 목록이나 옵션처럼 읽히는 id, 너무 많은 id를 CLI에 넘기지 않는다', async () => {
+  const s = store(STATUS)
+  await run(s, host(s.dir), async (worker) => {
+    for (const orderIds of [[], ['--all'], ['ord-a', 'a b'], Array.from({ length: 201 }, (_, i) => `ord-${i}`)]) {
+      const out = await worker.request('order.remove', { orderIds })
+      assert.equal(out.ok, false, JSON.stringify(orderIds).slice(0, 40))
+    }
+    assert.equal(
+      s.calls().some((c) => c.args[1] === 'order'),
+      false
+    )
+  })
+})
+
+test('order.remove는 CLI가 하나도 못 지우면 stderr의 이유를 돌려준다', async () => {
+  const s = store(STATUS)
+  await run(s, host(s.dir), async (worker) => {
+    writeFileSync(join(s.dir, 'fake-fail'), '열린 게이트가 있어서 못 지워요: ord-a\n')
+    const out = await worker.request('order.remove', { orderIds: ['ord-a'] })
+    assert.equal(out.ok, false)
+    assert.match(out.error ?? '', /열린 게이트가 있어서 못 지워요/)
+  })
+})
+
 test('worker.open은 주문의 워크트리를 찾아 연다', async () => {
   const s = store(STATUS)
   const h = host(s.dir)

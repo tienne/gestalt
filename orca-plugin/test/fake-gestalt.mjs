@@ -16,5 +16,5 @@ if (existsSync(join(dir, 'fake-fail'))) {
   process.stderr.write(readFileSync(join(dir, 'fake-fail'), 'utf8'))
   process.exit(1)
 }
-const file = args[1] === 'gate' ? 'fake-resolve.json' : 'fake-status.json'
+const file = { gate: 'fake-resolve.json', order: 'fake-remove.json' }[args[1]] ?? 'fake-status.json'
 process.stdout.write(readFileSync(join(dir, file), 'utf8'))

@@ -13,6 +13,7 @@ import type {
   GateDecision,
   GateResolveResult,
   GateView,
+  OrderRemoveResult,
   OrderView
 } from './protocol'
 
@@ -29,6 +30,10 @@ type State = {
   answers: Record<string, string>
   result: GateResolveResult | null
   openError: string | null
+  /** 지우기 확인을 기다리는 자리. 주문 하나면 'order:<id>', 레포의 끝난 주문 전부면 'repo:<레포>' */
+  removing: { key: string; ids: string[] } | null
+  removeBusy: boolean
+  removeResult: OrderRemoveResult | null
 }
 
 const state: State = {
@@ -40,7 +45,10 @@ const state: State = {
   busy: null,
   answers: {},
   result: null,
-  openError: null
+  openError: null,
+  removing: null,
+  removeBusy: false,
+  removeResult: null
 }
 
 type Child = Node | string | null | undefined | false
@@ -118,9 +126,30 @@ async function openWorker(orderId: string): Promise<void> {
   render()
 }
 
+async function removeOrders(ids: string[]): Promise<void> {
+  state.removeBusy = true
+  render()
+  try {
+    state.removeResult = await orca.plugin.request('order.remove', { orderIds: ids }, { timeoutMs: RESOLVE_TIMEOUT_MS })
+  } catch (e) {
+    state.removeResult = { ok: false, removed: [], skipped: [], error: errorText(e) }
+  } finally {
+    state.removeBusy = false
+    state.removing = null
+    render()
+  }
+}
+
+function askRemove(key: string, ids: string[]): void {
+  state.removeResult = null
+  state.removing = { key, ids }
+  render()
+}
+
 function select(key: string | null): void {
   state.selected = state.selected === key ? null : key
   state.pending = null
+  state.removing = null
   render()
 }
 
@@ -221,6 +250,7 @@ function repoCard(s: RepoSummary, gateCount: Map<string, number>): HTMLElement {
   const all = buildHierarchy(s.orders)
   const shown = state.showDone ? all : pruneHierarchy(all, (o) => !isTerminal(o.status))
   const hidden = s.orders.length - s.orders.filter((o) => state.showDone || !isTerminal(o.status)).length
+  const finished = s.orders.filter((o) => isTerminal(o.status)).map((o) => o.id)
   const tone = s.needsPerson > 0 ? 'warning' : s.active > 0 ? 'accent' : 'neutral'
   return el(
     'section',
@@ -238,7 +268,53 @@ function repoCard(s: RepoSummary, gateCount: Map<string, number>): HTMLElement {
       )
     ),
     shown.length > 0 ? tree(shown, gateCount) : el('div', { class: 'muted small' }, '진행 중인 주문이 없어요'),
-    hidden > 0 ? el('div', { class: 'muted small' }, `끝난 주문 ${hidden}개 숨김`) : null
+    hidden > 0 || finished.length > 0
+      ? el(
+          'div',
+          { class: 'repo-foot' },
+          hidden > 0 ? el('span', { class: 'muted small' }, `끝난 주문 ${hidden}개 숨김`) : el('span', null),
+          finished.length > 0
+            ? el(
+                'button',
+                { class: 'btn danger-outline xs', disabled: state.removeBusy, onClick: () => askRemove(`repo:${s.repo}`, finished) },
+                `끝난 주문 ${finished.length}개 지우기`
+              )
+            : null
+        )
+      : null,
+    removeConfirm(`repo:${s.repo}`)
+  )
+}
+
+/** 지우기 버튼을 누른 자리에만 뜨는 확인 칸 */
+function removeConfirm(at: string): HTMLElement | null {
+  const r = state.removing
+  if (r?.key !== at) return null
+  return el(
+    'div',
+    { class: 'confirm tone-danger' },
+    el('strong', null, r.ids.length > 1 ? `끝난 주문 ${r.ids.length}개를 지울까요?` : '이 주문을 지울까요?'),
+    el('div', { class: 'small' }, '컨덕터 저장소에서 지워져 다시 볼 수 없어요. 같은 지라 티켓이나 PR로 주문이 다시 생기지도 않아요. 워크트리와 브랜치는 그대로 남아요.'),
+    el(
+      'div',
+      { class: 'row' },
+      el('button', { class: 'btn danger', disabled: state.removeBusy, onClick: () => void removeOrders(r.ids) }, state.removeBusy ? '지우는 중' : '지우기 확정'),
+      el('button', { class: 'btn ghost', disabled: state.removeBusy, onClick: () => { state.removing = null; render() } }, '취소')
+    )
+  )
+}
+
+function removeResultBlock(r: OrderRemoveResult): HTMLElement {
+  const ok = r.ok && r.removed.length > 0
+  return el(
+    'div',
+    { class: `result tone-${ok ? (r.skipped.length > 0 ? 'warning' : 'success') : 'danger'}` },
+    el('strong', null, ok ? `주문 ${r.removed.length}개를 지웠어요` : '못 지웠어요'),
+    !r.ok && r.error ? el('div', { class: 'small' }, r.error) : null,
+    r.skipped.length > 0
+      ? el('div', { class: 'small' }, el('b', null, `${r.skipped.length}개는 남겼어요`), lines(r.skipped.map((x) => x.reason)))
+      : null,
+    el('button', { class: 'btn ghost', onClick: () => { state.removeResult = null; render() } }, '닫기')
   )
 }
 
@@ -368,7 +444,17 @@ function orderDetail(o: OrderView, v: ConductorView): HTMLElement {
       field('부모 워크트리', o.parentWorktree ? `${o.parentWorktree}${o.parentBranch ? ` · ${o.parentBranch}` : ''}` : undefined),
       field('갱신', ago(ms(o.updatedAt)))
     ),
-    o.workspaceId ? el('button', { class: 'btn', onClick: () => void openWorker(o.id) }, '워크트리 열기') : null,
+    o.workspaceId || isTerminal(o.status)
+      ? el(
+          'div',
+          { class: 'row' },
+          o.workspaceId ? el('button', { class: 'btn', onClick: () => void openWorker(o.id) }, '워크트리 열기') : null,
+          isTerminal(o.status)
+            ? el('button', { class: 'btn danger-outline', disabled: state.removeBusy, onClick: () => askRemove(orderKey(o.id), [o.id]) }, '기록 지우기')
+            : null
+        )
+      : null,
+    removeConfirm(orderKey(o.id)),
     children.length > 0
       ? el(
           'div',
@@ -400,6 +486,7 @@ function renderSide(v: ConductorView): void {
   const parts: Child[] = []
   if (state.openError) parts.push(el('div', { class: 'result tone-warning' }, el('strong', null, '워크트리를 못 열었어요'), el('div', { class: 'small' }, state.openError)))
   if (state.result) parts.push(resultBlock(state.result))
+  if (state.removeResult) parts.push(removeResultBlock(state.removeResult))
 
   const node = state.selected ? findNode(allNodes(v), state.selected) : undefined
   if (node?.kind === 'order') parts.push(orderDetail(node.order, v))
@@ -504,6 +591,8 @@ html, body { margin: 0; height: 100%; background: var(--orca-background); color:
 .btn.ghost { background: transparent; border-color: transparent; }
 .link { font: inherit; background: none; border: 0; padding: 0; color: var(--orca-primary); cursor: pointer; text-align: left; text-decoration: underline; text-underline-offset: 2px; }
 .row { display: flex; gap: 6px; margin-top: 6px; }
+.repo-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
+.btn.xs { font-size: 11px; padding: 2px 8px; }
 .toggle { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--orca-muted-foreground); }
 .side h2 { font-size: 15px; margin: 6px 0 8px; }
 .side h3 { font-size: 13px; margin: 14px 0 6px; }

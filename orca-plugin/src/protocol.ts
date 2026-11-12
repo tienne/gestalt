@@ -76,6 +76,14 @@ export type GateResolveResult = {
   error?: string
 }
 
+export type OrderRemoveResult = {
+  ok: boolean
+  removed: string[]
+  /** 컨덕터가 거절한 주문과 이유. 그새 다시 돌기 시작했거나 게이트가 열린 경우다 */
+  skipped: { id: string; reason: string }[]
+  error?: string
+}
+
 declare module 'orca' {
   interface PluginRequests {
     /** 워커가 마지막으로 읽은 상태. 아직 없으면 지금 읽는다 */
@@ -84,6 +92,8 @@ declare module 'orca' {
     'conductor.refresh': { output: ConductorView }
     /** `gestalt conductor gate resolve`를 부른다. 패널이 확인 단계를 거친 뒤에만 보낸다 */
     'gate.resolve': { input: GateResolveInput; output: GateResolveResult }
+    /** `gestalt conductor order remove`로 끝난 주문을 지운다. 패널이 확인 단계를 거친 뒤에만 보낸다 */
+    'order.remove': { input: { orderIds: string[] }; output: OrderRemoveResult }
     /** 주문을 맡은 워커의 오르카 워크트리를 연다 */
     'worker.open': { input: { orderId: string }; output: { opened: boolean; error?: string } }
   }
