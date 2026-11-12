@@ -326,7 +326,15 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 }
 ```
 
-`repoPaths`는 워크트리를 만들 경로를 알려 주는 칸이라 여기 적었다고 감시하지는 않는다. 레포를 추가하자마자 오래된 draft나 사람이 다른 세션에서 직접 맡은 PR까지 주문이 생기는 걸 막으려고 둘을 나눴다. gh는 그 레포의 로컬 체크아웃에서 부르므로 `prWatchRepos`에 적은 레포는 `repoPaths`에도 경로가 있어야 한다. 없으면 그 레포만 감시에서 빠지고 tick 보고의 `errors`에 이유가 남는다. 이번 tick만 건너뛰려면 `gestalt conductor tick --no-pr-watch`를 쓴다. 남이 만든 레포 안에서 세션을 열었다고 감시 대상이 바뀌면 안 되므로 레포 `gestalt.json`의 `prWatchRepos`는 받지 않는다.
+`repoPaths`는 워크트리를 만들 경로를 알려 주는 칸이라 여기 적었다고 감시하지는 않는다. 레포를 추가하자마자 오래된 draft나 사람이 다른 세션에서 직접 맡은 PR까지 주문이 생기는 걸 막으려고 둘을 나눴다.
+
+- gh는 그 레포의 로컬 체크아웃에서 부르므로 `prWatchRepos`에 적은 레포는 `repoPaths`에도 같은 철자의 키로 경로가 있어야 한다. 없으면 그 레포만 감시에서 빠지고 tick 보고의 `errors`에 이유가 남는다.
+- `owner/name` 꼴이 아닌 항목(끝 공백이 붙었거나 `/`가 없는 값)도 감시에서 빠지고 `errors`에 그 값이 따옴표로 감싸여 남는다.
+- 감시 간격 안이라 건너뛴 tick은 감시를 안 돌므로 위 오류도 남기지 않는다.
+- 이번 tick만 감시를 건너뛰려면 `gestalt conductor tick --no-pr-watch`를 쓴다.
+- 남이 만든 레포 안에서 세션을 열었다고 감시 대상이 바뀌면 안 되므로 레포 `gestalt.json`의 `prWatchRepos`는 받지 않는다.
+
+감시가 켜진 레포에서는 PR마다 아래처럼 주문을 만든다.
 
 - **내가 올린 PR**: 내가 마지막으로 답한 뒤에 다른 사람 코멘트가 있으면 `review-reply` 주문을 만든다.
 - **내가 리뷰한 PR**: 내가 리뷰한 뒤 head가 바뀌었으면 `review-loop` 주문을 만든다. 코드는 그대로인데 답만 달렸으면 `review-manual-switch` 확인 자리로 사람에게 묻고 승인되면 재리뷰 주문을 만든다.
