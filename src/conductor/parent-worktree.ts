@@ -2,19 +2,29 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-/**
- * 주문의 부모 워크트리를 접수 단계에서 확인한다.
- *
- * 경로나 오르카 선택자를 받아 워크트리 루트의 절대 경로로 풀고 그 워크트리가 주문 레포의 것인지 본다.
- * 레포가 다르거나 없는 경로면 여기서 던져 주문을 받지 않는다. 런처까지 가서 실패하면 워커 슬롯과
- * 회차만 쓰고 게이트로 올라오기 때문이다.
- */
+// 주문의 부모 워크트리를 접수 단계에서 확인한다. 런처까지 가서 실패하면 워커 슬롯만 쓰고 게이트로
+// 올라오므로 레포가 다르거나 없는 경로는 여기서 던져 주문을 받지 않는다.
 
 /** 동기 명령 실행기. 테스트가 바꿔 끼운다. 실패하면 던진다 */
 export type SyncExec = (cmd: string, args: string[]) => string;
 
-const defaultExec: SyncExec = (cmd, args) =>
-  execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 });
+const EXEC_TIMEOUT_MS = 10_000;
+
+const defaultExec: SyncExec = (cmd, args) => {
+  try {
+    return execFileSync(cmd, args, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: EXEC_TIMEOUT_MS,
+    });
+  } catch (err) {
+    if ((err as { code?: string }).code === 'ETIMEDOUT')
+      throw new Error(`${cmd} ${args.join(' ')}가 ${EXEC_TIMEOUT_MS / 1000}초 안에 안 끝났어요`, {
+        cause: err,
+      });
+    throw err;
+  }
+};
 
 /** `path:`를 뺀 오르카 선택자 접두어. 이걸로 시작하면 오르카에 경로를 묻는다 */
 const ORCA_SELECTOR_RE = /^(identity|id|name|branch|issue|worktree|folder):./;
@@ -64,7 +74,11 @@ export function resolveParentWorktree(
   return root;
 }
 
-/** `git@github.com:owner/name.git`, `https://github.com/owner/name` 같은 주소가 그 레포인지 본다 */
+/**
+ * `git@github.com:owner/name.git`, `https://github.com/owner/name` 같은 주소가 그 레포인지 본다.
+ * 호스트는 안 본다. SSH 별칭(`git@github-work:owner/name.git`)도 같은 레포로 받으려는 것이고
+ * 호스트가 다른 동명 레포를 가려야 하면 repoPaths로 git 공용 디렉토리를 맞춘다
+ */
 export function remoteMatches(url: string, repo: string): boolean {
   const m = /[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(url.trim());
   return m !== null && m[1]!.toLowerCase() === repo.toLowerCase();
@@ -76,8 +90,14 @@ function orcaPath(selector: string, orcaCommand: string | undefined, exec: SyncE
   let out: string;
   try {
     out = exec(orcaCommand, ['worktree', 'show', '--worktree', selector, '--json']);
-  } catch {
-    throw new Error(`오르카에서 부모 워크트리 ${selector}를 못 찾았어요`);
+  } catch (err) {
+    const why = err instanceof Error && /초 안에 안 끝났어요/.test(err.message) ? err.message : '';
+    throw new Error(
+      why
+        ? `오르카에서 부모 워크트리 ${selector}를 확인하지 못했어요: ${why}`
+        : `오르카에서 부모 워크트리 ${selector}를 못 찾았어요`,
+      { cause: err },
+    );
   }
   const path = worktreeField(out, 'path');
   if (!path) throw new Error(`오르카 응답에 부모 워크트리 ${selector}의 경로가 없어요`);
@@ -101,12 +121,14 @@ export function worktreeField(stdout: string, field: 'path' | 'id' | 'repoId'): 
 function git(exec: SyncExec, cwd: string, args: string[]): string | undefined {
   try {
     return exec('git', ['-C', cwd, ...args]).trim() || undefined;
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && /초 안에 안 끝났어요/.test(err.message)) throw err;
     return undefined;
   }
 }
 
-function real(path: string): string {
+/** 심링크를 푼 절대 경로. 경로가 없으면 resolve만 한다 */
+export function real(path: string): string {
   try {
     return realpathSync(path);
   } catch {

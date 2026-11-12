@@ -154,19 +154,22 @@ export interface ConductorOrderAddOptions extends ConductorCommonOptions {
   pr?: string;
 }
 
+function resolveParent(
+  input: string | undefined,
+  repo: string,
+  repoPaths: Record<string, string>,
+): string | undefined {
+  if (input === undefined) return undefined;
+  const orca = detectOrca(process.env);
+  return resolveParentWorktree(input, repo, { repoPaths, ...(orca ? { orcaCommand: orca } : {}) });
+}
+
 export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
   run(() => {
     const ctx = open(opts);
     assertConductorSession(ctx, 'order add');
     const source = oneOf<IntakeKind>(opts.source ?? 'spoken', INTAKE_KINDS, '--source');
-    const orca = detectOrca(process.env);
-    const parentWorktree =
-      opts.parentWorktree !== undefined
-        ? resolveParentWorktree(opts.parentWorktree, opts.repo, {
-            repoPaths: ctx.config.repoPaths,
-            ...(orca ? { orcaCommand: orca } : {}),
-          })
-        : undefined;
+    const parentWorktree = resolveParent(opts.parentWorktree, opts.repo, ctx.config.repoPaths);
     const out = intakeOrder(
       ctx.store,
       {

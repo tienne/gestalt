@@ -1,3 +1,4 @@
+import { isAbsolute } from 'node:path';
 import { log } from '../core/log.js';
 import type { ConductorConfig } from './scheduler.js';
 import { openOrReuse } from './gates.js';
@@ -103,17 +104,15 @@ const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 
 /**
  * 기준 브랜치로 받을 ref 이름. git과 오르카 인자로 그대로 넘어가므로 `-`로 시작해 옵션으로 읽히는 값과
- * git이 ref로 안 받는 꼴(`..`, `@{`, 끝의 `/`나 `.lock`)을 막는다
+ * git이 ref로 안 받는 꼴(`..`, `@{`, 빈 컴포넌트, `.`으로 시작하거나 `.lock`으로 끝나는 컴포넌트)을 막는다
  */
 export function isRefName(ref: string): boolean {
   return (
     /^[\w][\w./+-]*$/.test(ref) &&
     ref.length <= 200 &&
     !ref.includes('..') &&
-    !ref.includes('//') &&
-    !ref.endsWith('/') &&
     !ref.endsWith('.') &&
-    !ref.endsWith('.lock')
+    ref.split('/').every((part) => part !== '' && !part.startsWith('.') && !part.endsWith('.lock'))
   );
 }
 /**
@@ -146,6 +145,12 @@ export function intakeOrder(
   if (input.baseBranch !== undefined && !isRefName(input.baseBranch))
     throw new Error(`기준 브랜치 이름 꼴이 아니에요: ${oneLine(input.baseBranch)}`);
   const trusted = opts.trusted === true || input.source === 'spoken';
+  if (input.parentWorktree !== undefined) {
+    // 부모 경로는 order add가 이 머신에서 확인한 값만 받는다. 바깥 출처가 정하면 그 경로 아래 셋업이 돈다
+    if (!trusted) throw new Error('부모 워크트리는 컨덕터 세션이 order add로 넣은 주문만 받아요');
+    if (!isAbsolute(input.parentWorktree))
+      throw new Error(`부모 워크트리는 절대 경로로 주세요: ${oneLine(input.parentWorktree)}`);
+  }
   const skills = trusted ? input.skillChain : input.skillChain?.filter((s) => KNOWN_SKILLS.has(s));
 
   const description =
@@ -321,7 +326,7 @@ export function parseQueueBody(body: unknown): Omit<IntakeInput, 'source' | 'sou
   const out: Omit<IntakeInput, 'source' | 'sourceRef'> = { repo: b['repo'], title: b['title'] };
   if (typeof b['description'] === 'string') out.description = b['description'];
   if (typeof b['scope'] === 'string') {
-    if (!isOrderScope(b['scope'])) return `scope를 모르겠어요: ${b['scope']}`;
+    if (!isOrderScope(b['scope'])) return `scope를 모르겠어요: ${oneLine(b['scope'])}`;
     out.scope = b['scope'];
   }
   if (b['issueKey'] !== undefined) {
@@ -332,7 +337,7 @@ export function parseQueueBody(body: unknown): Omit<IntakeInput, 'source' | 'sou
   if (typeof b['issueType'] === 'string') out.issueType = normalizeIssueType(b['issueType']);
   if (b['workerKind'] !== undefined) {
     if (typeof b['workerKind'] !== 'string' || !isWorkerKind(b['workerKind']))
-      return `workerKind를 모르겠어요: ${String(b['workerKind'])}`;
+      return `workerKind를 모르겠어요: ${oneLine(String(b['workerKind']))}`;
     out.workerKind = b['workerKind'];
   }
   // 부모 워크트리는 이 머신의 경로라 바깥에서 정하게 두지 않는다. 컨덕터 세션이 order add로 넣는다
@@ -340,12 +345,12 @@ export function parseQueueBody(body: unknown): Omit<IntakeInput, 'source' | 'sou
     return 'parentWorktree는 큐로 못 받아요. 컨덕터 세션에서 order add --parent-worktree로 넣어 주세요';
   if (b['baseBranch'] !== undefined) {
     if (typeof b['baseBranch'] !== 'string' || !isRefName(b['baseBranch']))
-      return `baseBranch가 브랜치 이름 꼴이 아니에요: ${String(b['baseBranch'])}`;
+      return `baseBranch가 브랜치 이름 꼴이 아니에요: ${oneLine(String(b['baseBranch']))}`;
     out.baseBranch = b['baseBranch'];
   }
   if (b['jiraStatus'] !== undefined) {
     if (typeof b['jiraStatus'] !== 'string' || !isJiraStatus(b['jiraStatus']))
-      return `jiraStatus를 모르겠어요: ${String(b['jiraStatus'])}`;
+      return `jiraStatus를 모르겠어요: ${oneLine(String(b['jiraStatus']))}`;
     out.explicitJiraStatus = b['jiraStatus'];
   }
   if (Array.isArray(b['skillChain']) && b['skillChain'].every((x) => typeof x === 'string')) {
