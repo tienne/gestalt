@@ -100,7 +100,7 @@ export interface IntakeResult {
   created: boolean;
 }
 
-const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+export const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 
 /**
  * 기준 브랜치로 받을 ref 이름. git과 오르카 인자로 그대로 넘어가므로 `-`로 시작해 옵션으로 읽히는 값과

@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   conductorCheckpointSaveCommand,
+  conductorContextPathCommand,
   conductorDeployReportCommand,
   conductorGateListCommand,
   conductorGateResolveCommand,
@@ -254,6 +255,63 @@ describe('gestalt conductor', () => {
     vi.spyOn(process, 'cwd').mockReturnValue(wt);
     expect(() => conductorOrderAddCommand({ ...add, title: 'y' })).toThrow('exit 1');
     expect(err.at(-1)).toContain('wrk-g');
+  });
+
+  it('긴 주문 설명은 파일로 받아 자르지 않고 공통 맥락 경로는 상태 저장소 아래로 알려 준다', () => {
+    const stateDir = tempStateDir();
+    const descriptionFile = join(stateDir, 'desc.md');
+    const long = Array.from({ length: 500 }, (_, i) => `- 결정 ${i}: "인용"과 \`백틱\``).join('\n');
+    writeFileSync(descriptionFile, `${long}\n`);
+    conductorOrderAddCommand({
+      stateDir,
+      json: true,
+      repo: 'acme/app',
+      title: 't',
+      descriptionFile,
+    });
+    expect((last()['order'] as { description: string }).description).toBe(long);
+    expect(() =>
+      conductorOrderAddCommand({
+        stateDir,
+        repo: 'acme/app',
+        title: 't',
+        description: 'a',
+        descriptionFile,
+      }),
+    ).toThrow('exit 1');
+
+    conductorContextPathCommand({ stateDir, json: true, repo: 'acme/app' });
+    expect(last()).toEqual({
+      repo: 'acme/app',
+      path: join(resolve(stateDir), 'context', 'acme', 'app.md'),
+      exists: false,
+    });
+    expect(existsSync(join(stateDir, 'context', 'acme'))).toBe(true);
+    expect(() => conductorContextPathCommand({ stateDir, repo: '../x' })).toThrow('exit 1');
+
+    mkdirSync(join(stateDir, 'context', 'acme', 'dir.md'));
+    conductorContextPathCommand({ stateDir, json: true, repo: 'acme/dir' });
+    expect(last()['exists']).toBe(false);
+  });
+
+  it('설명 파일이 비었거나 64KB를 넘거나 일반 파일이 아니면 주문을 안 받는다', () => {
+    const stateDir = tempStateDir();
+    const add = (descriptionFile: string) => () =>
+      conductorOrderAddCommand({ stateDir, repo: 'acme/app', title: 't', descriptionFile });
+    const empty = join(stateDir, 'empty.md');
+    writeFileSync(empty, '  \n');
+    expect(add(empty)).toThrow('exit 1');
+    expect(err.join('\n')).toContain('비어 있어요');
+
+    const big = join(stateDir, 'big.md');
+    writeFileSync(big, 'a'.repeat(64 * 1024 + 1));
+    expect(add(big)).toThrow('exit 1');
+    expect(err.join('\n')).toContain('64KB를 넘어요');
+
+    expect(add(stateDir)).toThrow('exit 1');
+    expect(err.join('\n')).toContain('일반 파일이 아니에요');
+    expect(add(join(stateDir, 'none.md'))).toThrow('exit 1');
+    expect(err.join('\n')).toContain('찾을 수 없어요');
   });
 
   it('queue add는 파일로 넣고 워커 세션이나 JSON이 아닌 본문은 거절한다', () => {

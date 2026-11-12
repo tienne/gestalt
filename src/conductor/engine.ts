@@ -15,6 +15,7 @@ import {
 import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
 import { isAccountName } from './account-name.js';
+import { existingRepoContext } from './context.js';
 import { handleNeed, openOrReuse, type BypassHandlers } from './gates.js';
 import {
   intakeOrder,
@@ -535,8 +536,11 @@ async function launchQueued(
       lastSeenAt: report.at,
     };
     try {
+      const stateDir = resolve(store.dir);
+      const repoContextFile = existingRepoContext(stateDir, order.repo);
       const prompt = buildWorkerPrompt(order, worker, resume?.context, {
-        stateDir: resolve(store.dir),
+        stateDir,
+        ...(repoContextFile ? { repoContextFile } : {}),
       });
       const started = await launcher.start({
         order,
