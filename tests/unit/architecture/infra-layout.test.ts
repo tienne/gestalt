@@ -11,6 +11,7 @@ import {
   type InfraLayout,
   type InfraTile,
 } from '../../../src/architecture/infra-layout.js';
+import { makeRouter } from '../../../src/architecture/infra-router.js';
 import type { ArchitectureIr, ArchitectureNode } from '../../../src/architecture/index.js';
 import { edge, node } from '../../fixtures/architecture-categories/common.js';
 import { awsIr, azureIr, gcpIr } from '../../fixtures/architecture-infra/vendors.js';
@@ -122,7 +123,7 @@ describe('computeInfraLayout 벤더별 박스 트리', () => {
     expect(overlaps(vpc, bucket)).toBe(false);
   });
 
-  it('placedIn으로 매단 타일은 그 서브넷 박스 안에 선다', () => {
+  it('placedIn으로 서브넷을 가리킨 타일은 그 서브넷 박스 안에 선다', () => {
     const l = layoutOf(awsIr());
     expect(contains(box(l, 'sn-pub'), tileRect(tile(l, 'lb')))).toBe(true);
     expect(contains(box(l, 'sn-prv'), tileRect(tile(l, 'api')))).toBe(true);
@@ -389,5 +390,87 @@ describe('infraScope', () => {
     ] as const) {
       expect(infraScope(k)).toBe('regional');
     }
+  });
+});
+
+describe('computeInfraLayout 소속 박스', () => {
+  it('타일마다 그 타일을 담은 가장 안쪽 박스 id를 boxId로 단다', () => {
+    const l = layoutOf(awsIr());
+    expect(tile(l, 'lb').boxId).toBe('sn-pub');
+    expect(tile(l, 'api').boxId).toBe('sn-prv');
+    expect(tile(l, 'assets').boxId).toBe('region:aws:acct:ap-northeast-2');
+    expect(tile(l, 'dns').boxId).toBe('acct');
+    for (const build of [awsIr, gcpIr, azureIr]) {
+      const g = layoutOf(build());
+      for (const t of g.tiles) {
+        const own = g.boxes.find((b) => b.id === t.boxId);
+        expect(own, `${t.id}의 boxId ${t.boxId}`).toBeDefined();
+        expect(contains(own!, tileRect(t))).toBe(true);
+        // 타일을 담은 다른 박스 중 own 안에 든 것이 있으면 own은 가장 안쪽이 아니다
+        const inner = g.boxes.filter(
+          (b) => b !== own && contains(b, tileRect(t)) && contains(own!, b),
+        );
+        expect(
+          inner.map((b) => b.id),
+          t.id,
+        ).toEqual([]);
+      }
+    }
+  });
+
+  it('벤더가 없어 박스 밖에 선 타일은 boxId가 없다', () => {
+    const l = layoutOf({
+      ...awsIr(),
+      nodes: [...awsIr().nodes, node('loose', 'datastore', { engine: 'redis' })],
+    });
+    expect(tile(l, 'loose').boxId).toBeUndefined();
+  });
+});
+
+describe('직각 라우터', () => {
+  it('같은 라우터로 여러 번 길을 찾아도 앞 선의 탐색 상태가 남지 않는다', () => {
+    const l = layoutOf(awsIr());
+    const fresh = () => makeRouter(l.tiles, l.width, l.height, 20);
+    const shared = fresh();
+    const pairs = l.tiles.flatMap((a) =>
+      l.tiles.filter((b) => b !== a).map((b) => [a, b] as const),
+    );
+    for (const [a, b] of pairs) {
+      expect(shared.route(a, b)).toEqual(fresh().route(a, b));
+    }
+  });
+
+  it('타일 100개짜리 지도도 선마다 장애물을 돌아가는 짧은 길을 찾는다', () => {
+    const subnets = ['a', 'b', 'c', 'd'];
+    const nodes: ArchitectureNode[] = [
+      node('vpc', 'network', { provider: 'aws', region: 'ap-northeast-2' }),
+      ...subnets.map((s) => node(`sn-${s}`, 'subnet', { parent: 'vpc', exposure: 'private' })),
+    ];
+    const edges: ArchitectureIr['edges'] = [];
+    for (let i = 0; i < 100; i++) {
+      const id = `t${String(i).padStart(3, '0')}`;
+      nodes.push(node(id, 'deploy_target', { placedIn: `sn-${subnets[i % 4]!}`, engine: 'ec2' }));
+      if (i > 0) {
+        edges.push(edge(`e-${id}`, `t${String(i - 1).padStart(3, '0')}`, id, 'connects'));
+      }
+    }
+    const l = layoutOf({ ...awsIr(), nodes, edges });
+    expect(l.tiles).toHaveLength(100);
+    expect(l.edges).toHaveLength(99);
+    for (const e of l.edges) {
+      const segs = segments(e.d);
+      // 갇혀서 계단으로 떨어지면 중간 타일을 그대로 관통하고 지그재그면 구간이 늘어난다
+      expect(segs.length, `${e.id}: ${e.d}`).toBeLessThanOrEqual(5);
+      for (const seg of segs) {
+        for (const t of l.tiles) {
+          const own = t.id === e.from || t.id === e.to;
+          const r: Rect = own
+            ? { x: t.cx - INFRA_TILE / 2, y: t.y, width: INFRA_TILE, height: INFRA_TILE }
+            : tileRect(t);
+          expect(crossesInterior(seg, r), `${e.id}가 ${t.id}를 지난다: ${e.d}`).toBe(false);
+        }
+      }
+    }
+    expect(JSON.stringify(layoutOf({ ...awsIr(), nodes, edges }))).toBe(JSON.stringify(l));
   });
 });

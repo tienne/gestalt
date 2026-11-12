@@ -8,13 +8,19 @@ import type {
   SubnetExposure,
 } from './types.js';
 import { BOX_ICONS, iconKey, vendorIconKey } from './vendor-icon-keys.js';
+import {
+  INFRA_NODE_W,
+  labelSpot,
+  makeRouter,
+  obstaclesOf,
+  pathOf,
+  type LabelSpot,
+  type Rect,
+} from './infra-router.js';
 
-// 좌표 규칙은 stack-diagram geometry.md를 따른다. 노드는 타일 60x60과 그 아래 글자를 합친 132x100 상자다
-export const INFRA_NODE_W = 132;
-export const INFRA_NODE_H = 100;
-export const INFRA_TILE = 60;
+export { INFRA_NODE_H, INFRA_NODE_W, INFRA_TILE } from './infra-router.js';
+
 const NODE_HALF = INFRA_NODE_W / 2;
-const TILE_HALF = INFRA_TILE / 2;
 /** 박스 위쪽 라벨 띠. 첫 타일 상단이 박스 상단에서 이만큼 내려온다 */
 export const INFRA_BOX_HEAD = 60;
 /** 박스 좌우와 아래 안쪽 여백. 노드 상자에서 이만큼 바깥에 테두리가 선다 */
@@ -28,15 +34,6 @@ export const INFRA_CANVAS_PAD = 40;
 // 빈 박스도 라벨이 들어갈 만큼은 선다
 const EMPTY_INNER_W = INFRA_NODE_W;
 const EMPTY_INNER_H = 40;
-// 선 끝과 타일 사이 틈. 화살촉이 이 틈을 메운다
-const PORT_GAP = 4;
-// 꺾임 하나를 이 길이만큼 돌아가는 것으로 친다. 짧지만 지그재그인 길보다 한 번 꺾는 길을 고르게 한다
-const BEND_COST = 40;
-// 노드 상자 바깥으로 지나가는 세로 통로. 글자 상자(±66)에 장애물 여유 4를 더하고 그만큼 더 띄운다
-const SIDE_CORRIDOR = NODE_HALF + 12;
-// 타일 아래 글자 상자 밑과 다음 행 사이 빈 띠
-const BELOW_BAND = INFRA_NODE_H + 25;
-const ABOVE_BAND = 20;
 
 export interface InfraEdgeInput {
   id: string;
@@ -47,7 +44,7 @@ export interface InfraEdgeInput {
 }
 
 export interface InfraBox {
-  /** 노드 박스면 노드 id, 리전처럼 IR에 없는 박스면 `region:<벤더>:<계정>:<리전>` 꼴 */
+  /** 노드 박스면 노드 id, IR에 없는 박스면 `cloud:<벤더>:<계정>`이나 `region:<벤더>:<계정>:<리전>`, GCP 리전은 `region:<VPC id>:<리전>` 꼴 */
   id: string;
   vendor: CloudProvider;
   /** 벤더 클래스와 박스 종류. `aws cloud`, `aws vpc`, `gcp region`처럼 렌더러가 그대로 class에 붙인다 */
@@ -70,6 +67,8 @@ export interface InfraTile {
   cx: number;
   vendor?: CloudProvider;
   iconKey?: string;
+  /** 타일을 담은 가장 안쪽 박스의 InfraBox.id. 벤더가 없어 박스 밖에 선 타일이면 없다 */
+  boxId?: string;
 }
 
 export interface InfraEdge {
@@ -81,7 +80,7 @@ export interface InfraEdge {
   /** M, H, V만 쓰는 직각 경로 */
   d: string;
   /** 가장 긴 구간 옆. 가로면 선 위 가운데, 세로면 선 오른쪽 */
-  labelAt: { x: number; y: number; anchor: 'middle' | 'start' };
+  labelAt: LabelSpot;
   /** 양 끝이 다 AWS 박스 안이다. AWS 그림 규칙(한 색, 열린 화살촉)을 따른다 */
   aws: boolean;
 }
@@ -102,7 +101,10 @@ export type InfraScope = 'global' | 'regional';
 
 const GLOBAL_KINDS: ReadonlySet<NodeKind> = new Set<NodeKind>(['domain', 'cdn']);
 
-/** 노드를 매단 곳이 없을 때 벤더 박스 안 어디에 둘지. GCP는 이 값과 상관없이 VPC 밖에 둔다 */
+/**
+ * placedIn이나 parent가 같은 벤더의 network, subnet, cluster를 가리키지 않는 노드를 벤더 박스 안 어디에 둘지.
+ * GCP는 이 값과 상관없이 VPC 밖에 둔다
+ */
 export function infraScope(kind: NodeKind): InfraScope {
   return GLOBAL_KINDS.has(kind) ? 'global' : 'regional';
 }
@@ -155,13 +157,24 @@ function newContainer(order: string, box?: BoxSpec): Container {
   return { ...(box !== undefined ? { box } : {}), order, tiles: [], children: [] };
 }
 
-/** 라벨 글자 폭 어림. 한글은 12px 글자 하나가 거의 정사각형이다 */
-function labelWidth(box: BoxSpec): number {
+/**
+ * 박스 왼쪽 위 라벨이 왼쪽 테두리부터 차지하는 폭. 박스 폭과 선 글자 회피 영역이 같은 값을 써야 서로 어긋나지 않는다.
+ * 글자 폭은 재지 않고 글자 수로 어림한다. 한글은 12px 글자 하나가 거의 정사각형이다
+ */
+function boxLabelExtent(box: Pick<BoxSpec, 'vendor' | 'label' | 'iconKey'>): number {
   let text = 0;
-  for (const ch of box.label) text += ch.charCodeAt(0) > 0x2e80 ? 12 : 7.2;
+  for (const ch of box.label) text += ch.codePointAt(0)! >= 0x2e80 ? 12 : 7.2;
   // 라벨 아이콘은 AWS가 30px, GCP와 Azure가 20px이고 글자와 8px 띄운다
   const icon = box.iconKey === undefined ? 0 : box.vendor === 'aws' ? 38 : 28;
-  return Math.ceil(12 + icon + text + 12);
+  return 12 + icon + text;
+}
+
+function labelWidth(box: BoxSpec): number {
+  return Math.ceil(boxLabelExtent(box) + 12);
+}
+
+function boxLabelRect(b: InfraBox): Rect {
+  return { x1: b.x, y1: b.y, x2: b.x + boxLabelExtent(b), y2: b.y + 34 };
 }
 
 /**
@@ -182,7 +195,8 @@ export function computeInfraLayout(input: {
   const vendorOf = (id: string): CloudProvider | undefined => placement.provider.get(id);
   const regionOf = (id: string): string | undefined => placement.region.get(id);
 
-  // 매단 곳. 같은 벤더의 network, subnet, cluster만 친다. 벤더가 엇갈리면 경고로 이미 알렸으니 매달지 않는다
+  // 노드가 설 자리를 정하는 기준 노드. placedIn이나 parent가 같은 벤더의 network나 subnet을 가리키면 그 박스에 들어가고
+  // cluster를 가리키면 그 클러스터와 같은 박스에 선다. 벤더가 엇갈리면 경고로 이미 알렸으니 따르지 않는다
   const anchorOf = (id: string): string | undefined => {
     const n = node(id);
     for (const a of [n.placedIn, n.parent]) {
@@ -305,13 +319,14 @@ export function computeInfraLayout(input: {
     let order: string;
     if (n.kind === 'network') {
       parent = vendor === 'gcp' ? cloudOf(vendor, acct) : regionalHome(vendor, acct, regionOf(id));
+      const icon = vendorIconKey(vendor, n);
       box = {
         id,
         vendor,
         cls: `${vendor} ${VNET_CLASS[vendor]}`,
         nodeId: id,
         label,
-        ...(vendorIconKey(vendor, n) !== undefined ? { iconKey: vendorIconKey(vendor, n)! } : {}),
+        ...(icon !== undefined ? { iconKey: icon } : {}),
       };
       order = `n|${id}`;
     } else {
@@ -390,7 +405,6 @@ export function computeInfraLayout(input: {
   ];
   for (const c of top) sortTree(c);
 
-  // ── 크기 재기와 자리 잡기 ──
   const tileBlock = (n: number): { w: number; h: number; cols: number } => {
     const cols = Math.min(INFRA_MAX_COLS, n);
     const rows = Math.ceil(n / cols);
@@ -443,6 +457,7 @@ export function computeInfraLayout(input: {
           y: y + row * INFRA_ROW_PITCH,
           cx: left + NODE_HALF,
           ...(vendorOf(id) !== undefined ? { vendor: vendorOf(id)! } : {}),
+          ...(c.box !== undefined ? { boxId: c.box.id } : {}),
         };
         tiles.push(t);
         tileAt.set(id, t);
@@ -475,7 +490,7 @@ export function computeInfraLayout(input: {
   const width = top.length > 0 ? cursor - INFRA_ITEM_GAP + INFRA_CANVAS_PAD : 2 * INFRA_CANVAS_PAD;
   const height = maxH + 2 * INFRA_CANVAS_PAD;
 
-  // 아이콘. AWS 워크로드는 따로 그릴 아이콘이 없어 매단 클러스터 아이콘을 따른다
+  // 아이콘. AWS 워크로드는 따로 그릴 아이콘이 없어 placedIn이나 parent가 가리키는 노드(대개 클러스터)의 아이콘을 따른다
   for (const t of tiles) {
     if (t.vendor === undefined) continue;
     const own = vendorIconKey(t.vendor, node(t.id));
@@ -491,7 +506,10 @@ export function computeInfraLayout(input: {
   const drawn = input.edges
     .filter((e) => e.from !== e.to && tileAt.has(e.from) && tileAt.has(e.to))
     .sort((a, b) => compareStr(a.id, b.id));
-  const router = drawn.length > 0 ? makeRouter([...tileAt.values()], width, height) : undefined;
+  const router =
+    drawn.length > 0
+      ? makeRouter([...tileAt.values()], width, height, INFRA_CANVAS_PAD / 2)
+      : undefined;
   // 선 글자가 박스 라벨이나 타일을 덮지 않게 비켜 놓는다
   const avoid = [...boxes.map(boxLabelRect), ...tiles.flatMap(obstaclesOf)];
   const edges: InfraEdge[] = drawn.map((e) => {
@@ -518,306 +536,4 @@ export function computeInfraLayout(input: {
     ),
   ].sort(compareStr);
   return { width, height, boxes, tiles, edges, iconKeys };
-}
-
-// ── 직각 경로 ──
-
-interface Pt {
-  x: number;
-  y: number;
-}
-interface Rect {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-}
-
-interface Port {
-  p: Pt;
-  /** 타일에서 바깥으로 나가는 방향(0 오른쪽, 1 아래, 2 왼쪽, 3 위). 들어올 때는 그 반대로 들어온다 */
-  out: number;
-}
-
-function portsOf(t: InfraTile): Port[] {
-  const midY = t.y + TILE_HALF;
-  return [
-    { p: { x: t.cx + TILE_HALF + PORT_GAP, y: midY }, out: 0 },
-    { p: { x: t.cx, y: t.y + INFRA_NODE_H + PORT_GAP }, out: 1 },
-    { p: { x: t.cx - TILE_HALF - PORT_GAP, y: midY }, out: 2 },
-    { p: { x: t.cx, y: t.y - PORT_GAP }, out: 3 },
-  ];
-}
-
-/** 타일과 그 아래 글자 상자. 선이 안쪽을 지나면 안 되고 테두리에 닿는 건 괜찮다 */
-function obstaclesOf(t: InfraTile): Rect[] {
-  return [
-    {
-      x1: t.cx - TILE_HALF - PORT_GAP,
-      y1: t.y - PORT_GAP,
-      x2: t.cx + TILE_HALF + PORT_GAP,
-      y2: t.y + INFRA_TILE + PORT_GAP,
-    },
-    {
-      x1: t.cx - NODE_HALF - PORT_GAP,
-      y1: t.y + INFRA_TILE,
-      x2: t.cx + NODE_HALF + PORT_GAP,
-      y2: t.y + INFRA_NODE_H + PORT_GAP,
-    },
-  ];
-}
-
-function uniqSorted(values: number[]): number[] {
-  return [...new Set(values)].sort((a, b) => a - b);
-}
-
-/** 성긴 격자 위 다익스트라. 상태는 (점, 들어온 방향)이고 꺾을 때마다 BEND_COST를 더한다 */
-function makeRouter(
-  tiles: readonly InfraTile[],
-  width: number,
-  height: number,
-): { route: (a: InfraTile, b: InfraTile) => Pt[] } {
-  const edgeX = INFRA_CANVAS_PAD / 2;
-  const cxs = uniqSorted(tiles.map((t) => t.cx));
-  const xs = uniqSorted([
-    edgeX,
-    width - edgeX,
-    ...tiles.flatMap((t) => [
-      t.cx,
-      t.cx - TILE_HALF - PORT_GAP,
-      t.cx + TILE_HALF + PORT_GAP,
-      t.cx - SIDE_CORRIDOR,
-      t.cx + SIDE_CORRIDOR,
-    ]),
-    ...cxs.slice(1).map((x, i) => (x + cxs[i]!) / 2),
-  ]);
-  const ys = uniqSorted([
-    edgeX,
-    height - edgeX,
-    ...tiles.flatMap((t) => [
-      t.y - PORT_GAP,
-      t.y - ABOVE_BAND,
-      t.y + TILE_HALF,
-      t.y + INFRA_NODE_H + PORT_GAP,
-      t.y + BELOW_BAND,
-    ]),
-  ]);
-  const nx = xs.length;
-  const ny = ys.length;
-  const xi = new Map(xs.map((x, i) => [x, i]));
-  const yi = new Map(ys.map((y, i) => [y, i]));
-  const rects = tiles.flatMap(obstaclesOf);
-  const crossesH = (y: number, x1: number, x2: number): boolean =>
-    rects.some((r) => r.y1 < y && y < r.y2 && Math.max(x1, r.x1) < Math.min(x2, r.x2));
-  const crossesV = (x: number, y1: number, y2: number): boolean =>
-    rects.some((r) => r.x1 < x && x < r.x2 && Math.max(y1, r.y1) < Math.min(y2, r.y2));
-  // 오른쪽(i→i+1)과 아래(j→j+1) 구간만 저장한다. 반대 방향은 같은 구간이다
-  const blockedRight = new Uint8Array(nx * ny);
-  const blockedDown = new Uint8Array(nx * ny);
-  for (let j = 0; j < ny; j++) {
-    for (let i = 0; i < nx; i++) {
-      const k = j * nx + i;
-      if (i + 1 < nx && crossesH(ys[j]!, xs[i]!, xs[i + 1]!)) blockedRight[k] = 1;
-      if (j + 1 < ny && crossesV(xs[i]!, ys[j]!, ys[j + 1]!)) blockedDown[k] = 1;
-    }
-  }
-  const step = (k: number, d: number): number => {
-    const i = k % nx;
-    const j = (k - i) / nx;
-    if (d === 0) return i + 1 < nx && blockedRight[k] === 0 ? k + 1 : -1;
-    if (d === 2) return i > 0 && blockedRight[k - 1] === 0 ? k - 1 : -1;
-    if (d === 1) return j + 1 < ny && blockedDown[k] === 0 ? k + nx : -1;
-    return j > 0 && blockedDown[k - nx] === 0 ? k - nx : -1;
-  };
-  const pointOf = (k: number): Pt => ({ x: xs[k % nx]!, y: ys[Math.floor(k / nx)]! });
-  const keyOf = (p: Pt): number => yi.get(p.y)! * nx + xi.get(p.x)!;
-
-  const route = (a: InfraTile, b: InfraTile): Pt[] => {
-    const states = nx * ny * 4;
-    const dist = new Float64Array(states).fill(Infinity);
-    const prev = new Int32Array(states).fill(-1);
-    const start = new Uint8Array(states);
-    const goal = new Uint8Array(states);
-    const heap = new MinHeap();
-    for (const port of portsOf(a)) {
-      const s = keyOf(port.p) * 4 + port.out;
-      dist[s] = 0;
-      start[s] = 1;
-      heap.push(0, s);
-    }
-    for (const port of portsOf(b)) goal[keyOf(port.p) * 4 + ((port.out + 2) % 4)] = 1;
-    let found = -1;
-    while (heap.size > 0) {
-      const [cost, s] = heap.pop();
-      if (cost > dist[s]!) continue;
-      if (goal[s] === 1) {
-        found = s;
-        break;
-      }
-      const k = s >> 2;
-      const d = s & 3;
-      for (let nd = 0; nd < 4; nd++) {
-        if (nd === (d + 2) % 4) continue;
-        // 포트에서는 타일 바깥쪽으로만 나간다
-        if (start[s] === 1 && nd !== d) continue;
-        const q = step(k, nd);
-        if (q < 0) continue;
-        const p0 = pointOf(k);
-        const p1 = pointOf(q);
-        const next =
-          cost + Math.abs(p1.x - p0.x) + Math.abs(p1.y - p0.y) + (nd === d ? 0 : BEND_COST);
-        const t = q * 4 + nd;
-        if (next < dist[t]!) {
-          dist[t] = next;
-          prev[t] = s;
-          heap.push(next, t);
-        }
-      }
-    }
-    if (found < 0) {
-      // 막힌 길이 없게 격자를 짰지만 혹시 갇히면 오른쪽 포트끼리 계단으로 잇는다
-      const from = portsOf(a)[0]!.p;
-      const to = portsOf(b)[2]!.p;
-      const midX = (from.x + to.x) / 2;
-      return [from, { x: midX, y: from.y }, { x: midX, y: to.y }, to];
-    }
-    const pts: Pt[] = [];
-    for (let s = found; s >= 0; s = prev[s]!) pts.push(pointOf(s >> 2));
-    return pts.reverse();
-  };
-  return { route };
-}
-
-/** 같은 방향으로 이어지는 점을 접는다 */
-function compress(pts: readonly Pt[]): Pt[] {
-  const out: Pt[] = [];
-  for (const p of pts) {
-    const last = out[out.length - 1];
-    if (last !== undefined && last.x === p.x && last.y === p.y) continue;
-    const before = out[out.length - 2];
-    if (
-      last !== undefined &&
-      before !== undefined &&
-      ((before.x === last.x && last.x === p.x) || (before.y === last.y && last.y === p.y))
-    ) {
-      out[out.length - 1] = p;
-      continue;
-    }
-    out.push(p);
-  }
-  return out;
-}
-
-function num(v: number): string {
-  return Number.isInteger(v) ? String(v) : v.toFixed(1);
-}
-
-function pathOf(raw: readonly Pt[]): string {
-  const pts = compress(raw);
-  const first = pts[0]!;
-  let d = `M${num(first.x)} ${num(first.y)}`;
-  for (let i = 1; i < pts.length; i++) {
-    const p = pts[i]!;
-    const q = pts[i - 1]!;
-    d += p.y === q.y ? ` H${num(p.x)}` : ` V${num(p.y)}`;
-  }
-  return d;
-}
-
-/** 박스 왼쪽 위 라벨이 차지하는 자리. 글자 폭은 재지 않고 글자 수로 어림한다 */
-function boxLabelRect(b: InfraBox): Rect {
-  const text = [...b.label].reduce((w, ch) => w + (ch.codePointAt(0)! >= 0x2e80 ? 12 : 7.5), 0);
-  return { x1: b.x, y1: b.y, x2: b.x + 12 + 38 + text, y2: b.y + 34 };
-}
-
-const overlaps = (a: Rect, b: Rect): boolean =>
-  a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2;
-// 선 글자 상자 어림. 글자가 두세 자라 폭을 고정한다
-const EDGE_LABEL_HALF_W = 18;
-const LABEL_SHIFT = 20;
-
-function labelSpot(raw: readonly Pt[], avoid: readonly Rect[]): InfraEdge['labelAt'] {
-  const pts = compress(raw);
-  let best = 0;
-  let bestLen = -1;
-  for (let i = 1; i < pts.length; i++) {
-    const len = Math.abs(pts[i]!.x - pts[i - 1]!.x) + Math.abs(pts[i]!.y - pts[i - 1]!.y);
-    if (len > bestLen) {
-      bestLen = len;
-      best = i;
-    }
-  }
-  const p = pts[best]!;
-  const q = pts[best - 1] ?? p;
-  const horizontal = p.y === q.y;
-  const lo = horizontal ? Math.min(p.x, q.x) : Math.min(p.y, q.y);
-  const hi = horizontal ? Math.max(p.x, q.x) : Math.max(p.y, q.y);
-  const mid = (lo + hi) / 2;
-  const boxAt = (t: number): Rect =>
-    horizontal
-      ? { x1: t - EDGE_LABEL_HALF_W, y1: p.y - 20, x2: t + EDGE_LABEL_HALF_W, y2: p.y - 4 }
-      : { x1: p.x + 8, y1: t - 8, x2: p.x + 8 + 2 * EDGE_LABEL_HALF_W, y2: t + 8 };
-  // 가운데부터 양쪽으로 번갈아 옮겨 본다. 어디든 걸리면 가운데에 둔다
-  let at = mid;
-  for (let k = 0; mid - k * LABEL_SHIFT >= lo + EDGE_LABEL_HALF_W; k++) {
-    const hit = [mid + k * LABEL_SHIFT, mid - k * LABEL_SHIFT].find(
-      (t) => t <= hi - EDGE_LABEL_HALF_W && !avoid.some((r) => overlaps(r, boxAt(t))),
-    );
-    if (hit !== undefined) {
-      at = hit;
-      break;
-    }
-  }
-  if (horizontal) return { x: at, y: p.y - 8, anchor: 'middle' };
-  return { x: p.x + 10, y: at + 4, anchor: 'start' };
-}
-
-/** 비용이 같으면 상태 번호가 작은 쪽이 먼저 나온다. 경로가 실행마다 같도록 */
-class MinHeap {
-  private costs: number[] = [];
-  private items: number[] = [];
-  get size(): number {
-    return this.items.length;
-  }
-  private less(i: number, j: number): boolean {
-    const a = this.costs[i]!;
-    const b = this.costs[j]!;
-    return a < b || (a === b && this.items[i]! < this.items[j]!);
-  }
-  private swap(i: number, j: number): void {
-    [this.costs[i], this.costs[j]] = [this.costs[j]!, this.costs[i]!];
-    [this.items[i], this.items[j]] = [this.items[j]!, this.items[i]!];
-  }
-  push(cost: number, item: number): void {
-    this.costs.push(cost);
-    this.items.push(item);
-    let i = this.items.length - 1;
-    while (i > 0) {
-      const p = (i - 1) >> 1;
-      if (!this.less(i, p)) break;
-      this.swap(i, p);
-      i = p;
-    }
-  }
-  pop(): [number, number] {
-    const top: [number, number] = [this.costs[0]!, this.items[0]!];
-    const lastCost = this.costs.pop()!;
-    const lastItem = this.items.pop()!;
-    if (this.items.length > 0) {
-      this.costs[0] = lastCost;
-      this.items[0] = lastItem;
-      let i = 0;
-      for (;;) {
-        const l = 2 * i + 1;
-        const r = l + 1;
-        let m = i;
-        if (l < this.items.length && this.less(l, m)) m = l;
-        if (r < this.items.length && this.less(r, m)) m = r;
-        if (m === i) break;
-        this.swap(i, m);
-        i = m;
-      }
-    }
-    return top;
-  }
 }
