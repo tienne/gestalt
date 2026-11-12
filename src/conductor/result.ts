@@ -1,4 +1,5 @@
 import { log } from '../core/log.js';
+import { isControlChar } from './intake.js';
 import { normalizePrRef } from './pr-ref.js';
 import {
   isNeedKind,
@@ -69,7 +70,7 @@ const MAX_SKILL_CHARS = 64;
 function hasControlChar(text: string): boolean {
   for (const ch of text) {
     const c = ch.codePointAt(0)!;
-    if (c < 0x20 || (c >= 0x7f && c < 0xa0) || c === 0x2028 || c === 0x2029) return true;
+    if (isControlChar(c)) return true;
   }
   return false;
 }

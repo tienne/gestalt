@@ -49,12 +49,17 @@ export const KNOWN_SKILLS: ReadonlySet<string> = new Set([
 
 export const ISSUE_KEY_RE = /^[A-Z][A-Z0-9_]*-\d+$/;
 
+/** 개행을 포함한 C0, C1 제어 문자와 U+2028/2029. 저장 때 거르는 문자와 출력 때 지우는 문자를 같게 둔다 */
+export function isControlChar(c: number): boolean {
+  return c < 0x20 || (c >= 0x7f && c < 0xa0) || c === 0x2028 || c === 0x2029;
+}
+
 /** 지시서 한 줄에 들어갈 값. 개행과 제어 문자로 지시 블록을 위조하지 못하게 공백으로 바꾸고 자른다 */
 export function oneLine(text: string, max = 200): string {
   let out = '';
   for (const ch of text) {
     const c = ch.codePointAt(0)!;
-    out += c < 0x20 || (c >= 0x7f && c < 0xa0) || c === 0x2028 || c === 0x2029 ? ' ' : ch;
+    out += isControlChar(c) ? ' ' : ch;
   }
   return [...out.replace(/\s+/g, ' ').trim()].slice(0, max).join('');
 }

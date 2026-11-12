@@ -22,7 +22,13 @@ import {
   type EngineDeps,
 } from '../../conductor/engine.js';
 import { resolveGate } from '../../conductor/gates.js';
-import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS, oneLine } from '../../conductor/intake.js';
+import {
+  intakeOrder,
+  isControlChar,
+  ISSUE_KEY_RE,
+  KNOWN_SKILLS,
+  oneLine,
+} from '../../conductor/intake.js';
 import type { DeploySignal } from '../../conductor/jira.js';
 import {
   assertCanSpawn,
@@ -205,10 +211,7 @@ function terminalText(text: string): string {
   let out = '';
   for (const ch of text) {
     const c = ch.codePointAt(0)!;
-    out +=
-      ch !== '\n' && (c < 0x20 || (c >= 0x7f && c < 0xa0) || c === 0x2028 || c === 0x2029)
-        ? ' '
-        : ch;
+    out += ch !== '\n' && isControlChar(c) ? ' ' : ch;
   }
   return out.replace(/\n/g, '\n    ');
 }
