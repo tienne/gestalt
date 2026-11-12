@@ -13,6 +13,15 @@ export const ms = (iso?: string | null): number | null => {
   return Number.isNaN(t) ? null : t
 }
 
+export function ago(at: number | null, now = Date.now()): string {
+  if (at === null) return ''
+  const s = Math.max(0, Math.round((now - at) / 1000))
+  if (s < 60) return '방금'
+  if (s < 3600) return `${Math.round(s / 60)}분 전`
+  if (s < 86400) return `${Math.round(s / 3600)}시간 전`
+  return `${Math.round(s / 86400)}일 전`
+}
+
 export const STATUS_LABEL: Record<string, string> = {
   queued: '대기',
   running: '진행',

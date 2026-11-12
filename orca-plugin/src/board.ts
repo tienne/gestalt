@@ -6,7 +6,7 @@ import {
   pruneHierarchy,
   type HierarchyNode
 } from './hierarchy'
-import { isTerminal, ms, splitRepo, STATUS_LABEL, STATUS_TONE, summarize, type RepoSummary } from './model'
+import { ago, isTerminal, ms, splitRepo, STATUS_LABEL, STATUS_TONE, summarize, type RepoSummary } from './model'
 import type {
   Bypass,
   ConductorView,
@@ -67,15 +67,6 @@ function el(tag: string, attrs: Attrs | null, ...children: Child[]): HTMLElement
 }
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
-
-function ago(at: number | null): string {
-  if (at === null) return ''
-  const s = Math.max(0, Math.round((Date.now() - at) / 1000))
-  if (s < 60) return '방금'
-  if (s < 3600) return `${Math.round(s / 60)}분 전`
-  if (s < 86400) return `${Math.round(s / 3600)}시간 전`
-  return `${Math.round(s / 86400)}일 전`
-}
 
 /** null을 걸러 내고 자식을 갈아 끼운다. 컨테이너는 그대로 둬서 스크롤 위치가 남는다 */
 function fill(target: HTMLElement, ...children: Child[]): void {
