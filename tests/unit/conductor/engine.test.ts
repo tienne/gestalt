@@ -25,7 +25,7 @@ import type { HostAction, Launcher, LaunchSpec } from '../../../src/conductor/la
 import type { ConductorConfig } from '../../../src/conductor/scheduler.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import type { Worker, WorkerKind } from '../../../src/conductor/types.js';
-import { cleanupStateDirs, clockedStore, order } from './fixtures.js';
+import { cleanupStateDirs, clockedStore, order, worker } from './fixtures.js';
 
 afterEach(cleanupStateDirs);
 
@@ -679,5 +679,118 @@ describe('컨덕터 tick', () => {
     const { store } = clockedStore();
     const { deps: d } = deps({ env: { GESTALT_CONDUCTOR_WORKER_ID: 'wrk-1' } });
     await expect(tick(store, d, { force: true })).rejects.toThrow();
+  });
+});
+
+describe('워커 에이전트와 보고 보존', () => {
+  it.each([
+    { agent: 'opencode', repoAgent: 'codex', defaultAgent: 'cursor', expected: 'opencode' },
+    { agent: undefined, repoAgent: 'codex', defaultAgent: 'cursor', expected: 'codex' },
+    { agent: undefined, repoAgent: undefined, defaultAgent: 'cursor', expected: 'cursor' },
+    { agent: undefined, repoAgent: undefined, defaultAgent: undefined, expected: 'claude' },
+  ])('주문 > 레포 > 기본 > claude 우선순위: $expected', async (row) => {
+    const { store, now } = clockedStore();
+    store.addOrder(order({ agent: row.agent }));
+    const orca = fakeLauncher('orca-worktree');
+    const { deps: d } = deps({
+      config: {
+        ...config,
+        defaultAgent: row.defaultAgent!,
+        repoAgents: row.repoAgent ? { 'acme/app': row.repoAgent } : {},
+      },
+      orcaAvailable: true,
+      launchers: { 'orca-worktree': orca.launcher },
+    });
+    await tick(store, d, { now: now(), force: true });
+    expect(orca.started[0]!.worker.agent).toBe(row.expected);
+    expect(ConductorStore.open(store.dir).workers()[0]!.agent).toBe(row.expected);
+  });
+
+  it('재개는 설정 변경 후에도 앞 워커의 에이전트를 유지한다', async () => {
+    const { store, now } = clockedStore();
+    const o = order();
+    store.addOrder(o);
+    const orca = fakeLauncher('orca-worktree');
+    const { deps: d } = deps({
+      config: { ...config, defaultAgent: 'codex' },
+      orcaAvailable: true,
+      launchers: { 'orca-worktree': orca.launcher },
+    });
+    await tick(store, d, { now: now(), force: true });
+    const first = orca.started[0]!.worker;
+    report(store, d, { workerId: first.id, status: 'stopped', stopReason: 'disconnected' });
+    const reopened = ConductorStore.open(store.dir);
+    await tick(
+      reopened,
+      { ...d, config: { ...config, defaultAgent: 'cursor' } },
+      { now: now(), force: true },
+    );
+    expect(orca.started[1]!.worker.agent).toBe('codex');
+  });
+
+  it('에이전트 기록 없는 옛 오르카 워커는 claude로 재개한다', async () => {
+    const { store, now } = clockedStore();
+    const o = order();
+    store.addOrder(o);
+    const legacy = worker(o.id, { kind: 'orca-worktree', status: 'stopped' });
+    store.startWorker(legacy);
+    store.updateOrder(o.id, { workerId: legacy.id, status: 'running' });
+    const orca = fakeLauncher('orca-worktree');
+    const { deps: d } = deps({
+      config: { ...config, defaultAgent: 'codex' },
+      orcaAvailable: true,
+      launchers: { 'orca-worktree': orca.launcher },
+    });
+    await tick(ConductorStore.open(store.dir), d, { now: now(), force: true });
+    expect(orca.started[0]!.worker.agent).toBe('claude');
+  });
+
+  it('호스트가 띄우는 워커에는 에이전트를 붙이지 않는다', async () => {
+    const { store, now } = clockedStore();
+    store.addOrder(order({ agent: 'codex' }));
+    const { deps: d, git } = deps();
+    await tick(store, d, { now: now(), force: true });
+    expect(git.started[0]!.worker.agent).toBeUndefined();
+  });
+
+  it('진행과 완료 보고의 모든 결과 필드를 inbox 삭제 뒤에도 복원한다', async () => {
+    const { store, now } = clockedStore();
+    const o = order();
+    store.addOrder(o);
+    const { deps: d, git } = deps();
+    await tick(store, d, { now: now(), force: true });
+    const workerId = git.started[0]!.worker.id;
+    const progress = {
+      workerId,
+      status: 'progress',
+      summary: '검증 진행',
+      refs: ['reports/check.md'],
+      skill: 'ship',
+      prRef: 'acme/app#123',
+      merged: false,
+      stopReason: 'unknown',
+      need: { kind: 'cleanup', detail: '임시 파일 정리' },
+    };
+    report(store, d, progress);
+    await tick(store, d, { now: now(), force: true });
+    report(store, d, {
+      workerId,
+      status: 'done',
+      summary: '검증 완료',
+      refs: ['reports/result.md'],
+    });
+    await tick(store, d, { now: now(), force: true });
+    expect(readdirSync(inboxDirOf(store, d))).toEqual([]);
+    const reopened = ConductorStore.open(store.dir);
+    expect(reopened.snapshot.reports[o.id]).toEqual([
+      { ...progress, at: now().toISOString() },
+      {
+        workerId,
+        status: 'done',
+        summary: '검증 완료',
+        refs: ['reports/result.md'],
+        at: now().toISOString(),
+      },
+    ]);
   });
 });

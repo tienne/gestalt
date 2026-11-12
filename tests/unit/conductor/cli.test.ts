@@ -7,6 +7,7 @@ import {
   conductorGateListCommand,
   conductorGateResolveCommand,
   conductorOrderAddCommand,
+  conductorOrderShowCommand,
   conductorQueueAddCommand,
   conductorSlackDraftCommand,
   conductorStatusCommand,
@@ -284,5 +285,109 @@ describe('gestalt conductor', () => {
     expect(report.counts.openGates).toBe(1);
     expect(report.errors.some((e) => e.includes('broken.json'))).toBe(true);
     expect(readdirSync(dir)).toEqual(['failed']);
+  });
+});
+
+describe('주문 상세와 에이전트', () => {
+  it('주문의 agent를 이벤트로 보존하고 공백은 거절한다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({
+      stateDir,
+      repo: 'acme/app',
+      title: '고치기',
+      agent: 'custom:v2',
+      json: true,
+    });
+    expect(ConductorStore.open(stateDir).orders()[0]!.agent).toBe('custom:v2');
+    for (const agent of ['', ' ', 'codex agent', 'codex\n']) {
+      expect(() =>
+        conductorOrderAddCommand({ stateDir, repo: 'acme/app', title: '고치기', agent }),
+      ).toThrow('exit 1');
+    }
+  });
+
+  it('끝난 주문의 워커, 결과, gate와 bypass를 텍스트와 JSON으로 읽는다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({
+      stateDir,
+      repo: 'acme/app',
+      title: '고치기',
+      description: '상세 주문',
+      agent: 'codex',
+      json: true,
+    });
+    const store = ConductorStore.open(stateDir);
+    const o = store.orders()[0]!;
+    const w = worker(o.id, { kind: 'orca-worktree', agent: 'codex', status: 'finished' });
+    store.startWorker(w);
+    store.updateOrder(o.id, { workerId: w.id, status: 'done', prRef: 'acme/app#123' });
+    const at = store.timestamp();
+    const summary = '완료 결과 '.repeat(30);
+    store.append({
+      type: 'report-applied',
+      at,
+      name: 'result.json',
+      report: {
+        workerId: w.id,
+        status: 'done',
+        summary,
+        refs: ['reports/final.md'],
+        skill: 'ship',
+      },
+    });
+    store.openGate({
+      id: 'gate-1',
+      orderId: o.id,
+      type: 'merge',
+      status: 'resolved',
+      reason: '머지 확인',
+      refs: [],
+      openedAt: at,
+      decision: 'approved',
+    });
+    store.append({
+      type: 'bypass',
+      at,
+      record: { orderId: o.id, need: 'cleanup', action: '정리 완료', at },
+    });
+    conductorOrderShowCommand(o.id, { stateDir, json: true });
+    expect(last()).toMatchObject({
+      order: { description: '상세 주문' },
+      workers: [{ agent: 'codex' }],
+      reports: [{ summary }],
+      refs: ['reports/final.md'],
+      gates: [{ id: 'gate-1' }],
+      bypasses: [{ action: '정리 완료' }],
+    });
+    out = [];
+    conductorOrderShowCommand(o.id, { stateDir });
+    const text = out.join('\n');
+    for (const part of [
+      '상세 주문',
+      'codex',
+      'orca-worktree',
+      summary,
+      'reports/final.md',
+      'acme/app#123',
+      'gate-1',
+      '정리 완료',
+      'solve → ship',
+    ])
+      expect(text).toContain(part);
+    out = [];
+    conductorStatusCommand({ stateDir, all: true });
+    expect(out.find((line) => line.startsWith(o.id))).toContain('완료 결과');
+    expect(out.find((line) => line.startsWith(o.id))).not.toContain(summary);
+  });
+
+  it('보고 본문 없는 옛 로그는 빈 이력으로 읽고 없는 주문은 거절한다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({ stateDir, repo: 'acme/app', title: '옛 주문', json: true });
+    const store = ConductorStore.open(stateDir);
+    const o = store.orders()[0]!;
+    store.append({ type: 'report-applied', at: store.timestamp(), name: 'old.json' });
+    conductorOrderShowCommand(o.id, { stateDir, json: true });
+    expect(last()['reports']).toEqual([]);
+    expect(() => conductorOrderShowCommand('ord-missing', { stateDir })).toThrow('exit 1');
   });
 });

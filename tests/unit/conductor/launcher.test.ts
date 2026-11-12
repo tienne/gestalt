@@ -337,3 +337,16 @@ describe('계정 맞추기', () => {
     expect(s.openGates('ord-1')[0]?.type).toBe('no-procedure');
   });
 });
+
+describe('오르카 에이전트 인자', () => {
+  it.each(['claude', 'codex', 'cursor', 'opencode', 'custom-agent:v2'])(
+    '%s를 --agent로 전달한다',
+    async (agent) => {
+      const { calls, runner } = recorder();
+      const l = new OrcaLauncher({ orcaCommand: 'orca', promptDir: tempStateDir(), runner });
+      await l.start({ order: order(), worker: worker('ord-1', { agent }), prompt: 'p' });
+      const args = calls[0]!.args;
+      expect(args[args.indexOf('--agent') + 1]).toBe(agent);
+    },
+  );
+});
