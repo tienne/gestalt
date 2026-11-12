@@ -8,8 +8,8 @@ const TILE_HALF = INFRA_TILE / 2;
 const PORT_GAP = 4;
 // 꺾임 하나를 이 길이만큼 돌아가는 것으로 친다. 짧지만 지그재그인 길보다 한 번 꺾는 길을 고르게 한다
 const BEND_COST = 40;
-// 노드 상자 바깥으로 지나가는 세로 통로. 글자 상자(±66)에 장애물 여유 4를 더하고 그만큼 더 띄운다
-const SIDE_CORRIDOR = NODE_HALF + 12;
+// 노드 상자 바깥으로 지나가는 세로 통로. 글자 상자(±66)에 장애물 여유 PORT_GAP(4)를 더하고 8을 더 띄운다
+const SIDE_CORRIDOR = NODE_HALF + PORT_GAP + 8;
 // 타일 아래 글자 상자 밑과 다음 행 사이 빈 띠
 const BELOW_BAND = INFRA_NODE_H + 25;
 const ABOVE_BAND = 20;
