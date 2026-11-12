@@ -96,7 +96,7 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
 
 ### 반복 돌리기
 
-스킬은 사람이 멈추라고 할 때까지 tick → hostActions → 확인 자리 점검을 반복한다. Claude Code에서는 스킬을 처음 부르면 첫 tick을 돌린 뒤 세션이 loop 스킬을 직접 불러 아래와 같은 반복을 간격 없이 건다. 간격을 비우면 세션이 간격을 스스로 정한다.
+스킬은 사람이 멈추라고 하거나 [세션 인계](#세션-인계)를 마칠 때까지 tick → hostActions → 확인 자리 점검을 반복한다. Claude Code에서는 스킬을 처음 부르면 첫 tick을 돌린 뒤 세션이 loop 스킬을 직접 불러 아래와 같은 반복을 간격 없이 건다. 간격을 비우면 세션이 간격을 스스로 정한다.
 
 ```text
 /loop /gestalt:conductor tick 돌리고 hostActions 처리
@@ -122,21 +122,21 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
    - 컴팩트 전이면 `due: false`
    - 한 번 컴팩트했고 사용량이 `handoffContextPercent`(기본 70%) 이상이면 `due: true`
    - 두 번째 컴팩트가 이미 왔으면 사용량과 상관없이 `due: true`
-   - 사용량을 못 읽으면 `due: false`와 이유
-4. **인계.** `due: true`를 본 세션은 그 tick의 hostActions와 확인 자리 점검까지 끝낸 자리에서 넘긴다. tick 도중이나 사람에게 확인 자리를 묻고 답을 처리하는 도중에는 넘기지 않는다. 넘길 것은 대화에만 있는 값이다.
+   - 사용량을 못 읽으면 `due: false`와 이유. 세션은 그 이유를 사용자에게 한 번 전하고 두 번째 컴팩트가 오면 넘긴다. 텍스트 출력에는 `인계 판정 못 함: <이유>` 줄로 찍힌다
+4. **인계.** `due: true`를 본 세션은 그 tick에서 hostActions를 처리하고 확인 자리를 점검하는 일까지 마친 뒤 넘긴다. tick 도중이나 사람에게 확인 자리를 묻고 답을 처리하는 도중에는 넘기지 않는다. 넘길 것은 대화에만 있는 값이다.
    - `/loop` 프롬프트 원문
    - 사용자가 대화로 정한 규칙(특정 티켓 제외, tick 플래그 같은 것)
    - 사람에게 물어 두고 답을 기다리는 질문
    - 워커 reply id처럼 대화에만 있는 값
 
-   세션이 이걸 마크다운 파일로 쓰고 아래 명령을 부른다.
+   세션이 이걸 마크다운 파일로 쓰고 아래 명령을 부른다. `--loop-prompt`는 간격 하나(`5m` 같은 것)와 `/gestalt:conductor`로 시작하는 한 줄(500자 이하)만 받는다. 새 세션이 그 원문 그대로 반복을 걸기 때문이다. 꼴이 다르면 인계 파일을 쓰기 전에 거절하니 `--loop-prompt`를 빼고 다시 넘기고 사용자에게 알린다.
 
    ```bash
    gestalt conductor handoff --notes-file "$tmp/handoff-notes.md" \
      --loop-prompt "/gestalt:conductor tick 돌리고 hostActions 처리" --json
    ```
 
-   명령은 상태 저장소의 `handoffs/`에 인계 파일을 쓰고 오르카가 있으면 `orca agent launch --agent claude --worktree path:<지금 작업 디렉토리> --prompt "/gestalt:conductor … 인계 파일: <경로>"`로 같은 워크스페이스에 새 세션을 띄운다. 오르카가 없거나 띄우기가 실패하면 파일만 남기고 `launched: false`와 사람에게 전할 문장을 돌려준다. 세션은 그 문장을 사람에게 전한다.
+   명령은 상태 저장소의 `handoffs/`에 인계 파일을 쓴다. 파일은 이어받은 세션이 할 일, 반복 프롬프트 원문, 메모 순서이고 메모는 펜스로 감싸 앞의 고정 절과 섞이지 않게 한다. 그다음 띄우기 전에 거절 기록(`handoff.json`)을 남기고 오르카가 있으면 `orca agent launch --agent claude --worktree path:<지금 작업 디렉토리> --prompt "/gestalt:conductor … 인계 파일: <경로>"`로 같은 워크스페이스에 새 세션을 띄운다. 오르카가 없거나 띄우기가 실패하면 파일만 남기고 `launched: false`와 사람에게 전할 문장을 돌려준다. 세션은 그 문장을 사람에게 전한다.
 
 5. **기존 세션 멈추기.** 넘긴 세션은 `ScheduleWakeup`을 `stop: true`로 부르고 컨덕터 크론도 지운다. 그래도 반복이 남아 tick이 다시 돌면 `sessions/<세션 id>/handoff.json`이 있어서 거절한다. 그 세션에서 계속 돌리려면 이 파일을 지운다.
 
