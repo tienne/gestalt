@@ -153,6 +153,27 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 기준은 `handoff` 스킬의 "맡길 곳 고르기" 표를 따른다.
 
+### 부모 워크트리와 기준 브랜치
+
+기존 워크트리 아래 하위로 워커를 띄우려면 주문에 `--parent-worktree`를 준다. 어느 ref에서 갈라질지는 `--base-branch`로 정한다.
+
+```bash
+gestalt conductor order add --repo acme/app --title "쿠폰 목록 하위 작업" \
+  --parent-worktree ~/orca/workspaces/app/feat-coupon --base-branch feat-coupon
+```
+
+`--parent-worktree`는 경로나 오르카 선택자(`branch:feat-coupon`, `path:...`, `id:...` 같은 것)를 받는다. 선택자면 `orca worktree show`로 경로를 받아 온다. 접수할 때 워크트리 루트의 절대 경로로 풀고 주문 레포의 워크트리인지 확인한다. `repoPaths`에 그 레포가 있으면 git 공용 디렉토리가 같은지 보고 없으면 `origin` 주소가 `owner/name`과 맞는지 본다. 경로가 없거나 git 워크트리가 아니거나 레포가 다르면 주문을 받지 않는다.
+
+| 워커 | `--parent-worktree` | `--base-branch` |
+|---|---|---|
+| `orca-worktree` | `orca worktree create --parent-worktree`로 그 아래 하위 워크트리를 먼저 만들고 `worker-start --worktree`로 그 워크트리에 띄운다 | 하위 워크트리나 `new-top-level` 워크트리를 그 ref에서 갈라낸다 |
+| `git-worktree` | 무시하고 tick 보고의 `warnings`에 남긴다 | 워커 브랜치를 새로 만들 때 그 ref에서 갈라낸다. 재개 때 남은 브랜치를 다시 붙이면 쓰지 않는다 |
+| `subagent` | 쓰지 않는다 | 쓰지 않는다 |
+
+`worker-start --worktree new-child`는 호출한 쪽(컨덕터) 워크스페이스 아래에 붙어서 임의 부모를 고를 수 없다. 그래서 워크트리를 먼저 만드는 두 단계로 띄운다. 워크트리를 만든 뒤 워커가 못 뜨면 만든 워크트리를 지우고 실패를 올린다. 부모만 주고 기준 브랜치를 비우면 어디서 갈라질지는 오르카 기본값을 따른다. 부모 브랜치에서 이어 가려면 `--base-branch`에 그 브랜치를 같이 준다.
+
+재개와 정리는 부모가 없는 오르카 워커와 같다. 재개하면 같은 부모 아래 `<주문 id>-<회차>` 이름으로 하위 워크트리를 새로 만든다. 정리는 `worker-release`로 워커 터미널만 거두고 워크트리는 남긴다.
+
 ## 동시 상한과 큐
 
 `maxConcurrentWorkers`(기본 10)를 넘는 주문은 `queued`로 남았다가 슬롯이 나면 뜬다. 슬롯은 `starting`과 `running` 워커만 차지한다. 상한은 tick마다 설정을 다시 읽어서 도는 중에 바꿔도 다음 tick부터 적용된다.
@@ -244,7 +265,9 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 }
 ```
 
-`repo`(`owner/name`)와 `title`은 꼭 있어야 한다. 나머지 칸은 `description`, `scope`, `issueKey`, `issueType`, `workerKind`, `jiraStatus`, `skillChain`이고 전부 빼도 된다.
+`repo`(`owner/name`)와 `title`은 꼭 있어야 한다. 나머지 칸은 `description`, `scope`, `issueKey`, `issueType`, `workerKind`, `jiraStatus`, `skillChain`, `baseBranch`이고 전부 빼도 된다.
+
+`parentWorktree`는 큐로 받지 않는다. 이 머신의 경로라 바깥 시스템이 정하게 두면 워커가 엉뚱한 워크트리 아래에서 뜰 수 있다. 이 칸이 든 메시지는 확인 자리로 올라온다. 사람이 보고 `order add --parent-worktree`로 다시 넣는다.
 
 넣는 쪽은 아래 둘 중 하나를 쓴다.
 

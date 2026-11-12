@@ -54,6 +54,8 @@ gestalt conductor order add --repo acme/app --title "배너 문구 고치기" --
 
 외부 큐는 tick이 상태 저장소의 `queue/`에서 직접 읽는다. 다른 시스템이 넣는 자리라 이 세션이 대신 넣을 일은 없다. 사용자가 큐 파일을 넣어 달라고 하면 `gestalt conductor queue add --body-file <파일>`을 쓴다. 꼴이 틀린 메시지는 확인 자리로 올라오고 못 읽은 파일은 tick 보고의 `errors`에 뜬다.
 
+사용자가 기존 워크트리 아래 하위로 맡기라고 하면 `--parent-worktree <경로나 오르카 선택자>`를, 갈라질 브랜치를 말하면 `--base-branch <ref>`를 붙인다. 부모 브랜치에서 이어 가라는 뜻이면 둘 다 준다. 부모가 레포와 안 맞거나 없으면 접수에서 거절되니 사용자에게 맞는 경로를 묻는다. git 워크트리 워커는 부모를 무시하고 tick 보고의 `warnings`에 남기므로 그 경고는 사용자에게 그대로 전한다.
+
 범위를 사용자가 말하지 않았으면 설정의 `defaultScope`를 쓴다. 주문마다 다를 수 있으니 묻지 않고 넣은 값을 보고에 적는다.
 
 ## 2. tick
