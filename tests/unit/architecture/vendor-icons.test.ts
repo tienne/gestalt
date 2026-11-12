@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { zipSync, strToU8 } from 'fflate';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,9 +8,10 @@ import {
   ICON_MODE_ENV,
   iconModeFromEnv,
   resolveVendorIcons,
-  vendorIconKey,
   type IconMode,
 } from '../../../src/architecture/vendor-icons.js';
+import { vendorIconKey } from '../../../src/architecture/vendor-icon-keys.js';
+import { MAX_PKG_BYTES, NEGATIVE_TTL_MS } from '../../../src/architecture/vendor-icon-cache.js';
 
 const SVG = (tag: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg"><title>${tag}</title></svg>`;
@@ -194,6 +195,68 @@ describe('resolveVendorIcons', () => {
     expect(again.stats).toEqual({ official: 2, fallback: 0 });
   });
 
+  it('Content-Length가 상한을 넘으면 본문을 읽지 않고 내장 아이콘으로 돌린다', async () => {
+    const table = routes();
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === AWS_ZIP) {
+        return new Response('x', {
+          headers: { 'content-length': String(MAX_PKG_BYTES + 1) },
+        });
+      }
+      const body = table[url]!;
+      return new Response(typeof body === 'string' ? body : Buffer.from(body));
+    }) as typeof fetch;
+    const set = await run(['aws:Lambda'], fetchImpl);
+    expect(set.icons['aws:Lambda']).toEqual({ source: 'fallback' });
+  });
+
+  it('본문이 상한을 넘게 흘러오면 읽기를 끊고 내장 아이콘으로 돌린다', async () => {
+    const table = routes();
+    const chunk = new Uint8Array(1024 * 1024);
+    let sent = 0;
+    let cancelled = false;
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === AWS_ZIP) {
+        const stream = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            sent += chunk.byteLength;
+            controller.enqueue(chunk);
+          },
+          cancel() {
+            cancelled = true;
+          },
+        });
+        return new Response(stream);
+      }
+      const body = table[url]!;
+      return new Response(typeof body === 'string' ? body : Buffer.from(body));
+    }) as typeof fetch;
+    const set = await run(['aws:Lambda'], fetchImpl);
+    expect(set.icons['aws:Lambda']).toEqual({ source: 'fallback' });
+    expect(cancelled).toBe(true);
+    expect(sent).toBeLessThan(MAX_PKG_BYTES + 4 * chunk.byteLength);
+  });
+
+  it.each([
+    ['허용 목록 밖 호스트', 'https://evil.example.com/Icon-package_x.zip'],
+    ['허용 호스트를 흉내 낸 호스트', 'https://notawsstatic.com/Icon-package_x.zip'],
+    ['http', 'http://d1fake.awsstatic.com/icons/Icon-package_20260101.zip'],
+  ])('리다이렉트가 %s로 가면 쓰지 않는다', async (_label, finalUrl) => {
+    const table = routes();
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      const body = table[url]!;
+      const res = new Response(typeof body === 'string' ? body : Buffer.from(body));
+      if (url === AWS_ZIP) Object.defineProperty(res, 'url', { value: finalUrl });
+      return res;
+    }) as typeof fetch;
+    const set = await run(['aws:Lambda'], fetchImpl);
+    expect(set.icons['aws:Lambda']).toEqual({ source: 'fallback' });
+    expect(existsSync(join(cacheDir, 'aws', 'lambda.svg'))).toBe(false);
+  });
+
   it('fetch가 던져도 렌더를 깨지 않는다', async () => {
     const boom = (async () => {
       throw new Error('ECONNRESET');
@@ -250,14 +313,106 @@ describe('resolveVendorIcons', () => {
     table[AWS_ZIP] = zipOf({
       'Architecture-Service-Icons_01/Arch_Compute/64/Arch_AWS-Lambda_64.svg': 'not an image',
     });
-    const set = await run(['aws:Lambda'], fakeFetch(table).fetchImpl);
+    const first = fakeFetch(table);
+    const set = await run(['aws:Lambda'], first.fetchImpl);
     expect(set.icons['aws:Lambda']).toEqual({ source: 'fallback' });
     expect(existsSync(join(cacheDir, 'aws', 'lambda.svg'))).toBe(false);
+    // 패키지는 받았으니 못 쓴 이름도 적어 두고 다음 렌더에서 다시 받지 않는다
+    const before = first.calls.length;
+    const again = await run(['aws:Lambda'], first.fetchImpl);
+    expect(first.calls.length).toBe(before);
+    expect(again.icons['aws:Lambda']).toEqual({ source: 'fallback' });
+  });
+
+  it.each([
+    ['onload 속성', '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>'],
+    ['대문자 이벤트 속성', '<svg xmlns="http://www.w3.org/2000/svg"><g ONCLICK="x()"/></svg>'],
+    ['script 요소', '<svg xmlns="http://www.w3.org/2000/svg"><script>x()</script></svg>'],
+    [
+      'foreignObject',
+      '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><p>x</p></foreignObject></svg>',
+    ],
+    ['HTML 문서', '<!DOCTYPE html><html><svg></svg></html>'],
+  ])('%s가 든 SVG는 쓰지 않는다', async (_label, body) => {
+    const table = routes();
+    table[AWS_ZIP] = zipOf({
+      'Architecture-Service-Icons_01/Arch_Compute/64/Arch_AWS-Lambda_64.svg': body,
+    });
+    const set = await run(['aws:Lambda'], fakeFetch(table).fetchImpl);
+    expect(set.icons['aws:Lambda']).toEqual({ source: 'fallback' });
+  });
+
+  it('xml 선언과 주석, svg DOCTYPE이 앞에 붙은 SVG는 쓴다', async () => {
+    const table = routes();
+    const body = `<?xml version="1.0"?>\n<!-- Generator: x -->\n<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">\n${SVG('lambda')}`;
+    table[AWS_ZIP] = zipOf({
+      'Architecture-Service-Icons_01/Arch_Compute/64/Arch_AWS-Lambda_64.svg': body,
+    });
+    const set = await run(['aws:Lambda'], fakeFetch(table).fetchImpl);
+    expect(set.icons['aws:Lambda']!.source).toBe('official');
+  });
+
+  it('못 쓴다고 적은 항목은 TTL이 지나면 다시 받는다', async () => {
+    const first = fakeFetch(routes());
+    await run(['aws:No-Such-Service'], first.fetchImpl);
+    const before = first.calls.length;
+    await run(['aws:No-Such-Service'], first.fetchImpl, 'auto', {
+      now: () => new Date(NOW.getTime() + NEGATIVE_TTL_MS),
+    });
+    expect(first.calls.length).toBe(before);
+    await run(['aws:No-Such-Service'], first.fetchImpl, 'auto', {
+      now: () => new Date(NOW.getTime() + NEGATIVE_TTL_MS + 1),
+    });
+    expect(first.calls.length).toBeGreaterThan(before);
+  });
+
+  it('받아 둔 아이콘은 TTL이 지나도 다시 받지 않는다', async () => {
+    await run(['aws:Lambda'], fakeFetch(routes()).fetchImpl);
+    const set = await run(['aws:Lambda'], neverFetch, 'auto', {
+      now: () => new Date(NOW.getTime() + 10 * NEGATIVE_TTL_MS),
+    });
+    expect(set.icons['aws:Lambda']!.source).toBe('official');
+  });
+
+  it('캐시 파일 자리에 디렉터리가 있어도 던지지 않고 내장 아이콘으로 돌린다', async () => {
+    await run(['aws:Lambda'], fakeFetch(routes()).fetchImpl);
+    const file = join(cacheDir, 'aws', 'lambda.svg');
+    rmSync(file);
+    mkdirSync(file);
+    const set = await run(['aws:Lambda'], neverFetch, 'offline');
+    expect(set.icons['aws:Lambda']).toEqual({ source: 'fallback' });
+  });
+
+  it.each([
+    ['캐시 밖 경로', '../../outside.svg'],
+    ['절대 경로', '/etc/hosts'],
+    ['문자열이 아닌 값', 42],
+  ])('manifest의 file이 %s면 읽지 않는다', async (_label, file) => {
+    await run(['aws:Lambda'], fakeFetch(routes()).fetchImpl);
+    writeFileSync(
+      join(cacheDir, 'manifest.json'),
+      JSON.stringify({
+        version: 1,
+        icons: { 'aws:Lambda': { file, fetchedAt: NOW.toISOString() } },
+      }),
+    );
+    const set = await run(['aws:Lambda'], neverFetch, 'offline');
+    expect(set.icons['aws:Lambda']).toEqual({ source: 'fallback' });
+  });
+
+  it.each([
+    ['배열', []],
+    ['문자열', 'x'],
+    ['null 항목', { 'aws:Lambda': null }],
+  ])('manifest의 icons가 %s면 빈 캐시로 본다', async (_label, icons) => {
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(join(cacheDir, 'manifest.json'), JSON.stringify({ version: 1, icons }));
+    const set = await run(['aws:Lambda'], neverFetch, 'offline');
+    expect(set.icons['aws:Lambda']).toEqual({ source: 'fallback' });
   });
 
   it('깨진 manifest는 빈 캐시로 보고 mode에 따라 다시 받는다', async () => {
     await run(['aws:Lambda'], fakeFetch(routes()).fetchImpl);
-    const { writeFileSync } = await import('node:fs');
     writeFileSync(join(cacheDir, 'manifest.json'), '{ not json');
     const offline = await run(['aws:Lambda'], neverFetch, 'offline');
     expect(offline.icons['aws:Lambda']!.source).toBe('fallback');

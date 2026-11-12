@@ -7,7 +7,7 @@ import type {
   NodeKind,
   SubnetExposure,
 } from './types.js';
-import { BOX_ICONS, iconKey, vendorIconKey } from './vendor-icons.js';
+import { BOX_ICONS, iconKey, vendorIconKey } from './vendor-icon-keys.js';
 
 // 좌표 규칙은 stack-diagram geometry.md를 따른다. 노드는 타일 60x60과 그 아래 글자를 합친 132x100 상자다
 export const INFRA_NODE_W = 132;
