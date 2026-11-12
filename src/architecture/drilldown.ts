@@ -20,6 +20,7 @@ import {
   type LabeledGroup,
   type LaneId,
   type LayoutResult,
+  computeLayout,
 } from './layout.js';
 import { computeFlowLevels, type FlowLevel } from './flow-layout.js';
 import { computeInfraLayout, type InfraLayout } from './infra-layout.js';
@@ -1270,9 +1271,13 @@ function infraLevel(validated: ValidatedIr, g: Graph, nodeIds: readonly string[]
 
 /** service 노드가 하나라도 그려지면 드릴다운으로 그린다 */
 export function shouldDrillDown(validated: ValidatedIr): boolean {
+  // 인프라 레벨은 드릴다운 HTML에만 붙는다
+  return drillsWithoutInfra(validated) || infraLevelNodeIds(buildGraph(validated)).length > 0;
+}
+
+/** 인프라 레벨을 빼고도 드릴다운으로 그릴 그림인지. 아니면 전체 레벨을 평면 그림 그대로 둔다 */
+function drillsWithoutInfra(validated: ValidatedIr): boolean {
   return (
-    // 인프라 레벨은 드릴다운 HTML에만 붙는다
-    infraLevelNodeIds(buildGraph(validated)).length > 0 ||
     validated.ir.nodes.some((n) => n.kind === 'service' && validated.drawableNodeIds.has(n.id)) ||
     // 독립 흐름은 레벨로만 그려지므로 서비스가 없어도 드릴다운 HTML이 필요하다
     (validated.ir.flows ?? []).some((f) => f.service === undefined) ||
@@ -1300,8 +1305,52 @@ export function flowCountByService(flows: readonly FlowLevel[]): Record<string, 
   return out;
 }
 
+/**
+ * 인프라 레벨 때문에만 드릴다운이 된 그림. 전체 레벨은 평면 그림과 같은 노드와 배치로 두고 인프라 구성 카드만 붙인다.
+ * deploy-path처럼 서비스가 없는 그림에 인프라 필드를 적었다고 배포 사슬 카드가 사라지면 안 돼서다
+ */
+async function flatRootWithInfra(
+  validated: ValidatedIr,
+  g: Graph,
+  infraIds: readonly string[],
+): Promise<Drilldown> {
+  const layout = await computeLayout(
+    validated.ir,
+    validated.drawableNodeIds,
+    validated.drawableEdgeIds,
+  );
+  const root: DrillLevel = {
+    id: ROOT_LEVEL_ID,
+    kind: 'root',
+    title: '전체',
+    trail: [ROOT_LEVEL_ID],
+    nodeIds: [...g.nodeById.keys()].sort(compareStr),
+    edges: g.edges.map((e) => ({
+      id: e.id,
+      from: e.from,
+      to: e.to,
+      kind: e.kind,
+      count: 1,
+      memberEdgeIds: [e.id],
+      lineStyle: e.lineStyle,
+    })),
+    layout,
+  };
+  const enter: Record<string, string> = {};
+  for (const id of infraIds) enter[id] = INFRA_LEVEL_ID;
+  return {
+    levels: [root, infraLevel(validated, g, infraIds)],
+    enter,
+    flows: computeFlowLevels(validated),
+  };
+}
+
 export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldown> {
   const g = buildGraph(validated);
+  if (!drillsWithoutInfra(validated)) {
+    const infraIds = infraLevelNodeIds(g);
+    if (infraIds.length > 0) return flatRootWithInfra(validated, g, infraIds);
+  }
   const facts = computeServiceFacts([...g.nodeById.values()], g.edges);
   const sorted = [...g.nodeById.values()].sort(byId);
   const bands = bandGroupsOf(validated.ir);

@@ -11,6 +11,8 @@ import type { IconSet } from '../../../src/architecture/vendor-icons.js';
 import { infraIr } from '../../fixtures/architecture-categories/infra.js';
 import { node } from '../../fixtures/architecture-categories/common.js';
 import { ACCOUNT_ID, awsIr, azureIr, gcpIr } from '../../fixtures/architecture-infra/vendors.js';
+import { deployIr } from '../../fixtures/architecture-legacy/irs.js';
+import { computeLayout } from '../../../src/architecture/layout.js';
 
 function validated(ir: ArchitectureIr): ValidatedIr {
   const r = validateArchitectureIr(ir, { checkFiles: false });
@@ -116,6 +118,33 @@ describe('인프라 레벨 생성 조건', () => {
     const ids = new Set(level.nodeIds);
     expect(level.edges.every((e) => ids.has(e.from) && ids.has(e.to))).toBe(true);
     expect(level.edges.length).toBe(level.infra!.edges.length);
+  });
+});
+
+describe('인프라 레벨 때문에만 드릴다운이 된 그림', () => {
+  it('deploy-path에 인프라 필드를 적어도 전체 레벨은 평면 그림 그대로다', async () => {
+    const ir = deployIr();
+    ir.nodes = ir.nodes.map((n) =>
+      n.id === 'dt-api' ? { ...n, provider: 'aws' as const, region: 'ap-northeast-2' } : n,
+    );
+    const v = validated(ir);
+    expect(shouldDrillDown(v)).toBe(true);
+    const d = await computeDrilldown(v);
+    expect(d.levels.map((l) => l.id)).toEqual(['root', 'infra']);
+    const root = d.levels[0]!;
+    const flat = await computeLayout(v.ir, v.drawableNodeIds, v.drawableEdgeIds);
+    expect(root.nodeIds).toEqual([...v.drawableNodeIds].sort());
+    expect(root.layout.nodes.map((n) => n.id).sort()).toEqual(flat.nodes.map((n) => n.id).sort());
+    for (const id of ['wf-release', 'b-web', 'a-bundle', 'a-image'])
+      expect(root.nodeIds).toContain(id);
+    expect(d.enter['dt-api']).toBe('infra');
+  });
+
+  it('서비스가 있는 그림은 예전처럼 레벨을 나눈다', async () => {
+    const ir = awsIr();
+    ir.nodes.push(node('svc', 'service'));
+    const d = await computeDrilldown(validated(ir));
+    expect(d.levels.map((l) => l.id)).toContain('service:svc');
   });
 });
 
