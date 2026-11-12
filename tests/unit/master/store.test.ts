@@ -181,8 +181,11 @@ describe('MasterStore', () => {
     await Promise.all([run('a'), run('b')]);
 
     const lines = readFileSync(join(dir, EVENTS_FILE), 'utf-8').split('\n').filter(Boolean);
-    expect(lines).toHaveLength(perChild * 2);
-    for (const line of lines) expect(() => JSON.parse(line)).not.toThrow();
+    const events = lines.map((line) => JSON.parse(line) as { type: string });
+    // 한쪽이 쓰는 도중에 다른 쪽이 파일 끝을 읽으면 꼬리가 끊긴 줄로 보여 tail-repaired가
+    // 끼어들 수 있다. 줄은 안 깨지므로 tick 줄 수만 맞으면 된다
+    expect(events.filter((e) => e.type === 'tick')).toHaveLength(perChild * 2);
+    expect(events.every((e) => e.type === 'tick' || e.type === 'tail-repaired')).toBe(true);
     expect(MasterStore.open(dir).snapshot.ticks).toBe(perChild * 2);
   }, 30_000);
 });

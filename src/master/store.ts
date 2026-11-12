@@ -33,8 +33,9 @@ import {
  *
  * 워커 프로세스도 `gestalt master checkpoint save`로 같은 로그에 덧붙인다. 한 줄짜리
  * append는 O_APPEND로 쓴다. 줄 단위로 섞이지 않는다는 전제는 store.test.ts의
- * '두 프로세스가 동시에 덧붙여도 모든 줄이 온전하다'가 확인한다. 결과 보고는 inbox에
- * 파일로 두고 tick이 읽는다.
+ * '두 프로세스가 동시에 덧붙여도 모든 줄이 온전하다'가 확인한다. 다른 프로세스가 쓰는
+ * 도중에 끝을 읽으면 멀쩡한 줄 뒤에도 tail-repaired가 붙을 수 있는데, replay는 못 읽는
+ * 줄만 버리므로 이벤트는 빠지지 않는다. 결과 보고는 inbox에 파일로 두고 tick이 읽는다.
  */
 
 export const EVENTS_FILE = 'events.jsonl';
