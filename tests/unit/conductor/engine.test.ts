@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { hostname } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   deliverGateDecision,
@@ -23,7 +23,13 @@ import {
 } from '../../../src/conductor/engine.js';
 import { resolveGate } from '../../../src/conductor/gates.js';
 import type { DeploySignal, JiraClient } from '../../../src/conductor/jira.js';
-import type { HostAction, Launcher, LaunchSpec } from '../../../src/conductor/launcher.js';
+import { repoContextPath } from '../../../src/conductor/context.js';
+import {
+  SubagentLauncher,
+  type HostAction,
+  type Launcher,
+  type LaunchSpec,
+} from '../../../src/conductor/launcher.js';
 import type { ConductorConfig } from '../../../src/conductor/scheduler.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import type { Worker, WorkerKind } from '../../../src/conductor/types.js';
@@ -174,6 +180,30 @@ describe('컨덕터 tick', () => {
     expect(switched).toEqual(['acme/app:work']);
     expect(store.openGates('ord-app')).toEqual([]);
     expect(store.openGates('ord-etc').map((g) => g.type)).toEqual(['no-procedure']);
+  });
+
+  it('주문 설명과 레포 공통 맥락 경로가 prompts/의 워커 지시 파일에 들어간다', async () => {
+    const { store } = clockedStore();
+    const description = ['## 배경', '긴 대화에서 나온 요구사항', '- 참고: docs/a.md'].join('\n');
+    store.addOrder(order({ id: 'ord-ctx', description, skillChain: ['review'] }));
+    store.addOrder(order({ id: 'ord-none', repo: 'acme/other', skillChain: ['review'] }));
+    const contextFile = repoContextPath(resolve(store.dir), 'acme/app');
+    mkdirSync(join(store.dir, 'context', 'acme'), { recursive: true });
+    writeFileSync(contextFile, '배포는 태그 푸시로 한다\n');
+    const sub = new SubagentLauncher({ promptDir: join(store.dir, 'prompts') });
+    const { deps: d } = deps({ launchers: { subagent: sub } });
+
+    const r = await tick(store, d, { force: true });
+    const files = r.hostActions.flatMap((a) => (a.type === 'spawn-subagent' ? [a] : []));
+    const promptOf = (orderId: string) => {
+      const a = files.find((f) => f.workerId === store.order(orderId)!.workerId)!;
+      expect(a.promptFile.startsWith(join(store.dir, 'prompts'))).toBe(true);
+      return readFileSync(a.promptFile, 'utf-8');
+    };
+    const withContext = promptOf('ord-ctx');
+    expect(withContext).toContain(description);
+    expect(withContext).toContain(`- 레포 공통 맥락: ${contextFile}`);
+    expect(promptOf('ord-none')).not.toContain('레포 공통 맥락');
   });
 
   it('소식이 끊긴 워커는 체크포인트부터 같은 워커 식별자로 다시 띄운다', async () => {

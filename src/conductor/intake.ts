@@ -103,7 +103,7 @@ export interface IntakeResult {
   created: boolean;
 }
 
-const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+export const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 /**
  * 컨덕터 세션이 직접 넣지 않은 주문의 본문 상한. 본문은 이벤트 로그에 그대로 쌓여 tick마다
  * 다시 읽히고 워커 지시서에도 실리므로 밖에서 로그를 부풀리지 못하게 자른다
