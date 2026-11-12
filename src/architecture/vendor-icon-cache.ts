@@ -239,7 +239,7 @@ export function needsFetch(entry: ManifestEntry | undefined, now: Date): boolean
 }
 
 const PROLOG_RE =
-  /^(?:\uFEFF|\s+|<\?xml[^>]*\?>|<!--[\s\S]*?-->|<!DOCTYPE\s+svg\b[^>[]*(?:\[[\s\S]*?\])?\s*>)*/i;
+  /^(?:\uFEFF|\s+|<\?xml[^>]*\?>|<!--[\s\S]*?-->|<!DOCTYPE\s+svg\b[^>[]*(?:\[[\s\S]*?\]\s*)?>)*/i;
 const ACTIVE_CONTENT_RE = /<script|<foreignObject|[\s"'/]on[a-z]+\s*=/i;
 
 function looksSvg(bytes: Uint8Array): boolean {

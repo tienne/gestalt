@@ -352,6 +352,28 @@ describe('resolveVendorIcons', () => {
     expect(set.icons['aws:Lambda']!.source).toBe('official');
   });
 
+  it('내부 subset 뒤에 개행이 붙은 svg DOCTYPE도 쓴다', async () => {
+    const table = routes();
+    const body = `<!DOCTYPE svg PUBLIC "x" "y" [\n<!ENTITY ns "z">\n]\n>\n${SVG('lambda')}`;
+    table[AWS_ZIP] = zipOf({
+      'Architecture-Service-Icons_01/Arch_Compute/64/Arch_AWS-Lambda_64.svg': body,
+    });
+    const set = await run(['aws:Lambda'], fakeFetch(table).fetchImpl);
+    expect(set.icons['aws:Lambda']!.source).toBe('official');
+  });
+
+  it('닫히지 않은 DOCTYPE 뒤 긴 공백에도 오래 걸리지 않고 내장 아이콘으로 돌린다', async () => {
+    const table = routes();
+    const body = `<!DOCTYPE svg${' '.repeat(200_000)}`;
+    table[AWS_ZIP] = zipOf({
+      'Architecture-Service-Icons_01/Arch_Compute/64/Arch_AWS-Lambda_64.svg': body,
+    });
+    const started = performance.now();
+    const set = await run(['aws:Lambda'], fakeFetch(table).fetchImpl);
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(set.icons['aws:Lambda']).toEqual({ source: 'fallback' });
+  });
+
   it('못 쓴다고 적은 항목은 TTL이 지나면 다시 받는다', async () => {
     const first = fakeFetch(routes());
     await run(['aws:No-Such-Service'], first.fetchImpl);
