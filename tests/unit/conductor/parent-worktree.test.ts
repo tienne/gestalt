@@ -270,11 +270,34 @@ describe('런처가 부모와 기준 브랜치를 따른다', () => {
     ]);
   });
 
+  it('오르카가 변경 전에 거절하면 하위 워크트리를 지운다', async () => {
+    // 없는 선택자로 worker-start를 직접 돌렸을 때 받은 응답 모양
+    const rejected = JSON.stringify({
+      ok: false,
+      error: { code: 'selector_not_found', message: 'worktree not found' },
+    });
+    const { calls, runner } = orcaRunner({
+      'orchestration worker-start': { code: 1, stdout: rejected, stderr: '' },
+    });
+    await expect(launch(runner)).rejects.toThrow(/worker-start 실패/);
+    expect(calls.at(-1)?.slice(0, 2)).toEqual(['worktree', 'rm']);
+  });
+
+  it('worktree create가 실패하면 남았을 수 있는 워크트리 확인 방법을 알린다', async () => {
+    const { runner } = orcaRunner({
+      'worktree create': { code: 1, stdout: '', stderr: '300초 안에 안 끝나 멈췄어요' },
+    });
+    await expect(launch(runner)).rejects.toThrow(
+      /\/w\/feat 아래 ord-1-1.*orca worktree show --worktree name:ord-1-1/,
+    );
+  });
+
   it('워커가 떴는지 모르면 워크트리를 지우지 않고 남은 자리를 알린다', async () => {
     for (const stdout of [
       '',
       JSON.stringify({ ok: false, outcome: 'outcome_unknown' }),
       JSON.stringify({ ok: false, outcome: 'failed', residualResources: ['terminal:t1'] }),
+      JSON.stringify({ ok: false, status: 'failed' }),
     ]) {
       const { calls, runner } = orcaRunner({
         'orchestration worker-start': { code: 1, stdout, stderr: '30초 안에 안 끝나 멈췄어요' },

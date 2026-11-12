@@ -462,6 +462,7 @@ export class OrcaLauncher implements Launcher {
     );
     const repoId = worktreeField(shown, 'repoId');
     if (!repoId) throw new Error(`오르카에서 부모 워크트리 ${order.parentWorktree}를 못 찾았어요`);
+    const leftover = `${order.parentWorktree} 아래 ${name} 워크트리가 생겼을 수 있어요. \`orca worktree show --worktree name:${name}\`로 확인하고 있으면 \`orca worktree rm --worktree name:${name} --delete-branch\`로 지워 주세요`;
     const created = await mustRun(
       this.runner,
       this.opts.orcaCommand,
@@ -480,14 +481,15 @@ export class OrcaLauncher implements Launcher {
         '--json',
       ],
       { timeoutMs: ORCA_TIMEOUT_MS },
-    );
+    ).catch((err: unknown) => {
+      // 실패하면 회차가 안 올라 다음 시도가 같은 이름으로 다시 만들다 부딪힌다
+      throw new Error(`${(err as Error).message}. ${leftover}`, { cause: err });
+    });
     const id = worktreeField(created, 'id');
     const path = worktreeField(created, 'path');
     const worktree = id ? `id:${id}` : path ? `path:${path}` : undefined;
     if (!worktree)
-      throw new Error(
-        `오르카 worktree create 응답에 워크트리 id와 경로가 없어요. ${order.parentWorktree} 아래 ${name} 워크트리가 생겼는지 확인해 주세요`,
-      );
+      throw new Error(`오르카 worktree create 응답에 워크트리 id와 경로가 없어요. ${leftover}`);
     // 표시 이름은 보기 좋으라고 붙이는 것이라 실패해도 워커는 띄운다
     await this.runner(
       this.opts.orcaCommand,
@@ -528,7 +530,11 @@ export class OrcaLauncher implements Launcher {
   }
 }
 
-// 명시적인 failed이고 남은 자원이 없을 때만 참이다. 시간 초과나 못 읽는 응답은 떴을 수 있다고 본다
+// 오르카가 아무것도 바꾸기 전에 거절하는 에러 코드. 실제 응답에서 본 것만 둔다
+const REJECTED_BEFORE_CHANGE = new Set(['selector_not_found']);
+
+// 워커가 확실히 안 떴을 때만 참이다. `ok: false`에 변경 전 거절 코드가 왔거나 명시적인 failed에
+// 남은 자원이 빈 배열로 왔을 때다. 시간 초과나 못 읽는 응답, 남은 자원을 안 밝힌 실패는 떴을 수 있다고 본다
 function surelyNotStarted(stdout: string): boolean {
   let data: unknown;
   try {
@@ -536,15 +542,19 @@ function surelyNotStarted(stdout: string): boolean {
   } catch {
     return false;
   }
-  const d = data as { result?: Record<string, unknown>; error?: Record<string, unknown> } & Record<
+  if (typeof data !== 'object' || data === null) return false;
+  const d = data as { ok?: unknown; result?: unknown; error?: unknown } & Record<string, unknown>;
+  if (d.ok !== false) return false;
+  const error = (typeof d.error === 'object' && d.error ? d.error : {}) as Record<string, unknown>;
+  const result = (typeof d.result === 'object' && d.result ? d.result : {}) as Record<
     string,
     unknown
   >;
-  const body = { ...d, ...(d.error ?? {}), ...(d.result ?? {}) };
+  const body = { ...d, ...error, ...result };
+  if (typeof error['code'] === 'string' && REJECTED_BEFORE_CHANGE.has(error['code'])) return true;
   const status = body['outcome'] ?? body['status'] ?? body['state'];
-  if (status !== 'failed') return false;
   const residual = body['residualResources'];
-  return residual === undefined || (Array.isArray(residual) && residual.length === 0);
+  return status === 'failed' && Array.isArray(residual) && residual.length === 0;
 }
 
 /** worker-start --json 응답에서 dispatch id를 꺼낸다. 버전마다 자리가 달라 몇 곳을 본다 */

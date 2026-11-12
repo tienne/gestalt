@@ -10,6 +10,8 @@ export type SyncExec = (cmd: string, args: string[]) => string;
 
 const EXEC_TIMEOUT_MS = 10_000;
 
+class ExecTimeoutError extends Error {}
+
 const defaultExec: SyncExec = (cmd, args) => {
   try {
     return execFileSync(cmd, args, {
@@ -19,9 +21,12 @@ const defaultExec: SyncExec = (cmd, args) => {
     });
   } catch (err) {
     if ((err as { code?: string }).code === 'ETIMEDOUT')
-      throw new Error(`${cmd} ${args.join(' ')}가 ${EXEC_TIMEOUT_MS / 1000}초 안에 안 끝났어요`, {
-        cause: err,
-      });
+      throw new ExecTimeoutError(
+        `${cmd} ${args.join(' ')}가 ${EXEC_TIMEOUT_MS / 1000}초 안에 안 끝났어요`,
+        {
+          cause: err,
+        },
+      );
     throw err;
   }
 };
@@ -91,7 +96,7 @@ function orcaPath(selector: string, orcaCommand: string | undefined, exec: SyncE
   try {
     out = exec(orcaCommand, ['worktree', 'show', '--worktree', selector, '--json']);
   } catch (err) {
-    const why = err instanceof Error && /초 안에 안 끝났어요/.test(err.message) ? err.message : '';
+    const why = err instanceof ExecTimeoutError ? err.message : '';
     throw new Error(
       why
         ? `오르카에서 부모 워크트리 ${selector}를 확인하지 못했어요: ${why}`
@@ -122,7 +127,7 @@ function git(exec: SyncExec, cwd: string, args: string[]): string | undefined {
   try {
     return exec('git', ['-C', cwd, ...args]).trim() || undefined;
   } catch (err) {
-    if (err instanceof Error && /초 안에 안 끝났어요/.test(err.message)) throw err;
+    if (err instanceof ExecTimeoutError) throw err;
     return undefined;
   }
 }
