@@ -528,6 +528,43 @@ describe('컨덕터 tick', () => {
       expect(store.worker('wrk-2')!.status).toBe('stopped');
     });
 
+    it('같은 레포의 워크트리 삭제는 차례로, 다른 레포끼리는 함께 돌린다', async () => {
+      const { store } = clockedStore();
+      const merged = '2026-01-01T00:00:00.000Z';
+      store.addOrder(order({ id: 'ord-a', repo: 'acme/a', status: 'done', mergedAt: merged }));
+      store.addOrder(order({ id: 'ord-b', repo: 'acme/b', status: 'done', mergedAt: merged }));
+      addWorker(store, { id: 'wrk-a1', orderId: 'ord-a', attempt: 1, status: 'stopped' });
+      addWorker(store, { id: 'wrk-a2', orderId: 'ord-a', attempt: 2, status: 'finished' });
+      addWorker(store, { id: 'wrk-b1', orderId: 'ord-b', attempt: 1, status: 'finished' });
+      const active = new Map<string, number>();
+      const peak = new Map<string, number>();
+      let overall = 0;
+      let overallPeak = 0;
+      const launcher: Launcher = {
+        kind: 'orca-worktree',
+        start: async (spec) => ({ handle: `h-${spec.worker.id}` }),
+        send: async () => undefined,
+        release: async (w) => {
+          const repo = store.order(w.orderId)!.repo;
+          active.set(repo, (active.get(repo) ?? 0) + 1);
+          peak.set(repo, Math.max(peak.get(repo) ?? 0, active.get(repo)!));
+          overallPeak = Math.max(overallPeak, ++overall);
+          await new Promise((r) => setTimeout(r, 5));
+          active.set(repo, active.get(repo)! - 1);
+          overall--;
+        },
+      };
+      const { deps: d } = deps({
+        config: { ...config, removeMergedOrcaWorktrees: true },
+        launchers: { 'orca-worktree': launcher },
+      });
+      await tick(store, d, { force: true });
+      expect(peak.get('acme/a')).toBe(1);
+      expect(overallPeak).toBe(2);
+      for (const id of ['wrk-a1', 'wrk-a2', 'wrk-b1'])
+        expect(store.worker(id)!.status).toBe('released');
+    });
+
     it('지우기가 실패하면 정리 실패 게이트를 타고 승인되면 released로 둔다', async () => {
       const { store } = clockedStore();
       store.addOrder(order({ id: 'ord-1', status: 'done', mergedAt: '2026-01-01T00:00:00.000Z' }));

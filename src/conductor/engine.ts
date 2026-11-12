@@ -720,6 +720,12 @@ async function settleOne(
   }
 }
 
+/** 이번 tick에 거둘 워커인지. 머지된 주문의 오르카 워크트리는 재개로 멈춘 앞 회차도 거둔다 */
+function isCleanupTarget(w: Worker, removeWorktree: boolean): boolean {
+  if (w.status === 'finished' || w.status === 'failed') return true;
+  return removeWorktree && w.status === 'stopped';
+}
+
 /**
  * 끝난 워커의 자원을 정리한다. 멈춘 워커는 재개가 그 dispatch id나 워크트리를 다시 쓸 수 있어 남긴다.
  *
@@ -746,8 +752,7 @@ async function cleanupWorkers(
       deps.config.removeMergedOrcaWorktrees === true &&
       w.kind === 'orca-worktree' &&
       order?.mergedAt !== undefined;
-    const ended = w.status === 'finished' || w.status === 'failed';
-    if (!ended && !(removeWorktree && w.status === 'stopped')) continue;
+    if (!isCleanupTarget(w, removeWorktree)) continue;
     const mine = cleanupGates.filter((g) => g.payload?.workerId === w.id);
     if (mine.some((g) => g.status === 'open')) continue;
     if (mine.some((g) => g.decision === 'approved')) {
@@ -764,10 +769,19 @@ async function cleanupWorkers(
         : {},
     });
   }
-  // release마다 외부 명령 타임아웃이 걸려 있어 차례로 기다리면 tick이 워커 수만큼 길어진다
+  // release마다 외부 명령 타임아웃이 걸려 있어 차례로 기다리면 tick이 워커 수만큼 길어진다.
+  // 워크트리 삭제만은 같은 레포의 git 락이 겹치지 않게 레포마다 차례로 돌린다
+  const repoChains = new Map<string, Promise<void>>();
   const results = await Promise.allSettled(
-    targets.map(async ({ worker, opts }) => {
-      await deps.launchers[worker.kind]?.release(worker, opts);
+    targets.map(({ worker, opts }) => {
+      const run = async (): Promise<void> => {
+        await deps.launchers[worker.kind]?.release(worker, opts);
+      };
+      if (!opts.removeWorktree) return run();
+      const repo = store.order(worker.orderId)?.repo ?? '';
+      const next = (repoChains.get(repo) ?? Promise.resolve()).then(run, run);
+      repoChains.set(repo, next);
+      return next;
     }),
   );
   results.forEach((r, i) => {
