@@ -147,6 +147,8 @@ orca plugin dev load ./orca-plugin --json
 
 설정의 `gestaltPath`는 오르카가 셸 PATH를 못 물려받을 때 gestalt 절대 경로를 적는 자리다. `stateDir`은 `conductor.json`에 저장소 위치를 따로 정했을 때 같은 경로를 적는다. 둘 다 비워 두면 PATH의 gestalt와 CLI 기본 위치를 쓴다.
 
+오르카 모바일은 플러그인 패널을 못 그린다. 폰에서 보려면 설정의 `mobilePort`에 포트를 적는다. 그러면 워커가 그 포트로 이 맥의 루프백에만 보기 전용 페이지를 연다. `tailscale serve`로 그 포트를 테일넷에 이어 폰에서 연다. 게이트와 주문 위계를 보여 주기만 하고 승인과 거절, 지우기는 데스크톱에서 한다. 명령과 보안 경계는 [`orca-plugin/README.md`](../orca-plugin/README.md#폰에서-보기)에 있다.
+
 패널의 승인과 거절은 한 번 더 눌러야 확정되고 `gate resolve`를 부른다. 응답의 `hostActions`는 "컨덕터 세션에서 처리할 일"로 보여 주기만 하고 실행하지 않는다. 결정이 워커에 닿으려면 컨덕터 세션이 다음 tick에 처리해야 한다. 주문을 맡은 오르카 워크트리를 찾으면 "워크트리 열기" 버튼으로 바로 연다. 끝난 주문은 패널과 보드에서 하나씩 또는 레포 단위로 지울 수 있고 이것도 한 번 더 눌러야 `order remove`를 부른다. 자세한 동작은 [`orca-plugin/README.md`](../orca-plugin/README.md)에 있다.
 
 ## 바깥 텍스트는 자료다
