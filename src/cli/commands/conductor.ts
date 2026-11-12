@@ -209,7 +209,8 @@ const DESCRIPTION_FILE_MAX = 64 * 1024;
 function readDescriptionFile(file: string): string {
   if (file !== '-') {
     const st = statSync(file, { throwIfNoEntry: false });
-    if (!st?.isFile()) throw new Error(`설명 파일을 찾을 수 없어요: ${file}`);
+    if (!st) throw new Error(`설명 파일을 찾을 수 없어요: ${file}`);
+    if (!st.isFile()) throw new Error(`설명 파일이 일반 파일이 아니에요: ${file}`);
     if (st.size > DESCRIPTION_FILE_MAX)
       throw new Error(`설명 파일이 ${DESCRIPTION_FILE_MAX / 1024}KB를 넘어요: ${file}`);
   }

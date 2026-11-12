@@ -301,8 +301,9 @@ describe('gestalt conductor', () => {
     expect(err.join('\n')).toContain('64KB를 넘어요');
 
     expect(add(stateDir)).toThrow('exit 1');
-    expect(err.join('\n')).toContain('찾을 수 없어요');
+    expect(err.join('\n')).toContain('일반 파일이 아니에요');
     expect(add(join(stateDir, 'none.md'))).toThrow('exit 1');
+    expect(err.join('\n')).toContain('찾을 수 없어요');
   });
 
   it('queue add는 파일로 넣고 워커 세션이나 JSON이 아닌 본문은 거절한다', () => {
