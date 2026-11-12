@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -378,6 +386,54 @@ describe('gestalt conductor', () => {
         prWatch: false,
       });
       expect((last() as { errors: string[] }).errors).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('감시 간격 안이라 건너뛴 tick은 경로 누락 오류를 건너뛴 이유로 보여 주지 않는다', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'gestalt-conductor-home-'));
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    writeFileSync(
+      join(home, '.gestalt', 'conductor.json'),
+      JSON.stringify({ prWatchRepos: ['acme/app'], repoPaths: {} }),
+    );
+    vi.stubEnv('GESTALT_HOME', home);
+    try {
+      const stateDir = tempStateDir();
+      await conductorTickCommand({ stateDir, json: true, force: true, queue: false });
+      await conductorTickCommand({ stateDir, queue: false });
+      expect(out.at(-1)).toBe('건너뛰었어요 (감시 간격 안)');
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('prWatchRepos가 비어 있으면 repoPaths에 레포가 있어도 gh를 부르지 않는다', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'gestalt-conductor-home-'));
+    const bin = join(home, 'bin');
+    const calls = join(home, 'gh-calls');
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'gh'), `#!/bin/sh\necho "$@" >> '${calls}'\necho '[]'\n`);
+    chmodSync(join(bin, 'gh'), 0o755);
+    const conf = join(home, '.gestalt', 'conductor.json');
+    vi.stubEnv('GESTALT_HOME', home);
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
+    try {
+      writeFileSync(conf, JSON.stringify({ repoPaths: { 'acme/app': home } }));
+      await conductorTickCommand({ stateDir: tempStateDir(), json: true, force: true, queue: false });
+      expect(existsSync(calls)).toBe(false);
+
+      // 같은 가짜 gh가 감시를 켜면 실제로 불리는지 함께 봐야 위 단언이 빈 통과가 아니다
+      writeFileSync(
+        conf,
+        JSON.stringify({ prWatchRepos: ['acme/app'], repoPaths: { 'acme/app': home } }),
+      );
+      await conductorTickCommand({ stateDir: tempStateDir(), json: true, force: true, queue: false });
+      expect(existsSync(calls)).toBe(true);
     } finally {
       vi.unstubAllEnvs();
       rmSync(home, { recursive: true, force: true });

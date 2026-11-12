@@ -177,6 +177,24 @@ describe('PR 감시 대상', () => {
     expect(got.errors[0]).toContain('acme/api');
     expect(got.errors[0]).toContain('repoPaths');
   });
+
+  it('owner/name 꼴이 아닌 항목은 빼고 따옴표로 감싼 값과 함께 알린다', () => {
+    const got = prWatchTargets(['acme/app ', 'acme-app'], repoPaths);
+    expect(got.repoPaths).toEqual({});
+    expect(got.errors).toEqual([
+      '"acme/app ": prWatchRepos 항목이 owner/name 꼴이 아니라 PR 감시에서 뺐어요',
+      '"acme-app": prWatchRepos 항목이 owner/name 꼴이 아니라 PR 감시에서 뺐어요',
+    ]);
+  });
+
+  it('프로토타입 이름은 repoPaths 경로로 잡지 않는다', () => {
+    const got = prWatchTargets(['constructor', 'toString/x'], repoPaths);
+    expect(got.repoPaths).toEqual({});
+    expect(got.errors).toHaveLength(2);
+    const proto = prWatchTargets(['a/b'], Object.create({ 'a/b': '/tmp/proto' }));
+    expect(proto.repoPaths).toEqual({});
+    expect(proto.errors[0]).toContain('철자');
+  });
 });
 
 describe('gh 읽기', () => {

@@ -423,7 +423,8 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     };
     const report = await tick(ctx.store, deps, { force: opts.force === true });
     report.hostActions.push(...deferred);
-    report.errors.push(...(queue?.errors ?? []), ...(watch?.errors ?? []));
+    // 건너뛴 tick은 감시를 안 돌았다. 경로 누락 오류를 붙이면 출력이 그걸 건너뛴 이유로 보여 준다
+    if (!report.skipped) report.errors.push(...(queue?.errors ?? []), ...(watch?.errors ?? []));
     for (const repo of prSource?.truncatedRepos ?? [])
       report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
     if (opts.json) return print(report);
