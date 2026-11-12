@@ -333,7 +333,7 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
 
 ## Step 4.5 — 서빙 인프라와 클라우드 접근 파악
 
-웹 서비스가 정적 번들로 서빙되면 요청은 도메인 → CDN → 버킷 → 서비스 순으로 들어온다. 이 사슬을 코드에서 먼저 찾고 실제 클라우드 상태는 읽기 전용 조회로 확인한다. 범위는 AWS 하나다. 다른 클라우드, 비용, 트래픽은 다루지 않는다. 보안 설정을 좋다 나쁘다 판정하지 않고 확인한 사실만 싣는다.
+웹 서비스가 정적 번들로 서빙되면 요청은 도메인 → CDN → 버킷 → 서비스 순으로 들어온다. 이 사슬을 코드에서 먼저 찾고 실제 클라우드 상태는 읽기 전용 조회로 확인한다. 조회 절차는 AWS 하나만 있다. GCP와 Azure는 인프라 코드 근거로만 싣는다. 비용과 트래픽은 다루지 않는다. 보안 설정을 좋다 나쁘다 판정하지 않고 확인한 사실만 싣는다.
 
 ### 4.5-1. 코드에서 먼저 찾기
 
@@ -386,6 +386,24 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
 - **id에는 계정 ID와 CDN 배포 ID를 넣지 않는다.** `prod-customer`처럼 별칭으로 짓고 실제 ID는 `label`에 둔다. id는 공유본에서도 못 가리므로 validate가 `CLOUD_ID_IN_ID`로 거부한다.
 - 선 모양은 근거로 정해진다. 코드 근거가 함께 있으면 실선, `live` 근거만 있으면 점선이다. 조회 결과는 지금 상태일 뿐이고 코드가 그렇게 만든다는 증거는 아니라서다.
 - **서비스에 안 붙는 인프라**(에셋 버킷, 꺼 둔 배포)는 deploy-path에만 싣는다. screen-chain에는 서비스까지 이어지는 사슬만 싣는다.
+
+### 4.5-6a. 벤더와 자리를 적는다
+
+인프라 노드(`network`, `subnet`, `cluster`, `workload`, `firewall`, `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target`, `datastore`)에 아래 필드를 적으면 render가 벤더 박스 안에 아이콘으로 그린 "인프라 구성" 레벨을 붙인다. 하나도 안 적으면 이 레벨은 안 생긴다.
+
+| 필드       | 쓰는 노드                               | 근거 예                                                                  |
+| ---------- | --------------------------------------- | ------------------------------------------------------------------------ |
+| `provider` | 위 kind 전부                            | terraform 리소스 타입(`aws_`, `google_`, `azurerm_`), CDK 패키지 이름    |
+| `region`   | 위 kind 전부                            | provider 블록의 `region`, 스택 환경 설정, 조회 결과의 리전               |
+| `exposure` | `subnet`                                | VPC 모듈의 `public_subnets`, `private_subnets` 목록, 인터넷 게이트웨이로 나가는 라우트에 묶인 줄 |
+| `placedIn` | `deploy_target`, `datastore`, `bucket`  | 리소스의 `subnet_ids`, `vpc_id`, 클러스터 지정 줄. 값은 그 노드의 id     |
+| `engine`   | `datastore`, `deploy_target`, `cluster` | 엔진이나 런타임 설정 줄 (`engine = "aurora-mysql"`, `lambda`, `cloudrun`) |
+
+- **근거가 있을 때만 채운다.** 이름이나 관례로 짐작해 적지 않는다. 서브넷 이름에 `public`이 들어 있다고 `exposure`를 적지 않는다. 근거가 없으면 비워 둔다. 비우면 중립 박스나 내장 아이콘으로 그려질 뿐 그림이 틀리지는 않는다.
+- `provider`와 `region`은 `placedIn`, `parent`, `account` 순으로 물려받는다. 계정이나 VPC 노드에 적었으면 그 안 노드에는 다시 안 적는다. 다르게 적으면 validate가 `INFRA_PLACEMENT_CONFLICT` 경고를 낸다.
+- `placedIn`은 `network`, `subnet`, `cluster`만 가리킨다. 다른 kind면 `INVALID_PLACED_IN_KIND`, 없는 id면 `PLACED_IN_NOT_FOUND`로 거부된다.
+- `region` 값에 계정 ID가 들어 있으면 공유본에서 가려진다. 그래도 id에는 넣지 않는다.
+- 이 레벨은 prod와 환경 없는 노드만 그린다. 공식 아이콘은 render가 홈 캐시에서 넣는다. 받기에 실패하면 내장 아이콘으로 그리고 render 응답 `stats.iconStats`의 `fallback`이 는다.
 
 ### 4.5-7. 서비스 플랫폼
 
@@ -503,6 +521,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 - 적은 팩에 없는 kind를 쓰면 `KIND_NOT_IN_PACKS`다. 팩마다 쓰는 kind와 엣지는 [부록 1](#1-노드-kind)과 [부록 2](#2-엣지-kind)에 있다.
 - 엣지마다 양 끝으로 올 수 있는 kind가 정해져 있다. 어기면 이름과 달리 하네스가 아닌 팩에서도 `INVALID_HARNESS_EDGE_ENDS`가 온다.
 - `infra`, `data`, `process`는 parent 포함 관계로 드릴다운한다. 담는 노드를 누르면 그 안의 노드만 모인 레벨로 들어간다. 그래서 포함 관계를 아는 만큼 parent를 단다.
+- `infra` 팩 노드도 [4.5-6a](#45-6a-벤더와-자리를-적는다)의 `provider`, `region`, `exposure`를 근거가 있을 때 채운다. 그래야 벤더 박스로 그린 인프라 구성 레벨이 붙는다.
 
 `infra`, `data`, `process` 팩은 이름으로 서로를 가리키는 일이 많다. 레포에서 참조와 선언을 모았으면 `match_endpoints`의 `nameRefs`로 넘겨 짝을 받는다. `matcher`는 그 팩 것을 쓴다.
 

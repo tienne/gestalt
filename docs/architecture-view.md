@@ -40,7 +40,7 @@ IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`sc
 | `view`          | `screen-chain` 또는 `deploy-path`                                                                                                                                                                                                                                                                                                                   |
 | `packs`         | 선택. 이 IR이 쓰는 [어휘 팩](#어휘-팩) id 목록. 안 적으면 `web-product`와 `harness`로 읽는다                                                                                                                                                                                                                                                       |
 | `repos`         | `{ id, name, root?, remote? }`. `root`는 로컬 경로다. 상대 경로면 `repoRoot` 기준으로 푼다. `root`가 없으면 [문서 묶음 레포](#문서-묶음-레포)다                                                                                                                                                                                                      |
-| `nodes`         | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, group?, description?, environment?, engine?, account?, platforms?, platformEvidence?, displayKind?, renderClass?, columns?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서, `displayKind`와 `renderClass`는 [범용 component](#범용-component)에서, `columns`는 [테이블 컬럼](#테이블-컬럼)에서 설명한다. `description`은 카드의 설명 줄과 서랍에 나온다. 비우면 validate가 경고한다 ([검증 규칙](#검증-규칙)). `group`은 [서버 묶음 테두리](#서버-묶음-테두리)에서 설명한다 |
+| `nodes`         | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, group?, description?, environment?, engine?, account?, provider?, region?, exposure?, placedIn?, platforms?, platformEvidence?, displayKind?, renderClass?, columns?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서, `provider`와 `region`, `exposure`, `placedIn`은 [인프라 구성 레벨](#인프라-구성-레벨)에서, `displayKind`와 `renderClass`는 [범용 component](#범용-component)에서, `columns`는 [테이블 컬럼](#테이블-컬럼)에서 설명한다. `description`은 카드의 설명 줄과 서랍에 나온다. 비우면 validate가 경고한다 ([검증 규칙](#검증-규칙)). `group`은 [서버 묶음 테두리](#서버-묶음-테두리)에서 설명한다 |
 | `edges`         | `{ id, from, to, kind, evidence[], lineStyle }`. `lineStyle`은 `solid` 또는 `dashed`                                                                                                                                                                                                                                                                |
 | `unresolved`    | `{ id, subject: { nodeId?, edgeId?, stepId?, transitionId?, messageId? }, question, answer? }`. `messageId`는 질문별 그림의 메시지 id다                                                                                                                                                                                                             |
 | `flows`         | 선택. 도메인 흐름이다. 보통 서비스 하나에 딸리고 서비스 없이 따로 설 수도 있다. [도메인 흐름](#도메인-흐름)에서 설명한다                                                                                                                                                                                                                             |
@@ -234,12 +234,12 @@ AI 하네스나 MCP 서버 레포에서는 MCP 도구가 API 자리에 선다. �
 
 ### 서빙 인프라
 
-정적 웹 서비스는 도메인 → CDN → 버킷 → 서비스 순으로 요청을 받는다. SSR 웹 서비스는 버킷 자리에 서버(`deploy_target`)가 서고 CDN 없이 도메인이 서버를 바로 가리키기도 한다. 이 사슬을 노드로 두면 서비스가 어디서 서빙되는지 그림에서 읽힌다. 범위는 AWS 하나이고 비용과 트래픽은 싣지 않는다.
+정적 웹 서비스는 도메인 → CDN → 버킷 → 서비스 순으로 요청을 받는다. SSR 웹 서비스는 버킷 자리에 서버(`deploy_target`)가 서고 CDN 없이 도메인이 서버를 바로 가리키기도 한다. 이 사슬을 노드로 두면 서비스가 어디서 서빙되는지 그림에서 읽힌다. 스킬이 실제 클라우드를 조회하는 절차는 AWS 하나만 있고 비용과 트래픽은 싣지 않는다. 벤더와 리전, 네트워크 안 자리까지 그리는 건 [인프라 구성 레벨](#인프라-구성-레벨)이고 AWS와 GCP, Azure를 그린다.
 
 | 필드               | 쓰는 노드                                                                | 뜻                                                                                                         |
 | ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | `environment`      | `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target`, `datastore` | 환경 이름. 같은 레인 안에서 `prod`, `stage`, `qa`, `dev` 순으로 놓이고 그 밖의 환경, 환경 없음이 뒤에 선다 |
-| `engine`           | `datastore`                                                              | `mysql`, `redis` 같은 엔진 이름. 아는 엔진이면 종류 칩에 그 로고가 선다. 비우면 `label`에서 찾는다         |
+| `engine`           | `datastore`, `deploy_target`, `cluster`                                  | `mysql`, `redis`, `lambda` 같은 엔진이나 런타임 이름. `datastore`는 아는 엔진이면 종류 칩에 그 로고가 서고 비우면 `label`에서 찾는다. 인프라 구성 레벨에서는 세 kind 모두 이 값으로 공식 아이콘을 고른다 |
 | `account`          | 아무 노드 (`cloud_account` 제외)                                         | 이 노드가 속한 `cloud_account` 노드의 id. 양 끝 노드의 계정이 다른 선은 다른 색으로 그린다                 |
 | `platforms`        | `service`                                                                | `web`, `android`, `ios` 중 이 서비스가 배포되는 것                                                         |
 | `platformEvidence` | `service`                                                                | 플랫폼별 근거 목록. `{ "android": [근거], "ios": [근거] }` 꼴                                              |
@@ -251,6 +251,103 @@ AI 하네스나 MCP 서버 레포에서는 MCP 도구가 API 자리에 선다. �
 웹 칩은 서빙 방식에 따라 "웹"과 "웹(SSR)"으로 갈린다. 정적 웹이 흔한 경우라 괄호를 붙이지 않는다. 서빙하는 노드 중 prod나 환경 없는 것만 먼저 보고 하나도 없으면 전체를 본다. 그중 배포 대상이 하나라도 있으면 SSR이고 버킷만 있으면 정적이다. 정적 파일은 버킷에 두고 일부 경로만 서버가 받는 구성도 서버가 렌더를 맡는 쪽이라 SSR로 친다. stage에만 SSR 서버가 있고 prod는 버킷이면 정적이다. 전체보기가 prod 기준이라 칩도 prod를 따른다. 앱 카드는 자기 사슬로 칩을 따로 판정한다.
 
 id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 클러스터 식별자를 넣지 않는다. id는 공유본에서도 가릴 수 없어서다. `prod-web`이나 `ds:redis-common`처럼 별칭으로 짓고 실제 ID는 `label`에 둔다.
+
+### 인프라 구성 레벨
+
+인프라 노드를 클라우드 벤더의 테두리 안에 겹겹이 담아 그리는 레벨이다. 레벨 id는 `infra`이고 제목은 "인프라 구성"이다 (`drilldown.ts`의 `INFRA_LEVEL_ID`). 벤더, 리전, VPC, 서브넷 테두리 안에 아이콘 타일을 세우고 타일 사이를 직각 선으로 잇는다. 클라우드 벤더가 내놓는 아키텍처 그림과 같은 꼴이다. 배치는 `src/architecture/infra-layout.ts`, 아이콘은 `src/architecture/vendor-icons.ts`가 맡는다.
+
+이 레벨에 서는 kind는 `network`, `subnet`, `cluster`, `workload`, `firewall`, `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target`, `datastore`다 (`types.ts`의 `INFRA_LEVEL_KINDS`). 그중 prod와 환경 없는 노드만 그린다. 전체 레벨과 같은 기준이다. stage나 dev 노드는 이 레벨에 안 서고 환경별로 박스를 나누는 그림도 아직 없다.
+
+**새 필드를 하나라도 적어야 레벨이 생긴다.** 위 kind 노드 가운데 하나라도 `provider`, `region`, `exposure`, `placedIn` 중 하나를 적었을 때만 만든다. kind만 맞아서는 안 생긴다. 이 필드를 안 쓰는 옛 IR은 HTML이 바이트까지 예전과 같아야 해서다. 레벨이 없으면 인프라용 스타일과 스크립트, 구름 아이콘, 루트의 `data-icons` 속성도 싣지 않는다. 레벨이 있으면 `service` 노드가 없어도 드릴다운 HTML이 된다.
+
+| 필드       | 쓰는 노드                               | 뜻                                                                                         |
+| ---------- | --------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `provider` | 위 kind 전부                            | `aws`, `gcp`, `azure` 중 하나. 어느 벤더 박스에 들어갈지 정한다                            |
+| `region`   | 위 kind 전부                            | 리전 이름. 리전 박스의 라벨이 된다                                                         |
+| `exposure` | `subnet`                                | `public` 또는 `private`. AWS 서브넷 박스의 색과 아이콘을 정한다                            |
+| `placedIn` | `deploy_target`, `datastore`, `bucket`  | 이 노드가 놓인 `network`, `subnet`, `cluster` 노드의 id. 자기 자신은 못 가리킨다           |
+| `engine`   | `datastore`, `deploy_target`, `cluster` | 엔진이나 런타임 이름. 공식 아이콘을 고르는 데 쓴다. [서빙 인프라](#서빙-인프라) 표와 같은 필드다 |
+
+`provider`와 `region`을 안 적으면 `placedIn`, `parent`, `account` 순으로 따라가 물려받는다 (`infra-placement.ts`의 `resolveInfraPlacement`). 위 kind가 아닌 노드는 건너뛰고 물려주지도 않는다. 적은 값이 물려받을 값과 다르면 그림은 적은 값을 따르고 validate가 `INFRA_PLACEMENT_CONFLICT` 경고를 낸다. `placedIn`이 없는 노드를 가리키면 `PLACED_IN_NOT_FOUND`, 가리킨 노드가 `network`, `subnet`, `cluster`가 아니면 `INVALID_PLACED_IN_KIND`로 거부한다.
+
+#### 벤더별 박스
+
+타일이 어느 박스에 들어갈지는 `placedIn`을 먼저 보고 없으면 `parent`를 본다. 둘 중 같은 벤더의 `network`, `subnet`, `cluster`를 가리키는 쪽만 매단 곳으로 친다. 매단 곳이 없으면 아래 표의 기본 자리에 선다.
+
+| 벤더  | 박스 순서                           | 매단 곳 없는 노드의 자리                                                         |
+| ----- | ----------------------------------- | -------------------------------------------------------------------------------- |
+| AWS   | AWS Cloud > 리전 > VPC > 서브넷     | `domain`과 `cdn`은 Cloud 안 리전 밖. 나머지는 리전 안 VPC 밖. 리전이 없으면 Cloud 안 |
+| GCP   | Google Cloud > VPC > 리전 > 서브넷  | kind와 상관없이 VPC 밖 Cloud 안. 리전 박스는 VPC 안에만 선다                    |
+| Azure | Azure > 리전 > VNet > 서브넷        | `domain`과 `cdn`은 리전 밖. 나머지는 리전 안 VNet 밖. 리전이 없으면 Azure 안     |
+
+- **`cloud_account`, `network`, `subnet`은 박스로 그린다.** 벤더가 정해진 경우만 그렇고 벤더를 모르면 타일로 선다. 박스 라벨을 누르면 그 노드 서랍이 열린다.
+- **계정이 여럿이면 계정마다 벤더 박스가 따로 선다.** 라벨은 그 `cloud_account`의 `displayName`이고 없으면 `label`이다. 계정을 안 적은 노드는 그 벤더 계정이 하나뿐이면 그 계정 박스에 들어간다. 계정 노드가 없으면 라벨은 `AWS Cloud`, `Google Cloud`, `Azure` 중 하나다.
+- **`exposure` 없는 AWS 서브넷은 중립 박스다.** 이름이나 라우팅으로 public인지 추정하지 않는다. public과 private 색은 `exposure`를 적어야 붙는다.
+- **벤더를 끝내 모르는 노드**는 벤더 박스 없이 왼쪽에 타일 격자로 선다.
+- 한 박스 안 타일은 한 줄에 넷까지 서고 넘치면 다음 줄로 간다 (`INFRA_MAX_COLS`). 순서는 kind 순위 다음 id 순이라 입력 순서와 상관없이 같은 자리에 선다.
+- 테두리 색과 모서리, 타일 모양 같은 벤더 규칙은 그 벤더 박스 안에만 쓴다. AWS 서비스 아이콘은 배경 없는 타일에, GCP와 Azure 아이콘은 흰 타일에 놓인다.
+
+#### 노드 아이콘
+
+노드마다 벤더와 kind로 공식 아이콘 하나를 고른다 (`vendorIconKey`). 표는 개요다. 정확한 이름 표는 `vendor-icons.ts`의 `KIND_ICONS`, `ENGINE_ICONS`, `DATASTORE_ICONS`에 있다.
+
+| kind            | AWS                                          | GCP                                          | Azure                                        |
+| --------------- | -------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
+| `domain`        | Route 53                                     | Cloud DNS                                    | DNS                                          |
+| `cdn`           | CloudFront                                   | Cloud CDN                                    | Front Door                                   |
+| `bucket`        | S3                                           | Cloud Storage                                | Storage                                      |
+| `network`       | VPC                                          | VPC                                          | VNet                                         |
+| `subnet`        | public, private 그룹 아이콘                  | 없음                                         | Subnet                                       |
+| `firewall`      | WAF                                          | Cloud Armor                                  | NSG                                          |
+| `cluster`       | `engine`을 따르고 없으면 EKS                 | `engine`을 따르고 없으면 GKE                 | `engine`을 따르고 없으면 AKS                 |
+| `workload`      | 매단 클러스터의 아이콘                       | Compute Engine                               | Container Apps                               |
+| `deploy_target` | `engine`: Lambda, Fargate, EC2, ECS 등       | `engine`: Cloud Run, App Engine 등           | `engine`: App Service, Functions 등          |
+| `datastore`     | `engine`이나 `label`: RDS, Aurora, ElastiCache 등 | `engine`이나 `label`: Cloud SQL, Memorystore 등 | `engine`이나 `label`: SQL Database, Cosmos DB 등 |
+| `cloud_account` | AWS Cloud 로고 (박스 라벨)                   | Google Cloud 로고 (박스 라벨)                | Azure 로고 (박스 라벨)                       |
+
+- `deploy_target`과 `cluster`의 `engine`은 소문자 영숫자로 줄인 값이 표의 이름과 정확히 같아야 한다. `app-runner`와 `apprunner`는 같은 값이다.
+- `datastore`는 `engine`(없으면 `label`) 안에 표의 이름이 들어 있으면 그 제품으로 본다. `aurora-mysql`은 Aurora다.
+- 표에 없으면 공식 아이콘 없이 내장 선 아이콘으로 선다. 엔진 로고가 있는 저장소는 그 로고를 쓴다.
+
+#### 선
+
+- 박스로 그린 노드에 닿는 선과 자기 자신으로 가는 선은 그리지 않는다. 레벨의 선 목록도 그림과 맞춘다.
+- 선은 직각으로 꺾이고 노드 상자를 관통하지 않는다. 꺾는 횟수가 적은 길을 고르고 동점이면 늘 같은 길을 고른다.
+- 양 끝이 둘 다 AWS 타일이면 한 색 선에 열린 화살촉을 단다. 그 밖의 선은 일반 선 색에 꽉 찬 화살촉이다. 점선 엣지는 점선이다.
+- 선 글자는 엣지 kind 이름(범례와 같은 글자)이고 고정폭 글꼴이다. 가장 긴 구간 가운데에 두고 박스 라벨이나 타일과 겹치면 구간을 따라 비킨다.
+
+#### 들어가는 길
+
+- 전체 레벨 지도 위쪽 카드 줄에 인프라 카드가 하나 선다. 카드에는 쓰인 벤더와 노드 수, 선 수가 나온다. 질문별 그림이 없으면 줄 제목은 "인프라 구성"이고 둘 다 있으면 "다른 그림"이다. 질문별 그림만 있으면 제목은 예전 그대로 "질문별 그림"이다.
+- 서비스 레벨의 인프라 카드와 전체 레벨의 저장소 카드를 누르면 이 레벨로 들어간다. 이미 들어갈 레벨이 있는 노드는 그 레벨을 그대로 쓴다.
+- 서랍에는 클라우드와 리전, 놓인 곳 줄이 더 붙는다.
+- 이 레벨에서는 포커스를 쓰지 않는다. 포커스 버튼이 숨고 `#/focus/infra/<id>` 주소도 무시한다. 두 항목 경로 보기는 막지 않았고 열면 전체 레벨의 선 기준으로 길을 찾는다.
+
+#### 아이콘 캐시
+
+공식 아이콘은 render 때 벤더가 배포하는 패키지에서 받아 홈 아래에 캐시하고 HTML에는 data URI로 넣는다. 받는 일은 `handleRender`가 한 번만 해서 원본과 공유본이 같은 아이콘을 쓴다.
+
+| 벤더  | 패키지                     | 받는 곳                                                     |
+| ----- | -------------------------- | ----------------------------------------------------------- |
+| AWS   | AWS Architecture Icons     | 안내 페이지에서 zip 주소를 찾아 받는다                      |
+| GCP   | Google Cloud product icons | 고정 주소의 core products zip과 category zip                |
+| Azure | Azure Public Service Icons | 안내 페이지에서 zip 주소를 찾아 받는다                      |
+
+- **위치**는 `~/.gestalt/architecture-icons/`다 (`gestaltPath('architecture-icons')`). `GESTALT_HOME`을 절대 경로로 주면 `$GESTALT_HOME/.gestalt/architecture-icons/`다. 벤더별 폴더에 필요한 SVG만 풀어 두고 zip은 버린다. 받은 이름과 출처 주소, 받은 시각은 `manifest.json`에 적는다.
+- **모드**는 `GESTALT_ARCH_ICONS` 환경 변수로 정한다.
+
+| 값               | 동작                                                                 |
+| ---------------- | -------------------------------------------------------------------- |
+| `auto` (기본)    | 캐시에 없는 아이콘만 네트워크로 받는다                               |
+| `offline`        | 캐시만 쓴다. 캐시에 없으면 내장 아이콘이다. 테스트가 이 값으로 돈다 |
+| `off`            | 캐시도 안 보고 늘 내장 아이콘이다                                    |
+
+- **제한 시간**은 안내 페이지 15초, zip 패키지 120초다. 벤더끼리는 따로 받아서 한 벤더가 실패해도 나머지는 캐시에 쓴다.
+- **실패해도 render는 안 깨진다.** 타임아웃이나 네트워크 오류, 패키지에 이름이 없는 경우 모두 그 아이콘만 내장 선 아이콘으로 돌리고 stderr에 로그를 남긴다. 패키지에 이름이 없으면 manifest에 빈 항목을 남겨 다음 render가 다시 받으러 가지 않는다. 네트워크 실패는 남기지 않아 다음 render가 다시 시도한다. 그래서 오프라인에서 `auto`로 두면 render마다 받기를 시도하고 느려진다. 그럴 때는 `offline`이나 `off`로 둔다.
+- **레포에 커밋하지 않는다.** 벤더 패키지를 다시 배포해도 되는지 확인하지 못해서다. 그래서 아이콘 파일을 레포에 두지 않고 각자 홈에 받는다.
+- **받은 SVG는 손대지 않는다.** 색을 바꾸지 않고 크기만 맞춰 그대로 넣는다. Azure 아이콘은 Microsoft가 자르거나 뒤집거나 모양을 바꾸는 걸 막고 있어서 특히 그렇다.
+- **출처를 적는다.** 공식 아이콘을 하나라도 받은 벤더만 캔버스 아래 줄에 패키지 이름을 적고 상표가 각 소유자의 것이라는 문장을 붙인다.
+- 벤더 안내 페이지 구조가 바뀌면 zip 주소를 못 찾는다. 그래도 render는 내장 아이콘으로 끝나고 `iconStats`의 `fallback` 수가 늘어난다.
 
 ### 테이블 컬럼
 
@@ -320,6 +417,8 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 ### infra 팩
 
 네트워크 안에 서브넷이, 그 안에 클러스터와 워크로드가 들어간다. 포함 관계가 깊어서 parent 나무로 한 단계씩 내려가며 본다.
+
+이 팩의 kind는 모두 [인프라 구성 레벨](#인프라-구성-레벨)에도 선다. parent 나무 레벨은 그대로 두고 `provider`나 `region` 같은 필드를 적으면 벤더 박스로 한 장에 담은 레벨이 따로 붙는다.
 
 | kind       | 칩       | 레인     | parent로 가리킬 수 있는 kind       |
 | ---------- | -------- | -------- | ---------------------------------- |
@@ -429,7 +528,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 ## 검증 규칙
 
-`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 마흔둘은 IR 전체를 거부한다.
+`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 마흔넷은 IR 전체를 거부한다.
 
 | 에러 코드                           | 언제                                                                                                                                                                                     |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -439,6 +538,8 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `LIVE_COMMAND_NOT_READ_ONLY`        | `live` 근거의 `command`가 [CLI 명령 판정](#cli-명령-판정)에서 `allow`가 아니다                                                                                                           |
 | `ACCOUNT_NOT_FOUND`                 | `account`가 가리키는 노드가 `nodes`에 없다                                                                                                                                               |
 | `INVALID_ACCOUNT_KIND`              | `account`가 `cloud_account`가 아닌 노드를 가리킨다                                                                                                                                       |
+| `PLACED_IN_NOT_FOUND`               | `placedIn`이 가리키는 노드가 `nodes`에 없다 |
+| `INVALID_PLACED_IN_KIND`            | `placedIn`이 `network`, `subnet`, `cluster`가 아닌 노드를 가리킨다 |
 | `COLUMN_REFERENCE_NOT_FOUND`        | 컬럼 `references.table`이 `nodes`에 없거나, 대상 테이블이 `columns`를 적었는데 `references.column`이 그 안에 없다 |
 | `INVALID_COLUMN_REFERENCE_KIND`     | 컬럼 `references.table`이 `db_table`이 아닌 노드를 가리킨다 |
 | `CLOUD_ID_IN_ID`                    | 노드나 엣지 id에 계정 ID 꼴(12자리 숫자)이 들었거나, `cdn` 노드 id에 CDN 배포 ID 꼴이 들었다                                                                                             |
@@ -494,6 +595,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `LIFECYCLE_OVER_BUDGET` | `lifecycle` 그림 하나가 한 장에 읽히는 양을 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts`는 띠별 상태 수와 전이 수다. 기준은 [상태 흐름](#상태-흐름)에 있다 |
 | `BLUEPRINT_OVER_BUDGET` | `blueprint` 그림 하나의 단계 열이 6을 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts.stages`는 열 수다. 기준은 [서비스 블루프린트](#서비스-블루프린트)에 있다 |
 | `ER_OVER_BUDGET` | `er` 그림 하나가 테이블 5개, 한 테이블의 컬럼 8개, 외래 키 선 6개 중 하나를 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts`는 테이블 수와 가장 긴 테이블의 컬럼 수, 선 수다. 기준은 [테이블 관계](#테이블-관계)에 있다 |
+| `INFRA_PLACEMENT_CONFLICT` | 노드에 적은 `provider`나 `region`이 `placedIn`, `parent`, `account`에서 물려받을 값과 다르다. 필드마다 하나씩 오고 `field`는 `provider`나 `region`, `nodeIds`는 걸린 노드 id다. 그림은 노드에 적은 값을 따른다. [인프라 구성 레벨](#인프라-구성-레벨)에서 설명한다 |
 | `DELTA_OVER_BUDGET` | 구조 변경 그림이 바뀐 곳 주변으로 좁혀도 구성 요소 8개, 관계 10개, 변경 목록 8줄 중 하나를 넘는다. render에서만 오고 `subjectId`는 view, `counts`는 그린 구성 요소 수와 관계 수, 변경 목록 줄 수다 |
 | `CODE_EVIDENCE_EXCERPT_MISMATCH` | public `code` 근거에 적은 `excerpt`가 그 줄 내용과 다르다. 코드가 바뀌어 줄이 밀렸을 때 난다. 앞뒤 공백을 걷고 줄이 excerpt로 시작하면 맞은 것으로 본다. 근거마다 하나씩 오고 근거의 주인 id와 `evidenceIndex`가 붙는다. `candidates`에는 위아래 200줄 안에서 excerpt와 맞는 줄 번호가 가까운 순으로 최대 3개 실린다. 못 찾았으면 비어 있다. 재실행 때 이 경고가 나오면 후보 줄로 고친다 |
 
@@ -561,7 +663,7 @@ private 근거의 원문은 세 겹으로 막는다.
 2. 저장하는 IR에서 private 근거의 `excerpt`를 지운다 (`stripPrivateExcerpts`).
 3. 공유용 HTML(`.shared.html`)은 private 근거의 `location`까지 빼고 `type`과 `visibility`만 남긴다 (`redactForSharing`). 패널에는 출처 종류만 보인다.
 
-`live` 근거는 `public`으로 적었어도 공유본에서 `type`, `visibility`, `observedAt`만 남는다. 명령과 리소스 위치에 계정 ID나 리소스 이름이 들어가기 때문이다. 공유본은 노드 이름(`label`, `displayName`, `description`)과 흐름의 제목, 행위자, 단계 글자, 전이의 누른 것(`trigger`)과 조건(`condition`), 메모(`label`), 질문 문장, 레벨 제목, 상태 이름, 구간 이름, 제품 그룹 이름에 든 계정 ID도 가린다. `db_table` 노드는 컬럼 이름과 타입, 외래 키 대상 컬럼, `onDelete`에 든 계정 ID도 가린다. `cdn` 노드는 CDN 배포 ID도 가린다. 자동 질문도 공유본에 싣고 질문 문장은 같은 규칙으로 가린다.
+`live` 근거는 `public`으로 적었어도 공유본에서 `type`, `visibility`, `observedAt`만 남는다. 명령과 리소스 위치에 계정 ID나 리소스 이름이 들어가기 때문이다. 공유본은 노드 이름(`label`, `displayName`, `description`)과 흐름의 제목, 행위자, 단계 글자, 전이의 누른 것(`trigger`)과 조건(`condition`), 메모(`label`), 질문 문장, 레벨 제목, 상태 이름, 구간 이름, 제품 그룹 이름에 든 계정 ID도 가린다. `db_table` 노드는 컬럼 이름과 타입, 외래 키 대상 컬럼, `onDelete`에 든 계정 ID도 가린다. `cdn` 노드는 CDN 배포 ID도 가린다. 인프라 노드의 `region`에 든 계정 ID도 가린다. [인프라 구성 레벨](#인프라-구성-레벨)의 박스 라벨 가운데 노드가 아닌 것(리전 이름, 계정 노드가 없을 때의 기본 Cloud 라벨)과 박스 id(`data-box-id`)도 같은 규칙으로 가린다. 노드인 박스의 라벨과 타일 이름, `aria-label`, `title`은 이미 가린 노드 이름에서 꺼낸다. 자동 질문도 공유본에 싣고 질문 문장은 같은 규칙으로 가린다.
 
 지식 문서 그림(`knowledge`, `knowledge-link`)의 공유본은 문서 정보도 줄인다 (`maskDocInfo`).
 
@@ -588,19 +690,22 @@ private 근거의 원문은 세 겹으로 막는다.
 - **외부 스크립트가 없다.** SVG와 패널 스크립트, 스타일이 HTML 한 파일 안에 다 들어 있다. 오프라인에서도 열린다.
 - **시각을 새로 찍지 않는다.** HTML에 나오는 시각은 IR의 `generatedAt`뿐이다.
 
+예외가 하나 있다. [인프라 구성 레벨](#인프라-구성-레벨)이 있으면 같은 IR이어도 [아이콘 캐시](#아이콘-캐시) 상태에 따라 HTML이 갈린다. 캐시에 공식 아이콘이 있으면 data URI로 들어가고 없으면 내장 아이콘이 들어간다. 출처 줄도 공식 아이콘을 받은 벤더만 적는다. 캐시 상태가 같으면 바이트도 같다. 어느 쪽으로 그렸는지는 루트 `<html>`의 `data-icons="official:N fallback:M"` 속성과 render 응답의 `stats.iconStats`에서 보인다. 둘은 같은 수다. 인프라 구성 레벨이 없는 그림에는 이 속성이 없고 캐시와 상관없이 바이트가 같다. 그림을 커밋해 diff로 비교하려면 `GESTALT_ARCH_ICONS=offline`이나 `off`로 캐시 상태를 고정한다.
+
 노드와 선, 레인 제목을 누르면 오른쪽 서랍에 설명과 출처가 뜬다. 무엇이 나오는지는 [조작](#조작)에 있다. `http`나 `https`로 시작하는 근거 위치는 링크가 된다.
 
 ---
 
 ## 드릴다운
 
-서비스 하나에 화면이 수십 개, 엔드포인트가 수백 개면 평면 그림 한 장은 캔버스가 수천 px로 커져 읽을 수 없다. 그래서 그린 `service` 노드가 하나라도 있으면 render가 레벨을 나눠 HTML 한 장에 담는다 (`src/architecture/drilldown.ts`의 `shouldDrillDown`, `computeDrilldown`). 서비스가 없으면 아래 세 경우를 빼고 평면 그림이다. deploy-path에는 서비스가 없으니 질문별 그림을 얹지 않으면 평면이다.
+서비스 하나에 화면이 수십 개, 엔드포인트가 수백 개면 평면 그림 한 장은 캔버스가 수천 px로 커져 읽을 수 없다. 그래서 그린 `service` 노드가 하나라도 있으면 render가 레벨을 나눠 HTML 한 장에 담는다 (`src/architecture/drilldown.ts`의 `shouldDrillDown`, `computeDrilldown`). 서비스가 없으면 아래 네 경우를 빼고 평면 그림이다. deploy-path에는 서비스가 없으니 질문별 그림을 얹거나 인프라 구성 레벨이 생기지 않으면 평면이다.
 
-서비스가 없어도 아래 셋 중 하나면 드릴다운 HTML이 된다. 셋 다 레벨로만 그려지는 그림이라서다.
+서비스가 없어도 아래 넷 중 하나면 드릴다운 HTML이 된다. 넷 다 레벨로만 그려지는 그림이라서다.
 
 - `service`를 안 적은 [독립 흐름](#서비스-없는-흐름)이 있다.
 - 그려지는 [질문별 그림](#질문별-그림)이 있다.
 - `tree` 전략 팩을 쓰고 그려지는 노드 사이에 parent 관계가 하나라도 있다 ([tree 드릴다운](#tree-드릴다운)).
+- [인프라 구성 레벨](#인프라-구성-레벨)이 생긴다.
 
 ### 레벨
 
@@ -614,6 +719,7 @@ private 근거의 원문은 세 겹으로 막는다.
 | 흐름     | `flow:<흐름 id>` | 서비스 하나의 도메인 흐름. 서비스 레벨 아래에 선다. 서비스 없는 흐름은 전체 바로 아래에 선다. [도메인 흐름](#도메인-흐름)에서 설명한다                                                                                                                            |
 | 묶음     | `group:<id>`     | `tree` 전략에서 자식이 있는 노드 하나의 안쪽. [tree 드릴다운](#tree-드릴다운)에서 설명한다                                                                                                                                                                        |
 | 질문     | `view:<id>`      | 질문별 그림 하나. 전체 바로 아래에 선다. [질문별 그림](#질문별-그림)에서 설명한다                                                                                                                                                                                 |
+| 인프라 구성 | `infra`       | prod와 환경 없는 인프라 노드를 벤더, 리전, VPC, 서브넷 박스 안에 그린 것. 전체 바로 아래에 선다. 서비스 레벨의 인프라 카드와 전체 레벨의 저장소 카드가 이 레벨로 들어간다(`enter`). 인프라 노드에 `provider`, `region`, `exposure`, `placedIn` 중 하나라도 적어야 생긴다. [인프라 구성 레벨](#인프라-구성-레벨)에서 설명한다 |
 
 전체 레벨에는 parent 없는 [범용 component](#범용-component)도 선다. 그 사이 선은 묶지 않고 그대로 긋는다. component로만 이뤄진 그림이 독립 흐름이나 질문별 그림 때문에 드릴다운이 돼도 전체 레벨이 비지 않는다.
 
@@ -1487,6 +1593,7 @@ render는 이 순서로 돈다.
 | `drawnTransitions`      | 그린 흐름 전이 수. 흐름이 있을 때만 붙는다                                   |
 | `stages`                | IR의 구간 수. 구간이 있을 때만 붙는다                                        |
 | `unstagedNodes`         | 어느 구간에도 안 맞아 **그 밖**으로 간 그린 노드 수. 구간이 있을 때만 붙는다 |
+| `iconStats`             | `{ official, fallback }`. [인프라 구성 레벨](#인프라-구성-레벨)의 아이콘 가운데 공식 아이콘으로 넣은 수와 내장 아이콘으로 돌린 수. 인프라 구성 레벨이 있을 때만 붙고 HTML 루트의 `data-icons`와 같은 수다 |
 
 두 비율은 그린 노드와 그린 엣지만 센다.
 
