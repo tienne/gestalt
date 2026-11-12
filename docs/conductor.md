@@ -41,7 +41,7 @@ hostActions ──► 컨덕터 호스트 세션이 실행 (서브에이전트, 
 
 | 파일 | 적는 칸 |
 |---|---|
-| `~/.gestalt/conductor.json` (사용자 전역) | `defaultScope`, `accounts`, `repoPaths`. 상태 저장소를 옮기려면 `stateDir`도 |
+| `~/.gestalt/conductor.json` (사용자 전역) | `defaultScope`, `defaultAgent`, `repoAgents`, `accounts`, `repoPaths`. 상태 저장소를 옮기려면 `stateDir`도 |
 | 레포의 `gestalt.json` | `maxConcurrentWorkers`, `pollIntervalSec` 같은 조율 값만 |
 
 칸별 뜻과 예시는 [설정 레퍼런스의 컨덕터 절](./configuration.md#컨덕터-conductor)에 있다.
@@ -94,6 +94,15 @@ gestalt conductor gate resolve <gateId> --reject
 
 `gestalt conductor status`가 주문과 워커 상태를 보여 준다. 끝난 주문까지 보려면 `--all`을 붙인다. 컨덕터 세션이 압축되거나 끊겨도 상태는 저장소에 남아 있다. 새 세션에서 스킬을 다시 부르면 status를 읽고 이어 간다.
 
+주문 하나의 결과는 아래 명령으로 읽는다. 주문 제목과 레포, 범위, 상태, 설명, 스킬 체인을 보여준다. 모든 워커의 종류와 에이전트, 상태도 나온다. 보고 이력에는 시각과 상태, 요약이 남고 refs 경로와 PR, gate, bypass도 함께 읽는다. `--json`은 같은 내용을 구조화해 돌려준다.
+
+```bash
+gestalt conductor order show <id>
+gestalt conductor order show <id> --json
+```
+
+`status --all`은 끝난 주문 줄에 마지막 보고 요약을 100자까지 붙인다. 전체 요약과 이전 진행 보고는 `order show`로 읽는다. 새 컨덕터 세션에서도 같은 결과를 볼 수 있다. 보고 본문을 저장하지 않던 옛 로그는 복원할 수 없어 빈 이력으로 보인다.
+
 효과를 재려면 `gestalt conductor metrics --since <날짜>`를 쓴다. 무엇을 비교하는지는 [효과 재기](#효과-재기)에 있다.
 
 ## 바깥 텍스트는 자료다
@@ -120,8 +129,8 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 | 경로 | 쓰는 쪽 | 내용 |
 |---|---|---|
-| `events.jsonl` | tick, CLI 명령 | 상태 이벤트 로그 |
-| `inbox/` | 워커 | `worker report`가 남긴 결과 파일. 다음 tick이 읽고 지운다 |
+| `events.jsonl` | tick, CLI 명령 | 상태 이벤트와 실제 워커 에이전트, 보고 이력. `report-applied`에 summary, refs, skill, prRef, merged, stopReason, need를 보존하며 진행 보고도 포함한다 |
+| `inbox/` | 워커 | `worker report`가 남긴 결과 파일. 다음 tick이 상태와 보고 본문을 이벤트에 기록한 뒤 지운다 |
 | `prompts/` | tick | 워커 첫 지시 파일 |
 | `worktrees/` | tick | 오르카가 없을 때 만든 git 워크트리 |
 | `deploy/` | 호스트 | `deploy report`가 남긴 배포 결과 |
@@ -152,6 +161,27 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `--worker-kind`로 고정 | 그 값. `orca-worktree`인데 오르카가 없으면 `git-worktree` | |
 
 기준은 `handoff` 스킬의 "맡길 곳 고르기" 표를 따른다.
+
+### 워커 에이전트 고르기
+
+사용자 전역 `~/.gestalt/conductor.json`에 기본값과 레포별 값을 적는다. 레포마다 쓰는 에이전트가 다를 수 있어 `repoPaths`처럼 레포 키 맵을 둔다. 레포 안의 `gestalt.json`에서는 이 값을 받지 않는다.
+
+```json
+{
+  "defaultAgent": "claude",
+  "repoAgents": { "acme/app": "codex" }
+}
+```
+
+주문 하나만 다르게 띄우려면 다음처럼 넣는다.
+
+```bash
+gestalt conductor order add --repo acme/app --title "배너 문구 고치기" --agent cursor
+```
+
+첫 실행의 우선순위는 주문의 `--agent` > `repoAgents[레포]` > `defaultAgent` > `claude`다. ID는 빈 문자열과 공백을 거르고 지원 여부는 오르카가 판단한다. `claude`, `codex`, `cursor`, `opencode` 외의 ID도 받는다. 주문의 선택은 주문 이벤트에, 실제 실행값은 워커 이벤트에 남는다. 재개할 때는 앞 워커의 에이전트를 유지하므로 설정을 바꿔도 실행 도중 에이전트가 바뀌지 않는다. 에이전트 기록이 없는 옛 오르카 워커는 기존 동작인 `claude`로 재개한다.
+
+이 선택은 `orca-worktree`에만 적용한다. `subagent`는 호스트 세션 안에서 뜨므로 agent를 무시한다. `git-worktree`의 `open-session`도 agent를 싣지 않고 호스트의 세션 여는 방식을 따른다. 호스트마다 에이전트 CLI 실행법이 달라 컨덕터가 특정 실행법을 가정하지 않기 때문이다.
 
 ## 동시 상한과 큐
 

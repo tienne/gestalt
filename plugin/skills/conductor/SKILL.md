@@ -50,6 +50,8 @@ routing:
 gestalt conductor order add --repo acme/app --title "배너 문구 고치기" --scope merge-through --json
 ```
 
+사용자가 "codex로 넘겨줘"처럼 에이전트를 지정하면 `order add`에 `--agent codex`를 붙인다. 지정하지 않으면 사용자 전역 설정의 `repoAgents[레포]`, `defaultAgent`, `claude` 순으로 정한다. 주문에 지정한 값이 설정보다 먼저다. 이 값은 오르카 워크트리에만 적용하고 subagent와 git-worktree는 호스트 방식을 따른다. 재개는 앞 워커의 에이전트를 유지한다.
+
 지라 티켓은 호스트가 Atlassian MCP로 읽어 같은 명령에 `--source jira --source-ref jira:<KEY> --issue-key <KEY> --issue-type <type>`을 붙여 넣는다. `--source-ref`가 같으면 두 번 받지 않는다. 사용자가 지라 상태를 정해 줬으면 `--jira-status`로 넘긴다. 기본 규칙보다 먼저다.
 
 외부 큐는 tick이 상태 저장소의 `queue/`에서 직접 읽는다. 다른 시스템이 넣는 자리라 이 세션이 대신 넣을 일은 없다. 사용자가 큐 파일을 넣어 달라고 하면 `gestalt conductor queue add --body-file <파일>`을 쓴다. 꼴이 틀린 메시지는 확인 자리로 올라오고 못 읽은 파일은 tick 보고의 `errors`에 뜬다.
@@ -131,6 +133,8 @@ gestalt conductor deploy report --order <orderId> --status success --ref <pipeli
 Claude Code에서는 사용자가 `/loop /gestalt:conductor tick 돌리고 hostActions 처리`처럼 `/loop`으로 반복을 건다. 사용자가 반복을 걸지 않았으면 처음 보고할 때 이 명령을 알려 준다. `/loop`이 없는 호스트에서는 사용자가 다시 돌려 달라고 할 때마다 tick을 한 번 돌린다.
 
 진행을 보고할 때는 `gestalt conductor status`의 숫자와 바뀐 주문만 짧게 말한다. bypass로 넘긴 일은 모아서 사후 보고한다. 주문마다 붙은 bypass 내역이 `gestalt conductor status --json`에 실리고 끝난 주문까지 보려면 `--all`을 붙인다.
+
+끝난 주문의 결과나 이전 보고를 물으면 `gestalt conductor order show <id> --json`으로 읽는다. 보고 이력의 요약과 refs, PR, gate, bypass를 근거로 답하고 대화 기억으로 복원하지 않는다. `status --all`의 마지막 요약은 100자까지만 보이므로 자세한 결과는 `order show`를 쓴다. 옛 로그에서 보고 이력이 비어 있으면 저장된 보고가 없다고 밝힌다.
 
 ## 8. 효과 재기
 
