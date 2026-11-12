@@ -185,6 +185,31 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 기준은 `handoff` 스킬의 "맡길 곳 고르기" 표를 따른다.
 
+### 부모 워크트리와 기준 브랜치
+
+기존 워크트리 아래 하위로 워커를 띄우려면 주문에 `--parent-worktree`를 준다. 어느 ref에서 갈라질지는 `--base-branch`로 정한다.
+
+```bash
+gestalt conductor order add --repo acme/app --title "쿠폰 목록 하위 작업" \
+  --parent-worktree ~/orca/workspaces/app/feat-coupon --base-branch feat-coupon
+```
+
+`--parent-worktree`는 경로나 오르카 선택자(`branch:feat-coupon`, `id:...` 같은 것)를 받는다. 선택자면 `orca worktree show`로 경로를 받아 온다. `path:`로 시작하면 접두어를 떼고 로컬 경로로 본다. 접수할 때 워크트리 루트의 절대 경로로 풀고 주문 레포의 워크트리인지 확인한다. `repoPaths`에 그 레포가 있으면 git 공용 디렉토리가 같은지 보고 없으면 `origin` 주소가 `owner/name`과 맞는지 본다. 경로가 없거나 git 워크트리가 아니거나 레포가 다르면 주문을 받지 않는다. `origin`으로 맞출 때는 호스트를 안 본다. SSH 별칭(`git@github-work:acme/app.git`)도 받으려는 것이고 호스트가 다른 동명 레포를 가려야 하면 `repoPaths`에 그 레포 경로를 적는다.
+
+`--base-branch`는 브랜치 이름이나 `origin/main` 같은 ref를 받는다. `-`로 시작하거나 `..`, `@{`, 공백이 있거나 `/`로 나눈 조각이 비었거나 `.`으로 시작하거나 `.lock`으로 끝나면 거절한다. 부모 없이 단독으로 줘도 된다.
+
+외부 큐는 `baseBranch`만 받고 `parentWorktree`는 확인 자리로 올린다. 부모 경로는 이 머신에서 확인한 값이어야 해서 `order add`로 넣은 주문만 받는다. 말로 받은 주문이 아닌데 기준 브랜치가 있으면 새 워크트리의 셋업을 건너뛴다(`--setup skip`). 바깥에서 고른 브랜치의 셋업 스크립트를 이 호스트에서 돌리지 않으려는 것이다.
+
+| 워커 | `--parent-worktree` | `--base-branch` |
+|---|---|---|
+| `orca-worktree` | `orca worktree create --parent-worktree`로 그 아래 하위 워크트리를 먼저 만들고 `worker-start --worktree`로 그 워크트리에 띄운다 | 하위 워크트리나 `new-top-level` 워크트리를 그 ref에서 갈라낸다 |
+| `git-worktree` | 무시하고 tick 보고의 `warnings`에 남긴다 | 워커 브랜치를 새로 만들 때 그 ref에서 갈라낸다. 재개 때 남은 브랜치를 다시 붙이면 쓰지 않는다 |
+| `subagent` | 무시하고 `warnings`에 남긴다 | 무시하고 `warnings`에 남긴다 |
+
+`worker-start --worktree new-child`는 호출한 쪽(컨덕터) 워크스페이스 아래에 붙어서 임의 부모를 고를 수 없다. 그래서 워크트리를 먼저 만드는 두 단계로 띄운다. 워크트리를 만든 뒤 워커가 못 뜨면 오르카가 아무것도 바꾸기 전에 거절했거나(`selector_not_found`) `failed`와 함께 남은 자원이 비었다고 답했을 때만 만든 워크트리를 지운다. 시간 초과나 `outcome_unknown`, 남은 자원을 안 밝힌 실패처럼 워커가 떴는지 모르면 지우지 않는다. 그때나 지우기가 실패했을 때, `worktree create` 자체가 실패했을 때는 남은 워크트리와 `orca worktree rm` 명령을 실패 사유에 붙여 확인 자리로 올린다. 실패한 띄우기는 회차를 안 올리므로 남은 워크트리를 지우기 전에는 같은 이름으로 다시 만들다 실패한다. 부모만 주고 기준 브랜치를 비우면 어디서 갈라질지는 오르카 기본값을 따른다. 부모 브랜치에서 이어 가려면 `--base-branch`에 그 브랜치를 같이 준다.
+
+재개와 정리는 부모가 없는 오르카 워커와 같다. 재개하면 같은 부모 아래 `<주문 id>-<회차>` 이름으로 하위 워크트리를 새로 만든다. 정리는 `worker-release`로 워커 터미널만 거두고 워크트리는 남긴다.
+
 ## 동시 상한과 큐
 
 `maxConcurrentWorkers`(기본 10)를 넘는 주문은 `queued`로 남았다가 슬롯이 나면 뜬다. 슬롯은 `starting`과 `running` 워커만 차지한다. 상한은 tick마다 설정을 다시 읽어서 도는 중에 바꿔도 다음 tick부터 적용된다.
@@ -276,7 +301,9 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 }
 ```
 
-`repo`(`owner/name`)와 `title`은 꼭 있어야 한다. 나머지 칸은 `description`, `scope`, `issueKey`, `issueType`, `workerKind`, `jiraStatus`, `skillChain`이고 전부 빼도 된다.
+`repo`(`owner/name`)와 `title`은 꼭 있어야 한다. 나머지 칸은 `description`, `scope`, `issueKey`, `issueType`, `workerKind`, `jiraStatus`, `skillChain`, `baseBranch`이고 전부 빼도 된다.
+
+`parentWorktree`는 큐로 받지 않는다. 이 머신의 경로라 바깥 시스템이 정하게 두면 워커가 엉뚱한 워크트리 아래에서 뜰 수 있다. 이 칸이 든 메시지는 확인 자리로 올라온다. 사람이 보고 `order add --parent-worktree`로 다시 넣는다.
 
 넣는 쪽은 아래 둘 중 하나를 쓴다.
 

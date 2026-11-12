@@ -115,6 +115,18 @@ describe('컨덕터 tick', () => {
     expect(store.worker(store.order('ord-0')!.workerId!)!.status).toBe('released');
   });
 
+  it('런처가 남긴 경고를 tick 보고에 싣는다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-0', parentWorktree: '/w/feat' }));
+    const { deps: d, git } = deps();
+    git.launcher.start = async (spec) => ({
+      handle: `h-${spec.worker.id}`,
+      warnings: ['부모 워크트리를 무시했어요'],
+    });
+    const r = await tick(store, d, { force: true });
+    expect(r.warnings).toEqual(['부모 워크트리를 무시했어요']);
+  });
+
   it('주문 범위대로 머지 승인을 넘기거나 사람에게 올린다', async () => {
     const { store } = clockedStore();
     store.addOrder(order({ id: 'ord-auto', scope: 'merge-through' }));

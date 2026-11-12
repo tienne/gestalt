@@ -62,6 +62,13 @@ export interface Order {
   skillChain: string[];
   /** 사용자가 워커 종류를 직접 정했을 때. 비우면 런처가 handoff 표로 고른다 */
   workerKind?: WorkerKind;
+  /**
+   * 오르카 워커를 이 워크트리 아래 하위 워크트리로 띄운다. 접수 때 레포와 맞는지 확인하고 절대 경로로 풀어 둔다.
+   * git 워크트리 워커는 이 값을 무시하고 경고만 남긴다
+   */
+  parentWorktree?: string;
+  /** 워커 워크트리를 갈라낼 기준 브랜치나 ref. 비우면 런처 기본값을 따른다 */
+  baseBranch?: string;
   status: OrderStatus;
   createdAt: string;
   updatedAt: string;

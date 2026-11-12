@@ -92,6 +92,8 @@ export interface TickReport {
   slackPosted: string[];
   jira: { orderId: string; to: JiraStatus }[];
   errors: string[];
+  /** 멈출 일은 아니지만 사람이 알아야 할 자리. 런처가 주문 옵션을 다 못 따른 경우 같은 것 */
+  warnings: string[];
   counts: {
     queued: number;
     running: number;
@@ -553,6 +555,7 @@ async function launchQueued(
       });
       store.updateOrder(order.id, { status: 'running', workerId: worker.id });
       if (started.hostAction) report.hostActions.push(started.hostAction);
+      if (started.warnings) report.warnings.push(...started.warnings);
       report.launched.push({
         orderId: order.id,
         workerId: worker.id,
@@ -707,6 +710,7 @@ function emptyReport(at: string): TickReport {
     slackPosted: [],
     jira: [],
     errors: [],
+    warnings: [],
     counts: {
       queued: 0,
       running: 0,

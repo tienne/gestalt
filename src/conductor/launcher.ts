@@ -1,10 +1,11 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { delimiter, isAbsolute, join, relative, sep } from 'node:path';
 import { isAccountName } from './account-name.js';
 import { handleNeed, openOrReuse } from './gates.js';
 import { oneLine } from './intake.js';
 import { RESUME_MARKER } from './metrics.js';
+import { real, worktreeField } from './parent-worktree.js';
 import type { ConductorStore } from './store.js';
 import {
   ACTIVE_WORKER_STATUSES,
@@ -67,14 +68,6 @@ export function workerAt(cwd: string, workers: readonly Worker[]): Worker | unde
   });
 }
 
-function real(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
-  }
-}
-
 function orcaWorktreeName(w: Pick<Worker, 'orderId' | 'attempt'>): string {
   return `${w.orderId}-${w.attempt}`;
 }
@@ -105,6 +98,8 @@ export interface LaunchSpec {
 export interface LaunchResult {
   handle: string;
   hostAction?: HostAction;
+  /** 띄우긴 했지만 주문대로 다 못 맞춘 자리. tick 보고에 경고로 싣는다 */
+  warnings?: string[];
 }
 
 export interface Launcher {
@@ -358,8 +353,23 @@ export class OrcaLauncher implements Launcher {
 
   async start(spec: LaunchSpec): Promise<LaunchResult> {
     const file = writePrompt(this.opts.promptDir, spec.worker.id, spec.prompt);
-    const path = this.opts.repoPaths?.[spec.order.repo];
-    const repo = path ? `path:${path}` : `name:${spec.order.repo.split('/')[1]!}`;
+    const name = orcaWorktreeName(spec.worker);
+    const displayName = oneLine(spec.order.title, 60);
+    return spec.order.parentWorktree
+      ? this.startInChild(spec.order, file, name, displayName)
+      : this.startTopLevel(spec.order, file, name, displayName);
+  }
+
+  private async startTopLevel(
+    order: Order,
+    file: string,
+    name: string,
+    displayName: string,
+  ): Promise<LaunchResult> {
+    const path = this.opts.repoPaths?.[order.repo];
+    const repo = path ? `path:${path}` : `name:${order.repo.split('/')[1]!}`;
+    // 바깥 출처가 고른 기준 브랜치의 셋업 스크립트를 이 호스트에서 돌리지 않는다
+    const setup = order.baseBranch && order.source !== 'spoken' ? ['--setup', 'skip'] : [];
     const out = await mustRun(
       this.runner,
       this.opts.orcaCommand,
@@ -370,19 +380,129 @@ export class OrcaLauncher implements Launcher {
         file,
         '--worktree',
         'new-top-level',
-        '--agent',
-        this.opts.agent ?? 'claude',
+        ...this.agentArgs(),
         '--repo',
         repo,
+        ...(order.baseBranch ? ['--base-branch', order.baseBranch] : []),
+        ...setup,
         '--name',
-        orcaWorktreeName(spec.worker),
+        name,
         '--display-name',
-        oneLine(spec.order.title, 60),
+        displayName,
         '--json',
       ],
       { timeoutMs: ORCA_TIMEOUT_MS },
     );
     return { handle: parseDispatchId(out) };
+  }
+
+  /**
+   * 하위 워크트리를 만들고 거기에 워커를 띄운다.
+   *
+   * 띄우기가 실패하면 워커가 저장되지 않아 회차가 안 오르고 다음 시도가 같은 이름으로 다시 만든다.
+   * 그래서 워커가 확실히 안 떴을 때만 만든 워크트리를 지운다. 떴는지 모르면 지우지 않고 남은 자리를 알린다
+   */
+  private async startInChild(
+    order: Order,
+    file: string,
+    name: string,
+    displayName: string,
+  ): Promise<LaunchResult> {
+    const worktree = await this.createChild(order, name, displayName);
+    const r = await this.runner(
+      this.opts.orcaCommand,
+      [
+        'orchestration',
+        'worker-start',
+        '--spec-file',
+        file,
+        '--worktree',
+        worktree,
+        ...this.agentArgs(),
+        '--json',
+      ],
+      { timeoutMs: ORCA_TIMEOUT_MS },
+    );
+    const leftover = `남은 워크트리는 \`orca worktree rm --worktree ${worktree} --delete-branch\`로 지워 주세요`;
+    if (r.code === 0) {
+      try {
+        return { handle: parseDispatchId(r.stdout) };
+      } catch (err) {
+        throw new Error(
+          `${(err as Error).message}. 워커가 떴을 수 있어 워크트리를 그대로 뒀어요. ${leftover}`,
+          { cause: err },
+        );
+      }
+    }
+    const head = (r.stderr || r.stdout).trim().split('\n').slice(0, 3).join(' ');
+    const failure = `${this.opts.orcaCommand} orchestration worker-start 실패(${r.code}): ${head}`;
+    if (!surelyNotStarted(r.stdout))
+      throw new Error(`${failure}. 워커가 떴는지 몰라 워크트리를 그대로 뒀어요. ${leftover}`);
+    const rm = await this.runner(
+      this.opts.orcaCommand,
+      ['worktree', 'rm', '--worktree', worktree, '--delete-branch', '--json'],
+      { timeoutMs: ORCA_TIMEOUT_MS },
+    ).catch(() => undefined);
+    if (rm?.code !== 0) throw new Error(`${failure}. 워크트리를 못 지웠어요. ${leftover}`);
+    throw new Error(failure);
+  }
+
+  private agentArgs(): string[] {
+    return ['--agent', this.opts.agent ?? 'claude'];
+  }
+
+  /**
+   * 부모 워크트리 아래 하위 워크트리를 만들고 오르카 워크트리 선택자를 돌려준다.
+   *
+   * worker-start의 new-child는 호출한 쪽(컨덕터) 워크스페이스 아래에 붙어 임의 부모를 못 고른다.
+   * 그래서 `worktree create --parent-worktree`로 먼저 만들고 worker-start는 그 워크트리를 고른다.
+   * 레포는 부모 워크트리에서 읽는다. `path:` 레포 선택자는 메인 체크아웃만 받아서다
+   */
+  private async createChild(order: Order, name: string, displayName: string): Promise<string> {
+    const parent = `path:${order.parentWorktree!}`;
+    const shown = await mustRun(
+      this.runner,
+      this.opts.orcaCommand,
+      ['worktree', 'show', '--worktree', parent, '--json'],
+      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+    );
+    const repoId = worktreeField(shown, 'repoId');
+    if (!repoId) throw new Error(`오르카에서 부모 워크트리 ${order.parentWorktree}를 못 찾았어요`);
+    const leftover = `${order.parentWorktree} 아래 ${name} 워크트리가 생겼을 수 있어요. \`orca worktree show --worktree name:${name}\`로 확인하고 있으면 \`orca worktree rm --worktree name:${name} --delete-branch\`로 지워 주세요`;
+    const created = await mustRun(
+      this.runner,
+      this.opts.orcaCommand,
+      [
+        'worktree',
+        'create',
+        '--name',
+        name,
+        '--repo',
+        `id:${repoId}`,
+        '--parent-worktree',
+        parent,
+        ...(order.baseBranch ? ['--base-branch', order.baseBranch] : []),
+        '--setup',
+        'run',
+        '--json',
+      ],
+      { timeoutMs: ORCA_TIMEOUT_MS },
+    ).catch((err: unknown) => {
+      // 실패하면 회차가 안 올라 다음 시도가 같은 이름으로 다시 만들다 부딪힌다
+      throw new Error(`${(err as Error).message}. ${leftover}`, { cause: err });
+    });
+    const id = worktreeField(created, 'id');
+    const path = worktreeField(created, 'path');
+    const worktree = id ? `id:${id}` : path ? `path:${path}` : undefined;
+    if (!worktree)
+      throw new Error(`오르카 worktree create 응답에 워크트리 id와 경로가 없어요. ${leftover}`);
+    // 표시 이름은 보기 좋으라고 붙이는 것이라 실패해도 워커는 띄운다
+    await this.runner(
+      this.opts.orcaCommand,
+      ['worktree', 'set', '--worktree', worktree, '--display-name', displayName, '--json'],
+      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+    ).catch(() => undefined);
+    return worktree;
   }
 
   async send(worker: Worker, message: string): Promise<undefined> {
@@ -414,6 +534,33 @@ export class OrcaLauncher implements Launcher {
       { timeoutMs: ORCA_TIMEOUT_MS },
     );
   }
+}
+
+// 오르카가 아무것도 바꾸기 전에 거절하는 에러 코드. 실제 응답에서 본 것만 둔다
+const REJECTED_BEFORE_CHANGE = new Set(['selector_not_found']);
+
+// 워커가 확실히 안 떴을 때만 참이다. `ok: false`에 변경 전 거절 코드가 왔거나 명시적인 failed에
+// 남은 자원이 빈 배열로 왔을 때다. 시간 초과나 못 읽는 응답, 남은 자원을 안 밝힌 실패는 떴을 수 있다고 본다
+function surelyNotStarted(stdout: string): boolean {
+  let data: unknown;
+  try {
+    data = JSON.parse(stdout);
+  } catch {
+    return false;
+  }
+  if (typeof data !== 'object' || data === null) return false;
+  const d = data as { ok?: unknown; result?: unknown; error?: unknown } & Record<string, unknown>;
+  if (d.ok !== false) return false;
+  const error = (typeof d.error === 'object' && d.error ? d.error : {}) as Record<string, unknown>;
+  const result = (typeof d.result === 'object' && d.result ? d.result : {}) as Record<
+    string,
+    unknown
+  >;
+  const body = { ...d, ...error, ...result };
+  if (typeof error['code'] === 'string' && REJECTED_BEFORE_CHANGE.has(error['code'])) return true;
+  const status = body['outcome'] ?? body['status'] ?? body['state'];
+  const residual = body['residualResources'];
+  return status === 'failed' && Array.isArray(residual) && residual.length === 0;
 }
 
 /** worker-start --json 응답에서 dispatch id를 꺼낸다. 버전마다 자리가 달라 몇 곳을 본다 */
@@ -455,9 +602,17 @@ export class GitWorktreeLauncher implements Launcher {
       spec.previousHandle && existsSync(spec.previousHandle)
         ? spec.previousHandle
         : join(this.opts.worktreeRoot, spec.order.id);
-    if (!existsSync(cwd)) await this.addWorktree(repoPath, `conductor/${spec.order.id}`, cwd);
+    if (!existsSync(cwd))
+      await this.addWorktree(repoPath, `conductor/${spec.order.id}`, cwd, spec.order.baseBranch);
     const promptFile = writePrompt(this.opts.promptDir, spec.worker.id, spec.prompt);
+    // git 워크트리에는 부모 자식 관계가 없다. 주문은 그대로 띄우고 부모를 못 따랐다고 알린다
+    const warnings = spec.order.parentWorktree
+      ? [
+          `${spec.order.id}: git 워크트리 워커라 부모 워크트리(${spec.order.parentWorktree})를 무시하고 ${cwd}에 띄웠어요`,
+        ]
+      : [];
     return {
+      ...(warnings.length ? { warnings } : {}),
       handle: cwd,
       hostAction: {
         type: 'open-session',
@@ -471,9 +626,15 @@ export class GitWorktreeLauncher implements Launcher {
 
   /**
    * 재개 때 디렉토리만 지워지고 브랜치가 남았으면 그 브랜치로 다시 붙인다. 지워진 워크트리가
-   * git에 등록된 채로 남아 있으면 같은 브랜치를 못 붙이니 먼저 prune한다
+   * git에 등록된 채로 남아 있으면 같은 브랜치를 못 붙이니 먼저 prune한다.
+   * 기준 브랜치는 브랜치를 새로 만들 때만 쓴다. 남은 브랜치에는 앞 워커가 쌓은 커밋이 있다
    */
-  private async addWorktree(repoPath: string, branch: string, cwd: string): Promise<void> {
+  private async addWorktree(
+    repoPath: string,
+    branch: string,
+    cwd: string,
+    base?: string,
+  ): Promise<void> {
     await this.runner('git', ['-C', repoPath, 'worktree', 'prune']);
     const exists = await this.runner('git', [
       '-C',
@@ -486,7 +647,7 @@ export class GitWorktreeLauncher implements Launcher {
     const args =
       exists.code === 0
         ? ['-C', repoPath, 'worktree', 'add', cwd, branch]
-        : ['-C', repoPath, 'worktree', 'add', '-b', branch, cwd];
+        : ['-C', repoPath, 'worktree', 'add', '-b', branch, cwd, ...(base ? [base] : [])];
     await mustRun(this.runner, 'git', args);
   }
 
@@ -506,7 +667,19 @@ export class SubagentLauncher implements Launcher {
 
   async start(spec: LaunchSpec): Promise<LaunchResult> {
     const promptFile = writePrompt(this.opts.promptDir, spec.worker.id, spec.prompt);
+    const { id, parentWorktree, baseBranch } = spec.order;
+    const ignored = [
+      ...(parentWorktree ? [`부모 워크트리(${parentWorktree})`] : []),
+      ...(baseBranch ? [`기준 브랜치(${baseBranch})`] : []),
+    ];
     return {
+      ...(ignored.length
+        ? {
+            warnings: [
+              `${id}: 서브에이전트 워커라 ${ignored.join('와 ')}를 무시하고 컨덕터 세션 안에서 띄웠어요`,
+            ],
+          }
+        : {}),
       handle: `subagent:${spec.worker.id}`,
       hostAction: { type: 'spawn-subagent', workerId: spec.worker.id, promptFile },
     };
