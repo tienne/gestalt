@@ -1,7 +1,7 @@
 ---
 name: architecture
 version: '1.0.0'
-description: '레포나 문서를 근거로 아키텍처 그림을 그린다. 화면에서 API를 거쳐 DB까지 잇는 screen-chain, 트리거에서 배포 대상까지 잇는 deploy-path, 호출 순서나 데이터 흐름 같은 질문별 그림, 문서 레포의 지식 지도를 그린다("아키텍처 그려줘", "배포 경로 그려줘", "시퀀스 그려줘", "문서 지도 그려줘"). 근거 없는 연결은 실선으로 긋지 않는다. 근거 없이 mermaid만 원하면 이 스킬이 아니다. 설계 리뷰는 architect 에이전트, 파일 단위 의존성과 영향 범위는 build-graph와 blast-radius를 쓴다.'
+description: '레포나 문서를 근거로 아키텍처 그림을 그린다. 화면에서 API를 거쳐 DB까지 잇는 screen-chain, 트리거에서 배포 대상까지 잇는 deploy-path, 호출 순서나 데이터 흐름 같은 질문별 그림, 문서 레포의 지식 지도를 그린다("아키텍처 그려줘", "화면에서 DB까지 그려줘", "배포 경로 그려줘", "시퀀스 그려줘", "문서 지도 그려줘"). 근거 없는 연결은 실선으로 긋지 않는다. 근거 없이 mermaid만 원하면 이 스킬이 아니다. 설계 리뷰는 architect 에이전트, 파일 단위 의존성과 영향 범위는 build-graph와 blast-radius를 쓴다.'
 triggers:
   # 코드 구조 그림
   - 'architecture'
