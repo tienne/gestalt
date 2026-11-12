@@ -147,16 +147,25 @@ export function mobileFragment(v: ConductorView | null, now = Date.now()): strin
 
 const summarizeProject = (repos: readonly RepoSummary[], repo: string) => repos.find((r) => r.repo === repo)?.project
 
-// Linear 디자인 문서(awesome-design-md의 linear.app)를 따른다. 다크 전용이고 위계는 그림자 대신 면 단계와 가는 테두리로 나눈다.
-// 바탕 > 레포 카드(s1) > 확인 대기 카드와 끝난 주문 상자(s2) > 사유 상자와 배지(s3) 순으로 한 단계씩 밝아진다.
+// Linear 디자인 문서(awesome-design-md의 linear.app)를 따른다. 위계는 그림자 대신 면 단계와 가는 테두리로 나눈다.
+// 문서에는 다크 값만 있어서 라이트 값은 같은 단계 순서를 지키도록 밝은 쪽으로 뒤집어 맞췄다.
+// 단계는 바탕 > 레포 카드(s1) > 확인 대기 카드와 끝난 주문 상자(s2) > 사유 상자와 배지(s3) 순이다.
+// 다크에서는 안쪽으로 갈수록 밝아진다. 라이트에서는 카드가 흰색이고 그 안쪽이 한 단계씩 어두워진다.
+// 확인 대기 카드(--raised)는 라이트에서 회색이면 바탕에 묻혀서 흰 면에 진한 테두리로 띄운다.
 // 상태색은 배지와 점에만 쓰고 카드 면이나 테두리를 칠하지 않는다.
 const STYLE = `
-:root { color-scheme: dark;
-  --canvas: #010102; --s1: #0f1011; --s2: #141516; --s3: #18191a;
+:root { color-scheme: light dark;
+  --canvas: #f4f5f6; --s1: #ffffff; --s2: #f7f8f9; --s3: #eff1f3; --raised: #ffffff;
+  --ink: #08090a; --ink-muted: #3c4149; --ink-subtle: #6b6f76; --ink-3: #8a8f98;
+  --line: #e4e6e9; --line-strong: #d3d6db; --line-3: #c6cad0;
+  --accent: #5e6ad2; --ok: #1f8f3a; --warn: #c27c0e; --danger: #d63c3c;
+  --edge: 0 1px 2px rgba(8, 9, 10, 0.04); }
+@media (prefers-color-scheme: dark) { :root {
+  --canvas: #010102; --s1: #0f1011; --s2: #141516; --s3: #18191a; --raised: #141516;
   --ink: #f7f8f8; --ink-muted: #d0d6e0; --ink-subtle: #8a8f98; --ink-3: #62666d;
   --line: #23252a; --line-strong: #34343a; --line-3: #3e3e44;
-  --accent: #5e6ad2; --accent-hi: #828fff; --ok: #27a644; --warn: #e2a33b; --danger: #eb5757;
-  --edge: inset 0 1px 0 rgba(255, 255, 255, 0.04); }
+  --accent: #5e6ad2; --ok: #27a644; --warn: #e2a33b; --danger: #eb5757;
+  --edge: inset 0 1px 0 rgba(255, 255, 255, 0.04); } }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--canvas); color: var(--ink);
   font: 400 15px/1.5 "SF Pro Text", -apple-system, system-ui, "Inter", sans-serif; letter-spacing: -0.05px;
@@ -195,7 +204,7 @@ h2 { font-size: 13px; font-weight: 500; line-height: 1.3; letter-spacing: 0.4px;
 
 .gate, .repo, .notice { border-radius: 12px; margin: 0 0 8px; box-shadow: var(--edge); }
 .repo, .notice { background: var(--s1); border: 1px solid var(--line); }
-.gate { background: var(--s2); border: 1px solid var(--line-strong); padding: 16px; }
+.gate { background: var(--raised); border: 1px solid var(--line-strong); padding: 16px; }
 .gate-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .gate-repo { font-size: 12px; color: var(--ink-subtle); margin-top: 12px; }
 .gate-title { font-size: 15px; font-weight: 500; letter-spacing: -0.1px; margin-top: 2px; overflow-wrap: anywhere; }
@@ -283,7 +292,8 @@ export function mobilePage(fragment: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#010102">
+<meta name="theme-color" content="#f4f5f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#010102" media="(prefers-color-scheme: dark)">
 <title>컨덕터</title>
 <style>${STYLE}</style>
 </head>
