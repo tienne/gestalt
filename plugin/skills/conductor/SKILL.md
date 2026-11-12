@@ -61,6 +61,8 @@ gestalt conductor order add --repo acme/app --title "배너 문구 고치기" --
 
 외부 큐는 tick이 상태 저장소의 `queue/`에서 직접 읽는다. 다른 시스템이 넣는 자리라 이 세션이 대신 넣을 일은 없다. 사용자가 큐 파일을 넣어 달라고 하면 `gestalt conductor queue add --body-file <파일>`을 쓴다. 꼴이 틀린 메시지는 확인 자리로 올라오고 못 읽은 파일은 tick 보고의 `errors`에 뜬다.
 
+PR 감시도 tick이 직접 돈다. 사용자 전역 `~/.gestalt/conductor.json`의 `prWatchRepos`에 적은 레포만 열린 PR을 보고 리뷰 답글이나 재리뷰 주문을 만든다. `repoPaths`에 레포를 적는 것만으로는 감시하지 않는다. 사용자가 어떤 레포의 PR을 지켜봐 달라고 하면 `prWatchRepos`에 그 레포를 적으라고 안내한다. 이 세션이 설정 파일을 대신 고치지 않는다. `prWatchRepos`에 있는데 `repoPaths`에 경로가 없으면 tick 보고의 `errors`에 뜬다.
+
 사용자가 기존 워크트리 아래 하위로 맡기라고 하면 `--parent-worktree <경로나 오르카 선택자>`를 붙인다. 갈라질 브랜치를 말하면 `--base-branch <ref>`에 브랜치 이름이나 `origin/main` 같은 ref를 넣는다. 둘은 따로 써도 된다. 부모 브랜치에서 이어 가라는 뜻이면 둘 다 준다.
 
 - 부모가 레포와 안 맞거나 없으면 접수에서 거절되니 사용자에게 맞는 경로를 묻는다.

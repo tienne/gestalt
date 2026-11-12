@@ -243,6 +243,7 @@ describe('loadConfig — conductor', () => {
     expect(conductor.maxResumeAttempts).toBe(3);
     expect(conductor.accounts).toEqual({});
     expect(conductor.stateDir).toBeUndefined();
+    expect(conductor.prWatchRepos).toEqual([]);
   });
 
   it('env로 동시 워커 상한을 바꾼다', () => {
@@ -292,6 +293,7 @@ describe('loadConfig — conductor', () => {
             stateDir: '/elsewhere',
             accounts: { 'acme/app': 'someone' },
             repoPaths: { 'acme/app': '/elsewhere/app' },
+            prWatchRepos: ['acme/app'],
             maxConcurrentWorkers: 3,
           },
         }),
@@ -301,9 +303,10 @@ describe('loadConfig — conductor', () => {
       expect(conductor.stateDir).toBeUndefined();
       expect(conductor.accounts).toEqual({});
       expect(conductor.repoPaths).toEqual({});
+      expect(conductor.prWatchRepos).toEqual([]);
       expect(conductor.maxConcurrentWorkers).toBe(3);
     });
-    for (const key of ['defaultScope', 'stateDir', 'accounts', 'repoPaths']) {
+    for (const key of ['defaultScope', 'stateDir', 'accounts', 'repoPaths', 'prWatchRepos']) {
       expect(warned).toContain(`conductor.${key}`);
     }
   });

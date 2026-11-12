@@ -398,6 +398,11 @@ const conductorConfigSchema = z.object({
   accounts: z.record(z.string(), z.string()).default({}),
   /** 레포(`owner/name`)의 로컬 경로. git 워크트리를 만들거나 오르카에 레포를 가리킬 때 쓴다 */
   repoPaths: z.record(z.string(), z.string()).default({}),
+  /**
+   * tick이 열린 PR을 감시할 레포(`owner/name`). 비어 있으면 감시하지 않는다.
+   * 감시는 repoPaths의 경로에서 gh를 부르므로 여기 적은 레포는 repoPaths에도 있어야 한다
+   */
+  prWatchRepos: z.array(z.string()).default([]),
 });
 
 /**
