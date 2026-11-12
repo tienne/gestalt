@@ -19,3 +19,7 @@ process.env['GESTALT_HOME'] = home;
 
 // 인프라 그림의 벤더 아이콘은 auto면 네트워크로 받으러 간다. 테스트는 캐시만 보고 받지 않는다
 process.env['GESTALT_ARCH_ICONS'] = 'offline';
+
+// 오르카 안에서 테스트를 돌리면 컨덕터 tick이 테스트를 돌리는 그 탭 이름을 바꾼다. 탭 판정에 쓰는 값만 지운다
+delete process.env['ORCA_TERMINAL_HANDLE'];
+delete process.env['ORCA_STRUCTURED_SESSION'];

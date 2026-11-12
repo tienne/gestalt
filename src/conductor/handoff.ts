@@ -52,13 +52,19 @@ export function sessionDir(stateDir: string, sessionId: string): string {
   return join(stateDir, SESSIONS_DIR, sessionId);
 }
 
-/** 훅이 이 세션의 컴팩트를 세도록 디렉토리를 만든다. 이미 있으면 그대로 둔다 */
-export function registerSession(stateDir: string, sessionId: string, cwd: string, now: Date): void {
+/** 훅이 이 세션의 컴팩트를 세도록 디렉토리를 만든다. 이미 있으면 그대로 두고 false를 돌려준다 */
+export function registerSession(
+  stateDir: string,
+  sessionId: string,
+  cwd: string,
+  now: Date,
+): boolean {
   const dir = sessionDir(stateDir, sessionId);
   const file = join(dir, SESSION_FILE);
-  if (existsSync(file)) return;
+  if (existsSync(file)) return false;
   mkdirSync(dir, { recursive: true });
   writeJsonAtomic(file, { sessionId, cwd, registeredAt: now.toISOString() });
+  return true;
 }
 
 export interface Compactions {
