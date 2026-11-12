@@ -11,6 +11,7 @@ import {
 import {
   GitWorktreeLauncher,
   OrcaLauncher,
+  SubagentLauncher,
   type CommandRunner,
 } from '../../../src/conductor/launcher.js';
 import { intakeOrder, isRefName, parseQueueBody } from '../../../src/conductor/intake.js';
@@ -107,6 +108,8 @@ describe('부모 워크트리 확인', () => {
     expect(remoteMatches('git@github.com:Acme/App.git', 'acme/app')).toBe(true);
     expect(remoteMatches('https://github.com/acme/app/', 'acme/app')).toBe(true);
     expect(remoteMatches('https://github.com/acme/app-web.git', 'acme/app')).toBe(false);
+    // SSH 별칭 호스트도 같은 레포로 받는다. 호스트까지 가려야 하면 repoPaths를 쓴다
+    expect(remoteMatches('git@github-work:acme/app.git', 'acme/app')).toBe(true);
   });
 
   it('오르카 응답이 실패면 칸을 못 읽은 것으로 본다', () => {
@@ -121,7 +124,19 @@ describe('기준 브랜치와 부모 워크트리 접수', () => {
   it('ref 이름 꼴만 받는다', () => {
     expect(isRefName('feat/BIZWAIT-6188')).toBe(true);
     expect(isRefName('origin/main')).toBe(true);
-    for (const bad of ['-x', '--upload-pack=x', 'a..b', 'a/', 'a.lock', 'a b', 'a@{1}', ''])
+    for (const bad of [
+      '-x',
+      '--upload-pack=x',
+      'a..b',
+      'a/',
+      'a.lock',
+      'a.lock/b',
+      'a/.b',
+      'a//b',
+      'a b',
+      'a@{1}',
+      '',
+    ])
       expect(isRefName(bad)).toBe(false);
   });
 
@@ -148,6 +163,24 @@ describe('기준 브랜치와 부모 워크트리 접수', () => {
     ).toThrow(/기준 브랜치/);
   });
 
+  it('부모 워크트리는 신뢰하는 출처의 절대 경로만 받는다', () => {
+    const s = ConductorStore.open(tempStateDir());
+    expect(() =>
+      intakeOrder(
+        s,
+        { source: 'spoken', repo: 'acme/app', title: 'x', parentWorktree: 'rel/feat' },
+        config,
+      ),
+    ).toThrow(/절대 경로/);
+    expect(() =>
+      intakeOrder(
+        s,
+        { source: 'external-queue', repo: 'acme/app', title: 'x', parentWorktree: '/w/feat' },
+        config,
+      ),
+    ).toThrow(/order add/);
+  });
+
   it('큐 메시지는 기준 브랜치만 받고 부모 워크트리는 거절한다', () => {
     expect(parseQueueBody({ repo: 'acme/app', title: 't', baseBranch: 'main' })).toMatchObject({
       baseBranch: 'main',
@@ -164,11 +197,16 @@ describe('기준 브랜치와 부모 워크트리 접수', () => {
 describe('런처가 부모와 기준 브랜치를 따른다', () => {
   const childId = 'repo-1::/w/ord-1-1';
 
-  function orcaRunner(fail?: 'worker-start') {
+  type Reply = { code: number; stdout: string; stderr: string };
+  const FAILED = JSON.stringify({ ok: false, outcome: 'failed', residualResources: [] });
+
+  function orcaRunner(over: Partial<Record<string, Reply>> = {}) {
     const calls: string[][] = [];
     const runner: CommandRunner = async (_cmd, args) => {
       calls.push(args);
       const key = args.slice(0, 2).join(' ');
+      const r = over[key];
+      if (r) return r;
       if (key === 'worktree show')
         return {
           code: 0,
@@ -181,18 +219,22 @@ describe('런처가 부모와 기준 브랜치를 따른다', () => {
           stdout: JSON.stringify({ ok: true, result: { worktree: { id: childId } } }),
           stderr: '',
         };
-      if (key === 'orchestration worker-start' && fail === 'worker-start')
-        return { code: 1, stdout: '', stderr: 'boom' };
       return { code: 0, stdout: '{"dispatchId":"ctx_9"}', stderr: '' };
     };
     return { calls, runner };
   }
 
+  function launch(runner: CommandRunner, o = order({ id: 'ord-1', parentWorktree: '/w/feat' })) {
+    const l = new OrcaLauncher({ orcaCommand: 'orca', promptDir: tempStateDir(), runner });
+    return l.start({ order: o, worker: worker('ord-1'), prompt: 'p' });
+  }
+
   it('오르카 워커는 부모 아래 하위 워크트리를 먼저 만들고 그 워크트리로 띄운다', async () => {
     const { calls, runner } = orcaRunner();
-    const l = new OrcaLauncher({ orcaCommand: 'orca', promptDir: tempStateDir(), runner });
-    const o = order({ id: 'ord-1', parentWorktree: '/w/feat', baseBranch: 'feat' });
-    const r = await l.start({ order: o, worker: worker('ord-1'), prompt: 'p' });
+    const r = await launch(
+      runner,
+      order({ id: 'ord-1', parentWorktree: '/w/feat', baseBranch: 'feat' }),
+    );
     expect(r.handle).toBe('ctx_9');
     expect(calls.map((c) => c.slice(0, 2).join(' '))).toEqual([
       'worktree show',
@@ -213,13 +255,11 @@ describe('런처가 부모와 기준 브랜치를 따른다', () => {
     expect(start).not.toContain('--repo');
   });
 
-  it('하위 워크트리를 만든 뒤 워커가 못 뜨면 워크트리를 지우고 실패를 올린다', async () => {
-    const { calls, runner } = orcaRunner('worker-start');
-    const l = new OrcaLauncher({ orcaCommand: 'orca', promptDir: tempStateDir(), runner });
-    const o = order({ id: 'ord-1', parentWorktree: '/w/feat' });
-    await expect(l.start({ order: o, worker: worker('ord-1'), prompt: 'p' })).rejects.toThrow(
-      /boom/,
-    );
+  it('워커가 확실히 안 떴으면 하위 워크트리를 지우고 실패를 올린다', async () => {
+    const { calls, runner } = orcaRunner({
+      'orchestration worker-start': { code: 1, stdout: FAILED, stderr: 'boom' },
+    });
+    await expect(launch(runner)).rejects.toThrow(/boom/);
     expect(calls.at(-1)).toEqual([
       'worktree',
       'rm',
@@ -228,6 +268,72 @@ describe('런처가 부모와 기준 브랜치를 따른다', () => {
       '--delete-branch',
       '--json',
     ]);
+  });
+
+  it('워커가 떴는지 모르면 워크트리를 지우지 않고 남은 자리를 알린다', async () => {
+    for (const stdout of [
+      '',
+      JSON.stringify({ ok: false, outcome: 'outcome_unknown' }),
+      JSON.stringify({ ok: false, outcome: 'failed', residualResources: ['terminal:t1'] }),
+    ]) {
+      const { calls, runner } = orcaRunner({
+        'orchestration worker-start': { code: 1, stdout, stderr: '30초 안에 안 끝나 멈췄어요' },
+      });
+      await expect(launch(runner)).rejects.toThrow(/그대로 뒀어요.*orca worktree rm/);
+      expect(calls.some((c) => c[1] === 'rm')).toBe(false);
+    }
+  });
+
+  it('워커는 떴는데 dispatch id를 못 읽으면 워크트리를 지우지 않는다', async () => {
+    const { calls, runner } = orcaRunner({
+      'orchestration worker-start': { code: 0, stdout: '{}', stderr: '' },
+    });
+    await expect(launch(runner)).rejects.toThrow(/그대로 뒀어요/);
+    expect(calls.some((c) => c[1] === 'rm')).toBe(false);
+  });
+
+  it('워크트리를 못 지우면 원래 실패에 수동 정리 안내를 붙인다', async () => {
+    const { runner } = orcaRunner({
+      'orchestration worker-start': { code: 1, stdout: FAILED, stderr: 'boom' },
+      'worktree rm': { code: 1, stdout: '', stderr: 'busy' },
+    });
+    await expect(launch(runner)).rejects.toThrow(
+      /boom.*못 지웠어요.*orca worktree rm --worktree id:repo-1::\/w\/ord-1-1 --delete-branch/,
+    );
+  });
+
+  it('표시 이름 설정이 실패해도 워커는 띄운다', async () => {
+    const { runner } = orcaRunner({ 'worktree set': { code: 1, stdout: '', stderr: 'nope' } });
+    await expect(launch(runner)).resolves.toMatchObject({ handle: 'ctx_9' });
+  });
+
+  it('create 응답에 id가 없으면 경로로 고르고 둘 다 없으면 이름과 부모를 알린다', async () => {
+    const byPath = orcaRunner({
+      'worktree create': {
+        code: 0,
+        stdout: JSON.stringify({ ok: true, result: { worktree: { path: '/w/ord-1-1' } } }),
+        stderr: '',
+      },
+    });
+    await launch(byPath.runner);
+    const start = byPath.calls.find((c) => c[1] === 'worker-start')!;
+    expect(start[start.indexOf('--worktree') + 1]).toBe('path:/w/ord-1-1');
+
+    const none = orcaRunner({ 'worktree create': { code: 0, stdout: '{"ok":true}', stderr: '' } });
+    await expect(launch(none.runner)).rejects.toThrow(/\/w\/feat 아래 ord-1-1/);
+  });
+
+  it('바깥 출처가 고른 기준 브랜치로 새 워크트리를 만들면 셋업을 건너뛴다', async () => {
+    const queued = orcaRunner();
+    await launch(
+      queued.runner,
+      order({ id: 'ord-1', source: 'external-queue', baseBranch: 'release/1' }),
+    );
+    expect(queued.calls[0]).toEqual(expect.arrayContaining(['--setup', 'skip']));
+
+    const spoken = orcaRunner();
+    await launch(spoken.runner, order({ id: 'ord-1', source: 'spoken', baseBranch: 'release/1' }));
+    expect(spoken.calls[0]).not.toContain('--setup');
   });
 
   it('부모 없이 기준 브랜치만 있으면 new-top-level에 --base-branch를 싣는다', async () => {
@@ -242,6 +348,22 @@ describe('런처가 부모와 기준 브랜치를 따른다', () => {
     expect(calls[0]).toEqual(
       expect.arrayContaining(['new-top-level', '--base-branch', 'release/1']),
     );
+  });
+
+  it('서브에이전트 워커는 부모와 기준 브랜치를 무시했다고 경고한다', async () => {
+    const l = new SubagentLauncher({ promptDir: tempStateDir() });
+    const r = await l.start({
+      order: order({ id: 'ord-1', parentWorktree: '/w/feat', baseBranch: 'feat' }),
+      worker: worker('ord-1'),
+      prompt: 'p',
+    });
+    expect(r.warnings?.[0]).toMatch(/부모 워크트리\(\/w\/feat\)와 기준 브랜치\(feat\)를 무시/);
+    const plain = await l.start({
+      order: order({ id: 'ord-2' }),
+      worker: worker('ord-2'),
+      prompt: 'p',
+    });
+    expect(plain.warnings).toBeUndefined();
   });
 
   it('git 워크트리 워커는 기준 브랜치에서 갈라지고 부모는 경고만 남긴다', async () => {
