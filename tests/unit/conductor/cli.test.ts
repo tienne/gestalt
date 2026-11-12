@@ -424,7 +424,12 @@ describe('gestalt conductor', () => {
     vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
     try {
       writeFileSync(conf, JSON.stringify({ repoPaths: { 'acme/app': home } }));
-      await conductorTickCommand({ stateDir: tempStateDir(), json: true, force: true, queue: false });
+      await conductorTickCommand({
+        stateDir: tempStateDir(),
+        json: true,
+        force: true,
+        queue: false,
+      });
       expect(existsSync(calls)).toBe(false);
 
       // 같은 가짜 gh가 감시를 켜면 실제로 불리는지 함께 봐야 위 단언이 빈 통과가 아니다
@@ -432,7 +437,12 @@ describe('gestalt conductor', () => {
         conf,
         JSON.stringify({ prWatchRepos: ['acme/app'], repoPaths: { 'acme/app': home } }),
       );
-      await conductorTickCommand({ stateDir: tempStateDir(), json: true, force: true, queue: false });
+      await conductorTickCommand({
+        stateDir: tempStateDir(),
+        json: true,
+        force: true,
+        queue: false,
+      });
       expect(existsSync(calls)).toBe(true);
     } finally {
       vi.unstubAllEnvs();
