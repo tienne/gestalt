@@ -249,7 +249,12 @@ function repoCard(s: RepoSummary, gateCount: Map<string, number>): HTMLElement {
     el(
       'div',
       { class: 'repo-head' },
-      el('div', null, el('h2', null, name), owner ? el('div', { class: 'muted small' }, owner) : null),
+      el(
+        'div',
+        null,
+        el('h2', null, name),
+        s.project || owner ? el('div', { class: 'muted small' }, [s.project, owner].filter(Boolean).join(' · ')) : null
+      ),
       el(
         'div',
         { class: 'pills' },

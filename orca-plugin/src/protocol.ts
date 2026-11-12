@@ -59,6 +59,8 @@ export type ConductorView = {
   orders: OrderView[]
   gates: GateView[]
   unassignedBypasses: Bypass[]
+  /** 컨덕터 레포(owner/name)마다 찾은 오르카 프로젝트 이름. 못 찾은 레포는 빠진다 */
+  projects?: Record<string, string>
   refreshedAt: number
 }
 

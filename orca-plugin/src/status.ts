@@ -36,7 +36,13 @@ export type RawStatus = {
   gates: GateView[]
 }
 
-export type Workspace = { id: string; kind: string; path: string; branch?: string | null }
+export type Workspace = {
+  id: string
+  kind: string
+  path: string
+  branch?: string | null
+  project?: string | null
+}
 
 /** CLI stdout에서 JSON 하나를 꺼낸다. 앞뒤에 다른 줄이 섞여도 바깥 중괄호 사이만 읽는다 */
 export function parseJsonOutput(stdout: string): unknown {
@@ -144,14 +150,34 @@ export function findWorkspace(order: RawOrder, workspaces: readonly Workspace[])
   return undefined
 }
 
-/** 부모 워크트리도 오르카 워크스페이스 이름과 브랜치로 보여 주려면 목록이 필요하다 */
-export function needsWorkspaces(orders: readonly RawOrder[]): boolean {
-  return orders.some(
-    (o) =>
-      (o.workerKind === 'orca-worktree' && o.worktreeName) ||
-      (o.workerKind === 'git-worktree' && o.workerHandle) ||
-      o.parentWorktree
-  )
+/**
+ * 컨덕터 레포마다 오르카 프로젝트 이름을 찾는다. 컨덕터는 레포를 owner/name으로만 알고 오르카는 사람이 붙인 이름으로 부른다.
+ * 주문을 맡은 워크트리가 있으면 그 워크트리의 프로젝트를 쓰고, 없으면 디렉토리 이름이 레포 이름과 같은 워크스페이스를 본다.
+ * 후보가 둘 이상 갈리면 틀린 이름을 붙이느니 비워 둔다.
+ */
+export function projectsOf(orders: readonly RawOrder[], workspaces: readonly Workspace[]): Record<string, string> {
+  const fromOrders = new Map<string, Set<string>>()
+  for (const o of orders) {
+    const project = findWorkspace(o, workspaces)?.project?.trim()
+    if (!o.repo || !project) continue
+    const set = fromOrders.get(o.repo) ?? new Set<string>()
+    set.add(project)
+    fromOrders.set(o.repo, set)
+  }
+  const out: Record<string, string> = {}
+  for (const repo of new Set(orders.map((o) => o.repo).filter(Boolean))) {
+    let found = fromOrders.get(repo)
+    if (!found) {
+      const name = lastSegment(repo).toLowerCase()
+      found = new Set(
+        workspaces
+          .filter((w) => w.project?.trim() && lastSegment(w.path).toLowerCase() === name)
+          .map((w) => w.project!.trim())
+      )
+    }
+    if (found.size === 1) out[repo] = [...found][0]!
+  }
+  return out
 }
 
 export function toView(
@@ -191,6 +217,7 @@ export function toView(
     }),
     gates: raw.gates,
     unassignedBypasses: raw.unassignedBypasses,
+    projects: projectsOf(raw.orders, workspaces),
     refreshedAt: now
   }
 }

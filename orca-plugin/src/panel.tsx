@@ -399,6 +399,11 @@ function RepoTile({ s }: { s: RepoSummary }) {
         <Button variant="ghost" size="sm" tooltip={`${s.repo} 자세히 보기`} onPress={() => selectRepo(s.repo)}>
           {name}
         </Button>
+        {s.project ? (
+          <Text size="xs" truncate>
+            {s.project}
+          </Text>
+        ) : null}
         {owner ? (
           <Text size="xs" muted truncate>
             {owner}
@@ -543,9 +548,9 @@ function RepoDetail({ s }: { s: RepoSummary }) {
           </Button>
         </Row>
         <Heading level={3}>{name}</Heading>
-        {owner ? (
+        {s.project || owner ? (
           <Text size="xs" muted>
-            {owner}
+            {[s.project, owner].filter(Boolean).join(' · ')}
           </Text>
         ) : null}
       </Stack>

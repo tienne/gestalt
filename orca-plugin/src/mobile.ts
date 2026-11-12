@@ -62,7 +62,7 @@ function repoCard(s: RepoSummary, gateCount: Map<string, number>, now: number): 
   const shown = finished.slice(0, MAX_FINISHED)
   const rest = finished.length - shown.length
   return `<details class="repo tone-${tone}" data-key="${esc(`repo:${s.repo}`)}"${s.active > 0 || s.needsPerson > 0 ? ' open' : ''}>
-<summary><span class="repo-name">${esc(name)}</span>${owner ? `<span class="muted small">${esc(owner)}</span>` : ''}<span class="pills">${pills}</span></summary>
+<summary><span class="repo-title"><span class="repo-name">${esc(name)}</span>${s.project ? `<span class="project">${esc(s.project)}</span>` : ''}${owner ? `<span class="muted small">${esc(owner)}</span>` : ''}</span><span class="pills">${pills}</span></summary>
 ${live.length > 0 ? tree(live, gateCount, now) : '<div class="muted small pad">진행 중인 주문이 없어요</div>'}
 ${
   shown.length > 0
@@ -138,7 +138,9 @@ summary { cursor: pointer; list-style: none; display: flex; align-items: center;
 summary::-webkit-details-marker { display: none; }
 .repo > summary::before { content: '▸'; color: var(--muted); }
 .repo[open] > summary::before { content: '▾'; }
+.repo-title { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .repo-name { font-weight: 600; }
+.project { font-size: 13px; }
 .repo > summary .pills { margin-left: auto; }
 .finished { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 4px; }
 .finished > summary { color: var(--muted); }

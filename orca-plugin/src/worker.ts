@@ -12,7 +12,6 @@ import {
   emptyView,
   findWorkspace,
   isSafeId,
-  needsWorkspaces,
   parseJsonOutput,
   parseStatus,
   statusBarOf,
@@ -172,7 +171,8 @@ class Conductor {
   }
 
   private async workspaces(raw: RawStatus): Promise<Workspace[]> {
-    if (!needsWorkspaces(raw.orders)) return []
+    // 워크트리를 잇는 일 말고도 레포마다 오르카 프로젝트 이름을 찾는 데 목록이 필요하다
+    if (raw.orders.length === 0) return []
     try {
       return (await this.orca.host.call('workspace.list')).workspaces
     } catch (e) {

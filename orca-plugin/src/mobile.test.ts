@@ -81,6 +81,18 @@ test('끝난 주문은 접힌 묶음에 최근 것부터 넣고 진행 중인 �
   lacks(done.slice(0, done.indexOf('</details>')), 'ord-live')
 })
 
+test('레포 이름 옆에 오르카 프로젝트 이름을 붙이고 레포 이름과 같으면 한 번만 쓴다', () => {
+  const html = mobileFragment(
+    view({
+      orders: [order('ord-a'), order('ord-b', { repo: 'tienne/gestalt' })],
+      projects: { 'tienne/web': '<웹> 프론트', 'tienne/gestalt': 'Gestalt' }
+    }),
+    NOW
+  )
+  has(html, '<span class="project">&lt;웹&gt; 프론트</span>')
+  assert.equal(html.split('class="project"').length, 2, '레포 이름과 같은 프로젝트 이름은 안 붙인다')
+})
+
 test('CLI가 실패하면 이유를 보여 주고 저장소가 없으면 그 폴더를 알려 준다', () => {
   has(mobileFragment(view({ state: 'error', error: 'spawn gestalt ENOENT' }), NOW), 'spawn gestalt ENOENT')
   has(mobileFragment(view({ state: 'missing', stateDir: '/tmp/<x>' }), NOW), '/tmp/&lt;x&gt;에 events.jsonl')

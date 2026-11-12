@@ -5,7 +5,7 @@ import {
   emptyView,
   findWorkspace,
   isSafeId,
-  needsWorkspaces,
+  projectsOf,
   parseJsonOutput,
   parseStatus,
   statusBarOf,
@@ -130,8 +130,24 @@ test('toView는 위계 필드를 싣고 워커와 부모 워크트리의 오르�
   assert.equal(c?.parentWorktree, undefined, '꼴이 틀린 값은 버린다')
 })
 
-test('needsWorkspaces는 부모 워크트리만 있어도 목록을 읽게 한다', () => {
-  const raw = parseStatus({ lastTickAt: null, orders: [{ id: 'a', parentWorktree: '/w/x' }], gates: [] })
-  assert.equal(needsWorkspaces(raw.orders), true)
-  assert.equal(needsWorkspaces(parseStatus({ lastTickAt: null, orders: [{ id: 'a' }], gates: [] }).orders), false)
+test('레포마다 오르카 프로젝트 이름을 맡은 워크트리에서 먼저 찾고 없으면 디렉토리 이름으로 찾는다', () => {
+  const raw = parseStatus({
+    lastTickAt: null,
+    orders: [
+      { id: 'a', repo: 'Acme/web', workerKind: 'orca-worktree', worktreeName: 'ord-a-1' },
+      { id: 'b', repo: 'Acme/lib' },
+      { id: 'c', repo: 'Acme/twin' },
+      { id: 'd', repo: 'Acme/nowhere' }
+    ],
+    gates: []
+  })
+  const ws = [
+    { id: '1', kind: 'worktree', path: '/o/web-x/ord-a-1', project: '웹' },
+    { id: '2', kind: 'worktree', path: '/src/web', project: '다른 이름' },
+    { id: '3', kind: 'worktree', path: '/src/LIB/', project: '공통 라이브러리' },
+    { id: '4', kind: 'worktree', path: '/a/twin', project: '하나' },
+    { id: '5', kind: 'worktree', path: '/b/twin', project: '둘' }
+  ]
+  assert.deepEqual(projectsOf(raw.orders, ws), { 'Acme/web': '웹', 'Acme/lib': '공통 라이브러리' })
+  assert.deepEqual(toView(raw, '/s', ws, 0).projects, { 'Acme/web': '웹', 'Acme/lib': '공통 라이브러리' })
 })

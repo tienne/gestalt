@@ -63,6 +63,8 @@ export function countByStatus(orders: readonly OrderView[]): [string, number][] 
 
 export type RepoSummary = {
   repo: string
+  /** 오르카 프로젝트 이름. 레포 이름과 같거나 못 찾았으면 null이라 화면에 한 번만 나온다 */
+  project: string | null
   orders: OrderView[]
   gates: GateView[]
   active: number
@@ -82,6 +84,7 @@ export function summarize(v: ConductorView): { repos: RepoSummary[]; orphanGates
     repoOf.set(o.id, repo)
     const s = byRepo.get(repo) ?? {
       repo,
+      project: projectLabel(repo, v.projects?.[repo]),
       orders: [],
       gates: [],
       active: 0,
@@ -116,6 +119,11 @@ export function summarize(v: ConductorView): { repos: RepoSummary[]; orphanGates
       a.repo.localeCompare(b.repo)
   )
   return { repos, orphanGates }
+}
+
+function projectLabel(repo: string, project: string | undefined): string | null {
+  const p = project?.trim()
+  return p && p.toLowerCase() !== splitRepo(repo).name.toLowerCase() ? p : null
 }
 
 export function splitRepo(repo: string): { name: string; owner: string | null } {

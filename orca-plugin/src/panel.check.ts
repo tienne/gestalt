@@ -18,6 +18,7 @@ export default defineCheck({
             name: 'ord-a1-1',
             path: '/workspaces/web/ord-a1-1',
             branch: 'ord-a1',
+            project: '웹 프론트',
             hostId: 'local'
           },
           {
