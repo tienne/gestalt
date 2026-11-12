@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.130.0] - 2026-11-12
+
+### Added
+
+- **아키텍처 지도에 인프라를 벤더 테두리와 공식 아이콘으로 그리는 `infra` 레벨을 붙였어요(#123).** 지금까지 인프라는 tree 레벨의 박스 몇 개로만 보여서 어느 클라우드의 어느 리전, 어느 VPC나 서브넷에 무엇이 서 있는지 안 드러났어요. stack-diagram처럼 벤더 박스 안에 아이콘을 넣고 선을 직각으로 꺾어 그려요.
+  - 인프라 노드에 `provider`와 `region`, `exposure`, `placedIn` 필드를 더했어요. 전부 optional이고 provider와 region은 `placedIn`에서 `parent`를 거쳐 account까지 올라가며 물려받아요.
+  - 검증기는 `placedIn`이 없는 id를 가리키면 `PLACED_IN_NOT_FOUND`로, 들어갈 수 없는 kind를 가리키면 `INVALID_PLACED_IN_KIND`로 막아요. 물려받은 값과 직접 적은 값이 다르면 `INFRA_PLACEMENT_CONFLICT` 경고를 내요.
+  - 레벨은 그려질 노드가 새 필드를 하나라도 적었을 때만 생겨요. 이 필드를 안 쓰는 옛 IR은 HTML이 바이트까지 예전과 같아요. prod와 환경 없는 노드만 그리고 조상 중 하나라도 prod 말고 다른 환경을 적었으면 그 노드는 빠져요.
+  - AWS, GCP, Azure 공식 아이콘은 render 때 받아 필요한 SVG만 `~/.gestalt/architecture-icons/`에 풀어 둬요. 레포에는 아이콘을 안 넣었어요. 받기가 실패하면 그 아이콘만 내장 선 아이콘으로 그리고 render는 계속해요. `GESTALT_ARCH_ICONS`로 `auto`, `offline`, `off`를 골라요.
+  - 내려받기는 허용 호스트의 https 리다이렉트만 따라가고 300MB에서 끊어요. SVG에 `<script>`나 이벤트 핸들러가 있으면 버려요.
+- **컨덕터 주문에 부모 워크트리와 기준 브랜치를 지정할 수 있어요(#121).** `conductor order add`에 `--parent-worktree`와 `--base-branch`를 더했어요. 오르카 워커는 늘 레포 최상위에 새 워크트리를 만들어서 작업 중인 워크트리 아래 붙이거나 특정 브랜치에서 갈라 시작할 방법이 없었어요.
+  - 부모 워크트리는 접수할 때 그 레포의 워크트리가 맞는지 확인하고 아니면 주문을 안 받아요. 기준 브랜치는 ref 이름 꼴만 받아서 `-`로 시작하는 값은 거절해요.
+  - 말로 받지 않은 주문에 기준 브랜치가 있으면 셋업 스크립트를 안 돌려요. 큐 발신자가 고른 브랜치의 스크립트가 호스트에서 돌지 않게 하려고요. 외부 큐는 `baseBranch`만 받아요.
+- **컨덕터 주문 설명을 파일로 넘기고 레포 공통 맥락 파일을 둘 수 있어요(#120).** 주문이 늘수록 컨덕터 대화에 맥락이 쌓여서 둘 다 대화 밖으로 뺐어요.
+  - `order add --description-file <path>`(`-`면 stdin)로 긴 설명을 셸 인용 없이 넘겨요. 재개 지시서가 설명을 빼고 있던 것도 고쳐서 이제 재개 때도 실려요.
+  - 상태 저장소 아래 `context/<owner>/<name>.md`에 레포 공통 사실을 적으면 tick이 워커 지시서에 그 경로를 실어요. 워커는 배경 사실로만 읽고 주문 설명과 어긋나면 주문 설명이 먼저예요. 경로는 `gestalt conductor context path --repo owner/name`이 알려 줘요.
+
+### Changed
+
+- **컨덕터를 처음 부르면 반복 감시까지 자동으로 걸려요(#124).** 예전에는 처음 보고할 때 `/loop` 명령을 알려 주기만 해서 사람이 한 번 더 쳐야 감시가 시작됐어요.
+  - "한 번만"이나 `--once`처럼 이번 실행만 원하면 안 걸고 반복 명령만 알려 줘요.
+  - 이미 반복 안에서 돌고 있거나 컨덕터 tick 크론이 있으면 다시 안 걸어요. 그래도 두 겹으로 걸리면 tick만 늘어나고 잠금과 간격 하한에 막혀 상태는 안 깨져요.
+  - loop 스킬이 없는 호스트는 예전처럼 안내만 해요.
+
+### 검증 범위
+
+- #123은 로컬 리뷰를 8라운드 돌렸고 8라운드에서 이슈 0개로 승인됐어요. 뒤쪽 라운드는 주로 prod가 아닌 자리를 빼는 조건을 스킬과 문서 표에 같은 문장으로 맞추는 데 걸렸어요.
+- 네 PR 모두 macOS와 Ubuntu, Node 22와 24 CI를 통과했어요.
+
+### 남긴 것
+
+- #124의 반복 자동 걸기는 문서 변경이라 동작 테스트가 없어요. 다음 컨덕터 세션에서 반복이 한 번만 걸리는지 확인해야 해요.
+
 ## [0.129.0] - 2026-11-12
 
 ### Added
