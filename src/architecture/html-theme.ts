@@ -799,7 +799,7 @@ export const ER_CSS = `.node.er-table { display: block; padding: 0; overflow: hi
 export const INFRA_CSS = `.group { position: absolute; box-sizing: border-box; border-radius: 12px; }
 .group > .g-label {
   position: absolute; top: 12px; left: 12px; display: flex; align-items: center; gap: 6px;
-  font-size: 12px; font-weight: 600; line-height: 1.2; color: var(--edge); white-space: nowrap;
+  font-size: 12px; font-weight: 600; line-height: 1.2; color: var(--muted); white-space: nowrap;
 }
 .g-label img, .g-label svg { width: 14px; height: 14px; flex: none; }
 .group > .g-label.node {
@@ -809,6 +809,7 @@ export const INFRA_CSS = `.group { position: absolute; box-sizing: border-box; b
 .group > .g-label.node::before { display: none; }
 .group > .g-label.node:hover, .group > .g-label.node.selected { color: var(--accent); box-shadow: none; }
 .group > .g-label.node.hit { box-shadow: 0 0 0 3px var(--hit); }
+.group > .g-label.node:focus-visible { outline-offset: 2px; }
 .group.aws { border: 1.5px solid var(--text); border-radius: 0; }
 .group.aws > .g-label { top: -1.5px; left: -1.5px; gap: 8px; color: var(--text); }
 .group.aws > .g-label img, .group.aws > .g-label svg { width: 30px; height: 30px; }
@@ -845,12 +846,14 @@ export const INFRA_CSS = `.group { position: absolute; box-sizing: border-box; b
 .node.inode:hover .tile { border-color: var(--accent); }
 .node.inode.selected .tile { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 .node.inode.hit .tile { box-shadow: 0 0 0 3px var(--hit); }
+.node.inode:focus-visible { outline: none; }
+.node.inode:focus-visible .tile { outline: 2px solid var(--accent); outline-offset: 2px; }
 .node.inode .name {
   display: block; margin-top: 8px; font-size: 13px; font-weight: 600; line-height: 16px;
   color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .node.inode .role {
-  display: block; margin-top: 2px; font: 9.5px/14px var(--mono); letter-spacing: 0.04em;
+  display: block; margin-top: 2px; font: 10px/14px var(--mono); letter-spacing: 0.04em;
   color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .node.inode .name span, .node.inode .role span {
@@ -861,7 +864,7 @@ export const INFRA_CSS = `.group { position: absolute; box-sizing: border-box; b
 .infra-level .link .edge.dash { stroke-dasharray: 4 5; }
 .infra-level .link.lit .edge, .infra-level .link:hover .edge { stroke: var(--accent); }
 .infra-level .el {
-  font: 10.5px var(--mono); letter-spacing: 0.04em; fill: var(--edge); pointer-events: none;
+  font: 10.5px var(--mono); letter-spacing: 0.04em; fill: var(--muted); pointer-events: none;
   paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round;
 }
 .infra-credit { position: absolute; margin: 0; font: 10px/1.4 var(--mono); color: var(--muted); }

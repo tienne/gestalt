@@ -233,6 +233,17 @@ describe('shared 렌더 공개 범위', () => {
     for (const l of labels) expect(l).not.toMatch(ID12);
   });
 
+  it('타일 aria-label 끝에 담은 박스 이름이 붙고 공유본에서는 그 이름도 가려진다', async () => {
+    const tileAria = (h: string): string[] =>
+      [...h.matchAll(/class="node inode[^"]*"[^>]*aria-label="([^"]*)"/g)].map((m) => m[1]!);
+    const priv = tileAria(infraSection(await render(leakyIr(), 'private')));
+    const shared = tileAria(infraSection(await render(leakyIr(), 'shared')));
+    const inBox = shared.filter((a) => a.endsWith(' 안'));
+    expect(inBox.length).toBeGreaterThan(0);
+    expect(inBox.length).toBe(priv.filter((a) => a.endsWith(' 안')).length);
+    for (const a of shared) expect(a).not.toMatch(ID12);
+  });
+
   it('공유본 전체 HTML에도 계정 ID가 남지 않는다', async () => {
     const html = await render(leakyIr(), 'shared');
     expect(html).not.toMatch(ID12);

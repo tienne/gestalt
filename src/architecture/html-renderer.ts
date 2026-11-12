@@ -2214,6 +2214,11 @@ function renderInfraSection(
     const hit = key !== undefined ? icons?.icons[key] : undefined;
     return hit?.source === 'official' ? hit.dataUri : undefined;
   };
+  const boxName = new Map(
+    infra.boxes.map(
+      (b) => [b.id, b.nodeId !== undefined ? name(b.nodeId) : maskText(b.label)] as const,
+    ),
+  );
   const boxes = infra.boxes
     .map((b) => {
       const uri = official(b.iconKey);
@@ -2266,7 +2271,10 @@ function renderInfraSection(
       const short = chipTextOverride(n) ?? NODE_KIND_SHORT[dk];
       const role = n.engine !== undefined ? `${short} ${n.engine}` : short;
       const label = nodeName(n);
-      const aria = `${label}, ${chipTextOverride(n) ?? NODE_KIND_TEXT[dk]}${isGuess(n) ? `, ${INFERRED_BADGE} 이름` : ''}`;
+      const home = t.boxId !== undefined ? boxName.get(t.boxId) : undefined;
+      const aria =
+        `${label}, ${chipTextOverride(n) ?? NODE_KIND_TEXT[dk]}${isGuess(n) ? `, ${INFERRED_BADGE} 이름` : ''}` +
+        (home !== undefined ? `, ${home} 안` : '');
       const tooltip = n.displayName === undefined ? n.label : `${n.displayName}\n${n.label}`;
       return (
         `<div class="node inode k-${dk}" data-node-id="${escapeHtml(n.id)}" role="button" tabindex="0" ` +
