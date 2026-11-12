@@ -42,6 +42,7 @@ import {
   type LauncherSet,
 } from '../../conductor/launcher.js';
 import { measure } from '../../conductor/metrics.js';
+import { resolveParentWorktree } from '../../conductor/parent-worktree.js';
 import { normalizePrRef } from '../../conductor/pr-ref.js';
 import { saveSkillCheckpoint } from '../../conductor/resume.js';
 import type { ConductorConfig } from '../../conductor/scheduler.js';
@@ -154,12 +155,24 @@ export interface ConductorOrderAddOptions extends ConductorCommonOptions {
   skills?: string;
   workerKind?: string;
   agent?: string;
+  parentWorktree?: string;
+  baseBranch?: string;
   source?: string;
   sourceRef?: string;
   issueKey?: string;
   issueType?: string;
   jiraStatus?: string;
   pr?: string;
+}
+
+function resolveParent(
+  input: string | undefined,
+  repo: string,
+  repoPaths: Record<string, string>,
+): string | undefined {
+  if (input === undefined) return undefined;
+  const orca = detectOrca(process.env);
+  return resolveParentWorktree(input, repo, { repoPaths, ...(orca ? { orcaCommand: orca } : {}) });
 }
 
 export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
@@ -173,6 +186,7 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
       opts.descriptionFile !== undefined
         ? readDescriptionFile(opts.descriptionFile)
         : opts.description;
+    const parentWorktree = resolveParent(opts.parentWorktree, opts.repo, ctx.config.repoPaths);
     const out = intakeOrder(
       ctx.store,
       {
@@ -187,6 +201,8 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
         ...(opts.workerKind
           ? { workerKind: oneOf<WorkerKind>(opts.workerKind, WORKER_KINDS, '--worker-kind') }
           : {}),
+        ...(parentWorktree ? { parentWorktree } : {}),
+        ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
         ...(opts.issueKey ? { issueKey: issueKey(opts.issueKey) } : {}),
         ...(opts.issueType
           ? { issueType: oneOf<IssueType>(opts.issueType, ISSUE_TYPES, '--issue-type') }
@@ -415,6 +431,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
       `대기 ${c.queued}, 진행 ${c.running}, 게이트 ${c.openGates}, 새 주문 ${report.created.length}, 띄움 ${report.launched.length}`,
     );
     for (const a of report.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
+    for (const w of report.warnings) console.log(`경고: ${w}`);
     for (const e of report.errors) console.log(`오류: ${e}`);
   } catch (e) {
     exitWithError(e);

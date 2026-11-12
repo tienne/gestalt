@@ -217,6 +217,14 @@ describe('gestalt conductor', () => {
     expect(err.at(-1)).toContain('nope');
     expect(() => conductorOrderAddCommand({ ...add, issueKey: 'app-1' })).toThrow('exit 1');
     expect(err.at(-1)).toContain('--issue-key');
+    expect(() =>
+      conductorOrderAddCommand({ ...add, parentWorktree: resolve(stateDir, 'no-such-worktree') }),
+    ).toThrow('exit 1');
+    expect(err.at(-1)).toContain('부모 워크트리');
+    expect(() => conductorOrderAddCommand({ ...add, baseBranch: '--upload-pack=x' })).toThrow(
+      'exit 1',
+    );
+    expect(err.at(-1)).toContain('기준 브랜치');
     expect(ConductorStore.open(stateDir).orders()).toEqual([]);
 
     conductorOrderAddCommand({

@@ -39,10 +39,10 @@ hostActions ──► 컨덕터 호스트 세션이 실행 (서브에이전트, 
 
 설정은 두 파일에 나눠 적는다.
 
-| 파일 | 적는 칸 |
-|---|---|
+| 파일                                      | 적는 칸                                                                                                    |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `~/.gestalt/conductor.json` (사용자 전역) | `defaultScope`, `defaultAgent`, `repoAgents`, `accounts`, `repoPaths`. 상태 저장소를 옮기려면 `stateDir`도 |
-| 레포의 `gestalt.json` | `maxConcurrentWorkers`, `pollIntervalSec` 같은 조율 값만 |
+| 레포의 `gestalt.json`                     | `maxConcurrentWorkers`, `pollIntervalSec` 같은 조율 값만                                                   |
 
 칸별 뜻과 예시는 [설정 레퍼런스의 컨덕터 절](./configuration.md#컨덕터-conductor)에 있다.
 
@@ -54,12 +54,12 @@ hostActions ──► 컨덕터 호스트 세션이 실행 (서브에이전트, 
 
 ### 주문 넣기
 
-| 출처 | 넣는 법 |
-|---|---|
-| 말 | 할 일을 말하면 세션이 `gestalt conductor order add`를 대신 부른다. 출처는 `spoken`으로 남는다 |
-| 지라 | "이 티켓들 넣어줘"라고 하면 세션이 Atlassian MCP로 티켓을 읽고 `--source jira --source-ref jira:<KEY> --issue-key <KEY>`를 붙여 넣는다 |
+| 출처    | 넣는 법                                                                                                                                                                                                     |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 말      | 할 일을 말하면 세션이 `gestalt conductor order add`를 대신 부른다. 출처는 `spoken`으로 남는다                                                                                                               |
+| 지라    | "이 티켓들 넣어줘"라고 하면 세션이 Atlassian MCP로 티켓을 읽고 `--source jira --source-ref jira:<KEY> --issue-key <KEY>`를 붙여 넣는다                                                                      |
 | PR 감시 | `repoPaths`에 적은 레포는 tick마다 열린 PR을 보고 주문을 만든다. 내 PR에 새 코멘트가 달리면 `review-reply`, 내가 리뷰한 PR의 head가 바뀌면 `review-loop` 주문이다. 자세한 조건은 [PR 감시](#pr-감시)에 있다 |
-| 외부 큐 | 다른 시스템이 상태 저장소의 `queue/`에 JSON 파일을 두거나 `gestalt conductor queue add`로 넣으면 다음 tick이 주문으로 받는다. 파일 꼴은 [외부 큐](#외부-큐)에 있다 |
+| 외부 큐 | 다른 시스템이 상태 저장소의 `queue/`에 JSON 파일을 두거나 `gestalt conductor queue add`로 넣으면 다음 tick이 주문으로 받는다. 파일 꼴은 [외부 큐](#외부-큐)에 있다                                          |
 
 범위를 말로 정해 주면 그 값으로 넣고 말하지 않으면 `defaultScope`를 쓴다. 범위마다 사람에게 묻는 자리는 [주문 범위와 사람 확인](#주문-범위와-사람-확인)의 표에 있다.
 
@@ -144,13 +144,13 @@ gestalt conductor order show <id> --json
 
 Execute Engine처럼 컨덕터도 Passthrough로 돈다. 추론 주체는 호스트 세션이고 tick은 상태를 계산해 할 일만 돌려준다. 지라 전환과 슬랙 게시는 사람 계정의 MCP 연결이 필요해 CLI 프로세스가 직접 하지 못한다. 그래서 `hostActions`에 담아 돌려주고 호스트 세션이 실행한다.
 
-| hostAction | 나오는 때 |
-|---|---|
-| `spawn-subagent` | 서브에이전트 워커를 띄울 때. `promptFile`에 지시가 있다 |
-| `open-session` | 오르카가 없어 git 워크트리에 새 세션을 열 때 |
-| `send` | 살아 있는 워커에 사람 결정이나 bypass 결과를 전할 때 |
-| `jira-transition` | 주문 단계가 바뀌어 지라 상태를 옮길 때 |
-| `slack-post` | 사람이 승인한 슬랙 초안을 게시할 때 |
+| hostAction        | 나오는 때                                               |
+| ----------------- | ------------------------------------------------------- |
+| `spawn-subagent`  | 서브에이전트 워커를 띄울 때. `promptFile`에 지시가 있다 |
+| `open-session`    | 오르카가 없어 git 워크트리에 새 세션을 열 때            |
+| `send`            | 살아 있는 워커에 사람 결정이나 bypass 결과를 전할 때    |
+| `jira-transition` | 주문 단계가 바뀌어 지라 상태를 옮길 때                  |
+| `slack-post`      | 사람이 승인한 슬랙 초안을 게시할 때                     |
 
 gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오르카 워커도 오르카 CLI로 직접 띄운다.
 
@@ -158,18 +158,18 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 주문, 워커, 체크포인트, 사람 확인 자리(gate), bypass 기록은 전부 `events.jsonl`에 이벤트로 한 줄씩 덧붙는다. 상태는 이 로그를 처음부터 다시 재생해서 만든다. 컨덕터 세션이 압축되거나 새로 떠도 같은 저장소를 열면 같은 상태에서 이어 간다.
 
-| 경로 | 쓰는 쪽 | 내용 |
-|---|---|---|
-| `events.jsonl` | tick, CLI 명령 | 상태 이벤트와 실제 워커 에이전트, 보고 이력. `report-applied`에 workerId, status, summary, refs, skill, prRef, merged, stopReason, need를 보존하며 진행 보고도 포함한다. 하위 주문 요청(`spawnRequest`)은 주문 이벤트로 옮겨지므로 보고에는 다시 남기지 않는다 |
-| `inbox/` | 워커 | `worker report`가 남긴 결과 파일. 다음 tick이 상태와 보고 본문을 이벤트에 기록한 뒤 지운다. 적용하다 실패한 원문은 `inbox/failed/`로 옮긴다 |
-| `inbox/unrecorded/` | tick | 적용은 끝났는데 `report-applied` 기록만 실패한 결과 파일. 다음 tick이 다시 적용하지 않고 기록만 남긴 뒤 지운다. 다시 적용하면 bypass와 워커에 전하기, 하위 주문이 한 번 더 돌기 때문이다 |
-| `prompts/` | tick | 워커 첫 지시 파일 |
-| `worktrees/` | tick | 오르카가 없을 때 만든 git 워크트리 |
-| `deploy/` | 호스트 | `deploy report`가 남긴 배포 결과 |
-| `queue/` | 외부 시스템 | 외부 큐 메시지. 다음 tick이 읽고 지운다. 못 읽은 파일은 `queue/failed/`로 옮긴다 |
-| `slack/` | 호스트 | 슬랙 초안 본문 |
-| `context/<owner>/<name>.md` | 컨덕터 세션 | 레포 공통 맥락. 워커 지시에 경로가 실린다 |
-| `tick.lock` | tick | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다 |
+| 경로                        | 쓰는 쪽        | 내용                                                                                                                                                                                                                                                           |
+| --------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `events.jsonl`              | tick, CLI 명령 | 상태 이벤트와 실제 워커 에이전트, 보고 이력. `report-applied`에 workerId, status, summary, refs, skill, prRef, merged, stopReason, need를 보존하며 진행 보고도 포함한다. 하위 주문 요청(`spawnRequest`)은 주문 이벤트로 옮겨지므로 보고에는 다시 남기지 않는다 |
+| `inbox/`                    | 워커           | `worker report`가 남긴 결과 파일. 다음 tick이 상태와 보고 본문을 이벤트에 기록한 뒤 지운다. 적용하다 실패한 원문은 `inbox/failed/`로 옮긴다                                                                                                                    |
+| `inbox/unrecorded/`         | tick           | 적용은 끝났는데 `report-applied` 기록만 실패한 결과 파일. 다음 tick이 다시 적용하지 않고 기록만 남긴 뒤 지운다. 다시 적용하면 bypass와 워커에 전하기, 하위 주문이 한 번 더 돌기 때문이다                                                                       |
+| `prompts/`                  | tick           | 워커 첫 지시 파일                                                                                                                                                                                                                                              |
+| `worktrees/`                | tick           | 오르카가 없을 때 만든 git 워크트리                                                                                                                                                                                                                             |
+| `deploy/`                   | 호스트         | `deploy report`가 남긴 배포 결과                                                                                                                                                                                                                               |
+| `queue/`                    | 외부 시스템    | 외부 큐 메시지. 다음 tick이 읽고 지운다. 못 읽은 파일은 `queue/failed/`로 옮긴다                                                                                                                                                                               |
+| `slack/`                    | 호스트         | 슬랙 초안 본문                                                                                                                                                                                                                                                 |
+| `context/<owner>/<name>.md` | 컨덕터 세션    | 레포 공통 맥락. 워커 지시에 경로가 실린다                                                                                                                                                                                                                      |
+| `tick.lock`                 | tick           | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다                                                                                                                                                        |
 
 위치는 `--state-dir`, `GESTALT_CONDUCTOR_STATE_DIR`, `~/.gestalt/conductor.json`의 `stateDir`, 기본값 `~/.gestalt/conductor` 순서로 정한다. 워커는 다른 레포에서 돌아 그쪽 `gestalt.json`을 읽기 때문에 워커 지시에는 저장소 절대 경로를 `--state-dir`로 박아 둔다.
 
@@ -187,11 +187,11 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 ## 워커 종류 고르기
 
-| 주문 | 오르카 있음 | 오르카 없음 |
-|---|---|---|
-| 체인이 전부 읽기만 하는 스킬(review, blast-radius, diff-radius, explain) | `subagent` | `subagent` |
-| 그 밖의 체인(solve, ship, review-loop, review-reply, local-pr 등) | `orca-worktree` | `git-worktree` |
-| `--worker-kind`로 고정 | 그 값. `orca-worktree`인데 오르카가 없으면 `git-worktree` | |
+| 주문                                                                     | 오르카 있음                                               | 오르카 없음    |
+| ------------------------------------------------------------------------ | --------------------------------------------------------- | -------------- |
+| 체인이 전부 읽기만 하는 스킬(review, blast-radius, diff-radius, explain) | `subagent`                                                | `subagent`     |
+| 그 밖의 체인(solve, ship, review-loop, review-reply, local-pr 등)        | `orca-worktree`                                           | `git-worktree` |
+| `--worker-kind`로 고정                                                   | 그 값. `orca-worktree`인데 오르카가 없으면 `git-worktree` |                |
 
 기준은 `handoff` 스킬의 "맡길 곳 고르기" 표를 따른다.
 
@@ -216,30 +216,55 @@ gestalt conductor order add --repo acme/app --title "배너 문구 고치기" --
 
 이 선택은 `orca-worktree`에만 적용한다. `subagent`는 호스트 세션 안에서 뜨므로 agent를 무시한다. `git-worktree`의 `open-session`도 agent를 싣지 않고 호스트의 세션 여는 방식을 따른다. 호스트마다 에이전트 CLI 실행법이 달라 컨덕터가 특정 실행법을 가정하지 않기 때문이다.
 
+### 부모 워크트리와 기준 브랜치
+
+기존 워크트리 아래 하위로 워커를 띄우려면 주문에 `--parent-worktree`를 준다. 어느 ref에서 갈라질지는 `--base-branch`로 정한다.
+
+```bash
+gestalt conductor order add --repo acme/app --title "쿠폰 목록 하위 작업" \
+  --parent-worktree ~/orca/workspaces/app/feat-coupon --base-branch feat-coupon
+```
+
+`--parent-worktree`는 경로나 오르카 선택자(`branch:feat-coupon`, `id:...` 같은 것)를 받는다. 선택자면 `orca worktree show`로 경로를 받아 온다. `path:`로 시작하면 접두어를 떼고 로컬 경로로 본다. 접수할 때 워크트리 루트의 절대 경로로 풀고 주문 레포의 워크트리인지 확인한다. `repoPaths`에 그 레포가 있으면 git 공용 디렉토리가 같은지 보고 없으면 `origin` 주소가 `owner/name`과 맞는지 본다. 경로가 없거나 git 워크트리가 아니거나 레포가 다르면 주문을 받지 않는다. `origin`으로 맞출 때는 호스트를 안 본다. SSH 별칭(`git@github-work:acme/app.git`)도 받으려는 것이고 호스트가 다른 동명 레포를 가려야 하면 `repoPaths`에 그 레포 경로를 적는다.
+
+`--base-branch`는 브랜치 이름이나 `origin/main` 같은 ref를 받는다. `-`로 시작하거나 `..`, `@{`, 공백이 있거나 `/`로 나눈 조각이 비었거나 `.`으로 시작하거나 `.lock`으로 끝나면 거절한다. 부모 없이 단독으로 줘도 된다.
+
+외부 큐는 `baseBranch`만 받고 `parentWorktree`는 확인 자리로 올린다. 부모 경로는 이 머신에서 확인한 값이어야 해서 `order add`로 넣은 주문만 받는다. 말로 받은 주문이 아닌데 기준 브랜치가 있으면 새 워크트리의 셋업을 건너뛴다(`--setup skip`). 바깥에서 고른 브랜치의 셋업 스크립트를 이 호스트에서 돌리지 않으려는 것이다.
+
+| 워커            | `--parent-worktree`                                                                                                             | `--base-branch`                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `orca-worktree` | `orca worktree create --parent-worktree`로 그 아래 하위 워크트리를 먼저 만들고 `worker-start --worktree`로 그 워크트리에 띄운다 | 하위 워크트리나 `new-top-level` 워크트리를 그 ref에서 갈라낸다                                |
+| `git-worktree`  | 무시하고 tick 보고의 `warnings`에 남긴다                                                                                        | 워커 브랜치를 새로 만들 때 그 ref에서 갈라낸다. 재개 때 남은 브랜치를 다시 붙이면 쓰지 않는다 |
+| `subagent`      | 무시하고 `warnings`에 남긴다                                                                                                    | 무시하고 `warnings`에 남긴다                                                                  |
+
+`worker-start --worktree new-child`는 호출한 쪽(컨덕터) 워크스페이스 아래에 붙어서 임의 부모를 고를 수 없다. 그래서 워크트리를 먼저 만드는 두 단계로 띄운다. 워크트리를 만든 뒤 워커가 못 뜨면 오르카가 아무것도 바꾸기 전에 거절했거나(`selector_not_found`) `failed`와 함께 남은 자원이 비었다고 답했을 때만 만든 워크트리를 지운다. 시간 초과나 `outcome_unknown`, 남은 자원을 안 밝힌 실패처럼 워커가 떴는지 모르면 지우지 않는다. 그때나 지우기가 실패했을 때, `worktree create` 자체가 실패했을 때는 남은 워크트리와 `orca worktree rm` 명령을 실패 사유에 붙여 확인 자리로 올린다. 실패한 띄우기는 회차를 안 올리므로 남은 워크트리를 지우기 전에는 같은 이름으로 다시 만들다 실패한다. 부모만 주고 기준 브랜치를 비우면 어디서 갈라질지는 오르카 기본값을 따른다. 부모 브랜치에서 이어 가려면 `--base-branch`에 그 브랜치를 같이 준다.
+
+재개와 정리는 부모가 없는 오르카 워커와 같다. 재개하면 같은 부모 아래 `<주문 id>-<회차>` 이름으로 하위 워크트리를 새로 만든다. 정리는 `worker-release`로 워커 터미널만 거두고 워크트리는 남긴다.
+
 ## 동시 상한과 큐
 
 `maxConcurrentWorkers`(기본 10)를 넘는 주문은 `queued`로 남았다가 슬롯이 나면 뜬다. 슬롯은 `starting`과 `running` 워커만 차지한다. 상한은 tick마다 설정을 다시 읽어서 도는 중에 바꿔도 다음 tick부터 적용된다.
 
 ## 주문 범위와 사람 확인
 
-| 범위 | 머지 승인 | 인터뷰 답 |
-|---|---|---|
-| `merge-through` | 컨덕터가 넘긴다 | 워커가 맥락에서 정한다 |
+| 범위              | 머지 승인       | 인터뷰 답              |
+| ----------------- | --------------- | ---------------------- |
+| `merge-through`   | 컨덕터가 넘긴다 | 워커가 맥락에서 정한다 |
 | `approval` (기본) | 사람에게 묻는다 | 워커가 맥락에서 정한다 |
-| `interview-first` | 사람에게 묻는다 | 사람에게 묻는다 |
+| `interview-first` | 사람에게 묻는다 | 사람에게 묻는다        |
 
 워커가 혼자 못 넘는 자리를 만나면 `needs`로 보고한다. 컨덕터는 아래처럼 나눈다.
 
-| 요청 | 처리 |
-|---|---|
-| `merge-approval` | 위 표대로 |
-| `interview-answer` | 위 표대로 |
-| `slack-post` | 늘 사람에게 |
-| `review-manual-switch` | 늘 사람에게. 리뷰 스킬의 라운드 상한과 수동 전환 지침을 그대로 따른다 |
-| `simple-approval` | 컨덕터가 승인하고 기록한다 |
-| `manual-verification`, `cleanup` | 워커가 직접 하고 다음 보고에 남기라고 돌려준다 |
-| `auth`, `account-switch` | `~/.gestalt/conductor.json`의 `accounts`에 적힌 레포만 그 계정으로 맞춘다. 없으면 사람에게 |
-| `other` | 사람에게 (`no-procedure`) |
+| 요청                             | 처리                                                                                       |
+| -------------------------------- | ------------------------------------------------------------------------------------------ |
+| `merge-approval`                 | 위 표대로                                                                                  |
+| `interview-answer`               | 위 표대로                                                                                  |
+| `slack-post`                     | 늘 사람에게                                                                                |
+| `review-manual-switch`           | 늘 사람에게. 리뷰 스킬의 라운드 상한과 수동 전환 지침을 그대로 따른다                      |
+| `simple-approval`                | 컨덕터가 승인하고 기록한다                                                                 |
+| `manual-verification`, `cleanup` | 워커가 직접 하고 다음 보고에 남기라고 돌려준다                                             |
+| `auth`, `account-switch`         | `~/.gestalt/conductor.json`의 `accounts`에 적힌 레포만 그 계정으로 맞춘다. 없으면 사람에게 |
+| `other`                          | 사람에게 (`no-procedure`)                                                                  |
 
 사람에게 가는 자리는 확인 자리(gate)로 열리고 그 주문은 `waiting-gate`가 된다. `gestalt conductor gate resolve`로 종료하면 결정이 그 워커에 바로 전달된다. bypass로 넘긴 일은 저장소에 기록만 남고 컨덕터가 모아서 사후 보고한다. `gestalt conductor status`가 주문마다 bypass 내역을 붙여 보여 주고 주문에 묶이지 않은 것은 `unassignedBypasses`로 따로 싣는다. 끝난 주문까지 보려면 `--all`을 붙인다.
 
@@ -274,13 +299,13 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 
 ## 지라 상태
 
-| 주문 단계 | 지라 상태 |
-|---|---|
-| 접수 | TODO |
-| 워커 시작 | In Progress |
-| 리뷰 스킬(ship, local-pr, review-reply, review-loop) 시작 | PR |
-| 머지 (sub-task) | Done |
-| 배포 성공 (bug, task, sub-bug) | In-QA |
+| 주문 단계                                                 | 지라 상태   |
+| --------------------------------------------------------- | ----------- |
+| 접수                                                      | TODO        |
+| 워커 시작                                                 | In Progress |
+| 리뷰 스킬(ship, local-pr, review-reply, review-loop) 시작 | PR          |
+| 머지 (sub-task)                                           | Done        |
+| 배포 성공 (bug, task, sub-bug)                            | In-QA       |
 
 주문에 `jiraStatus`가 있으면 사용자가 정한 값이라 기본 규칙보다 먼저다. 배포는 머지 뒤 파이프라인 성공으로 판단한다. 호스트가 결과를 확인해 `gestalt conductor deploy report`로 남기고 tick이 읽는다. 배포가 실패하면 그 주문만 사람에게 올린다.
 
@@ -307,7 +332,9 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 }
 ```
 
-`repo`(`owner/name`)와 `title`은 꼭 있어야 한다. 나머지 칸은 `description`, `scope`, `issueKey`, `issueType`, `workerKind`, `jiraStatus`, `skillChain`이고 전부 빼도 된다.
+`repo`(`owner/name`)와 `title`은 꼭 있어야 한다. 나머지 칸은 `description`, `scope`, `issueKey`, `issueType`, `workerKind`, `jiraStatus`, `skillChain`, `baseBranch`이고 전부 빼도 된다.
+
+`parentWorktree`는 큐로 받지 않는다. 이 머신의 경로라 바깥 시스템이 정하게 두면 워커가 엉뚱한 워크트리 아래에서 뜰 수 있다. 이 칸이 든 메시지는 확인 자리로 올라온다. 사람이 보고 `order add --parent-worktree`로 다시 넣는다.
 
 넣는 쪽은 아래 둘 중 하나를 쓴다.
 
