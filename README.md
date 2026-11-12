@@ -802,7 +802,7 @@ npx @tienne/gestalt serve
 | `update` | Check for and install the latest version |
 | `graph-visualize` | Open the code knowledge graph in the browser. `--port`, `--no-browser` |
 | `pr <subcommand>` | Local PRs inside the repo — `create`, `list`, `show`, `diff`, `comment`, `review`, `merge`, `serve` (read-only web UI), and more. See [Local PR](./docs/local-pr.md) |
-| `conductor <subcommand>` | State and steps the `conductor` skill runs on — `order add`, `tick`, `gate list`/`gate resolve`, `status`, `metrics`, and more. See [Conductor](./docs/conductor.md) |
+| `conductor <subcommand>` | State and steps the `conductor` skill runs on — `order add`, `queue add`, `tick`, `gate list`/`gate resolve`, `status`, `metrics`, and more. See [Conductor](./docs/conductor.md) |
 | `review-loop <subcommand>` | Lookups the `review-loop` skill relies on: PR state, review rounds, approve gate |
 | `harness-refs <subcommand>` | Cross-repo reference checks the `review` and `ship` skills rely on |
 | `humanize-scan`, `humanize-check` | Check prose against the AI-tell rulebook |

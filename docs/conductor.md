@@ -50,7 +50,7 @@ hostActions ──► 컨덕터 호스트 세션이 실행 (서브에이전트, 
 
 오르카 안에서 열면 코드를 고치는 주문이 `orca-worktree` 워커로 뜬다. 진행은 오르카 화면에서 본다. 오르카 밖에서 열면 같은 주문이 `git-worktree` 워커로 뜬다. 이때는 `repoPaths`에 그 레포의 로컬 경로가 있어야 한다. 경로가 없는 레포의 주문은 띄우지 못하고 `repoPaths`에 적어 달라고 알린다. 읽기만 하는 주문은 어느 쪽이든 서브에이전트로 돈다([워커 종류 고르기](#워커-종류-고르기)).
 
-상태 저장소는 레포 안이 아니라 `~/.gestalt/conductor`(`stateDir`로 바꿀 수 있다)에 있다. 그래서 어느 디렉토리에서 세션을 열어도 같은 상태를 본다. 다만 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 잡힌 세션에서는 `tick`, `order add`, `gate resolve`, `deploy report`가 거절된다. 컨덕터 세션은 워커 밖에서 연다.
+상태 저장소는 레포 안이 아니라 `~/.gestalt/conductor`(`stateDir`로 바꿀 수 있다)에 있다. 그래서 어느 디렉토리에서 세션을 열어도 같은 상태를 본다. 다만 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 잡힌 세션에서는 `tick`, `order add`, `queue add`, `gate resolve`, `deploy report`가 거절된다. 컨덕터 세션은 워커 밖에서 연다.
 
 ### 주문 넣기
 
@@ -59,7 +59,7 @@ hostActions ──► 컨덕터 호스트 세션이 실행 (서브에이전트, 
 | 말 | 할 일을 말하면 세션이 `gestalt conductor order add`를 대신 부른다. 출처는 `spoken`으로 남는다 |
 | 지라 | "이 티켓들 넣어줘"라고 하면 세션이 Atlassian MCP로 티켓을 읽고 `--source jira --source-ref jira:<KEY> --issue-key <KEY>`를 붙여 넣는다 |
 | PR 감시 | `repoPaths`에 적은 레포는 tick마다 열린 PR을 보고 주문을 만든다. 내 PR에 새 코멘트가 달리면 `review-reply`, 내가 리뷰한 PR의 head가 바뀌면 `review-loop` 주문이다. 자세한 조건은 [PR 감시](#pr-감시)에 있다 |
-| 외부 큐 | 엔진에 `ExternalQueue` 어댑터 자리만 있다. `gestalt conductor tick` CLI는 아직 외부 큐를 받지 않는다 |
+| 외부 큐 | 다른 시스템이 상태 저장소의 `queue/`에 JSON 파일을 두거나 `gestalt conductor queue add`로 넣으면 다음 tick이 주문으로 받는다. 파일 꼴은 [외부 큐](#외부-큐)에 있다 |
 
 범위를 말로 정해 주면 그 값으로 넣고 말하지 않으면 `defaultScope`를 쓴다. 범위마다 사람에게 묻는 자리는 [주문 범위와 사람 확인](#주문-범위와-사람-확인)의 표에 있다.
 
@@ -125,6 +125,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `prompts/` | tick | 워커 첫 지시 파일 |
 | `worktrees/` | tick | 오르카가 없을 때 만든 git 워크트리 |
 | `deploy/` | 호스트 | `deploy report`가 남긴 배포 결과 |
+| `queue/` | 외부 시스템 | 외부 큐 메시지. 다음 tick이 읽고 지운다. 못 읽은 파일은 `queue/failed/`로 옮긴다 |
 | `slack/` | 호스트 | 슬랙 초안 본문 |
 | `tick.lock` | tick | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다 |
 
@@ -228,6 +229,41 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 - **내가 리뷰한 PR**: 내가 리뷰한 뒤 head가 바뀌었으면 `review-loop` 주문을 만든다. 코드는 그대로인데 답만 달렸으면 `review-manual-switch` 확인 자리로 사람에게 묻고 승인되면 재리뷰 주문을 만든다.
 
 워커는 PR을 다루면 결과 보고에 `--pr owner/name#번호`를 싣는다. PR 감시는 끝나지 않은 주문에 붙은 이 값으로 이미 처리 중인 PR을 건너뛰므로 빠지면 같은 PR에 주문이 또 생긴다. ship이 draft PR을 만들면 Copilot 리뷰를 요청하기 전에 `--status progress --skill ship`으로 바로 보고한다. 끝 보고까지 미루면 그 사이 Copilot 코멘트가 달린 PR을 감시가 새 PR로 보고 `review-reply` 주문을 만든다.
+
+## 외부 큐
+
+다른 시스템이 주문을 넣는 자리는 상태 저장소의 `queue/` 디렉토리다. 파일 하나가 메시지 하나이고 tick이 한 번에 20개까지 이름 순으로 읽는다.
+
+```json
+{
+  "repo": "acme/app",
+  "title": "배너 문구 고치기",
+  "description": "메인 배너 문구를 새 캠페인 문구로 바꾼다",
+  "scope": "approval",
+  "issueKey": "APP-123"
+}
+```
+
+`repo`(`owner/name`)와 `title`은 꼭 있어야 한다. 나머지 칸은 `description`, `scope`, `issueKey`, `issueType`, `workerKind`, `jiraStatus`, `skillChain`이고 전부 빼도 된다.
+
+넣는 쪽은 아래 둘 중 하나를 쓴다.
+
+```bash
+gestalt conductor queue add --body-file order.json
+cat order.json | gestalt conductor queue add --body-file - --id app-123
+```
+
+`queue add`는 본문 꼴을 먼저 보고 틀리면 넣지 않는다. `--id`를 비우면 시각과 난수로 새로 만든다. 같은 id 파일이 아직 큐에 있으면 덮지 않고 거절한다. 명령 없이 파일을 직접 둘 때는 점으로 시작하는 이름으로 다 쓴 뒤 `<id>.json`으로 바꾼다. tick은 점으로 시작하는 파일을 건너뛰므로 쓰다 만 파일을 읽지 않는다.
+
+tick은 메시지를 이렇게 처리한다.
+
+- 출처 키는 `queue:<id>`다. 같은 id가 다시 들어와도 주문은 한 번만 생긴다.
+- 꼴이 틀린 본문(`repo`나 `title`이 없는 등)은 주문을 만들지 않고 사람 확인 자리를 연다.
+- 깨진 JSON, 256KB를 넘는 파일, 심볼릭 링크, id 꼴(영문, 숫자, `-`, `_`, `.`로 128자까지)이 틀린 이름은 `queue/failed/`로 옮기고 tick 보고의 `errors`에 남긴다.
+- 처리한 파일은 지운다.
+- 큐 본문은 자료로만 읽는다. 범위는 `defaultScope`보다 넓힐 수 없고 `merge-through`는 받지 않는다. `skillChain`은 아는 스킬 이름만 남긴다.
+
+큐를 잠시 건너뛰려면 `gestalt conductor tick --no-queue`로 돌린다.
 
 ## 효과 재기
 
