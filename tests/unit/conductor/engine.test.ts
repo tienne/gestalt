@@ -293,6 +293,30 @@ describe('컨덕터 tick', () => {
     expect(r.launched.map((l) => l.orderId)).toEqual(r.created);
   });
 
+  it('지운 하위 주문도 상한에 세고 같은 요청으로 다시 만들지 않는다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-1' }));
+    const { deps: d } = deps({ config: { ...config, maxConcurrentWorkers: 1 } });
+    await tick(store, d, { force: true });
+    const wid = store.order('ord-1')!.workerId!;
+    const ask = (title: string) =>
+      report(store, d, {
+        workerId: wid,
+        status: 'progress',
+        spawnRequest: { title, detail: '따로' },
+      });
+    ask('하위 0');
+    const [first] = (await tick(store, d, { force: true })).created;
+    store.updateOrder(first!, { status: 'cancelled' });
+    store.removeOrder(first!);
+
+    for (let i = 0; i < MAX_SPAWN_PER_ORDER; i++) ask(`하위 ${i}`);
+    const r = await tick(store, d, { force: true });
+    expect(r.created.map((id) => store.order(id)!.title).sort()).toEqual(
+      Array.from({ length: MAX_SPAWN_PER_ORDER - 1 }, (_, i) => `하위 ${i + 1}`),
+    );
+  });
+
   it('런처가 없거나 실패하면 그 주문만 올리고 나머지는 띄운다', async () => {
     const { store } = clockedStore();
     store.addOrder(order({ id: 'ord-orca', workerKind: 'subagent' }));

@@ -35,6 +35,7 @@ import {
   conductorGateResolveCommand,
   conductorMetricsCommand,
   conductorOrderAddCommand,
+  conductorOrderRemoveCommand,
   conductorQueueAddCommand,
   conductorSlackDraftCommand,
   conductorStatusCommand,
@@ -1040,9 +1041,8 @@ export function createCli(): Command {
     );
   const collect = (v: string, prev: string[] = []) => [...prev, v];
 
-  conductor
-    .command('order')
-    .description('주문을 다룬다')
+  const order = conductor.command('order').description('주문을 다룬다');
+  order
     .command('add')
     .description(
       '말로 던진 요청이나 호스트가 읽은 지라 티켓을 주문으로 받는다. 같은 출처는 한 번만 받는다',
@@ -1074,6 +1074,16 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorOrderAddCommand(o));
+  order
+    .command('remove <orderIds...>')
+    .description(
+      '끝난 주문(done, failed, cancelled)을 지운다. 지운 주문의 출처는 다시 받지 않는다. 워크트리와 브랜치는 그대로 둔다',
+    )
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (ids: string[], o) => {
+      await conductorOrderRemoveCommand(ids, o);
+    });
 
   conductor
     .command('context')

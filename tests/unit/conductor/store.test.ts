@@ -193,4 +193,53 @@ describe('ConductorStore', () => {
     expect(events.every((e) => e.type === 'tick' || e.type === 'tail-repaired')).toBe(true);
     expect(ConductorStore.open(dir).snapshot.ticks).toBe(perChild * 2);
   }, 30_000);
+
+  it('끝난 주문을 지우면 그 주문에 딸린 기록까지 빠지고 다시 열어도 같다', () => {
+    const dir = tempStateDir();
+    const a = ConductorStore.open(dir);
+    a.addOrder(order({ id: 'ord-1', sourceRef: 'jira:APP-1', parentOrderId: 'ord-0' }));
+    a.addOrder(order({ id: 'ord-2' }));
+    a.startWorker(worker('ord-1', { id: 'wrk-1', status: 'stopped' }));
+    a.openGate({
+      id: 'gate-1',
+      orderId: 'ord-1',
+      type: 'merge',
+      reason: '머지할까요?',
+      refs: [],
+      status: 'open',
+      openedAt: a.timestamp(),
+    });
+    a.append({
+      type: 'bypass',
+      at: a.timestamp(),
+      record: { orderId: 'ord-1', need: 'cleanup', action: '수동 정리', at: a.timestamp() },
+    });
+
+    expect(() => a.removeOrder('ord-1')).toThrow(/끝난 주문만/);
+    a.updateOrder('ord-1', { status: 'done' });
+    expect(() => a.removeOrder('ord-1')).toThrow(/열린 게이트/);
+    a.append({ type: 'gate-resolved', at: a.timestamp(), gateId: 'gate-1', decision: 'approved' });
+    a.removeOrder('ord-1');
+    expect(() => a.removeOrder('ord-1')).toThrow(/모르는 주문/);
+
+    for (const s of [a.snapshot, ConductorStore.open(dir).snapshot]) {
+      expect(Object.keys(s.orders)).toEqual(['ord-2']);
+      expect(s.workers).toEqual({});
+      expect(s.gates).toEqual({});
+      expect(s.bypasses).toEqual([]);
+      expect(s.removedOrders['ord-1']).toMatchObject({
+        sourceRef: 'jira:APP-1',
+        parentOrderId: 'ord-0',
+      });
+    }
+    expect(a.hasSourceRef('jira:APP-1')).toBe(true);
+    expect(a.findOrderBySourceRef('jira:APP-1')).toBeUndefined();
+  });
+
+  it('도는 워커가 남은 주문은 끝난 상태여도 못 지운다', () => {
+    const a = ConductorStore.open(tempStateDir());
+    a.addOrder(order({ id: 'ord-1', status: 'failed' }));
+    a.startWorker(worker('ord-1', { id: 'wrk-1', status: 'running' }));
+    expect(() => a.removeOrder('ord-1')).toThrow(/도는 워커/);
+  });
 });

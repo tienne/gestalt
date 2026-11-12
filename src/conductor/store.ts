@@ -14,6 +14,7 @@ import { writeJsonAtomic } from '../core/json-file.js';
 import { log } from '../core/log.js';
 import {
   ACTIVE_WORKER_STATUSES,
+  TERMINAL_ORDER_STATUSES,
   type Checkpoint,
   type Gate,
   type ConductorEvent,
@@ -44,6 +45,7 @@ export const SNAPSHOT_FILE = 'snapshot.json';
 export function emptySnapshot(): ConductorSnapshot {
   return {
     orders: {},
+    removedOrders: {},
     workers: {},
     checkpoints: {},
     gates: {},
@@ -109,6 +111,9 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     case 'slack-posted':
       s.slackPosted[e.gateId] = e.ref;
       return;
+    case 'order-removed':
+      removeFromSnapshot(s, e.orderId, e.at);
+      return;
     case 'report-applied':
       s.appliedReports[e.name] = e.at;
       return;
@@ -120,6 +125,26 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     case 'tail-repaired':
       return;
   }
+}
+
+function removeFromSnapshot(s: ConductorSnapshot, orderId: string, at: string): void {
+  const o = s.orders[orderId];
+  if (!o) return;
+  delete s.orders[orderId];
+  s.removedOrders[orderId] = {
+    sourceRef: o.sourceRef,
+    ...(o.parentOrderId ? { parentOrderId: o.parentOrderId } : {}),
+    removedAt: at,
+  };
+  for (const w of Object.values(s.workers)) if (w.orderId === orderId) delete s.workers[w.id];
+  delete s.checkpoints[orderId];
+  for (const g of Object.values(s.gates)) {
+    if (g.orderId !== orderId) continue;
+    delete s.gates[g.id];
+    delete s.slackPosted[g.id];
+  }
+  s.bypasses = s.bypasses.filter((b) => b.orderId !== orderId);
+  s.jiraTransitions = s.jiraTransitions.filter((t) => t.orderId !== orderId);
 }
 
 export function newId(prefix: 'ord' | 'wrk' | 'gate'): string {
@@ -200,6 +225,11 @@ export class ConductorStore {
     this.append({ type: 'order-updated', at: this.timestamp(), orderId, patch });
   }
 
+  /** 끝난 주문을 지운다. 도는 워커나 열린 게이트가 있으면 거절한다 */
+  removeOrder(orderId: string): void {
+    this.append({ type: 'order-removed', at: this.timestamp(), orderId });
+  }
+
   startWorker(worker: Worker): void {
     this.append({ type: 'worker-started', at: this.timestamp(), worker });
   }
@@ -253,6 +283,20 @@ export class ConductorStore {
     return this.orders().find((o) => o.sourceRef === sourceRef);
   }
 
+  /** 지운 주문의 출처면 지운 시각을 준다. 접수가 이걸 보고 같은 출처를 다시 받지 않는다 */
+  removedAtOf(sourceRef: string): string | undefined {
+    return Object.values(this.state.removedOrders).find((r) => r.sourceRef === sourceRef)
+      ?.removedAt;
+  }
+
+  /** 받은 적 있는 출처인지 본다. 지운 주문도 받은 것으로 친다 */
+  hasSourceRef(sourceRef: string): boolean {
+    return (
+      this.findOrderBySourceRef(sourceRef) !== undefined ||
+      this.removedAtOf(sourceRef) !== undefined
+    );
+  }
+
   workersOf(orderId: string): Worker[] {
     return this.workers()
       .filter((w) => w.orderId === orderId)
@@ -275,6 +319,20 @@ function validate(event: ConductorEvent, s: ConductorSnapshot): void {
   }
   if (event.type === 'order-updated' && !s.orders[event.orderId]) {
     throw new Error(`모르는 주문이에요: ${event.orderId}`);
+  }
+  if (event.type === 'order-removed') {
+    const o = s.orders[event.orderId];
+    if (!o) throw new Error(`모르는 주문이에요: ${event.orderId}`);
+    if (!TERMINAL_ORDER_STATUSES.has(o.status))
+      throw new Error(`끝난 주문만 지울 수 있어요: ${event.orderId}(${o.status})`);
+    if (Object.values(s.gates).some((g) => g.orderId === o.id && g.status === 'open'))
+      throw new Error(`열린 게이트가 있어서 못 지워요: ${event.orderId}`);
+    if (
+      Object.values(s.workers).some(
+        (w) => w.orderId === o.id && ACTIVE_WORKER_STATUSES.has(w.status),
+      )
+    )
+      throw new Error(`도는 워커가 있어서 못 지워요: ${event.orderId}`);
   }
   if (event.type === 'worker-updated' && !s.workers[event.workerId]) {
     throw new Error(`모르는 워커예요: ${event.workerId}`);

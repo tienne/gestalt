@@ -213,11 +213,53 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
       { defaultScope: ctx.config.defaultScope },
       { trusted: true },
     );
+    if ('removedAt' in out) {
+      if (opts.json) return print({ created: false, removedAt: out.removedAt });
+      return console.log(`이 출처의 주문은 ${out.removedAt}에 지웠어요. 다시 받지 않아요`);
+    }
     if (opts.json) return print({ created: out.created, order: out.order });
     console.log(
       `${out.created ? '주문을 받았어요' : '이미 받은 주문이에요'}: ${out.order.id} (${out.order.scope})`,
     );
   });
+}
+
+/**
+ * 끝난 주문을 저장소에서 지운다. 로그 줄을 지우지 않고 order-removed를 덧붙이니 컨덕터 tick이나
+ * 워커가 동시에 써도 안전하다. 지운 주문의 출처는 남겨 지라나 PR 감시가 같은 주문을 다시 만들지 않는다.
+ * 하나가 거절돼도 나머지는 지운다. 하나도 못 지웠으면 1로 끝난다.
+ */
+export async function conductorOrderRemoveCommand(
+  orderIds: string[],
+  opts: ConductorCommonOptions,
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'order remove');
+    const removed: string[] = [];
+    const skipped: { id: string; reason: string }[] = [];
+    await ctx.store.deferSnapshot(async () => {
+      for (const id of new Set(orderIds)) {
+        try {
+          ctx.store.removeOrder(id);
+          removed.push(id);
+        } catch (e) {
+          skipped.push({ id, reason: e instanceof Error ? e.message : String(e) });
+        }
+      }
+    });
+    if (opts.json) print({ removed, skipped });
+    else {
+      if (removed.length > 0)
+        console.log(`주문 ${removed.length}개를 지웠어요: ${removed.join(', ')}`);
+      for (const s of skipped) console.log(`못 지웠어요: ${s.reason}`);
+    }
+    // 플러그인처럼 실패하면 stderr만 보는 호출자도 이유를 받게 한다
+    if (removed.length === 0 && skipped.length > 0)
+      exitWithError(new Error(skipped.map((s) => s.reason).join('\n')));
+  } catch (e) {
+    exitWithError(e);
+  }
 }
 
 /** 신뢰 경로라 길이로 자르지 않으니 엉뚱한 파일을 통째로 싣지 않게 크기에서 막는다 */

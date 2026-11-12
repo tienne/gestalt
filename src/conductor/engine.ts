@@ -425,8 +425,11 @@ async function spawnFromReport(
   };
   if (order.parentOrderId) return refuse('하위 주문의 하위 주문은 만들 수 없어요');
   const sourceRef = `spawn:${order.id}:${req.title}`;
-  if (store.findOrderBySourceRef(sourceRef)) return;
-  const made = store.orders().filter((o) => o.parentOrderId === order.id).length;
+  if (store.hasSourceRef(sourceRef)) return;
+  // 지운 하위 주문도 센다. 안 그러면 끝난 하위 주문을 지울 때마다 상한이 다시 열린다
+  const made = [...store.orders(), ...Object.values(store.snapshot.removedOrders)].filter(
+    (o) => o.parentOrderId === order.id,
+  ).length;
   if (made >= MAX_SPAWN_PER_ORDER)
     return refuse(`주문 하나에 ${MAX_SPAWN_PER_ORDER}개까지만 만들어요`);
   const scope: OrderScope = order.scope === 'merge-through' ? 'approval' : order.scope;

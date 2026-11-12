@@ -246,6 +246,8 @@ export type ConductorEvent =
   | { type: 'bypass'; at: string; record: BypassRecord }
   | { type: 'jira-transition'; at: string; record: JiraTransitionRecord }
   | { type: 'slack-posted'; at: string; gateId: string; ref: string }
+  /** 사람이 끝난 주문을 지웠다. 그 주문의 워커, 체크포인트, 게이트, bypass 기록도 스냅샷에서 뺀다 */
+  | { type: 'order-removed'; at: string; orderId: string }
   /** clearedReports는 이번 tick이 inbox에서 지운 보고 파일이다. 적용 기록에서 뺀다 */
   | { type: 'tick'; at: string; clearedReports?: string[] }
   /** inbox의 보고 파일 하나를 적용했다. 지우기에 실패해 다음 tick에 다시 보여도 또 적용하지 않는다 */
@@ -253,8 +255,16 @@ export type ConductorEvent =
   /** 앞 프로세스가 줄 중간에 죽은 꼬리를 개행으로 끊었다는 표시. replay가 바로 앞 깨진 줄을 건너뛴다 */
   | { type: 'tail-repaired'; at: string };
 
+/** 지운 주문에서 남기는 것. 같은 출처를 다시 받지 않고 하위 주문 상한을 셀 만큼만 둔다 */
+export interface RemovedOrder {
+  sourceRef: string;
+  parentOrderId?: string;
+  removedAt: string;
+}
+
 export interface ConductorSnapshot {
   orders: Record<string, Order>;
+  removedOrders: Record<string, RemovedOrder>;
   workers: Record<string, Worker>;
   /** 주문마다 마지막 체크포인트 하나 */
   checkpoints: Record<string, Checkpoint>;

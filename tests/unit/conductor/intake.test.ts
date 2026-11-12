@@ -49,6 +49,26 @@ describe('intake', () => {
     expect(s.openGates().filter((g) => g.type === 'no-procedure')).toHaveLength(1);
   });
 
+  it('지운 주문의 출처는 지라나 손으로 다시 넣어도 새 주문이 되지 않는다', async () => {
+    const s = ConductorStore.open(tempStateDir());
+    const source = {
+      fetchAssigned: async (): Promise<JiraTicket[]> => [
+        { key: 'PROJ-1', summary: '버그', issueType: 'Bug', repo: 'acme/app' },
+      ],
+    };
+    const [made] = (await pollJira(s, source, config)).created;
+    s.updateOrder(made!.id, { status: 'done' });
+    s.removeOrder(made!.id);
+    expect((await pollJira(s, source, config)).created).toEqual([]);
+    const again = intakeOrder(
+      s,
+      { source: 'jira', sourceRef: 'jira:PROJ-1', repo: 'acme/app', title: '버그' },
+      config,
+    );
+    expect(again).toMatchObject({ created: false, removedAt: expect.any(String) });
+    expect(s.orders()).toEqual([]);
+  });
+
   it('외부 큐 메시지는 저장한 뒤 ack하고 다시 와도 겹치지 않는다', async () => {
     const s = ConductorStore.open(tempStateDir());
     const acked: string[] = [];

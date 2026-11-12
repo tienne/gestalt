@@ -8,6 +8,7 @@ import {
   conductorGateListCommand,
   conductorGateResolveCommand,
   conductorOrderAddCommand,
+  conductorOrderRemoveCommand,
   conductorQueueAddCommand,
   conductorSlackDraftCommand,
   conductorStatusCommand,
@@ -237,6 +238,46 @@ describe('gestalt conductor', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it('끝난 주문만 지우고 못 지운 주문은 이유와 함께 돌려준다', async () => {
+    const stateDir = tempStateDir();
+    const add = (title: string, sourceRef: string) => {
+      conductorOrderAddCommand({
+        stateDir,
+        json: true,
+        repo: 'acme/app',
+        title,
+        source: 'jira',
+        sourceRef,
+      });
+      return (last()['order'] as { id: string }).id;
+    };
+    const done = add('끝난 일', 'jira:APP-1');
+    const queued = add('남은 일', 'jira:APP-2');
+    const store = ConductorStore.open(stateDir);
+    store.updateOrder(done, { status: 'done' });
+
+    await conductorOrderRemoveCommand([done, queued, done], { stateDir, json: true });
+    expect(last()).toEqual({
+      removed: [done],
+      skipped: [{ id: queued, reason: expect.stringContaining('끝난 주문만') }],
+    });
+
+    conductorStatusCommand({ stateDir, json: true, all: true });
+    expect((last()['orders'] as { id: string }[]).map((o) => o.id)).toEqual([queued]);
+
+    conductorOrderAddCommand({
+      stateDir,
+      json: true,
+      repo: 'acme/app',
+      title: '끝난 일',
+      source: 'jira',
+      sourceRef: 'jira:APP-1',
+    });
+    expect(last()).toMatchObject({ created: false, removedAt: expect.any(String) });
+
+    await expect(conductorOrderRemoveCommand([queued], { stateDir })).rejects.toThrow('exit 1');
   });
 
   it('슬랙 초안은 게이트로 올라가고 resolve로 닫힌다', async () => {
