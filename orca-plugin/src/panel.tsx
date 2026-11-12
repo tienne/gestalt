@@ -12,6 +12,7 @@ import {
   Heading,
   IconButton,
   Input,
+  Link,
   plugin,
   read,
   RelativeTime,
@@ -202,6 +203,17 @@ async function openWorker(orderId: string): Promise<void> {
   }
 }
 
+// 트리에 따라 한 번 누름에 onSelect와 onAction이 함께 올 수 있어서 같은 주문은 잠깐 한 번만 연다
+let lastTreeOpen: { id: string; at: number } | null = null
+
+function openFromTree(id: string | undefined): void {
+  if (!id) return
+  const now = Date.now()
+  if (lastTreeOpen?.id === id && now - lastTreeOpen.at < 500) return
+  lastTreeOpen = { id, at: now }
+  void openWorker(id)
+}
+
 function GateCard({ gate }: { gate: GateView }) {
   const p = read(pending)
   const inFlight = read(busy) === gate.id
@@ -312,13 +324,17 @@ function OrderRow({ order }: { order: OrderView }) {
     <Box key={order.id} border radius="sm" padding="sm">
       <Stack gap="xs">
         <Row justify="between" align="start">
-          <Text weight="medium">{order.title || '(제목 없음)'}</Text>
+          {order.workspaceId ? (
+            <Link onPress={() => openWorker(order.id)}>{order.title || '(제목 없음)'}</Link>
+          ) : (
+            <Text weight="medium">{order.title || '(제목 없음)'}</Text>
+          )}
           <Row gap="xs">
             {order.workspaceId ? (
               <IconButton
                 icon="open-external"
                 label="워크트리 열기"
-                tooltip="워커의 오르카 워크트리 열기"
+                tooltip="워커의 오르카 워크트리와 터미널로 이동"
                 size="xs"
                 variant="ghost"
                 onPress={() => openWorker(order.id)}
@@ -495,17 +511,15 @@ function Hierarchy({ orders }: { orders: readonly OrderView[] }) {
     <Stack gap="xs">
       <Heading level={3}>위계</Heading>
       <Text size="xs" muted>
-        하위 주문은 상위 주문 밑에, 하위 워크트리는 부모 워크트리 밑에 그려요. Enter로 워크트리를 열어요.
+        하위 주문은 상위 주문 밑에, 하위 워크트리는 부모 워크트리 밑에 그려요. 주문을 누르면 그 워크트리로 이동해요.
       </Text>
       <Tree
         label="주문 위계"
         items={treeItems(roots)}
         defaultExpanded={allKeys(roots)}
         maxHeight="md"
-        onAction={(item) => {
-          const id = opener.get(item.key)
-          if (id) void openWorker(id)
-        }}
+        onSelect={(item) => openFromTree(opener.get(item.key))}
+        onAction={(item) => openFromTree(opener.get(item.key))}
       />
     </Stack>
   )

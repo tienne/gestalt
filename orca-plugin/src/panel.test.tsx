@@ -111,6 +111,8 @@ test('타일을 누르면 그 레포의 주문만 보이고 지도로 돌아갈 
   assert.equal(buttons.length, 1)
   await view.press(buttons[0]!)
   assert.deepEqual(opened, ['ord-a'])
+  await view.press({ type: 'Link', text: /검색 문구 정리/ })
+  assert.deepEqual(opened, ['ord-a', 'ord-a'])
 
   await view.press({ text: '← 지도' })
   await view.press({ type: 'Button', text: 'api' })

@@ -188,8 +188,9 @@ function orderButton(o: OrderView, gates: number): HTMLElement {
     'button',
     {
       class: `node order tone-${tone}${state.selected === key ? ' selected' : ''}${isTerminal(o.status) ? ' faded' : ''}`,
-      title: `${o.id} 자세히 보기`,
-      onClick: () => select(key)
+      title: o.workspaceId ? `${o.id} 자세히 보기, 두 번 누르면 워크트리로 이동` : `${o.id} 자세히 보기`,
+      onClick: () => select(key),
+      onDblclick: o.workspaceId ? () => void openWorker(o.id) : undefined
     },
     el(
       'span',
@@ -204,6 +205,26 @@ function orderButton(o: OrderView, gates: number): HTMLElement {
       `${STATUS_LABEL[o.status] ?? o.status} · ${o.id}`,
       o.branch ? ` · ${o.branch}` : '',
       o.pr ? ` · PR ${o.pr}` : ''
+    )
+  )
+}
+
+function orderRow(o: OrderView, gates: number): HTMLElement {
+  const node = orderButton(o, gates)
+  if (!o.workspaceId) return node
+  return el(
+    'div',
+    { class: 'node-row' },
+    node,
+    el(
+      'button',
+      {
+        class: 'node-open',
+        title: '워커의 오르카 워크트리와 터미널로 이동',
+        'aria-label': `${o.title || o.id} 워크트리로 이동`,
+        onClick: () => void openWorker(o.id)
+      },
+      '↗'
     )
   )
 }
@@ -229,7 +250,7 @@ function tree(nodes: readonly HierarchyNode[], gateCount: Map<string, number>): 
       el(
         'li',
         null,
-        n.kind === 'order' ? orderButton(n.order, gateCount.get(n.order.id) ?? 0) : worktreeButton(n),
+        n.kind === 'order' ? orderRow(n.order, gateCount.get(n.order.id) ?? 0) : worktreeButton(n),
         n.children.length > 0 ? tree(n.children, gateCount) : null
       )
     )
@@ -444,7 +465,7 @@ function orderDetail(o: OrderView, v: ConductorView): HTMLElement {
       ? el(
           'div',
           { class: 'row' },
-          o.workspaceId ? el('button', { class: 'btn', onClick: () => void openWorker(o.id) }, '워크트리 열기') : null,
+          o.workspaceId ? el('button', { class: 'btn', onClick: () => void openWorker(o.id) }, '워크트리로 이동') : null,
           isTerminal(o.status)
             ? el('button', { class: 'btn danger-outline', disabled: state.removeBusy, onClick: () => askRemove(orderKey(o.id), [o.id]) }, '기록 지우기')
             : null
@@ -567,6 +588,11 @@ html, body { margin: 0; height: 100%; background: var(--orca-background); color:
 .node { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: 6px 8px; border-radius: 6px;
   border: 1px solid var(--orca-border); background: var(--orca-background); color: inherit; font: inherit; cursor: pointer; }
 .node:hover { background: var(--orca-accent); color: var(--orca-accent-foreground); }
+.node-row { display: flex; align-items: stretch; gap: 4px; }
+.node-row > .node { flex: 1; min-width: 0; }
+.node-open { flex: none; width: 28px; border-radius: 6px; border: 1px solid var(--orca-border); background: transparent; color: var(--orca-muted-foreground); cursor: pointer; }
+.node-open:hover { background: var(--orca-accent); color: var(--orca-accent-foreground); }
+.node-open:focus-visible { outline: 2px solid var(--orca-ring); outline-offset: 1px; }
 .node.selected { outline: 2px solid var(--orca-ring); outline-offset: 1px; }
 .node.faded { opacity: .6; }
 .node.worktree { border-style: dashed; background: transparent; }
