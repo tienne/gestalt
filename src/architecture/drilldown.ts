@@ -1224,7 +1224,7 @@ function insideNonProd(g: Graph, n: ArchitectureNode): boolean {
 
 /**
  * 인프라 레벨에 세울 노드. prod와 환경 없는 인프라 kind 노드 중 prod가 아닌 자리에 들지 않은 것이다.
- * 인프라 노드 중 하나라도 provider, region, exposure, placedIn을 적었을 때만 레벨을 만든다.
+ * 이렇게 고른 노드 중 하나라도 provider, region, exposure, placedIn을 적었을 때만 레벨을 만든다.
  * 새 필드를 안 쓰는 옛 IR은 그림이 바이트까지 그대로여야 해서다
  */
 function infraLevelNodeIds(g: Graph): string[] {
