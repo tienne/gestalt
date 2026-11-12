@@ -1055,6 +1055,11 @@ export function createCli(): Command {
     )
     .option('--skills <a,b>', '스킬 체인. 게슈탈트 스킬 이름만 받는다. 없으면 solve,ship')
     .option('--worker-kind <kind>', 'subagent, orca-worktree, git-worktree 중 하나로 고정')
+    .option(
+      '--parent-worktree <path|selector>',
+      '오르카 워커를 이 워크트리 아래 하위로 띄운다. 경로나 오르카 선택자(branch:x 등). 레포가 다르면 거절한다',
+    )
+    .option('--base-branch <ref>', '워커 워크트리를 갈라낼 기준 브랜치나 ref')
     .option('--source <kind>', 'spoken, jira, external-queue, pr-watch', 'spoken')
     .option('--source-ref <ref>', '출처의 고유 키. 같은 키는 한 번만 받는다')
     .option('--issue-key <key>', '지라 이슈 키 (PROJ-123 꼴)')

@@ -35,6 +35,7 @@ import {
   type LauncherSet,
 } from '../../conductor/launcher.js';
 import { measure } from '../../conductor/metrics.js';
+import { resolveParentWorktree } from '../../conductor/parent-worktree.js';
 import { normalizePrRef } from '../../conductor/pr-ref.js';
 import { saveSkillCheckpoint } from '../../conductor/resume.js';
 import type { ConductorConfig } from '../../conductor/scheduler.js';
@@ -143,6 +144,8 @@ export interface ConductorOrderAddOptions extends ConductorCommonOptions {
   scope?: string;
   skills?: string;
   workerKind?: string;
+  parentWorktree?: string;
+  baseBranch?: string;
   source?: string;
   sourceRef?: string;
   issueKey?: string;
@@ -156,6 +159,14 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
     const ctx = open(opts);
     assertConductorSession(ctx, 'order add');
     const source = oneOf<IntakeKind>(opts.source ?? 'spoken', INTAKE_KINDS, '--source');
+    const orca = detectOrca(process.env);
+    const parentWorktree =
+      opts.parentWorktree !== undefined
+        ? resolveParentWorktree(opts.parentWorktree, opts.repo, {
+            repoPaths: ctx.config.repoPaths,
+            ...(orca ? { orcaCommand: orca } : {}),
+          })
+        : undefined;
     const out = intakeOrder(
       ctx.store,
       {
@@ -169,6 +180,8 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
         ...(opts.workerKind
           ? { workerKind: oneOf<WorkerKind>(opts.workerKind, WORKER_KINDS, '--worker-kind') }
           : {}),
+        ...(parentWorktree ? { parentWorktree } : {}),
+        ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
         ...(opts.issueKey ? { issueKey: issueKey(opts.issueKey) } : {}),
         ...(opts.issueType
           ? { issueType: oneOf<IssueType>(opts.issueType, ISSUE_TYPES, '--issue-type') }
@@ -290,6 +303,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
       `대기 ${c.queued}, 진행 ${c.running}, 게이트 ${c.openGates}, 새 주문 ${report.created.length}, 띄움 ${report.launched.length}`,
     );
     for (const a of report.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
+    for (const w of report.warnings) console.log(`경고: ${w}`);
     for (const e of report.errors) console.log(`오류: ${e}`);
   } catch (e) {
     exitWithError(e);
