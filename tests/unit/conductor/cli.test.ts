@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -351,6 +352,36 @@ describe('gestalt conductor', () => {
     expect(report.counts.openGates).toBe(1);
     expect(report.errors.some((e) => e.includes('broken.json'))).toBe(true);
     expect(readdirSync(dir)).toEqual(['failed']);
+  });
+
+  it('tick은 prWatchRepos에 있는데 repoPaths에 없는 레포를 오류로 알리고 --no-pr-watch면 조용하다', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'gestalt-conductor-home-'));
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    writeFileSync(
+      join(home, '.gestalt', 'conductor.json'),
+      JSON.stringify({ prWatchRepos: ['acme/app'], repoPaths: {} }),
+    );
+    vi.stubEnv('GESTALT_HOME', home);
+    try {
+      const stateDir = tempStateDir();
+      await conductorTickCommand({ stateDir, json: true, force: true, queue: false });
+      const report = last() as { errors: string[] };
+      expect(report.errors.some((e) => e.startsWith('acme/app:') && e.includes('repoPaths'))).toBe(
+        true,
+      );
+
+      await conductorTickCommand({
+        stateDir,
+        json: true,
+        force: true,
+        queue: false,
+        prWatch: false,
+      });
+      expect((last() as { errors: string[] }).errors).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

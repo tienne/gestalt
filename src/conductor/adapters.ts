@@ -287,7 +287,29 @@ export class GhAccounts {
 }
 
 /**
- * 레포마다 gh로 열린 PR을 읽는다. 대상 레포는 `repoPaths`에 적힌 것만 본다.
+ * PR 감시 대상은 `prWatchRepos`에 적은 레포만이다. 그중 `repoPaths`에 경로가 없는 레포는
+ * gh를 부를 자리가 없어 빼고 이유를 돌려준다.
+ */
+export function prWatchTargets(
+  prWatchRepos: readonly string[],
+  repoPaths: Record<string, string>,
+): { repoPaths: Record<string, string>; errors: string[] } {
+  const targets: Record<string, string> = {};
+  const errors: string[] = [];
+  for (const repo of new Set(prWatchRepos)) {
+    const path = repoPaths[repo];
+    if (path) targets[repo] = path;
+    else
+      errors.push(
+        `${repo}: prWatchRepos에는 있지만 repoPaths에 경로가 없어 PR 감시에서 뺐어요. ~/.gestalt/conductor.json의 repoPaths에 적어 주세요`,
+      );
+  }
+  return { repoPaths: targets, errors };
+}
+
+/**
+ * 레포마다 gh로 열린 PR을 읽는다. 대상 레포와 gh를 부를 경로는 `repoPaths`로 받는다.
+ * 어느 레포를 넘길지는 `prWatchTargets`가 고른다.
  * 코멘트와 리뷰는 누가 언제 남겼는지만 쓴다. gh pr list가 필드를 좁혀 주지 않아 본문도 내려오지만
  * 결과에는 싣지 않는다.
  *

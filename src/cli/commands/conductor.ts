@@ -9,6 +9,7 @@ import {
   GhAccounts,
   GhAccountSwitcher,
   GhPrWatchSource,
+  prWatchTargets,
   hostJiraClient,
   hostSlackClient,
   writeDeploySignal,
@@ -397,12 +398,16 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     const ctx = open(opts);
     assertConductorSession(ctx, 'tick');
     const deferred: HostAction[] = [];
-    const prWatch = opts.prWatch !== false && Object.keys(ctx.config.repoPaths).length > 0;
+    const watch =
+      opts.prWatch !== false
+        ? prWatchTargets(ctx.config.prWatchRepos, ctx.config.repoPaths)
+        : undefined;
     // 토큰과 로그인 계정 캐시를 PR 감시와 계정 맞추기가 tick 하나 동안 함께 쓴다
     const gh = new GhAccounts(ctx.config.accounts);
-    const prSource = prWatch
-      ? new GhPrWatchSource({ repoPaths: ctx.config.repoPaths, accounts: gh })
-      : undefined;
+    const prSource =
+      watch && Object.keys(watch.repoPaths).length > 0
+        ? new GhPrWatchSource({ repoPaths: watch.repoPaths, accounts: gh })
+        : undefined;
     const queue = opts.queue !== false ? fileQueue(queueDirOf(ctx)) : undefined;
     const deps: EngineDeps = {
       config: ctx.config,
@@ -418,7 +423,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     };
     const report = await tick(ctx.store, deps, { force: opts.force === true });
     report.hostActions.push(...deferred);
-    report.errors.push(...(queue?.errors ?? []));
+    report.errors.push(...(queue?.errors ?? []), ...(watch?.errors ?? []));
     for (const repo of prSource?.truncatedRepos ?? [])
       report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
     if (opts.json) return print(report);

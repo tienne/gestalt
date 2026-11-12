@@ -10,6 +10,7 @@ import {
   GhPrWatchSource,
   hostJiraClient,
   PR_LIST_LIMIT,
+  prWatchTargets,
   hostSlackClient,
   QUEUE_FILE_MAX_BYTES,
   writeDeploySignal,
@@ -152,6 +153,29 @@ describe('파일 큐', () => {
     writeQueueMessage(dir, body, 'm1');
     await pollQueue(store, q, { defaultScope: 'approval' });
     expect(store.orders()).toHaveLength(1);
+  });
+});
+
+describe('PR 감시 대상', () => {
+  const repoPaths = { 'acme/app': '/tmp/app', 'acme/web': '/tmp/web' };
+
+  it('prWatchRepos가 비어 있으면 repoPaths에 레포가 있어도 감시하지 않는다', () => {
+    expect(prWatchTargets([], repoPaths)).toEqual({ repoPaths: {}, errors: [] });
+  });
+
+  it('prWatchRepos에 적은 레포만 감시한다', () => {
+    expect(prWatchTargets(['acme/web'], repoPaths)).toEqual({
+      repoPaths: { 'acme/web': '/tmp/web' },
+      errors: [],
+    });
+  });
+
+  it('repoPaths에 경로가 없는 레포는 빼고 이유를 남긴다', () => {
+    const got = prWatchTargets(['acme/app', 'acme/api', 'acme/api'], repoPaths);
+    expect(got.repoPaths).toEqual({ 'acme/app': '/tmp/app' });
+    expect(got.errors).toHaveLength(1);
+    expect(got.errors[0]).toContain('acme/api');
+    expect(got.errors[0]).toContain('repoPaths');
   });
 });
 
