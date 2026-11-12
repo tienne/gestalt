@@ -680,6 +680,7 @@ Each skill is a slash command in Claude Code. In Codex the same skill is `gestal
 | `/solve` | Drive interview → spec → execute as one loop without stopping between steps |
 | `/dispatch` | Send ready tasks from an execute session to terminals in an external agent runtime (Orca). Opt-in — without one, `/execute`'s default parallel path is better |
 | `/handoff` | Pick where to hand a task (main, subagent, child worktree, independent worktree), set model and effort as a pair, and send it there. Uses Orca for worktrees when available |
+| `/conductor` | Turn the current session into a conductor that takes orders (spoken requests, Jira tickets, PR watch) across repos, assigns them to workers, and drives each to merge. Asks you only at fixed gates such as merge approval. See [Conductor](./docs/conductor.md) |
 | `/setup` | First-time project setup: `gestalt.json`, code graph, and post-commit hook |
 | `/build-graph` | Build or rebuild the code knowledge graph only |
 | `/blast-radius` | Before changing code, find the files a change would reach and load only those |
@@ -801,6 +802,7 @@ npx @tienne/gestalt serve
 | `update` | Check for and install the latest version |
 | `graph-visualize` | Open the code knowledge graph in the browser. `--port`, `--no-browser` |
 | `pr <subcommand>` | Local PRs inside the repo — `create`, `list`, `show`, `diff`, `comment`, `review`, `merge`, `serve` (read-only web UI), and more. See [Local PR](./docs/local-pr.md) |
+| `conductor <subcommand>` | State and steps the `conductor` skill runs on — `order add`, `tick`, `gate list`/`gate resolve`, `status`, `metrics`, and more. See [Conductor](./docs/conductor.md) |
 | `review-loop <subcommand>` | Lookups the `review-loop` skill relies on: PR state, review rounds, approve gate |
 | `harness-refs <subcommand>` | Cross-repo reference checks the `review` and `ship` skills rely on |
 | `humanize-scan`, `humanize-check` | Check prose against the AI-tell rulebook |
@@ -1026,6 +1028,7 @@ Claude Code (you)
 - [Reading lens](./docs/lens.md) — paper, article, and podcast viewer with source citations
 - [Video digest](./docs/video-digest.md) — YouTube or local video summary viewer with sourced bullets
 - [Local PR](./docs/local-pr.md) — in-repo pull requests for agent-to-agent review
+- [Conductor](./docs/conductor.md) — one session that takes orders across repos and drives workers to merge
 - [Architecture View](./docs/architecture-view.md) — evidence-backed architecture diagrams
 - [Design Proposals](./docs/proposals/README.md) — planned work to tighten verification from interview to evaluate
 
