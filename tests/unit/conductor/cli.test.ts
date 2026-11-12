@@ -133,6 +133,27 @@ describe('gestalt conductor', () => {
     const sub = orders.find((o) => o['id'] === subOrder)!;
     expect(sub).toMatchObject({ workerKind: 'subagent' });
     expect(sub).not.toHaveProperty('worktreeName');
+    expect(sub).not.toHaveProperty('parentOrderId');
+  });
+
+  it('status JSON에 하위 주문과 부모 워크트리, 기준 브랜치를 싣는다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: '표 고치기' });
+    const parent = (last()['order'] as { id: string }).id;
+    conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: '타입 정리' });
+    const child = (last()['order'] as { id: string }).id;
+    const store = ConductorStore.open(stateDir);
+    store.updateOrder(parent, { parentWorktree: '/w/feat', baseBranch: 'feat/table' });
+    store.updateOrder(child, { parentOrderId: parent });
+
+    conductorStatusCommand({ stateDir, json: true });
+    const orders = last()['orders'] as Record<string, unknown>[];
+    expect(orders.find((o) => o['id'] === parent)).toMatchObject({
+      parentWorktree: '/w/feat',
+      baseBranch: 'feat/table',
+    });
+    expect(orders.find((o) => o['id'] === parent)).not.toHaveProperty('parentOrderId');
+    expect(orders.find((o) => o['id'] === child)).toMatchObject({ parentOrderId: parent });
   });
 
   it('잘못된 값은 stderr와 exit 1로 끝낸다', () => {

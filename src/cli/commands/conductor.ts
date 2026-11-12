@@ -297,6 +297,10 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
             ...(w ? { workerKind: w.kind, workerStatus: w.status } : {}),
             ...(w?.handle ? { workerHandle: w.handle } : {}),
             ...(w?.kind === 'orca-worktree' ? { worktreeName: orcaWorktreeName(w) } : {}),
+            // 바깥 도구가 주문 위계를 그릴 때 쓴다. 하위 주문과 부모 워크트리 둘 다 비면 뿌리 주문이다
+            ...(o.parentOrderId ? { parentOrderId: o.parentOrderId } : {}),
+            ...(o.parentWorktree ? { parentWorktree: o.parentWorktree } : {}),
+            ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}),
             ...(o.prRef ? { pr: o.prRef } : {}),
             ...(o.issueKey ? { issue: o.issueKey } : {}),
             bypasses: bypassesOf.get(o.id) ?? [],
