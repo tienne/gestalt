@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadConfig } from '../../core/config.js';
@@ -21,7 +21,7 @@ import {
   writeReport,
   type EngineDeps,
 } from '../../conductor/engine.js';
-import { repoContextPath } from '../../conductor/context.js';
+import { existingRepoContext, repoContextPath } from '../../conductor/context.js';
 import { resolveGate } from '../../conductor/gates.js';
 import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS } from '../../conductor/intake.js';
 import type { DeploySignal } from '../../conductor/jira.js';
@@ -159,11 +159,12 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
     const ctx = open(opts);
     assertConductorSession(ctx, 'order add');
     const source = oneOf<IntakeKind>(opts.source ?? 'spoken', INTAKE_KINDS, '--source');
-    if (opts.description && opts.descriptionFile)
+    if (opts.description !== undefined && opts.descriptionFile !== undefined)
       throw new Error('--description과 --description-file은 하나만 써 주세요');
-    const description = opts.descriptionFile
-      ? readFileSync(opts.descriptionFile === '-' ? 0 : opts.descriptionFile, 'utf-8').trim()
-      : opts.description;
+    const description =
+      opts.descriptionFile !== undefined
+        ? readDescriptionFile(opts.descriptionFile)
+        : opts.description;
     const out = intakeOrder(
       ctx.store,
       {
@@ -202,6 +203,24 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
   });
 }
 
+/** 신뢰 경로라 길이로 자르지 않으니 엉뚱한 파일을 통째로 싣지 않게 크기에서 막는다 */
+const DESCRIPTION_FILE_MAX = 64 * 1024;
+
+function readDescriptionFile(file: string): string {
+  if (file !== '-') {
+    const st = statSync(file, { throwIfNoEntry: false });
+    if (!st?.isFile()) throw new Error(`설명 파일을 찾을 수 없어요: ${file}`);
+    if (st.size > DESCRIPTION_FILE_MAX)
+      throw new Error(`설명 파일이 ${DESCRIPTION_FILE_MAX / 1024}KB를 넘어요: ${file}`);
+  }
+  const raw = readFileSync(file === '-' ? 0 : file, 'utf-8');
+  if (Buffer.byteLength(raw) > DESCRIPTION_FILE_MAX)
+    throw new Error(`설명이 ${DESCRIPTION_FILE_MAX / 1024}KB를 넘어요`);
+  const text = raw.trim();
+  if (!text) throw new Error(`설명 파일이 비어 있어요: ${file}`);
+  return text;
+}
+
 export interface ConductorContextPathOptions extends ConductorCommonOptions {
   repo: string;
 }
@@ -215,7 +234,12 @@ export function conductorContextPathCommand(opts: ConductorContextPathOptions): 
     const ctx = open(opts);
     const path = repoContextPath(resolve(ctx.store.dir), opts.repo);
     mkdirSync(dirname(path), { recursive: true });
-    if (opts.json) return print({ repo: opts.repo, path, exists: existsSync(path) });
+    if (opts.json)
+      return print({
+        repo: opts.repo,
+        path,
+        exists: existingRepoContext(ctx.store.dir, opts.repo) !== undefined,
+      });
     console.log(path);
   });
 }
