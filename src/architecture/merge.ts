@@ -129,6 +129,7 @@ interface Slot {
   /** 원래 입력 안의 parent id. 노드 id가 다 정해진 뒤에 합친 id로 바꾼다 */
   parent: { input: number; id: string; user: boolean }[];
   account: { input: number; id: string; user: boolean }[];
+  placedIn: { input: number; id: string; user: boolean }[];
   environment: Claim[];
   /** 이름 순서대로 모은 컬럼. references.table은 refInput 입력 안의 id라 노드 id가 다 정해진 뒤에 바꾼다 */
   columns: Map<string, ColumnSlot>;
@@ -144,7 +145,7 @@ interface ColumnSlot {
   typeClaims: string[];
 }
 
-type ConflictField = 'displayName' | 'parent' | 'environment' | 'account' | 'column';
+type ConflictField = 'displayName' | 'parent' | 'environment' | 'account' | 'placedIn' | 'column';
 
 const CONFLICT_QUESTION: Record<ConflictField, (name: string, values: string[]) => string> = {
   displayName: (name, values) =>
@@ -155,6 +156,8 @@ const CONFLICT_QUESTION: Record<ConflictField, (name: string, values: string[]) 
     `"${name}"의 환경이 분석마다 달라요 (${values.join(', ')}). 어느 환경이 맞나요?`,
   account: (name, values) =>
     `"${name}"가 속한 계정이 분석마다 달라요 (${values.map((v) => `"${v}"`).join(', ')}). 어느 계정이 맞나요?`,
+  placedIn: (name, values) =>
+    `"${name}"가 놓인 네트워크가 분석마다 달라요 (${values.map((v) => `"${v}"`).join(', ')}). 어디에 두면 될까요?`,
   column: (name, values) =>
     `"${name}" 컬럼이 분석마다 달라요 (${values.join(', ')}). 어느 쪽이 맞나요?`,
 };
@@ -314,6 +317,7 @@ export function mergeArchitectureIrs(
           displayNameInferred: _di,
           parent: _p,
           account: _a,
+          placedIn: _pi,
           environment: _e,
           columns: _c,
           ...rest
@@ -330,6 +334,7 @@ export function mergeArchitectureIrs(
           displayNameInferred: new Map(),
           parent: [],
           account: [],
+          placedIn: [],
           environment: [],
           columns: new Map(),
         };
@@ -401,6 +406,7 @@ export function mergeArchitectureIrs(
       }
       if (raw.parent !== undefined) slot.parent.push({ input, id: raw.parent, user });
       if (raw.account !== undefined) slot.account.push({ input, id: raw.account, user });
+      if (raw.placedIn !== undefined) slot.placedIn.push({ input, id: raw.placedIn, user });
       if (raw.environment !== undefined) slot.environment.push({ value: raw.environment, user });
       slotOf.set(`${input}\u0000${raw.id}`, slot);
     }
@@ -471,7 +477,7 @@ export function mergeArchitectureIrs(
     if (env.value !== undefined) node.environment = env.value;
     else if (env.conflict) ask('environment', env.conflict);
 
-    for (const field of ['parent', 'account'] as const) {
+    for (const field of ['parent', 'account', 'placedIn'] as const) {
       const claims = slot[field].map((c) => ({ value: mapNode(c.input, c.id), user: c.user }));
       const settled = settle(claims);
       if (settled.value !== undefined) node[field] = settled.value;

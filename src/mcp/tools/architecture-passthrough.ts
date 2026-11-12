@@ -34,6 +34,11 @@ import {
 import { computeDrilldown, shouldDrillDown } from '../../architecture/drilldown.js';
 import { renderArchitectureHtml, renderDrilldownHtml } from '../../architecture/html-renderer.js';
 import { parseArchitectureIr } from '../../architecture/ir-schema.js';
+import {
+  iconModeFromEnv,
+  resolveVendorIcons,
+  type IconStats,
+} from '../../architecture/vendor-icons.js';
 import { assignStages, computeLayout } from '../../architecture/layout.js';
 import { mergeArchitectureIrs } from '../../architecture/merge.js';
 import {
@@ -54,6 +59,7 @@ import {
   type ValidateArchitectureIrResult,
 } from '../../architecture/validator.js';
 import { writeJsonAtomic } from '../../core/json-file.js';
+import { gestaltPath } from '../../core/home.js';
 import { log } from '../../core/log.js';
 import {
   READ_ONLY_ALLOW_WORDS,
@@ -320,9 +326,21 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
   const drilldown = shouldDrillDown(validated) ? await computeDrilldown(validated) : null;
   let privateHtml: string;
   let sharedHtml: string;
+  let iconStats: IconStats | undefined;
   if (drilldown) {
-    privateHtml = renderDrilldownHtml(validated, drilldown, { audience: 'private' });
-    sharedHtml = renderDrilldownHtml(validated, drilldown, { audience: 'shared' });
+    // 공유본과 원본이 같은 아이콘을 쓰도록 한 번만 푼다. 받기에 실패해도 그 아이콘만 내장 아이콘으로 돌아간다
+    const iconKeys = drilldown.levels.flatMap((l) => l.infra?.iconKeys ?? []);
+    const icons =
+      iconKeys.length > 0
+        ? await resolveVendorIcons(iconKeys, {
+            cacheDir: gestaltPath('architecture-icons'),
+            mode: iconModeFromEnv(),
+          })
+        : undefined;
+    iconStats = icons?.stats;
+    const iconOpt = icons !== undefined ? { icons } : {};
+    privateHtml = renderDrilldownHtml(validated, drilldown, { audience: 'private', ...iconOpt });
+    sharedHtml = renderDrilldownHtml(validated, drilldown, { audience: 'shared', ...iconOpt });
   } else {
     const layout = await computeLayout(
       validated.ir,
@@ -373,7 +391,10 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
           })),
         }
       : {}),
-    stats: computeStats(validated),
+    stats: {
+      ...computeStats(validated),
+      ...(iconStats !== undefined ? { iconStats } : {}),
+    },
     delta: delta.result,
     ...(warnings.length > 0 ? { warnings } : {}),
     sourcesUsed: validated.ir.sourcesUsed,

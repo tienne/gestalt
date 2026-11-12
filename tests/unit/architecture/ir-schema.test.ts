@@ -3,6 +3,11 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   architectureViewSchema,
+  CLOUD_PROVIDERS,
+  ENGINE_KINDS,
+  INFRA_LEVEL_KINDS,
+  PLACED_IN_SOURCE_KINDS,
+  SUBNET_EXPOSURES,
   contextSourceViaSchema,
   edgeKindSchema,
   evidenceTypeSchema,
@@ -248,5 +253,101 @@ describe('JSON Schema 파일과 zod 정합', () => {
       'table',
     ]);
     expect((defs.node?.properties as Record<string, unknown>).columns).toBeDefined();
+  });
+});
+
+describe('인프라 배치 필드 (provider, region, exposure, placedIn, engine)', () => {
+  const schemaFile = JSON.parse(
+    readFileSync(resolve(__dirname, '../../../schemas/architecture-ir.schema.json'), 'utf-8'),
+  ) as {
+    definitions: {
+      node: { properties: Record<string, { enum?: string[]; type?: string; minLength?: number }> };
+    };
+  };
+  const props = schemaFile.definitions.node.properties;
+
+  function withNode(extra: Record<string, unknown>, kind = 'datastore'): Record<string, unknown> {
+    const ir = minimalIr();
+    (ir.nodes as Array<Record<string, unknown>>).push({
+      id: 'n-infra',
+      kind,
+      label: 'infra node',
+      repo: 'web',
+      evidence: [],
+      ...extra,
+    });
+    return ir;
+  }
+  const issues = (r: ReturnType<typeof parseArchitectureIr>): string[] =>
+    r.ok ? [] : r.error.issues;
+
+  it('JSON 스키마의 enum이 zod 상수와 같다', () => {
+    expect(new Set(props.provider?.enum)).toEqual(new Set(CLOUD_PROVIDERS));
+    expect(new Set(props.exposure?.enum)).toEqual(new Set(SUBNET_EXPOSURES));
+  });
+
+  it.each(['region', 'placedIn', 'engine'])(
+    'JSON 스키마의 %s는 비어 있지 않은 문자열이다',
+    (name) => {
+      expect(props[name]).toMatchObject({ type: 'string', minLength: 1 });
+    },
+  );
+
+  it('인프라 레벨 kind는 provider와 region을 받는다', () => {
+    for (const kind of INFRA_LEVEL_KINDS) {
+      const r = parseArchitectureIr(withNode({ provider: 'aws', region: 'us-east-1' }, kind));
+      expect(r.ok, `${kind}: ${issues(r).join(', ')}`).toBe(true);
+    }
+  });
+
+  it.each(['service', 'screen', 'endpoint'])('%s에 provider나 region을 쓰면 거부한다', (kind) => {
+    for (const extra of [{ provider: 'aws' }, { region: 'us-east-1' }]) {
+      const r = parseArchitectureIr(withNode(extra, kind));
+      expect(r.ok).toBe(false);
+      expect(issues(r).some((i) => i.includes(Object.keys(extra)[0]!))).toBe(true);
+    }
+  });
+
+  it('모르는 provider와 exposure 값을 거부한다', () => {
+    expect(parseArchitectureIr(withNode({ provider: 'oracle' })).ok).toBe(false);
+    expect(parseArchitectureIr(withNode({ exposure: 'internal' }, 'subnet')).ok).toBe(false);
+  });
+
+  it('빈 문자열 region과 placedIn을 거부한다', () => {
+    expect(parseArchitectureIr(withNode({ region: '' })).ok).toBe(false);
+    expect(parseArchitectureIr(withNode({ placedIn: '' })).ok).toBe(false);
+  });
+
+  it('exposure는 subnet에만 쓸 수 있다', () => {
+    expect(parseArchitectureIr(withNode({ exposure: 'public' }, 'subnet')).ok).toBe(true);
+    const r = parseArchitectureIr(withNode({ exposure: 'public' }, 'network'));
+    expect(r.ok).toBe(false);
+    expect(issues(r).some((i) => i.includes('exposure'))).toBe(true);
+  });
+
+  it('placedIn은 deploy_target, datastore, bucket에만 쓸 수 있다', () => {
+    for (const kind of PLACED_IN_SOURCE_KINDS) {
+      expect(parseArchitectureIr(withNode({ placedIn: 'x' }, kind)).ok, kind).toBe(true);
+    }
+    for (const kind of ['subnet', 'cluster', 'workload', 'service']) {
+      const r = parseArchitectureIr(withNode({ placedIn: 'x' }, kind));
+      expect(r.ok, kind).toBe(false);
+      expect(issues(r).some((i) => i.includes('placedIn'))).toBe(true);
+    }
+  });
+
+  it('placedIn이 자기 자신을 가리키면 거부한다', () => {
+    const r = parseArchitectureIr(withNode({ placedIn: 'n-infra' }));
+    expect(r.ok).toBe(false);
+    expect(issues(r).some((i) => i.includes('자기 자신'))).toBe(true);
+  });
+
+  it('engine은 datastore, deploy_target, cluster에만 쓸 수 있다', () => {
+    for (const kind of ENGINE_KINDS) {
+      expect(parseArchitectureIr(withNode({ engine: 'ecs' }, kind)).ok, kind).toBe(true);
+    }
+    const r = parseArchitectureIr(withNode({ engine: 'ecs' }, 'service'));
+    expect(r.ok).toBe(false);
+    expect(issues(r).some((i) => i.includes('engine'))).toBe(true);
   });
 });

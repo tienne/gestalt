@@ -173,7 +173,7 @@ describe('IR 스키마 — live 근거와 인프라 필드', () => {
     expect(parseArchitectureIr(codeWithCommand).ok).toBe(false);
   });
 
-  it('platforms는 service에만, environment는 인프라와 deploy_target에만, account는 cloud_account 밖에만 쓴다', () => {
+  it('platforms는 service에만, environment는 인프라 레벨 kind에만, account는 cloud_account 밖에만 쓴다', () => {
     expect(parseArchitectureIr(withNode(fixture(), 'gw', { platforms: ['web'] })).ok).toBe(false);
     expect(parseArchitectureIr(withNode(fixture(), 's-orders', { environment: 'prod' })).ok).toBe(
       false,
@@ -181,6 +181,9 @@ describe('IR 스키마 — live 근거와 인프라 필드', () => {
     expect(parseArchitectureIr(withNode(fixture(), 'acct-dev', { account: 'acct-prod' })).ok).toBe(
       false,
     );
+    const withVpc = fixture();
+    withVpc.nodes.push(node('vpc-stage', 'network', { environment: 'stage' }));
+    expect(parseArchitectureIr(withVpc).ok).toBe(true);
     expect(
       parseArchitectureIr(withNode(fixture(), 'svc-shop', { platforms: ['web', 'web'] })).ok,
     ).toBe(false);

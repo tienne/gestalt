@@ -20,16 +20,18 @@ import {
   type LabeledGroup,
   type LaneId,
   type LayoutResult,
+  computeLayout,
 } from './layout.js';
 import { computeFlowLevels, type FlowLevel } from './flow-layout.js';
+import { computeInfraLayout, type InfraLayout } from './infra-layout.js';
 import { indexMicroApps, orderedApps, type MicroAppIndex } from './micro-app.js';
 import { irVocabulary } from './packs/index.js';
 import { computeServiceFacts } from './service-facts.js';
 import type { ArchitectureEdge, ArchitectureNode, EdgeKind, LineStyle, NodeKind } from './types.js';
-import { chipTextOverride, displayKindOf } from './types.js';
+import { chipTextOverride, displayKindOf, INFRA_LEVEL_KINDS } from './types.js';
 import type { ValidatedIr } from './validator.js';
 
-export type DrillLevelKind = 'root' | 'service' | 'app' | 'server' | 'feature' | 'group';
+export type DrillLevelKind = 'root' | 'service' | 'app' | 'server' | 'feature' | 'group' | 'infra';
 
 /**
  * 레벨에 그리는 선. 세부 엣지를 그대로 옮긴 것이면 count가 1이고 kind가 원래 엣지 kind다.
@@ -48,7 +50,7 @@ export interface DrillEdge {
 }
 
 export interface DrillLevel {
-  /** `root`, `service:<id>`, `app:<id>`, `server:<id>`, `feature:<id>`, `group:<id>` */
+  /** `root`, `service:<id>`, `app:<id>`, `server:<id>`, `feature:<id>`, `group:<id>`, `infra` */
   id: string;
   kind: DrillLevelKind;
   focusId?: string;
@@ -58,6 +60,8 @@ export interface DrillLevel {
   nodeIds: string[];
   edges: DrillEdge[];
   layout: LayoutResult;
+  /** infra 레벨만. 카드 배치(layout) 대신 벤더 박스와 타일 좌표로 그린다. layout은 크기만 담은 빈 배치다 */
+  infra?: InfraLayout;
 }
 
 export interface Drilldown {
@@ -70,6 +74,7 @@ export interface Drilldown {
 }
 
 export const ROOT_LEVEL_ID = 'root';
+export const INFRA_LEVEL_ID = 'infra';
 
 // 클라이언트가 받는 쪽 모듈은 보내는 모듈보다 오른쪽에 서야 화살표가 거꾸로 꺾이지 않는다.
 // 사슬 단수만큼 더해 가므로 테이블 순위와 겹치지 않게 넉넉히 띄운다
@@ -1199,8 +1204,79 @@ function groupDrafts(full: Graph): { drafts: LevelDraft[]; enter: Record<string,
   return { drafts, enter };
 }
 
+const INFRA_LEVEL_KIND_SET: ReadonlySet<NodeKind> = new Set(INFRA_LEVEL_KINDS);
+
+/** placedIn이나 parent로 올라가다 prod가 아닌 환경을 적은 자리를 만나는지. 환경을 안 적은 노드는 든 자리의 환경을 따른다 */
+function insideNonProd(g: Graph, n: ArchitectureNode): boolean {
+  const seen = new Set<string>([n.id]);
+  const queue = [n.placedIn, n.parent];
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (id === undefined || seen.has(id)) continue;
+    seen.add(id);
+    const up = g.nodeById.get(id);
+    if (up === undefined) continue;
+    if (!isProdOrUnknown(up)) return true;
+    queue.push(up.placedIn, up.parent);
+  }
+  return false;
+}
+
+/**
+ * 인프라 레벨에 세울 노드. prod와 환경 없는 인프라 kind 노드 중 prod가 아닌 자리에 들지 않은 것이다.
+ * 이렇게 고른 노드 중 하나라도 provider, region, exposure, placedIn을 적었을 때만 레벨을 만든다.
+ * 새 필드를 안 쓰는 옛 IR은 그림이 바이트까지 그대로여야 해서다
+ */
+function infraLevelNodeIds(g: Graph): string[] {
+  const nodes = [...prodGraph(g).nodeById.values()].filter(
+    (n) => INFRA_LEVEL_KIND_SET.has(n.kind) && !insideNonProd(g, n),
+  );
+  const opted = nodes.some(
+    (n) =>
+      n.provider !== undefined ||
+      n.region !== undefined ||
+      n.exposure !== undefined ||
+      n.placedIn !== undefined,
+  );
+  return opted ? nodes.map((n) => n.id).sort(compareStr) : [];
+}
+
+function infraLevel(validated: ValidatedIr, g: Graph, nodeIds: readonly string[]): DrillLevel {
+  const ids = new Set(nodeIds);
+  const edges: (DrillEdge & { kind: EdgeKind })[] = g.edges
+    .filter((e) => ids.has(e.from) && ids.has(e.to))
+    .map((e) => ({
+      id: e.id,
+      from: e.from,
+      to: e.to,
+      kind: e.kind,
+      count: 1,
+      memberEdgeIds: [e.id],
+      lineStyle: e.lineStyle,
+    }));
+  const infra = computeInfraLayout({ nodes: validated.ir.nodes, nodeIds, edges });
+  // 박스로 선 노드에 걸린 선은 그리지 않는다. 레벨 선 목록도 그림과 맞춘다
+  const drawn = new Set(infra.edges.map((e) => e.id));
+  return {
+    id: INFRA_LEVEL_ID,
+    kind: 'infra',
+    title: '인프라 구성',
+    trail: [ROOT_LEVEL_ID, INFRA_LEVEL_ID],
+    nodeIds: [...nodeIds],
+    edges: edges.filter((e) => drawn.has(e.id)),
+    layout: { width: infra.width, height: infra.height, nodes: [], edges: [], lanes: [] },
+    infra,
+  };
+}
+
 /** service 노드가 하나라도 그려지면 드릴다운으로 그린다 */
 export function shouldDrillDown(validated: ValidatedIr): boolean {
+  // 인프라 레벨은 드릴다운 HTML에만 붙는다
+  return drillsWithoutInfra(validated) || infraLevelNodeIds(buildGraph(validated)).length > 0;
+}
+
+/** 인프라 레벨을 빼고도 드릴다운으로 그릴 그림인지. 아니면 전체 레벨을 평면 그림 그대로 둔다 */
+function drillsWithoutInfra(validated: ValidatedIr): boolean {
   return (
     validated.ir.nodes.some((n) => n.kind === 'service' && validated.drawableNodeIds.has(n.id)) ||
     // 독립 흐름은 레벨로만 그려지므로 서비스가 없어도 드릴다운 HTML이 필요하다
@@ -1229,8 +1305,52 @@ export function flowCountByService(flows: readonly FlowLevel[]): Record<string, 
   return out;
 }
 
+/**
+ * 인프라 레벨 때문에만 드릴다운이 된 그림. 전체 레벨은 평면 그림과 같은 노드와 배치로 두고 인프라 구성 카드만 붙인다.
+ * deploy-path처럼 서비스가 없는 그림에 인프라 필드를 적었다고 배포 사슬 카드가 사라지면 안 돼서다
+ */
+async function flatRootWithInfra(
+  validated: ValidatedIr,
+  g: Graph,
+  infraIds: readonly string[],
+): Promise<Drilldown> {
+  const layout = await computeLayout(
+    validated.ir,
+    validated.drawableNodeIds,
+    validated.drawableEdgeIds,
+  );
+  const root: DrillLevel = {
+    id: ROOT_LEVEL_ID,
+    kind: 'root',
+    title: '전체',
+    trail: [ROOT_LEVEL_ID],
+    nodeIds: [...g.nodeById.keys()].sort(compareStr),
+    edges: g.edges.map((e) => ({
+      id: e.id,
+      from: e.from,
+      to: e.to,
+      kind: e.kind,
+      count: 1,
+      memberEdgeIds: [e.id],
+      lineStyle: e.lineStyle,
+    })),
+    layout,
+  };
+  const enter: Record<string, string> = {};
+  for (const id of infraIds) enter[id] = INFRA_LEVEL_ID;
+  return {
+    levels: [root, infraLevel(validated, g, infraIds)],
+    enter,
+    flows: computeFlowLevels(validated),
+  };
+}
+
 export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldown> {
   const g = buildGraph(validated);
+  if (!drillsWithoutInfra(validated)) {
+    const infraIds = infraLevelNodeIds(g);
+    if (infraIds.length > 0) return flatRootWithInfra(validated, g, infraIds);
+  }
   const facts = computeServiceFacts([...g.nodeById.values()], g.edges);
   const sorted = [...g.nodeById.values()].sort(byId);
   const bands = bandGroupsOf(validated.ir);
@@ -1382,5 +1502,12 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
       layout,
     });
   }
-  return { levels, enter, flows: flowLevels };
+  const infraIds = infraLevelNodeIds(g);
+  if (infraIds.length > 0) {
+    levels.push(infraLevel(validated, g, infraIds));
+    // 서비스 레벨의 인프라 카드와 root의 저장소 카드가 인프라 레벨로 들어간다. 이미 들어갈 레벨이 있는 노드는 그대로 둔다
+    for (const id of infraIds) enter[id] ??= INFRA_LEVEL_ID;
+  }
+  const [rootLevelOut, ...others] = levels;
+  return { levels: [rootLevelOut!, ...others.sort(byId)], enter, flows: flowLevels };
 }

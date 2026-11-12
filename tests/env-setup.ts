@@ -16,3 +16,6 @@ import { resolve } from 'node:path';
 const home = resolve('.gestalt-test', 'home');
 mkdirSync(home, { recursive: true });
 process.env['GESTALT_HOME'] = home;
+
+// 인프라 그림의 벤더 아이콘은 auto면 네트워크로 받으러 간다. 테스트는 캐시만 보고 받지 않는다
+process.env['GESTALT_ARCH_ICONS'] = 'offline';

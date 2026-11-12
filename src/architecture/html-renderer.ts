@@ -21,7 +21,14 @@ import {
   type BlueprintLayout,
   type BlueprintModel,
 } from './blueprint-layout.js';
-import { flowCountByService, ROOT_LEVEL_ID, type DrillEdge, type Drilldown } from './drilldown.js';
+import {
+  flowCountByService,
+  INFRA_LEVEL_ID,
+  ROOT_LEVEL_ID,
+  type DrillEdge,
+  type DrillLevel,
+  type Drilldown,
+} from './drilldown.js';
 import {
   computeErLayout,
   deriveEr,
@@ -47,7 +54,11 @@ import {
   ER_CSS,
   FRAME_LABEL_CSS,
   SEQ_VIEW_CSS,
+  INFRA_CSS,
+  VIEW_STRIP_CSS,
 } from './html-theme.js';
+import { INFRA_CANVAS_PAD as INFRA_CANVAS_LEFT, type InfraLayout } from './infra-layout.js';
+import { ICON_CREDITS, type IconSet } from './vendor-icons.js';
 import {
   EDGE_KIND_ABOUT,
   LANE_ABOUT,
@@ -95,6 +106,7 @@ import {
 } from './sequence-views.js';
 import { computeServiceFacts, type ServiceFacts } from './service-facts.js';
 import type {
+  CloudProvider,
   ArchitectureEdge,
   ArchitectureFlow,
   ArchitectureIr,
@@ -122,6 +134,8 @@ export type ArchitectureAudience = 'private' | 'shared';
 
 export interface RenderArchitectureHtmlOptions {
   audience: ArchitectureAudience;
+  /** 인프라 레벨 타일과 박스의 공식 아이콘. 없으면 전부 내장 선 아이콘으로 그린다. private과 shared가 같은 값을 받아야 같은 그림이 된다 */
+  icons?: IconSet;
 }
 
 const DASHED_PATTERN = '6 4';
@@ -633,6 +647,16 @@ interface CanvasSpec {
   emptyLinks?: { level: string; title: string }[];
   /** 전체 레벨 지도 위에 한 줄로 놓는 질문별 그림 카드. 투영이 있는 그림에만 있다 */
   viewStrip?: ViewCard[];
+  /** 같은 줄 맨 앞에 놓는 인프라 레벨 입구. 인프라 레벨이 있을 때만 있다 */
+  infraCard?: InfraCard;
+}
+
+interface InfraCard {
+  level: string;
+  title: string;
+  vendors: string;
+  nodes: number;
+  edges: number;
 }
 
 interface ViewCard {
@@ -659,22 +683,33 @@ const STRIP_GAP = 12;
 const STRIP_H = 136;
 
 /** 질문별 그림이 몇 개 있는지 헤더 단추를 안 눌러도 보이게 지도 위에 카드로 깐다. 섹션을 이만큼 내리고 그 위 빈자리에 둔다 */
-function renderViewStrip(cards: ViewCard[]): { html: string; width: number } {
+function renderViewStrip(cards: ViewCard[], infra?: InfraCard): { html: string; width: number } {
+  const lead = infra !== undefined ? 1 : 0;
+  const infraItem =
+    infra !== undefined
+      ? `<a class="view-card infra-card" href="#/level/${encodeURIComponent(infra.level)}" style="left:0px;width:${STRIP_CARD_W}px">` +
+        `<span class="vc-shape">인프라</span><b>${escapeHtml(infra.title)}</b>` +
+        `<span class="vc-q">${escapeHtml(infra.vendors)}</span>` +
+        `<span class="vc-n">항목 ${infra.nodes}, 연결 ${infra.edges}</span></a>`
+      : '';
   const items = cards
     .map(
       (c, i) =>
-        `<a class="view-card" href="#/level/${encodeURIComponent(c.level)}" style="left:${i * (STRIP_CARD_W + STRIP_GAP)}px;width:${STRIP_CARD_W}px">` +
+        `<a class="view-card" href="#/level/${encodeURIComponent(c.level)}" style="left:${(i + lead) * (STRIP_CARD_W + STRIP_GAP)}px;width:${STRIP_CARD_W}px">` +
         `<span class="vc-shape">${VIEW_SHAPE_NAME[c.projection.shape]}</span>` +
         `<b>${escapeHtml(c.projection.title)}</b>` +
         `<span class="vc-q">${escapeHtml(c.projection.question)}</span>` +
         `<span class="vc-n">${c.summary !== undefined ? escapeHtml(c.summary) : `단계 ${c.steps}${c.actors > 0 ? `, 참여 ${c.actors}` : ''}`}</span></a>`,
     )
     .join('');
+  // 질문별 그림만 있으면 제목이 예전 그대로여야 옛 그림 바이트가 안 바뀐다
+  const heading = lead === 0 ? '질문별 그림' : cards.length === 0 ? '인프라 구성' : '다른 그림';
+  const count = cards.length + lead;
   return {
     html:
-      `<nav class="view-strip" aria-label="질문별 그림" style="left:${CANVAS_PAD_X}px;top:-${STRIP_H}px">` +
-      `<h3>질문별 그림 <span class="n">${cards.length}</span></h3><div class="vs-row">${items}</div></nav>`,
-    width: CANVAS_PAD_X * 2 + cards.length * (STRIP_CARD_W + STRIP_GAP) - STRIP_GAP,
+      `<nav class="view-strip" aria-label="${heading}" style="left:${CANVAS_PAD_X}px;top:-${STRIP_H}px">` +
+      `<h3>${heading} <span class="n">${count}</span></h3><div class="vs-row">${infraItem}${items}</div></nav>`,
+    width: CANVAS_PAD_X * 2 + count * (STRIP_CARD_W + STRIP_GAP) - STRIP_GAP,
   };
 }
 
@@ -843,7 +878,10 @@ function renderLevelSection(spec: CanvasSpec): string {
   const regionNames = layout.regions
     ? ` data-regions="${escapeHtml(JSON.stringify(layout.regions.groups.map((r) => r.name)))}"`
     : '';
-  const strip = spec.viewStrip?.length ? renderViewStrip(spec.viewStrip) : undefined;
+  const strip =
+    spec.viewStrip?.length || spec.infraCard !== undefined
+      ? renderViewStrip(spec.viewStrip ?? [], spec.infraCard)
+      : undefined;
   // 카드 줄은 섹션 위 여백에 있으므로 화면 맞추기가 그 높이와 폭까지 넣어 재게 크기를 늘려 적는다
   const size = strip
     ? `data-w="${Math.max(width, strip.width)}" data-h="${height + STRIP_H}"${regionNames} style="width:${width}px;height:${height}px;margin-top:${STRIP_H}px"`
@@ -2112,6 +2150,163 @@ function renderErSection(
   return viewSection(levelId, projection, width, height, '', links, cards);
 }
 
+const INFRA_VENDOR_NAME: Record<CloudProvider, string> = {
+  aws: 'AWS',
+  gcp: 'Google Cloud',
+  azure: 'Azure',
+};
+// 출처 한 줄이 캔버스 아래에 들어갈 자리
+const INFRA_CREDIT_H = 28;
+
+/** 공식 아이콘을 하나라도 받은 벤더. 출처 줄에 이 벤더만 적는다 */
+function officialVendors(infra: InfraLayout, icons: IconSet | undefined): CloudProvider[] {
+  const used = new Set<CloudProvider>();
+  for (const key of infra.iconKeys) {
+    if (icons?.icons[key]?.source === 'official')
+      used.add(key.slice(0, key.indexOf(':')) as CloudProvider);
+  }
+  return (['aws', 'gcp', 'azure'] as const).filter((v) => used.has(v));
+}
+
+/** 인프라 레벨의 공식 아이콘 수. html 루트 data-icons와 render 응답 iconStats가 같은 수를 쓴다 */
+export function infraIconCounts(
+  infra: InfraLayout,
+  icons: IconSet | undefined,
+): { official: number; fallback: number } {
+  const official = infra.iconKeys.filter((k) => icons?.icons[k]?.source === 'official').length;
+  return { official, fallback: infra.iconKeys.length - official };
+}
+
+function infraCardOf(
+  level: DrillLevel,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+): InfraCard {
+  const infra = level.infra!;
+  const vendors = (['aws', 'gcp', 'azure'] as const).filter(
+    (v) => infra.boxes.some((b) => b.vendor === v) || infra.tiles.some((t) => t.vendor === v),
+  );
+  return {
+    level: level.id,
+    title: level.title,
+    vendors:
+      vendors.length > 0 ? vendors.map((v) => INFRA_VENDOR_NAME[v]).join(', ') : '클라우드 미지정',
+    nodes: level.nodeIds.filter((id) => nodeById.has(id)).length,
+    edges: infra.edges.length,
+  };
+}
+
+/**
+ * 인프라 레벨. 벤더 박스를 겹겹이 두르고 그 안에 아이콘 타일을 세운 뒤 직각 선으로 잇는다(stack-diagram 꼴).
+ * 타일은 `.node`, 선은 `.link`라 서랍과 검색, 강조가 다른 레벨과 같이 돈다. 박스 라벨도 IR 노드면 `.node`라 누르면 서랍이 열린다
+ */
+function renderInfraSection(
+  level: DrillLevel,
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+  icons: IconSet | undefined,
+  maskText: (text: string) => string,
+): string {
+  const infra = level.infra!;
+  const name = (id: string): string => {
+    const n = nodeById.get(id);
+    return n ? nodeName(n) : id;
+  };
+  const official = (key: string | undefined): string | undefined => {
+    const hit = key !== undefined ? icons?.icons[key] : undefined;
+    return hit?.source === 'official' ? hit.dataUri : undefined;
+  };
+  const boxName = new Map(
+    infra.boxes.map(
+      (b) => [b.id, b.nodeId !== undefined ? name(b.nodeId) : maskText(b.label)] as const,
+    ),
+  );
+  const boxes = infra.boxes
+    .map((b) => {
+      const uri = official(b.iconKey);
+      const cloud = b.cls.endsWith(' cloud');
+      const img = uri !== undefined ? `<img src="${uri}" alt="">` : cloud ? iconUse('u-cloud') : '';
+      const label = b.nodeId !== undefined ? name(b.nodeId) : maskText(b.label);
+      const n = b.nodeId !== undefined ? nodeById.get(b.nodeId) : undefined;
+      const head =
+        n !== undefined
+          ? `<span class="g-label node k-${displayKindOf(n)}" data-node-id="${escapeHtml(n.id)}" role="button" tabindex="0" ` +
+            `aria-label="${escapeHtml(`${label}, ${NODE_KIND_TEXT[displayKindOf(n)]}`)}" title="${escapeHtml(n.displayName === undefined ? n.label : `${n.displayName}\n${n.label}`)}">`
+          : `<span class="g-label">`;
+      return (
+        `<div class="group ${b.cls}${img === '' ? ' noimg' : ''}" data-box-id="${escapeHtml(maskText(b.id))}" ` +
+        `style="left:${b.x}px;top:${b.y}px;width:${b.width}px;height:${b.height}px">` +
+        `${head}${img}<span>${escapeHtml(label)}</span></span></div>`
+      );
+    })
+    .join('');
+  const links = infra.edges
+    .map((e) => {
+      const kindText = EDGE_KIND_TEXT[e.kind];
+      const aria = `${kindText}: ${name(e.from)} → ${name(e.to)}`;
+      const cls = `edge ${e.aws ? 'aws' : 'n'}${e.lineStyle === 'dashed' ? ' dash' : ''}`;
+      const { x, y, anchor } = e.labelAt;
+      return (
+        `<g class="link e-${e.kind}" data-from="${escapeHtml(e.from)}" data-to="${escapeHtml(e.to)}" data-link-id="${escapeHtml(e.id)}" ` +
+        `tabindex="0" role="button" aria-label="${escapeHtml(aria)}"><title>${escapeHtml(aria)}</title>` +
+        `<path class="hit" d="${e.d}" stroke-width="12"/>` +
+        `<path class="${cls}" data-edge-id="${escapeHtml(e.id)}" d="${e.d}" marker-end="url(#${e.aws ? 'ia-open' : 'ia-ar'})"/>` +
+        `<text class="el" x="${round2(x)}" y="${round2(y)}" text-anchor="${anchor}">${escapeHtml(kindText)}</text></g>`
+      );
+    })
+    .join('');
+  const tiles = infra.tiles
+    .map((t) => {
+      const n = nodeById.get(t.id);
+      if (n === undefined) return '';
+      const dk = displayKindOf(n);
+      const uri = official(t.iconKey);
+      const engine = datastoreEngine(n);
+      const glyph =
+        uri !== undefined
+          ? `<img src="${uri}" alt="">`
+          : engine !== undefined
+            ? iconUse(`e-${engine}`, `brand b-${engine}`)
+            : iconUse(`i-${dk}`);
+      // AWS 서비스 아이콘은 자기 배경 사각형을 품고 있어 흰 타일 없이 그린다
+      const bare = uri !== undefined && t.vendor === 'aws';
+      const short = chipTextOverride(n) ?? NODE_KIND_SHORT[dk];
+      const role = n.engine !== undefined ? `${short} ${n.engine}` : short;
+      const label = nodeName(n);
+      const home = t.boxId !== undefined ? boxName.get(t.boxId) : undefined;
+      const aria =
+        `${label}, ${chipTextOverride(n) ?? NODE_KIND_TEXT[dk]}${isGuess(n) ? `, ${INFERRED_BADGE} 이름` : ''}` +
+        (home !== undefined ? `, ${home} 안` : '');
+      const tooltip = n.displayName === undefined ? n.label : `${n.displayName}\n${n.label}`;
+      return (
+        `<div class="node inode k-${dk}" data-node-id="${escapeHtml(n.id)}" role="button" tabindex="0" ` +
+        `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" style="left:${t.x}px;top:${t.y}px">` +
+        `<span class="tile${bare ? ' bare' : ''}">${glyph}</span>` +
+        `<span class="name"><span>${escapeHtml(label)}</span></span>` +
+        `<span class="role"><span>${escapeHtml(role)}</span></span></div>`
+      );
+    })
+    .join('');
+  const credited = officialVendors(infra, icons);
+  const width = infra.width;
+  const height = infra.height + (credited.length > 0 ? INFRA_CREDIT_H : 0);
+  const credit =
+    credited.length > 0
+      ? `<p class="infra-credit" style="left:${INFRA_CANVAS_LEFT}px;top:${infra.height}px">` +
+        `아이콘: ${credited.map((v) => ICON_CREDITS[v]).join(', ')}. 상표는 각 소유자의 것이에요.</p>`
+      : '';
+  return (
+    `<section class="level infra-level" data-level-id="${escapeHtml(level.id)}" aria-label="${escapeHtml(level.title)}" ` +
+    `data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px" hidden>` +
+    boxes +
+    `<svg class="links" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" ` +
+    `role="group" aria-label="${escapeHtml(`${level.title} 연결`)}"><defs>` +
+    `<marker id="ia-ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">` +
+    `<path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/></marker>` +
+    `<marker id="ia-open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">` +
+    `<path d="M1 1 L9 5 L1 9" fill="none" stroke="context-stroke" stroke-width="1.5"/></marker></defs>` +
+    `<g class="edges">${links}</g></svg>${tiles}${credit}</section>`
+  );
+}
+
 /** 흐름 단계와 전이마다 열린 질문 수. 카드 배지에 쓴다. 전이 질문은 출발 단계에 센다 */
 function flowQuestionCount(
   questions: readonly UnresolvedQuestion[],
@@ -2381,8 +2576,9 @@ function clientScriptFor(
   sequences: boolean,
   flowBranches: boolean,
   captures: boolean,
+  infra = false,
 ): string {
-  const key = `${vocab.packIds.join(',')}|${rootFlows}|${views}|${mixedBundles}|${sequences}|${flowBranches}|${captures}`;
+  const key = `${vocab.packIds.join(',')}|${rootFlows}|${views}|${mixedBundles}|${sequences}|${flowBranches}|${captures}|${infra}`;
   const hit = clientScripts.get(key);
   if (hit !== undefined) return hit;
   const pick = <T>(table: Record<string, T>, keys: Iterable<string>): Record<string, T> =>
@@ -2417,6 +2613,7 @@ function clientScriptFor(
     sequences,
     ...(flowBranches ? { flowBranches } : {}),
     ...(captures ? { captures } : {}),
+    ...(infra ? { infra } : {}),
     docs: vocab.packIds.includes('knowledge'),
   });
   clientScripts.set(key, script);
@@ -2456,6 +2653,8 @@ interface PageSpec {
   ers?: boolean;
   /** 라벨 단 묶음 테두리가 있으면 true. 그때만 그 스타일을 싣는다 */
   frameLabels?: boolean;
+  /** 인프라 레벨이 있을 때 그 아이콘 수. 있을 때만 인프라 스타일과 코드를 싣는다 */
+  infra?: { official: number; fallback: number };
 }
 
 function renderPage({
@@ -2471,6 +2670,7 @@ function renderPage({
   blueprints = false,
   ers = false,
   frameLabels = false,
+  infra,
 }: PageSpec): string {
   const title = viewTitle(ir);
   const vocab = irVocabulary(ir);
@@ -2497,16 +2697,18 @@ function renderPage({
   const hasCaptures = ir.nodes.some((n) => n.capture !== undefined);
   return [
     '<!doctype html>',
-    '<html lang="ko">',
+    infra !== undefined
+      ? `<html lang="ko" data-icons="official:${infra.official} fallback:${infra.fallback}">`
+      : '<html lang="ko">',
     '<head>',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}${ers ? `\n${ER_CSS}` : ''}${frameLabels ? `\n${FRAME_LABEL_CSS}` : ''}</style>`,
+    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}${ers ? `\n${ER_CSS}` : ''}${frameLabels ? `\n${FRAME_LABEL_CSS}` : ''}${infra !== undefined ? `${hasViews ? '' : `\n${VIEW_STRIP_CSS}`}\n${INFRA_CSS}` : ''}</style>`,
     '</head>',
     '<body>',
-    renderIconSprite(vocab),
+    renderIconSprite(vocab, infra !== undefined ? { infra: true } : {}),
     renderBar(
       title,
       drill,
@@ -2557,7 +2759,7 @@ function renderPage({
       ? '<div id="flow-pop" class="pop" role="dialog" aria-label="흐름 고르기" tabindex="-1" hidden><h3>흐름</h3><ul class="flow-list"></ul></div>'
       : '') + (hasViews ? `\n${renderViewsPop(views)}` : ''),
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
-    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews, mixedBundles, hasSequences, flowBranches, hasCaptures)}</script>`,
+    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews, mixedBundles, hasSequences, flowBranches, hasCaptures, infra !== undefined)}</script>`,
     '</body>',
     '</html>',
     '',
@@ -2739,60 +2941,68 @@ export function renderDrilldownHtml(
     .filter(({ flow }) => flow.service === undefined)
     .map(({ level, flow }) => ({ level: level.id, title: flow.title }))
     .concat(views.map((v) => ({ level: v.level, title: v.projection.title })));
+  const infraLevel = levels.find((l) => l.kind === 'infra' && l.infra !== undefined);
   const sections = levels
     .map((l, i) =>
-      renderLevelSection({
-        levelId: l.id,
-        svgId: `canvas-${i}`,
-        title: l.title,
-        nodes: l.nodeIds.map((id) => nodeById.get(id)).filter((n): n is ArchitectureNode => !!n),
-        edges: l.edges,
-        layout: l.layout,
-        enter: drilldown.enter,
-        ...(l.focusId !== undefined ? { focusId: l.focusId } : {}),
-        hidden: l.id !== ROOT_LEVEL_ID,
-        services: base.services,
-        microHosts: new Set(base.microHosts ?? []),
-        ...docCover,
-        flows: flowCount,
-        ...(l.id === ROOT_LEVEL_ID && l.nodeIds.length === 0 && rootFlowLinks.length > 0
-          ? { emptyLinks: rootFlowLinks }
-          : {}),
-        ...(l.id === ROOT_LEVEL_ID && views.length > 0
-          ? {
-              viewStrip: views.map((v) => {
-                const drawn = v.projection.messages.filter((m) => drawnMessages.has(m.id));
-                const life = lifecycleOf(v.projection);
-                const bp = blueprintOf(v.projection);
-                const er = erOf(v.projection);
-                return {
-                  ...v,
-                  steps: drawn.length,
-                  actors:
-                    v.projection.participants?.length ??
-                    new Set(drawn.flatMap((m) => [m.from, m.to])).size,
-                  ...(life !== undefined
-                    ? {
-                        summary: `상태 ${life.model.states.length}, 전이 ${life.model.transitions.length}`,
-                      }
-                    : {}),
-                  ...(bp !== undefined
-                    ? {
-                        summary: `단계 ${bp.model.columns.length}, 빈 칸 ${
-                          bp.model.columns
-                            .flatMap((c) => Object.values(c.cells))
-                            .filter((items) => items.length === 0).length
-                        }`,
-                      }
-                    : {}),
-                  ...(er !== undefined
-                    ? { summary: `테이블 ${er.tables.length}, 외래 키 ${er.links.length}` }
-                    : {}),
-                };
-              }),
-            }
-          : {}),
-      }),
+      l.id === INFRA_LEVEL_ID && l.infra !== undefined
+        ? renderInfraSection(l, nodeById, opts.icons, maskText)
+        : renderLevelSection({
+            levelId: l.id,
+            svgId: `canvas-${i}`,
+            title: l.title,
+            nodes: l.nodeIds
+              .map((id) => nodeById.get(id))
+              .filter((n): n is ArchitectureNode => !!n),
+            edges: l.edges,
+            layout: l.layout,
+            enter: drilldown.enter,
+            ...(l.focusId !== undefined ? { focusId: l.focusId } : {}),
+            hidden: l.id !== ROOT_LEVEL_ID,
+            services: base.services,
+            microHosts: new Set(base.microHosts ?? []),
+            ...docCover,
+            flows: flowCount,
+            ...(l.id === ROOT_LEVEL_ID && l.nodeIds.length === 0 && rootFlowLinks.length > 0
+              ? { emptyLinks: rootFlowLinks }
+              : {}),
+            ...(l.id === ROOT_LEVEL_ID && infraLevel !== undefined
+              ? { infraCard: infraCardOf(infraLevel, nodeById) }
+              : {}),
+            ...(l.id === ROOT_LEVEL_ID && views.length > 0
+              ? {
+                  viewStrip: views.map((v) => {
+                    const drawn = v.projection.messages.filter((m) => drawnMessages.has(m.id));
+                    const life = lifecycleOf(v.projection);
+                    const bp = blueprintOf(v.projection);
+                    const er = erOf(v.projection);
+                    return {
+                      ...v,
+                      steps: drawn.length,
+                      actors:
+                        v.projection.participants?.length ??
+                        new Set(drawn.flatMap((m) => [m.from, m.to])).size,
+                      ...(life !== undefined
+                        ? {
+                            summary: `상태 ${life.model.states.length}, 전이 ${life.model.transitions.length}`,
+                          }
+                        : {}),
+                      ...(bp !== undefined
+                        ? {
+                            summary: `단계 ${bp.model.columns.length}, 빈 칸 ${
+                              bp.model.columns
+                                .flatMap((c) => Object.values(c.cells))
+                                .filter((items) => items.length === 0).length
+                            }`,
+                          }
+                        : {}),
+                      ...(er !== undefined
+                        ? { summary: `테이블 ${er.tables.length}, 외래 키 ${er.links.length}` }
+                        : {}),
+                    };
+                  }),
+                }
+              : {}),
+          }),
     )
     .concat(
       flowLevels.map(({ level, flow }) =>
@@ -2874,5 +3084,6 @@ export function renderDrilldownHtml(
     ...(levels.some((l) => l.layout.frames?.some((f) => f.label !== undefined))
       ? { frameLabels: true }
       : {}),
+    ...(infraLevel !== undefined ? { infra: infraIconCounts(infraLevel.infra!, opts.icons) } : {}),
   });
 }

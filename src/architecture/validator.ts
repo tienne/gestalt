@@ -8,6 +8,7 @@ import { classifyCliCommand } from '../utils/read-only-tools.js';
 import { blueprintCounts, blueprintOverBudget, deriveBlueprint } from './blueprint-layout.js';
 import { deriveEr, erCounts, erOverBudget, isUnconfirmedFk } from './er-layout.js';
 import { deriveLifecycle, lifecycleCounts, lifecycleOverBudget } from './lifecycle-layout.js';
+import { resolveInfraPlacement } from './infra-placement.js';
 import { indexMicroApps } from './micro-app.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, packById } from './packs/index.js';
 import { KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
@@ -15,6 +16,7 @@ import {
   FLOW_REF_KINDS,
   HARNESS_KINDS,
   PARENT_KINDS,
+  PLACED_IN_TARGET_KINDS,
   hasCardDescription,
   type ArchitectureEdge,
   type ArchitectureFlow,
@@ -41,6 +43,8 @@ export type ArchitectureValidationErrorCode =
   | 'LIVE_COMMAND_NOT_READ_ONLY'
   | 'ACCOUNT_NOT_FOUND'
   | 'INVALID_ACCOUNT_KIND'
+  | 'PLACED_IN_NOT_FOUND'
+  | 'INVALID_PLACED_IN_KIND'
   | 'CLOUD_ID_IN_ID'
   | 'GROUP_MEMBER_NOT_FOUND'
   | 'DUPLICATE_GROUP_ID'
@@ -104,7 +108,16 @@ export interface ArchitectureValidationError {
 export type ArchitectureValidationWarning =
   | DescriptionWarning
   | BudgetWarning
-  | ExcerptMismatchWarning;
+  | ExcerptMismatchWarning
+  | InfraPlacementWarning;
+
+/** 노드에 적은 provider나 region이 placedIn, parent, account에서 물려받을 값과 다르다. 그림은 노드에 적은 값을 따른다 */
+export interface InfraPlacementWarning {
+  code: 'INFRA_PLACEMENT_CONFLICT';
+  message: string;
+  field: 'provider' | 'region';
+  nodeIds: string[];
+}
 
 export interface DescriptionWarning {
   code: 'NODE_DESCRIPTION_MISSING';
@@ -428,6 +441,44 @@ function checkAccounts(ir: ArchitectureIr, errors: ArchitectureValidationError[]
       });
     }
   }
+}
+
+function checkPlacedIn(ir: ArchitectureIr, errors: ArchitectureValidationError[]): void {
+  const byId = new Map(ir.nodes.map((n) => [n.id, n]));
+  for (const node of ir.nodes) {
+    if (node.placedIn === undefined) continue;
+    const target = byId.get(node.placedIn);
+    if (!target) {
+      errors.push({
+        code: 'PLACED_IN_NOT_FOUND',
+        message: `노드 "${node.id}"의 placedIn "${node.placedIn}"가 nodes에 없다.`,
+        nodeId: node.id,
+      });
+    } else if (!PLACED_IN_TARGET_KINDS.includes(target.kind)) {
+      errors.push({
+        code: 'INVALID_PLACED_IN_KIND',
+        message: `노드 "${node.id}"의 placedIn은 ${PLACED_IN_TARGET_KINDS.join(', ')} 노드여야 하는데 ${target.kind}다.`,
+        nodeId: node.id,
+      });
+    }
+  }
+}
+
+// 노드마다 한 건씩 내면 큰 그림에서 응답이 그만큼 불어나 필드 하나에 묶는다
+function infraPlacementWarnings(nodes: readonly ArchitectureNode[]): InfraPlacementWarning[] {
+  const { conflicts } = resolveInfraPlacement(nodes);
+  return (['provider', 'region'] as const).flatMap((field) => {
+    const ids = conflicts[field];
+    if (ids.length === 0) return [];
+    return [
+      {
+        code: 'INFRA_PLACEMENT_CONFLICT' as const,
+        message: `${ids.length}개 노드의 ${field}가 placedIn, parent, account에서 물려받을 값과 다르다. 그림은 노드에 적은 값을 따른다.`,
+        field,
+        nodeIds: ids,
+      },
+    ];
+  });
 }
 
 // id는 HTML 속성과 주소창 해시에 그대로 실려 공유본에서도 못 가린다. 계정 ID와 배포 ID는 label에만 두고 id는 별칭으로 짓게 한다
@@ -1570,6 +1621,7 @@ export function validateArchitectureIr(
   checkDocRepos(ir, errors);
   checkParents(ir, errors);
   checkAccounts(ir, errors);
+  checkPlacedIn(ir, errors);
   checkGroups(ir, errors);
   checkStages(ir, errors);
   checkIdsForCloudIds(ir, errors);
@@ -1759,6 +1811,7 @@ export function validateArchitectureIr(
       warnings: [
         ...excerptWarnings,
         ...descriptionWarnings(ir.nodes, drawableNodeIds),
+        ...infraPlacementWarnings(ir.nodes),
         ...(projectionResult !== undefined
           ? budgetWarnings(projectionResult.projections, projectionResult.drawable, drawnFlows)
           : []),
@@ -1968,6 +2021,7 @@ function maskNodeText(node: ArchitectureNode): ArchitectureNode {
     label: mask(node.label),
     ...(node.displayName !== undefined ? { displayName: mask(node.displayName) } : {}),
     ...(node.description !== undefined ? { description: mask(node.description) } : {}),
+    ...(node.region !== undefined ? { region: mask(node.region) } : {}),
     ...(doc !== undefined ? { doc: maskDocInfo(doc) } : {}),
     ...(node.columns !== undefined
       ? {
