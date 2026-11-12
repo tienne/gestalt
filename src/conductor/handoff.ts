@@ -225,7 +225,14 @@ export interface HandoffInput {
   notes: string;
 }
 
-/** `/loop` 뒤 원문 꼴. 간격 하나와 컨덕터 스킬 호출만 받는다 */
+/** tick 텍스트 출력에 붙일 인계 안내 한 줄. 알릴 게 없으면 undefined */
+export function handoffNotice(status: HandoffStatus | undefined): string | undefined {
+  if (status?.due) return `인계할 때예요: ${status.reason ?? ''}`;
+  if (status?.reason) return `인계 판정 못 함: ${status.reason}`;
+  return undefined;
+}
+
+/** `/loop` 뒤 원문 꼴. 간격(있으면 하나)과 컨덕터 스킬 호출만 받는다 */
 const LOOP_PROMPT_RE = /^(?:\d+[smhd]\s+)?\/gestalt:conductor(?:\s|$)/;
 const LOOP_PROMPT_MAX = 500;
 export const LOOP_PROMPT_REJECTED =

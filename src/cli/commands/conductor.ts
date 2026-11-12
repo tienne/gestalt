@@ -25,6 +25,7 @@ import {
 import { existingRepoContext, repoContextPath } from '../../conductor/context.js';
 import {
   currentSessionId,
+  handoffNotice,
   handoffRecordPath,
   handoffStatus,
   isSessionId,
@@ -446,11 +447,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
       report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
     const handoff = sessionId ? sessionHandoff(ctx, sessionId) : undefined;
     if (opts.json) return print(handoff ? { ...report, handoff } : report);
-    const handoffLine = handoff?.due
-      ? `인계할 때예요: ${handoff.reason ?? ''}`
-      : handoff?.reason
-        ? `인계 판정 못 함: ${handoff.reason}`
-        : undefined;
+    const handoffLine = handoffNotice(handoff);
     if (report.skipped) {
       console.log(`건너뛰었어요${report.errors[0] ? `: ${report.errors[0]}` : ' (감시 간격 안)'}`);
       if (handoffLine) console.log(handoffLine);
@@ -498,8 +495,8 @@ export interface ConductorHandoffOptions extends ConductorCommonOptions {
 /**
  * 컨덕터 세션을 새 세션으로 넘긴다. 인계 파일을 쓰고 오르카가 있으면 새 세션을 띄워 첫 지시로 넘긴다.
  * 오르카가 없거나 띄우기가 실패하면 파일만 남기고 사람에게 전할 문장을 돌려준다.
- * 띄우기 전에 이 세션을 인계한 것으로 적어 두고 이후 tick을 거절한다. 띄운 뒤 기록 쓰기가 실패해도
- * 거절은 이미 걸려 있어 컨덕터가 둘 돌지 않는다.
+ * 띄우기 전에 이 세션을 인계한 것으로 적어 두고 이후 tick을 거절한다. 띄운 뒤 결과를 못 덮어써도
+ * 거절은 이미 걸려 있어 컨덕터가 둘 돌지 않는다. 그때는 stderr 한 줄과 결과의 recordError로 알린다.
  */
 export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Promise<void> {
   try {
@@ -529,6 +526,7 @@ export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Pr
       cwd: process.cwd(),
       ...(orca ? { orcaCommand: orca } : {}),
     });
+    let recordError: string | undefined;
     try {
       recordHandoff(ctx.store.dir, sessionId, {
         at: now.toISOString(),
@@ -536,10 +534,12 @@ export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Pr
         launched: outcome.launched,
         detail: outcome.detail,
       });
-    } catch {
-      // 거절 기록은 위에서 남겼다. 결과만 못 덮어쓴 것이라 사람에게 전할 문장은 그대로 낸다
+    } catch (e) {
+      // 거절은 위의 기록으로 이미 걸려 있다. handoff.json에 '띄우는 중'이 남는다는 것만 알리고 문장은 그대로 낸다
+      recordError = (e as Error).message;
+      console.error(`인계 기록 갱신 실패: ${recordError}`);
     }
-    const result = { sessionId, file, ...outcome };
+    const result = { sessionId, file, ...outcome, ...(recordError ? { recordError } : {}) };
     if (opts.json) return print(result);
     console.log(`인계 파일: ${file}`);
     console.log(outcome.detail);

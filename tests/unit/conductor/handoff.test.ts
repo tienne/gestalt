@@ -23,6 +23,7 @@ import {
 } from '../../../src/cli/commands/conductor.js';
 import {
   contextUsage,
+  handoffNotice,
   handoffStatus,
   isConductorLoopPrompt,
   launchHandoff,
@@ -396,5 +397,60 @@ describe('tick과 handoff 명령', () => {
       conductorTickCommand({ stateDir, json: true, force: true, queue: false, prWatch: false }),
     ).rejects.toThrow('exit 1');
     expect(err.at(-1)).toContain('인계했어요');
+  });
+  it('띄운 뒤 결과를 못 덮어쓰면 띄우는 중 기록이 남고 recordError로 알린다', async () => {
+    if (process.getuid?.() === 0) return;
+    const out: string[] = [];
+    const err: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((v: unknown) => void out.push(String(v)));
+    vi.spyOn(console, 'error').mockImplementation((v: unknown) => void err.push(String(v)));
+    vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+    const stateDir = tempStateDir();
+    const sid = randomUUID();
+    vi.stubEnv('CLAUDE_CODE_SESSION_ID', sid);
+    vi.stubEnv('GESTALT_CONDUCTOR_WORKER_ID', '');
+    await conductorTickCommand({ stateDir, json: true, force: true, queue: false, prWatch: false });
+
+    const dir = join(resolve(stateDir), 'sessions', sid);
+    // 가짜 오르카가 띄우기는 성공으로 끝내되 세션 디렉토리를 읽기 전용으로 바꿔 결과를 못 덮어쓰게 한다
+    const fakeOrca = join(base, 'fake-orca');
+    writeFileSync(fakeOrca, `#!/bin/sh\nchmod 555 '${dir}'\nexit 0\n`);
+    chmodSync(fakeOrca, 0o755);
+    vi.stubEnv('ORCA_CLI_COMMAND', fakeOrca);
+    const notes = join(base, 'notes.md');
+    writeFileSync(notes, '- 규칙');
+    try {
+      await conductorHandoffCommand({ stateDir, json: true, notesFile: notes });
+      const handed = JSON.parse(out.at(-1)!) as { launched: boolean; recordError?: string };
+      expect(handed.launched).toBe(true);
+      expect(handed.recordError).toBeTruthy();
+      expect(err.some((l) => l.includes('인계 기록 갱신 실패'))).toBe(true);
+      const record = JSON.parse(readFileSync(join(dir, 'handoff.json'), 'utf-8')) as {
+        launched: boolean;
+        detail: string;
+      };
+      expect(record).toMatchObject({ launched: false, detail: '띄우는 중' });
+      await expect(
+        conductorTickCommand({ stateDir, json: true, force: true, queue: false, prWatch: false }),
+      ).rejects.toThrow('exit 1');
+    } finally {
+      chmodSync(dir, 0o755);
+    }
+  });
+});
+
+describe('handoffNotice', () => {
+  it('인계할 때와 판정 못 할 때만 한 줄을 낸다', () => {
+    const seed = { sessionId: 's', compactions: 1, thresholdPercent: 70 };
+    expect(handoffNotice({ ...seed, due: true, reason: '두 번째 컴팩트' })).toBe(
+      '인계할 때예요: 두 번째 컴팩트',
+    );
+    expect(handoffNotice({ ...seed, due: false, reason: '사용량을 못 읽었어요' })).toBe(
+      '인계 판정 못 함: 사용량을 못 읽었어요',
+    );
+    expect(handoffNotice({ ...seed, due: false })).toBeUndefined();
+    expect(handoffNotice(undefined)).toBeUndefined();
   });
 });
