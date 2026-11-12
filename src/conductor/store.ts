@@ -51,6 +51,7 @@ export function emptySnapshot(): ConductorSnapshot {
     jiraTransitions: [],
     slackPosted: {},
     appliedReports: {},
+    reports: {},
     ticks: 0,
     eventCount: 0,
   };
@@ -111,6 +112,10 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       return;
     case 'report-applied':
       s.appliedReports[e.name] = e.at;
+      if (e.report) {
+        const orderId = s.workers[e.report.workerId]?.orderId;
+        if (orderId) (s.reports[orderId] ??= []).push({ ...e.report, at: e.at });
+      }
       return;
     case 'tick':
       s.ticks += 1;

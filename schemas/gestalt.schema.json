@@ -237,6 +237,18 @@
           "description": "Scope for orders that do not name one. Read only from ~/.gestalt/conductor.json; a repo gestalt.json value is ignored",
           "default": "approval"
         },
+        "defaultAgent": {
+          "type": "string",
+          "pattern": "^\\S+$",
+          "description": "Default Orca worker agent. Read only from ~/.gestalt/conductor.json; a repo gestalt.json value is ignored",
+          "default": "claude"
+        },
+        "repoAgents": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "pattern": "^\\S+$" },
+          "description": "Orca worker agent per repo (owner/name). Read only from ~/.gestalt/conductor.json; a repo gestalt.json value is ignored",
+          "default": {}
+        },
         "resultMaxChars": {
           "type": "integer",
           "minimum": 200,

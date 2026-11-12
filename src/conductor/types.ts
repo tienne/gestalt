@@ -62,6 +62,7 @@ export interface Order {
   skillChain: string[];
   /** 사용자가 워커 종류를 직접 정했을 때. 비우면 런처가 handoff 표로 고른다 */
   workerKind?: WorkerKind;
+  agent?: string;
   status: OrderStatus;
   createdAt: string;
   updatedAt: string;
@@ -110,6 +111,7 @@ export interface Worker {
   id: string;
   orderId: string;
   kind: WorkerKind;
+  agent?: string;
   /** 워커는 하위 워커를 못 띄운다. 이 값이 conductor가 아니면 저장소가 거절한다 */
   spawnedBy: 'conductor';
   /** 같은 주문에서 몇 번째로 띄운 워커인지. 1부터 센다 */
@@ -242,7 +244,7 @@ export type ConductorEvent =
   /** clearedReports는 이번 tick이 inbox에서 지운 보고 파일이다. 적용 기록에서 뺀다 */
   | { type: 'tick'; at: string; clearedReports?: string[] }
   /** inbox의 보고 파일 하나를 적용했다. 지우기에 실패해 다음 tick에 다시 보여도 또 적용하지 않는다 */
-  | { type: 'report-applied'; at: string; name: string }
+  | { type: 'report-applied'; at: string; name: string; report?: WorkerReport }
   /** 앞 프로세스가 줄 중간에 죽은 꼬리를 개행으로 끊었다는 표시. replay가 바로 앞 깨진 줄을 건너뛴다 */
   | { type: 'tail-repaired'; at: string };
 
@@ -257,6 +259,7 @@ export interface ConductorSnapshot {
   slackPosted: Record<string, string>;
   /** 적용한 보고 파일 이름과 시각 */
   appliedReports: Record<string, string>;
+  reports: Record<string, (WorkerReport & { at: string })[]>;
   ticks: number;
   /** 마지막 tick 시각. 감시 주기보다 자주 돌지 않게 막는 데 쓴다 */
   lastTickAt?: string;

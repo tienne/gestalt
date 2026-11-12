@@ -34,6 +34,8 @@ const base: ConductorConfig = {
   resultMaxChars: 2000,
   accounts: {},
   repoPaths: {},
+  defaultAgent: 'claude',
+  repoAgents: {},
 };
 
 interface Fake {

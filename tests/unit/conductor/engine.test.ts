@@ -38,6 +38,8 @@ const config: ConductorConfig = {
   resultMaxChars: 2000,
   accounts: {},
   repoPaths: {},
+  defaultAgent: 'claude',
+  repoAgents: {},
 };
 
 function fakeLauncher(kind: WorkerKind) {
