@@ -1,6 +1,6 @@
 import { assert, test } from 'orca/testing'
 import { request } from 'node:http'
-import { mobileFragment, mobilePage } from './mobile'
+import { mobileFragment, mobilePage, shortPr } from './mobile'
 import { allowedHost, MobileServer } from './mobile-server'
 import type { ConductorView, OrderView } from './protocol'
 
@@ -53,12 +53,13 @@ test('확인 대기는 맨 위에 모으고 처리는 다른 곳에서 한다고
     }),
     NOW
   )
-  has(html, '<h2>확인 대기 1</h2>')
-  has(html, 'web / 결제 버튼')
+  has(html, '<h2>확인 대기</h2><span class="count">1</span>')
+  has(html, '<div class="gate-repo">web</div>')
+  has(html, '<div class="gate-title">결제 버튼</div>')
   has(html, '1시간 전')
   has(html, '데스크톱 오르카에서 해요')
   lacks(html, '<button')
-  assert.equal(html.indexOf('확인 대기 1</h2>') < html.indexOf('<h2>레포</h2>'), true)
+  assert.equal(html.indexOf('<h2>확인 대기</h2>') < html.indexOf('<h2>레포</h2>'), true)
 })
 
 test('끝난 주문은 접힌 묶음에 최근 것부터 넣고 진행 중인 레포는 펼쳐 둔다', () => {
@@ -91,6 +92,12 @@ test('레포 이름 옆에 오르카 프로젝트 이름을 붙이고 레포 이
   )
   has(html, '<span class="project">&lt;웹&gt; 프론트</span>')
   assert.equal(html.split('class="project"').length, 2, '레포 이름과 같은 프로젝트 이름은 안 붙인다')
+})
+
+test('PR은 카드가 레포를 알려 주니 번호만 남기고 모르는 꼴은 그대로 둔다', () => {
+  assert.equal(shortPr('tienne/web#453'), '#453')
+  assert.equal(shortPr('https://github.com/tienne/web/pull/12/'), '#12')
+  assert.equal(shortPr('draft'), 'draft')
 })
 
 test('CLI가 실패하면 이유를 보여 주고 저장소가 없으면 그 폴더를 알려 준다', () => {
