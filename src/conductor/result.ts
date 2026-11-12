@@ -110,7 +110,7 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
     else
       log(`워커 ${workerId} 결과의 prRef를 못 알아봐 버려요: ${r['prRef'].trim().slice(0, 200)}`);
   }
-  if (r['merged'] === true) report.merged = true;
+  if (typeof r['merged'] === 'boolean') report.merged = r['merged'];
 
   const stop = r['stopReason'];
   if (stop !== undefined) {

@@ -305,12 +305,12 @@ async function ingestReports(
           deps.config.resultMaxChars,
         );
         await applyReport(store, deps, report, r);
+        store.append({ type: 'report-applied', at: report.at, name: f, report: r });
       } catch (err) {
         // 지우면 done merged나 needs 같은 보고를 되살릴 길이 없다. 원문을 옮겨 두고 사람이 본다
         report.errors.push(`결과 ${f}: ${message(err)} (${moveToFailed(dir, f)})`);
         continue;
       }
-      store.append({ type: 'report-applied', at: report.at, name: f });
     }
     try {
       unlinkSync(path);
@@ -521,10 +521,21 @@ async function launchQueued(
     }
 
     const resume = resumeLaunchFor(store, order, deps.readShip);
+    const previous = store.workersOf(order.id).at(-1);
     const worker: Worker = {
       id: newId('wrk'),
       orderId: order.id,
       kind,
+      ...(kind === 'orca-worktree'
+        ? {
+            agent:
+              order.agent ??
+              (previous?.kind === 'orca-worktree' ? (previous.agent ?? 'claude') : undefined) ??
+              deps.config.repoAgents[order.repo] ??
+              deps.config.defaultAgent ??
+              'claude',
+          }
+        : {}),
       spawnedBy: 'conductor',
       attempt: store.workersOf(order.id).length + 1,
       status: 'starting',

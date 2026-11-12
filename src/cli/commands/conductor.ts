@@ -22,7 +22,7 @@ import {
   type EngineDeps,
 } from '../../conductor/engine.js';
 import { resolveGate } from '../../conductor/gates.js';
-import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS } from '../../conductor/intake.js';
+import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS, oneLine } from '../../conductor/intake.js';
 import type { DeploySignal } from '../../conductor/jira.js';
 import {
   assertCanSpawn,
@@ -46,6 +46,7 @@ import {
   JIRA_STATUSES,
   ORDER_SCOPES,
   WORKER_KINDS,
+  TERMINAL_ORDER_STATUSES,
   type IntakeKind,
   type IssueType,
   type JiraStatus,
@@ -99,6 +100,7 @@ function launchersFor(
   if (orca) {
     launchers['orca-worktree'] = new OrcaLauncher({
       orcaCommand: orca,
+      agent: ctx.config.defaultAgent,
       promptDir,
       repoPaths: ctx.config.repoPaths,
     });
@@ -143,6 +145,7 @@ export interface ConductorOrderAddOptions extends ConductorCommonOptions {
   scope?: string;
   skills?: string;
   workerKind?: string;
+  agent?: string;
   source?: string;
   sourceRef?: string;
   issueKey?: string;
@@ -160,6 +163,7 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
       ctx.store,
       {
         source,
+        ...(opts.agent !== undefined ? { agent: opts.agent } : {}),
         repo: opts.repo,
         title: opts.title,
         ...(opts.sourceRef ? { sourceRef: opts.sourceRef } : {}),
@@ -194,6 +198,48 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
   });
 }
 
+export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptions): void {
+  run(() => {
+    const { store } = open(opts);
+    const order = store.order(id);
+    if (!order) throw new Error(`모르는 주문이에요: ${id}`);
+    const workers = store.workersOf(id);
+    const reports = store.snapshot.reports[id] ?? [];
+    const gates = Object.values(store.snapshot.gates).filter((g) => g.orderId === id);
+    const bypasses = store.snapshot.bypasses.filter((b) => b.orderId === id);
+    const refs = [...new Set(reports.flatMap((r) => r.refs))];
+    if (opts.json) return print({ order, workers, reports, refs, gates, bypasses });
+    console.log(`${order.id}  ${order.title}`);
+    console.log(`레포: ${order.repo}  범위: ${order.scope}  상태: ${order.status}`);
+    console.log(`설명: ${order.description ?? '없음'}`);
+    console.log(`체인: ${order.skillChain.join(' → ')}`);
+    console.log(`PR: ${order.prRef ?? '없음'}`);
+    if (order.agent) console.log(`주문 에이전트: ${order.agent}`);
+    console.log('워커:');
+    for (const w of workers)
+      console.log(
+        `  ${w.id}  ${w.kind}  에이전트: ${w.agent ?? (w.kind === 'orca-worktree' ? 'claude (기존 기록)' : '호스트에서 결정')}  ${w.status}`,
+      );
+    console.log('보고 이력:');
+    for (const r of reports) {
+      console.log(`  ${r.at}  ${r.workerId}  ${r.status}  ${r.summary}`);
+      if (r.skill) console.log(`    스킬: ${r.skill}`);
+      if (r.prRef) console.log(`    PR: ${r.prRef}`);
+      if (r.merged !== undefined) console.log(`    머지: ${r.merged}`);
+      if (r.stopReason) console.log(`    중단: ${r.stopReason}`);
+      if (r.need) console.log(`    요청: ${r.need.kind}  ${r.need.detail}`);
+    }
+    console.log(`refs: ${refs.join(', ') || '없음'}`);
+    console.log('gate:');
+    for (const g of gates)
+      console.log(
+        `  ${g.id}  ${g.type}  ${g.status}  ${g.decision ?? '-'}  ${g.reason}${g.answer ? `  답: ${g.answer}` : ''}`,
+      );
+    console.log('bypass:');
+    for (const b of bypasses) console.log(`  ${b.at}  ${b.need}  ${b.action}`);
+  });
+}
+
 export interface ConductorStatusOptions extends ConductorCommonOptions {
   /** 끝난 주문도 보여준다. bypass로 넘긴 일을 사후 보고할 때 쓴다 */
   all?: boolean;
@@ -223,6 +269,9 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
           ...(o.workerId ? { worker: o.workerId } : {}),
           ...(o.prRef ? { pr: o.prRef } : {}),
           ...(o.issueKey ? { issue: o.issueKey } : {}),
+          ...(opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
+            ? { lastSummary: store.snapshot.reports[o.id]?.at(-1)?.summary ?? null }
+            : {}),
           bypasses: bypassesOf.get(o.id) ?? [],
         })),
         unassignedBypasses: bypassesOf.get('') ?? [],
@@ -236,7 +285,13 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
     }
     console.log(`마지막 tick: ${store.snapshot.lastTickAt ?? '없음'}`);
     for (const o of orders) {
-      console.log(`${o.id}  ${o.status}  ${o.scope}  ${o.repo}  ${o.title}`);
+      const summary =
+        opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
+          ? store.snapshot.reports[o.id]?.at(-1)?.summary
+          : undefined;
+      console.log(
+        `${o.id}  ${o.status}  ${o.scope}  ${o.repo}  ${o.title}${summary ? `  ${oneLine(summary, 100)}` : ''}`,
+      );
       for (const b of bypassesOf.get(o.id) ?? [])
         console.log(`  bypass ${b.at}  ${b.need}  ${b.action}`);
     }

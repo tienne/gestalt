@@ -86,6 +86,7 @@ export interface IntakeInput {
   issueType?: IssueType;
   skillChain?: string[];
   workerKind?: WorkerKind;
+  agent?: string;
   explicitJiraStatus?: JiraStatus;
   prRef?: string;
   parentOrderId?: string;
@@ -122,6 +123,8 @@ export function intakeOrder(
 ): IntakeResult {
   if (!REPO_RE.test(input.repo))
     throw new Error(`레포는 owner/name 꼴로 적어 주세요: ${input.repo}`);
+  if (input.agent !== undefined && !/^\S+$/u.test(input.agent))
+    throw new Error('agent는 공백 없는 에이전트 id로 적어 주세요');
   const title = oneLine(input.title);
   if (!title) throw new Error('주문 제목이 비었어요');
   const trusted = opts.trusted === true || input.source === 'spoken';
@@ -155,6 +158,7 @@ export function intakeOrder(
     ...(input.issueKey ? { issueKey: input.issueKey } : {}),
     ...(input.issueType ? { issueType: input.issueType } : {}),
     ...(input.workerKind ? { workerKind: input.workerKind } : {}),
+    ...(input.agent !== undefined ? { agent: input.agent } : {}),
     ...(input.explicitJiraStatus ? { explicitJiraStatus: input.explicitJiraStatus } : {}),
     ...(input.prRef ? { prRef: input.prRef } : {}),
     ...(input.parentOrderId ? { parentOrderId: input.parentOrderId } : {}),
