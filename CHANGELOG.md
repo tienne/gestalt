@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **컨덕터 PR 감시를 레포마다 켜는 방식으로 바꿨어요.** 지금까지는 `repoPaths`에 레포가 하나라도 있으면 tick이 PR 감시를 켜서 레포를 추가하자마자 열린 PR 전부(오래된 draft 포함)에 `리뷰 답글:` 주문이 생겼어요. 사람이 다른 세션에서 직접 맡은 PR까지 주문으로 잡혔고요.
+  - `~/.gestalt/conductor.json`에 `prWatchRepos`(`owner/name` 배열, 기본 빈 배열)를 두고 거기 적은 레포만 감시해요. `repoPaths`는 경로를 알려 주는 용도로만 남겨요.
+  - `prWatchRepos`에 있는데 `repoPaths`에 경로가 없으면 그 레포만 빼고 tick 보고의 `errors`에 이유를 남겨요.
+  - 레포 `gestalt.json`의 `conductor.prWatchRepos`는 받지 않아요. 남의 레포 안에서 세션을 열었다고 감시 대상이 바뀌면 안 돼서요.
+  - **기존 사용자는 업데이트하면 PR 감시가 꺼져요.** 다시 켜려면 감시할 레포를 `prWatchRepos`에 적어 주세요. `--no-pr-watch` 플래그는 그대로예요.
+
 ## [0.131.0] - 2026-11-12
 
 ### Added

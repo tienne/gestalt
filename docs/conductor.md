@@ -39,10 +39,10 @@ hostActions ──► 컨덕터 호스트 세션이 실행 (서브에이전트, 
 
 설정은 두 파일에 나눠 적는다.
 
-| 파일                                      | 적는 칸                                                                                                    |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `~/.gestalt/conductor.json` (사용자 전역) | `defaultScope`, `defaultAgent`, `repoAgents`, `accounts`, `repoPaths`. 상태 저장소를 옮기려면 `stateDir`도 |
-| 레포의 `gestalt.json`                     | `maxConcurrentWorkers`, `pollIntervalSec` 같은 조율 값만                                                   |
+| 파일                                      | 적는 칸                                                                                                                    |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `~/.gestalt/conductor.json` (사용자 전역) | `defaultScope`, `defaultAgent`, `repoAgents`, `accounts`, `repoPaths`, `prWatchRepos`. 상태 저장소를 옮기려면 `stateDir`도 |
+| 레포의 `gestalt.json`                     | `maxConcurrentWorkers`, `pollIntervalSec` 같은 조율 값만                                                                   |
 
 칸별 뜻과 예시는 [설정 레퍼런스의 컨덕터 절](./configuration.md#컨덕터-conductor)에 있다.
 
@@ -54,12 +54,12 @@ hostActions ──► 컨덕터 호스트 세션이 실행 (서브에이전트, 
 
 ### 주문 넣기
 
-| 출처    | 넣는 법                                                                                                                                                                                                     |
-| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 말      | 할 일을 말하면 세션이 `gestalt conductor order add`를 대신 부른다. 출처는 `spoken`으로 남는다                                                                                                               |
-| 지라    | "이 티켓들 넣어줘"라고 하면 세션이 Atlassian MCP로 티켓을 읽고 `--source jira --source-ref jira:<KEY> --issue-key <KEY>`를 붙여 넣는다                                                                      |
-| PR 감시 | `repoPaths`에 적은 레포는 tick마다 열린 PR을 보고 주문을 만든다. 내 PR에 새 코멘트가 달리면 `review-reply`, 내가 리뷰한 PR의 head가 바뀌면 `review-loop` 주문이다. 자세한 조건은 [PR 감시](#pr-감시)에 있다 |
-| 외부 큐 | 다른 시스템이 상태 저장소의 `queue/`에 JSON 파일을 두거나 `gestalt conductor queue add`로 넣으면 다음 tick이 주문으로 받는다. 파일 꼴은 [외부 큐](#외부-큐)에 있다                                          |
+| 출처    | 넣는 법                                                                                                                                                                                                        |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 말      | 할 일을 말하면 세션이 `gestalt conductor order add`를 대신 부른다. 출처는 `spoken`으로 남는다                                                                                                                  |
+| 지라    | "이 티켓들 넣어줘"라고 하면 세션이 Atlassian MCP로 티켓을 읽고 `--source jira --source-ref jira:<KEY> --issue-key <KEY>`를 붙여 넣는다                                                                         |
+| PR 감시 | `prWatchRepos`에 적은 레포는 tick마다 열린 PR을 보고 주문을 만든다. 내 PR에 새 코멘트가 달리면 `review-reply`, 내가 리뷰한 PR의 head가 바뀌면 `review-loop` 주문이다. 자세한 조건은 [PR 감시](#pr-감시)에 있다 |
+| 외부 큐 | 다른 시스템이 상태 저장소의 `queue/`에 JSON 파일을 두거나 `gestalt conductor queue add`로 넣으면 다음 tick이 주문으로 받는다. 파일 꼴은 [외부 큐](#외부-큐)에 있다                                             |
 
 범위를 말로 정해 주면 그 값으로 넣고 말하지 않으면 `defaultScope`를 쓴다. 범위마다 사람에게 묻는 자리는 [주문 범위와 사람 확인](#주문-범위와-사람-확인)의 표에 있다.
 
@@ -317,7 +317,16 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 
 ## PR 감시
 
-`~/.gestalt/conductor.json`의 `repoPaths`에 적힌 레포의 열린 PR을 gh로 읽는다. 본문은 안 싣고 누가 언제 남겼는지만 본다.
+`~/.gestalt/conductor.json`의 `prWatchRepos`에 적은 레포만 열린 PR을 gh로 읽는다. 기본은 빈 배열이라 적지 않으면 감시하지 않는다. 본문은 안 싣고 누가 언제 남겼는지만 본다.
+
+```json
+{
+  "repoPaths": { "acme/app": "/path/to/app", "acme/web": "/path/to/web" },
+  "prWatchRepos": ["acme/app"]
+}
+```
+
+`repoPaths`는 워크트리를 만들 경로를 알려 주는 칸이라 여기 적었다고 감시하지는 않는다. 레포를 추가하자마자 오래된 draft나 사람이 다른 세션에서 직접 맡은 PR까지 주문이 생기는 걸 막으려고 둘을 나눴다. gh는 그 레포의 로컬 체크아웃에서 부르므로 `prWatchRepos`에 적은 레포는 `repoPaths`에도 경로가 있어야 한다. 없으면 그 레포만 감시에서 빠지고 tick 보고의 `errors`에 이유가 남는다. 이번 tick만 건너뛰려면 `gestalt conductor tick --no-pr-watch`를 쓴다. 남이 만든 레포 안에서 세션을 열었다고 감시 대상이 바뀌면 안 되므로 레포 `gestalt.json`의 `prWatchRepos`는 받지 않는다.
 
 - **내가 올린 PR**: 내가 마지막으로 답한 뒤에 다른 사람 코멘트가 있으면 `review-reply` 주문을 만든다.
 - **내가 리뷰한 PR**: 내가 리뷰한 뒤 head가 바뀌었으면 `review-loop` 주문을 만든다. 코드는 그대로인데 답만 달렸으면 `review-manual-switch` 확인 자리로 사람에게 묻고 승인되면 재리뷰 주문을 만든다.

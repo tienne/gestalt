@@ -79,6 +79,7 @@ interface GestaltConfig {
     stateDir?: string; // 실행 상태 저장소, 기본 ~/.gestalt/conductor
     accounts: Record<string, string>; // 레포별 인증 계정
     repoPaths: Record<string, string>; // 레포별 로컬 경로
+    prWatchRepos: string[]; // PR 감시할 레포(owner/name), 기본 []
     defaultAgent: string; // 기본 오르카 워커 에이전트 (claude)
     repoAgents: Record<string, string>; // 레포별 오르카 워커 에이전트
   };
@@ -269,7 +270,7 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 }
 ```
 
-머지 승인 범위와 워커 에이전트, 상태 저장소, 계정, 레포 경로는 사용자 전역 `~/.gestalt/conductor.json`에만 적는다. `GESTALT_HOME`을 바꿨으면 그 아래 `.gestalt/conductor.json`이다. 이 파일은 `conductor` 블록 없이 칸을 바로 적고 조율 값도 함께 둘 수 있다. 같은 칸이 두 파일에 다 있으면 이 파일이 앞선다.
+머지 승인 범위와 워커 에이전트, 상태 저장소, 계정, 레포 경로, PR 감시 대상은 사용자 전역 `~/.gestalt/conductor.json`에만 적는다. `GESTALT_HOME`을 바꿨으면 그 아래 `.gestalt/conductor.json`이다. 이 파일은 `conductor` 블록 없이 칸을 바로 적고 조율 값도 함께 둘 수 있다. 같은 칸이 두 파일에 다 있으면 이 파일이 앞선다.
 
 ```json
 {
@@ -278,7 +279,8 @@ Desktop/IDE의 이름은 캡처하지 않았다.
   "repoAgents": { "acme/widget-kit": "codex" },
   "stateDir": "/path/to/conductor-state",
   "accounts": { "acme/widget-kit": "work" },
-  "repoPaths": { "acme/widget-kit": "/path/to/widget-kit" }
+  "repoPaths": { "acme/widget-kit": "/path/to/widget-kit" },
+  "prWatchRepos": ["acme/widget-kit"]
 }
 ```
 
@@ -288,7 +290,8 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 - `defaultScope`는 주문에 범위를 안 적었을 때 쓴다. `merge-through`는 머지까지 승인 없이 가고 `approval`은 머지 전에 사람 승인을 받는다. `interview-first`는 인터뷰 답을 사람이 직접 한다
 - `defaultAgent`(기본 `claude`)와 `repoAgents`는 오르카 워커의 에이전트를 고른다. 주문의 `--agent`가 있으면 가장 먼저 쓰고 재개는 앞 워커의 에이전트를 유지한다. ID는 영문자나 숫자로 시작하고 영문자, 숫자, `.`, `_`, `:`, `-`만 쓴 64자 이하여야 한다. subagent와 git-worktree에서는 무시한다
 - `accounts`에 적힌 레포는 워커를 띄우기 전에 그 계정으로 맞춘다. 맞추는 절차가 없으면 사람에게 올린다
-- `repoPaths`는 오르카가 없을 때 git 워크트리를 만들 원본 체크아웃 경로다. 오르카가 있으면 레포를 가리키는 데 쓰고 비어 있으면 레포 이름으로 찾는다. 주문에 부모 워크트리를 주면 그 워크트리가 이 경로와 같은 레포인지도 여기로 확인한다. 비어 있으면 `origin` 주소로 확인한다
+- `repoPaths`는 오르카가 없을 때 git 워크트리를 만들 원본 체크아웃 경로다. 오르카가 있으면 레포를 가리키는 데 쓰고 비어 있으면 레포 이름으로 찾는다. 주문에 부모 워크트리를 주면 그 워크트리가 이 경로와 같은 레포인지도 여기로 확인한다. 비어 있으면 `origin` 주소로 확인한다. PR 감시는 켜지 않는다
+- `prWatchRepos`에 적은 레포만 tick이 열린 PR을 감시해 리뷰 답글과 재리뷰 주문을 만든다. 기본은 빈 배열이라 감시하지 않는다. gh를 그 레포 체크아웃에서 부르므로 `repoPaths`에도 경로가 있어야 하고 없으면 tick 보고의 `errors`에 이유를 남긴다. 자세한 조건은 [PR 감시](./conductor.md#pr-감시)에 있다
 - `staleAfterSec`(기본 1800초) 동안 보고도 체크포인트도 없는 워커는 끊긴 것으로 보고 마지막 체크포인트부터 다시 띄운다. 사람 결정을 기다리는 `waiting-gate` 주문의 워커는 이 셈에서 빠진다. CI 대기처럼 15분 넘게 걸릴 수 있는 대기는 워커가 앞뒤로 체크포인트를 남긴다
 - `resultMaxChars`를 넘는 결과 요약이나 diff, 스택 트레이스가 섞인 결과는 받지 않고 요약을 다시 달라고 돌려보낸다
 
