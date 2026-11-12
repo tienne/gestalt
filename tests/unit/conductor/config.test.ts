@@ -66,4 +66,29 @@ describe('컨덕터 에이전트 설정', () => {
       process.chdir(cwd);
     }
   });
+
+  it('머지 뒤 오르카 워크트리 삭제는 기본 꺼짐이고 사용자 전역 파일로만 켠다', () => {
+    expect(loadConfig({}, isolated).conductor.removeMergedOrcaWorktrees).toBe(false);
+    const root = resolve(tempStateDir());
+    const home = join(root, 'home');
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    vi.stubEnv('GESTALT_HOME', home);
+    const cwd = process.cwd();
+    try {
+      process.chdir(root);
+      writeFileSync(
+        'gestalt.json',
+        JSON.stringify({ conductor: { removeMergedOrcaWorktrees: true } }),
+      );
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect(loadConfig({}, { skipDotEnv: true }).conductor.removeMergedOrcaWorktrees).toBe(false);
+      writeFileSync(
+        join(home, '.gestalt', 'conductor.json'),
+        JSON.stringify({ removeMergedOrcaWorktrees: true }),
+      );
+      expect(loadConfig({}, { skipDotEnv: true }).conductor.removeMergedOrcaWorktrees).toBe(true);
+    } finally {
+      process.chdir(cwd);
+    }
+  });
 });

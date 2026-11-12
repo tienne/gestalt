@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { delimiter, isAbsolute, join, relative, sep } from 'node:path';
+import { basename, delimiter, isAbsolute, join, relative, sep } from 'node:path';
 import { isAccountName } from './account-name.js';
 import { handleNeed, openOrReuse } from './gates.js';
 import { oneLine } from './intake.js';
@@ -108,7 +108,14 @@ export interface Launcher {
   /** 도는 워커에 지시를 전한다. 컨덕터 세션이 대신 전해야 하면 HostAction을 돌려준다 */
   send(worker: Worker, message: string): Promise<HostAction | undefined>;
   /** 끝난 워커의 자원을 정리한다 */
-  release(worker: Worker): Promise<void>;
+  release(worker: Worker, opts?: ReleaseOptions): Promise<void>;
+}
+
+export interface ReleaseOptions {
+  /** 워커 워크트리까지 지운다. 컨덕터는 머지된 주문의 오르카 워커에만 켠다 */
+  removeWorktree?: boolean;
+  /** 주문의 부모 워크트리. 이 워크트리와 그 위 경로는 지우지 않는다 */
+  parentWorktree?: string;
 }
 
 export interface CommandResult {
@@ -525,14 +532,88 @@ export class OrcaLauncher implements Launcher {
     return undefined;
   }
 
-  async release(worker: Worker): Promise<void> {
+  /**
+   * 워커 터미널을 거둔다. removeWorktree면 그 뒤에 워크트리도 지운다.
+   *
+   * 워크트리는 `--force` 없이 지운다. 커밋 안 한 변경이 있으면 오르카가 거절하고 그 실패가
+   * 컨덕터의 정리 실패 게이트로 올라간다. 브랜치는 `--delete-branch`로 오르카가 머지됐다고
+   * 확인한 것만 지운다. 스쿼시 머지처럼 확인 못 하는 브랜치는 오르카가 남긴다
+   */
+  async release(worker: Worker, opts: ReleaseOptions = {}): Promise<void> {
     if (!worker.handle) return;
+    // 터미널을 거둔 뒤에도 worker-show는 되지만 순서에 기대지 않으려고 먼저 읽는다
+    const workspace = opts.removeWorktree ? await this.workspaceOf(worker) : undefined;
     await mustRun(
       this.runner,
       this.opts.orcaCommand,
       ['orchestration', 'worker-release', '--dispatch', worker.handle, '--json'],
       { timeoutMs: ORCA_TIMEOUT_MS },
     );
+    if (workspace) await this.removeWorktree(worker, workspace, opts.parentWorktree);
+  }
+
+  /** worker-show가 돌려주는 워크스페이스(`<레포 id>::<경로>`)를 읽는다 */
+  private async workspaceOf(worker: Worker): Promise<{ selector: string; path: string }> {
+    const out = await mustRun(
+      this.runner,
+      this.opts.orcaCommand,
+      ['orchestration', 'worker-show', '--dispatch', worker.handle!, '--json'],
+      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+    );
+    const workspace = workspaceField(out);
+    const at = workspace?.indexOf('::') ?? -1;
+    if (!workspace || at <= 0)
+      throw new Error(`오르카가 ${worker.id}의 워크트리를 안 알려 줘서 못 지웠어요`);
+    return { selector: `id:${workspace}`, path: workspace.slice(at + 2) };
+  }
+
+  private async removeWorktree(
+    worker: Worker,
+    workspace: { selector: string; path: string },
+    parentWorktree: string | undefined,
+  ): Promise<void> {
+    const { path } = workspace;
+    const name = orcaWorktreeName(worker);
+    // 컨덕터가 만든 이름과 다르면 사람이 옮겼거나 다른 워크트리를 고른 것이라 손대지 않는다
+    if (basename(path) !== name)
+      throw new Error(`${worker.id}의 워크트리(${path})가 ${name}이 아니라 지우지 않았어요`);
+    if (parentWorktree && contains(real(path), real(parentWorktree)))
+      throw new Error(`${worker.id}의 워크트리(${path})가 부모 워크트리라 지우지 않았어요`);
+    const r = await this.runner(
+      this.opts.orcaCommand,
+      ['worktree', 'rm', '--worktree', workspace.selector, '--delete-branch', '--json'],
+      { timeoutMs: ORCA_TIMEOUT_MS },
+    );
+    if (r.code === 0 || errorCode(r.stdout) === 'selector_not_found') return;
+    const head = (r.stderr || r.stdout).trim().split('\n').slice(0, 3).join(' ');
+    throw new Error(
+      `${this.opts.orcaCommand} worktree rm 실패(${r.code}): ${head}. 커밋 안 한 변경이 있는지 확인하고 \`orca worktree rm --worktree ${workspace.selector} --delete-branch\`로 지워 주세요`,
+    );
+  }
+}
+
+/** dir이 target이거나 target의 상위 경로면 참이다 */
+function contains(dir: string, target: string): boolean {
+  const rel = relative(dir, target);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+function workspaceField(stdout: string): string | undefined {
+  try {
+    const d = JSON.parse(stdout) as { result?: { workspace?: unknown }; workspace?: unknown };
+    const v = d.result?.workspace ?? d.workspace;
+    return typeof v === 'string' && v ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function errorCode(stdout: string): string | undefined {
+  try {
+    const d = JSON.parse(stdout) as { error?: { code?: unknown } };
+    return typeof d.error?.code === 'string' ? d.error.code : undefined;
+  } catch {
+    return undefined;
   }
 }
 
