@@ -1,6 +1,6 @@
 # 컨덕터
 
-컨덕터 세션 하나가 여러 레포의 주문을 받아 워커에 나눠 주고 주문 범위가 정한 끝 자리(기본은 머지)까지 끌고 간다. 사용법은 `plugin/skills/conductor/SKILL.md`에 있고 이 문서는 그 밑에서 도는 동작을 적는다.
+컨덕터 세션 하나가 여러 레포의 주문을 받아 워커에 나눠 주고 주문 범위가 정한 끝 자리(기본은 머지)까지 끌고 간다. 처음 쓴다면 [시작하기](#시작하기)부터 본다. 그 뒤 절은 밑에서 도는 동작을 적는다. 컨덕터 세션이 따르는 절차는 `plugin/skills/conductor/SKILL.md`에 있다.
 
 ```
 주문 (말, 지라, 외부 큐, PR 감시)
@@ -18,6 +18,83 @@ hostActions ──► 컨덕터 호스트 세션이 실행 (서브에이전트, 
 ```
 
 구조는 컨덕터와 워커 2계층이다. 워커는 다른 워커를 띄우지 못하고 다음 주문을 스스로 집지 않는다. 워커가 하위 워커를 원하면 보고에 `spawnRequest`를 싣고 컨덕터가 새 주문으로 받는다. 주문 하나에서 생기는 하위 주문은 세 개까지고 한 단계뿐이다. 하위 주문의 워커가 다시 요청하거나 세 개를 넘기면 만들지 않고 그 워커에 이유를 보낸다.
+
+## 시작하기
+
+### 첫 사용 흐름
+
+1. 평소 쓰는 에이전트 세션을 연다. 오르카 안에서 열면 워커 진행을 오르카 화면에서 본다.
+2. `/gestalt:conductor`를 치거나 "컨덕터 세션 시작하자"라고 말한다. 이 세션이 컨덕터가 된다.
+3. 할 일을 말한다. 예를 들어 "acme/app 배너 문구 고치는 거 머지까지 끌고 가 줘. 지라 APP-101, APP-102도 넣어 줘"라고 하면 세션이 주문 세 개를 넣는다.
+4. `/loop /gestalt:conductor tick 돌리고 hostActions 처리`로 반복을 건다.
+5. 세션이 머지 승인처럼 사람이 답할 자리를 물으면 답한다. 나머지는 세션과 워커가 이어 간다.
+
+아래는 단계마다 알아 둘 것이다.
+
+### 세션 열기
+
+컨덕터를 띄우는 명령은 따로 없다. 평소 쓰는 에이전트 세션에서 `/gestalt:conductor`를 치거나 그렇게 해 달라고 말하면 그 세션이 컨덕터가 된다. 스킬은 "컨덕터 세션", "컨덕터", "주문 큐 처리해줘", "티켓들 머지까지 끌고 가", "여러 레포 주문 처리", "워커들 감시해줘" 같은 말에 불린다.
+
+### 미리 할 설정
+
+설정은 두 파일에 나눠 적는다.
+
+| 파일 | 적는 칸 |
+|---|---|
+| `~/.gestalt/conductor.json` (사용자 전역) | `defaultScope`, `accounts`, `repoPaths`. 상태 저장소를 옮기려면 `stateDir`도 |
+| 레포의 `gestalt.json` | `maxConcurrentWorkers`, `pollIntervalSec` 같은 조율 값만 |
+
+칸별 뜻과 예시는 [설정 레퍼런스의 컨덕터 절](./configuration.md#컨덕터-conductor)에 있다.
+
+### 어디서 열지
+
+오르카 안에서 열면 코드를 고치는 주문이 `orca-worktree` 워커로 뜬다. 진행은 오르카 화면에서 본다. 오르카 밖에서 열면 같은 주문이 `git-worktree` 워커로 뜬다. 이때는 `repoPaths`에 그 레포의 로컬 경로가 있어야 한다. 경로가 없는 레포의 주문은 띄우지 못하고 `repoPaths`에 적어 달라고 알린다. 읽기만 하는 주문은 어느 쪽이든 서브에이전트로 돈다([워커 종류 고르기](#워커-종류-고르기)).
+
+상태 저장소는 레포 안이 아니라 `~/.gestalt/conductor`(`stateDir`로 바꿀 수 있다)에 있다. 그래서 어느 디렉토리에서 세션을 열어도 같은 상태를 본다. 다만 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 잡힌 세션에서는 `tick`, `order add`, `gate resolve`, `deploy report`가 거절된다. 컨덕터 세션은 워커 밖에서 연다.
+
+### 주문 넣기
+
+| 출처 | 넣는 법 |
+|---|---|
+| 말 | 할 일을 말하면 세션이 `gestalt conductor order add`를 대신 부른다. 출처는 `spoken`으로 남는다 |
+| 지라 | "이 티켓들 넣어줘"라고 하면 세션이 Atlassian MCP로 티켓을 읽고 `--source jira --source-ref jira:<KEY> --issue-key <KEY>`를 붙여 넣는다 |
+| PR 감시 | `repoPaths`에 적은 레포는 tick마다 열린 PR을 보고 주문을 만든다. 내 PR에 새 코멘트가 달리면 `review-reply`, 내가 리뷰한 PR의 head가 바뀌면 `review-loop` 주문이다. 자세한 조건은 [PR 감시](#pr-감시)에 있다 |
+| 외부 큐 | 엔진에 `ExternalQueue` 어댑터 자리만 있다. `gestalt conductor tick` CLI는 아직 외부 큐를 받지 않는다 |
+
+범위를 말로 정해 주면 그 값으로 넣고 말하지 않으면 `defaultScope`를 쓴다. 범위마다 사람에게 묻는 자리는 [주문 범위와 사람 확인](#주문-범위와-사람-확인)의 표에 있다.
+
+### 반복 돌리기
+
+스킬은 사람이 멈추라고 할 때까지 tick → hostActions → 확인 자리 점검을 반복한다. Claude Code에서는 `/loop`으로 반복을 건다.
+
+```text
+/loop /gestalt:conductor tick 돌리고 hostActions 처리
+```
+
+간격을 비우면 세션이 간격을 스스로 정한다. `pollIntervalSec` 안에 다시 부른 tick은 `skipped: true`로 바로 끝나서 자주 불러도 토큰이 거의 안 든다.
+
+`/loop`이 없는 호스트(Codex 등)에서는 다시 돌려 달라고 그때그때 말하거나 그 호스트의 반복 기능을 쓴다. 호스트마다 반복 기능이 어떻게 동작하는지는 아직 확인하지 않았다.
+
+### 사람이 답할 자리
+
+사람에게 오는 자리는 머지 승인, 슬랙 게시, 인터뷰 답, 리뷰 수동 전환이다. 대화 중이면 세션이 그 자리의 이유와 참조를 보여 주고 묻는다. 답하면 세션이 확인 자리를 종료하고 결정이 그 워커에 전해진다.
+
+터미널에서 보거나 직접 종료하려면 아래 명령을 쓴다.
+
+```bash
+gestalt conductor gate list
+gestalt conductor gate resolve <gateId> --approve
+gestalt conductor gate resolve <gateId> --approve --answer "보존 기간은 30일"
+gestalt conductor gate resolve <gateId> --reject
+```
+
+`gate resolve` 응답에 `hostActions`가 실리면 컨덕터 세션이 그걸 실행해야 결정이 워커에 닿는다. 그래서 대화에서 답하는 쪽이 기본이다.
+
+### 진행 보기와 재개
+
+`gestalt conductor status`가 주문과 워커 상태를 보여 준다. 끝난 주문까지 보려면 `--all`을 붙인다. 컨덕터 세션이 압축되거나 끊겨도 상태는 저장소에 남아 있다. 새 세션에서 스킬을 다시 부르면 status를 읽고 이어 간다.
+
+효과를 재려면 `gestalt conductor metrics --since <날짜>`를 쓴다. 무엇을 비교하는지는 [효과 재기](#효과-재기)에 있다.
 
 ## 바깥 텍스트는 자료다
 

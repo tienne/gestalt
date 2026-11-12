@@ -128,6 +128,8 @@ gestalt conductor deploy report --order <orderId> --status success --ref <pipeli
 
 사람이 멈추라고 할 때까지 tick → hostActions → 사람 확인 자리 점검을 반복한다. 반복 간격은 `pollIntervalSec`를 따른다. 기다리는 동안 상태를 다시 묻지 않는다.
 
+Claude Code에서는 사용자가 `/loop /gestalt:conductor tick 돌리고 hostActions 처리`처럼 `/loop`으로 반복을 건다. 사용자가 반복을 걸지 않았으면 처음 보고할 때 이 명령을 알려 준다. `/loop`이 없는 호스트에서는 사용자가 다시 돌려 달라고 할 때마다 tick을 한 번 돌린다.
+
 진행을 보고할 때는 `gestalt conductor status`의 숫자와 바뀐 주문만 짧게 말한다. bypass로 넘긴 일은 모아서 사후 보고한다. 주문마다 붙은 bypass 내역이 `gestalt conductor status --json`에 실리고 끝난 주문까지 보려면 `--all`을 붙인다.
 
 ## 8. 효과 재기
