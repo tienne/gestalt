@@ -59,10 +59,7 @@ export function workerAt(cwd: string, workers: readonly Worker[]): Worker | unde
   const segments = new Set(here.split(sep));
   return workers.find((w) => {
     if (!ACTIVE_WORKER_STATUSES.has(w.status) && w.status !== 'stopped') return false;
-    if (w.kind === 'git-worktree' && w.handle) {
-      const rel = relative(real(w.handle), here);
-      return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
-    }
+    if (w.kind === 'git-worktree' && w.handle) return contains(real(w.handle), here);
     if (w.kind === 'orca-worktree') return segments.has(orcaWorktreeName(w));
     return false;
   });
@@ -177,8 +174,7 @@ async function mustRun(
 ): Promise<string> {
   const r = await runner(cmd, args, opts);
   if (r.code !== 0) {
-    const head = (r.stderr || r.stdout).trim().split('\n').slice(0, 3).join(' ');
-    throw new Error(`${cmd} ${args[0] ?? ''} 실패(${r.code}): ${head}`);
+    throw new Error(`${cmd} ${args[0] ?? ''} 실패(${r.code}): ${outputHead(r)}`);
   }
   return r.stdout;
 }
@@ -540,7 +536,12 @@ export class OrcaLauncher implements Launcher {
    * 확인한 것만 지운다. 스쿼시 머지처럼 확인 못 하는 브랜치는 오르카가 남긴다
    */
   async release(worker: Worker, opts: ReleaseOptions = {}): Promise<void> {
-    if (!worker.handle) return;
+    if (!worker.handle) {
+      // 그냥 넘기면 컨덕터가 워크트리까지 지웠다고 남긴다
+      if (opts.removeWorktree)
+        throw new Error(`${worker.id}의 dispatch id가 없어 워크트리를 못 찾았어요`);
+      return;
+    }
     // 터미널을 거둔 뒤에도 worker-show는 되지만 순서에 기대지 않으려고 먼저 읽는다
     const workspace = opts.removeWorktree ? await this.workspaceOf(worker) : undefined;
     await mustRun(
@@ -553,7 +554,7 @@ export class OrcaLauncher implements Launcher {
   }
 
   /** worker-show가 돌려주는 워크스페이스(`<레포 id>::<경로>`)를 읽는다 */
-  private async workspaceOf(worker: Worker): Promise<{ selector: string; path: string }> {
+  private async workspaceOf(worker: Worker): Promise<Workspace> {
     const out = await mustRun(
       this.runner,
       this.opts.orcaCommand,
@@ -563,13 +564,19 @@ export class OrcaLauncher implements Launcher {
     const workspace = workspaceField(out);
     const at = workspace?.indexOf('::') ?? -1;
     if (!workspace || at <= 0)
-      throw new Error(`오르카가 ${worker.id}의 워크트리를 안 알려 줘서 못 지웠어요`);
-    return { selector: `id:${workspace}`, path: workspace.slice(at + 2) };
+      throw new Error(
+        `오르카가 ${worker.id}의 워크트리를 안 알려 줘서 못 지웠어요. worker-show 응답: ${oneLine(out, 200)}`,
+      );
+    return {
+      selector: `id:${workspace}`,
+      repoId: workspace.slice(0, at),
+      path: workspace.slice(at + 2),
+    };
   }
 
   private async removeWorktree(
     worker: Worker,
-    workspace: { selector: string; path: string },
+    workspace: Workspace,
     parentWorktree: string | undefined,
   ): Promise<void> {
     const { path } = workspace;
@@ -579,15 +586,28 @@ export class OrcaLauncher implements Launcher {
       throw new Error(`${worker.id}의 워크트리(${path})가 ${name}이 아니라 지우지 않았어요`);
     if (parentWorktree && contains(real(path), real(parentWorktree)))
       throw new Error(`${worker.id}의 워크트리(${path})가 부모 워크트리라 지우지 않았어요`);
+    // worker-show가 알려 준 경로만 믿지 않고 오르카가 아는 워크트리 정보로 한 번 더 확인한다
+    const shown = await this.runner(
+      this.opts.orcaCommand,
+      ['worktree', 'show', '--worktree', workspace.selector, '--json'],
+      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+    );
+    if (shown.code !== 0) {
+      if (errorCode(shown.stdout) === 'selector_not_found') return;
+      throw new Error(
+        `${this.opts.orcaCommand} worktree show 실패(${shown.code}): ${outputHead(shown)}`,
+      );
+    }
+    const refusal = removalRefusal(shown.stdout, workspace.repoId, parentWorktree);
+    if (refusal) throw new Error(`${worker.id}의 워크트리(${path})가 ${refusal} 지우지 않았어요`);
     const r = await this.runner(
       this.opts.orcaCommand,
       ['worktree', 'rm', '--worktree', workspace.selector, '--delete-branch', '--json'],
       { timeoutMs: ORCA_TIMEOUT_MS },
     );
     if (r.code === 0 || errorCode(r.stdout) === 'selector_not_found') return;
-    const head = (r.stderr || r.stdout).trim().split('\n').slice(0, 3).join(' ');
     throw new Error(
-      `${this.opts.orcaCommand} worktree rm 실패(${r.code}): ${head}. 커밋 안 한 변경이 있는지 확인하고 \`orca worktree rm --worktree ${workspace.selector} --delete-branch\`로 지워 주세요`,
+      `${this.opts.orcaCommand} worktree rm 실패(${r.code}): ${outputHead(r)}. 커밋 안 한 변경이 있는지 확인하고 \`orca worktree rm --worktree ${workspace.selector} --delete-branch\`로 지워 주세요`,
     );
   }
 }
@@ -595,7 +615,44 @@ export class OrcaLauncher implements Launcher {
 /** dir이 target이거나 target의 상위 경로면 참이다 */
 function contains(dir: string, target: string): boolean {
   const rel = relative(dir, target);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+  // `..foo`처럼 점 두 개로 시작하는 이름은 안쪽 경로다
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+/** 게이트 사유로 올라가는 자리라 제어 문자를 걷고 한 줄로 줄인다 */
+function outputHead(r: { stdout: string; stderr: string }): string {
+  return oneLine((r.stderr || r.stdout).trim(), 200);
+}
+
+interface Workspace {
+  /** `id:<레포 id>::<경로>` */
+  selector: string;
+  repoId: string;
+  path: string;
+}
+
+/** `worktree show` 응답을 보고 지우면 안 되는 이유를 돌려준다. 지워도 되면 undefined */
+function removalRefusal(
+  stdout: string,
+  repoId: string,
+  parentWorktree: string | undefined,
+): string | undefined {
+  let wt: Record<string, unknown> | undefined;
+  try {
+    wt = (JSON.parse(stdout) as { result?: { worktree?: Record<string, unknown> } }).result
+      ?.worktree;
+  } catch {
+    wt = undefined;
+  }
+  if (!wt) return '오르카 응답으로 확인되지 않아';
+  if (wt['isMainWorktree'] !== false) return '메인 워크트리일 수 있어';
+  if (wt['repoId'] !== repoId) return '다른 레포의 워크트리라';
+  if (!parentWorktree) return undefined;
+  const parentId = typeof wt['parentWorktreeId'] === 'string' ? wt['parentWorktreeId'] : '';
+  const at = parentId.indexOf('::');
+  if (at <= 0 || real(parentId.slice(at + 2)) !== real(parentWorktree))
+    return '주문의 부모 워크트리에서 갈라진 워크트리가 아니라';
+  return undefined;
 }
 
 function workspaceField(stdout: string): string | undefined {
