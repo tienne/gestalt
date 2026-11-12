@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { REPO_RE } from './intake.js';
 
@@ -19,8 +19,8 @@ export function repoContextPath(stateDir: string, repo: string): string {
   return join(stateDir, CONTEXT_DIR, owner, `${name}.md`);
 }
 
-/** 파일이 있을 때만 경로를 돌려준다. 없는 파일을 워커에 읽으라고 하지 않는다 */
+/** 일반 파일이 있을 때만 경로를 돌려준다. 없는 파일이나 디렉토리를 워커에 읽으라고 하지 않는다 */
 export function existingRepoContext(stateDir: string, repo: string): string | undefined {
   const path = repoContextPath(stateDir, repo);
-  return existsSync(path) ? path : undefined;
+  return statSync(path, { throwIfNoEntry: false })?.isFile() ? path : undefined;
 }
