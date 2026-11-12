@@ -34,6 +34,8 @@ type State = {
   removing: { key: string; ids: string[] } | null
   removeBusy: boolean
   removeResult: OrderRemoveResult | null
+  /** 다음 그리기 뒤에 포커스를 줄 data-focus 값. 확인 칸이 처음 뜨거나 닫힐 때만 쓴다 */
+  focusNext: string | null
 }
 
 const state: State = {
@@ -48,7 +50,8 @@ const state: State = {
   openError: null,
   removing: null,
   removeBusy: false,
-  removeResult: null
+  removeResult: null,
+  focusNext: null
 }
 
 type Child = Node | string | null | undefined | false
@@ -75,7 +78,11 @@ function fill(target: HTMLElement, ...children: Child[]): void {
 
 const pill = (text: string, tone = 'neutral') => el('span', { class: `pill tone-${tone}` }, text)
 
-// ── 데이터 ─────────────────────────────────────────────
+/** 그리기마다 갈아 끼우지 않는 알림 자리. 결과 문구를 화면 낭독기에 한 번만 읽힌다 */
+const live = el('div', { class: 'sr-only', role: 'status', 'aria-live': 'polite' })
+const announce = (text: string) => {
+  live.textContent = text
+}
 
 async function load(name: 'conductor.status' | 'conductor.refresh'): Promise<void> {
   try {
@@ -102,6 +109,8 @@ async function resolve(gate: GateView, decision: GateDecision): Promise<void> {
   } finally {
     state.busy = null
     state.pending = null
+    state.focusNext = 'close-result'
+    announce(`${gate.id} ${DECISION_LABEL[decision]} ${state.result?.ok ? '완료' : '실패'}`)
     render()
   }
 }
@@ -114,10 +123,12 @@ async function openWorker(orderId: string): Promise<void> {
   } catch (e) {
     state.openError = errorText(e)
   }
+  if (state.openError) announce(`워크트리를 못 열었어요. ${state.openError}`)
   render()
 }
 
 async function removeOrders(ids: string[]): Promise<void> {
+  if (state.removeBusy) return
   state.removeBusy = true
   render()
   try {
@@ -127,6 +138,9 @@ async function removeOrders(ids: string[]): Promise<void> {
   } finally {
     state.removeBusy = false
     state.removing = null
+    state.focusNext = 'close-remove'
+    const r = state.removeResult
+    announce(r?.ok && r.removed.length > 0 ? `주문 ${r.removed.length}개를 지웠어요` : '못 지웠어요')
     render()
   }
 }
@@ -134,6 +148,7 @@ async function removeOrders(ids: string[]): Promise<void> {
 function askRemove(key: string, ids: string[]): void {
   state.removeResult = null
   state.removing = { key, ids }
+  state.focusNext = `cancel:${key}`
   render()
 }
 
@@ -144,13 +159,11 @@ function select(key: string | null): void {
   render()
 }
 
-// ── 그리기 ─────────────────────────────────────────────
-
 const root = el('div', { class: 'board' })
 const header = el('header', { class: 'top' })
 const map = el('main', { class: 'map' })
 const side = el('aside', { class: 'side' })
-root.append(header, el('div', { class: 'body' }, map, side))
+root.append(header, el('div', { class: 'body' }, map, side), live)
 
 function renderHeader(v: ConductorView | null): void {
   const active = v ? v.orders.filter((o) => !isTerminal(o.status)).length : 0
@@ -169,6 +182,7 @@ function renderHeader(v: ConductorView | null): void {
       { class: 'toggle' },
       el('input', {
         type: 'checkbox',
+        'data-focus': 'show-done',
         checked: state.showDone,
         onChange: (e) => {
           state.showDone = (e.target as HTMLInputElement).checked
@@ -177,7 +191,7 @@ function renderHeader(v: ConductorView | null): void {
       }),
       '끝난 주문도 보기'
     ),
-    el('button', { class: 'btn', onClick: () => void load('conductor.refresh') }, '새로고침')
+    el('button', { class: 'btn', 'data-focus': 'refresh', onClick: () => void load('conductor.refresh') }, '새로고침')
   )
 }
 
@@ -188,6 +202,8 @@ function orderButton(o: OrderView, gates: number): HTMLElement {
     'button',
     {
       class: `node order tone-${tone}${state.selected === key ? ' selected' : ''}${isTerminal(o.status) ? ' faded' : ''}`,
+      'data-focus': `node:${key}`,
+      'aria-pressed': state.selected === key ? 'true' : 'false',
       title: o.workspaceId ? `${o.id} 자세히 보기, 두 번 누르면 워크트리로 이동` : `${o.id} 자세히 보기`,
       onClick: () => select(key),
       onDblclick: o.workspaceId ? () => void openWorker(o.id) : undefined
@@ -220,6 +236,7 @@ function orderRow(o: OrderView, gates: number): HTMLElement {
       'button',
       {
         class: 'node-open',
+        'data-focus': `open:${o.id}`,
         title: '워커의 오르카 워크트리와 터미널로 이동',
         'aria-label': `${o.title || o.id} 워크트리로 이동`,
         onClick: () => void openWorker(o.id)
@@ -234,6 +251,8 @@ function worktreeButton(n: Extract<HierarchyNode, { kind: 'worktree' }>): HTMLEl
     'button',
     {
       class: `node worktree${state.selected === n.key ? ' selected' : ''}`,
+      'data-focus': `node:${n.key}`,
+      'aria-pressed': state.selected === n.key ? 'true' : 'false',
       title: n.path,
       onClick: () => select(n.key)
     },
@@ -293,7 +312,7 @@ function repoCard(s: RepoSummary, gateCount: Map<string, number>): HTMLElement {
           finished.length > 0
             ? el(
                 'button',
-                { class: 'btn danger-outline xs', disabled: state.removeBusy, onClick: () => askRemove(`repo:${s.repo}`, finished) },
+                { class: 'btn danger-outline xs', 'data-focus': `remove:repo:${s.repo}`, disabled: state.removeBusy, onClick: () => askRemove(`repo:${s.repo}`, finished) },
                 `끝난 주문 ${finished.length}개 지우기`
               )
             : null
@@ -307,16 +326,30 @@ function repoCard(s: RepoSummary, gateCount: Map<string, number>): HTMLElement {
 function removeConfirm(at: string): HTMLElement | null {
   const r = state.removing
   if (r?.key !== at) return null
+  const titleId = `confirm-${at}`
   return el(
     'div',
-    { class: 'confirm tone-danger' },
-    el('strong', null, r.ids.length > 1 ? `끝난 주문 ${r.ids.length}개를 지울까요?` : '이 주문을 지울까요?'),
+    { class: 'confirm tone-danger', role: 'group', 'aria-labelledby': titleId },
+    el('strong', { id: titleId }, r.ids.length > 1 ? `끝난 주문 ${r.ids.length}개를 지울까요?` : '이 주문을 지울까요?'),
     el('div', { class: 'small' }, '컨덕터 저장소에서 지워져 다시 볼 수 없어요. 같은 지라 티켓이나 PR로 주문이 다시 생기지도 않아요. 워크트리와 브랜치는 그대로 남아요.'),
     el(
       'div',
       { class: 'row' },
-      el('button', { class: 'btn danger', disabled: state.removeBusy, onClick: () => void removeOrders(r.ids) }, state.removeBusy ? '지우는 중' : '지우기 확정'),
-      el('button', { class: 'btn ghost', disabled: state.removeBusy, onClick: () => { state.removing = null; render() } }, '취소')
+      el('button', { class: 'btn danger', 'data-focus': `confirm:${at}`, disabled: state.removeBusy, onClick: () => void removeOrders(r.ids) }, state.removeBusy ? '지우는 중' : '지우기 확정'),
+      el(
+        'button',
+        {
+          class: 'btn ghost',
+          'data-focus': `cancel:${at}`,
+          disabled: state.removeBusy,
+          onClick: () => {
+            state.removing = null
+            state.focusNext = `remove:${at}`
+            render()
+          }
+        },
+        '취소'
+      )
     )
   )
 }
@@ -331,7 +364,7 @@ function removeResultBlock(r: OrderRemoveResult): HTMLElement {
     r.skipped.length > 0
       ? el('div', { class: 'small' }, el('b', null, `${r.skipped.length}개는 남겼어요`), lines(r.skipped.map((x) => x.reason)))
       : null,
-    el('button', { class: 'btn ghost', onClick: () => { state.removeResult = null; render() } }, '닫기')
+    el('button', { class: 'btn ghost', 'data-focus': 'close-remove', onClick: () => { state.removeResult = null; render() } }, '닫기')
   )
 }
 
@@ -361,27 +394,47 @@ function gateCard(g: GateView): HTMLElement {
     asking
       ? el(
           'div',
-          { class: `confirm tone-${asking === 'approve' ? 'warning' : 'danger'}` },
-          el('strong', null, `정말 ${DECISION_LABEL[asking]}할까요?`),
+          { class: `confirm tone-${asking === 'approve' ? 'warning' : 'danger'}`, role: 'group', 'aria-labelledby': `confirm-gate-${g.id}` },
+          el('strong', { id: `confirm-gate-${g.id}` }, `정말 ${DECISION_LABEL[asking]}할까요?`),
           el('div', { class: 'small' }, `${g.id}를 ${DECISION_LABEL[asking]}하면 컨덕터가 바로 워커에 전해요. 되돌릴 수 없어요.`),
           el(
             'div',
             { class: 'row' },
             el(
               'button',
-              { class: `btn ${asking === 'approve' ? 'primary' : 'danger'}`, disabled: inFlight, onClick: () => void resolve(g, asking) },
+              { class: `btn ${asking === 'approve' ? 'primary' : 'danger'}`, 'data-focus': `resolve:${g.id}`, disabled: inFlight, onClick: () => void resolve(g, asking) },
               inFlight ? '보내는 중' : `${DECISION_LABEL[asking]} 확정`
             ),
-            el('button', { class: 'btn ghost', disabled: inFlight, onClick: () => { state.pending = null; render() } }, '취소')
+            el(
+              'button',
+              {
+                class: 'btn ghost',
+                'data-focus': `cancel:gate:${g.id}`,
+                disabled: inFlight,
+                onClick: () => {
+                  state.pending = null
+                  state.focusNext = `${asking}:${g.id}`
+                  render()
+                }
+              },
+              '취소'
+            )
           )
         )
       : el(
           'div',
           { class: 'row' },
-          el('button', { class: 'btn primary', disabled: anyBusy, onClick: () => { state.result = null; state.pending = { gateId: g.id, decision: 'approve' }; render() } }, '승인'),
-          el('button', { class: 'btn danger-outline', disabled: anyBusy, onClick: () => { state.result = null; state.pending = { gateId: g.id, decision: 'reject' }; render() } }, '거절')
+          el('button', { class: 'btn primary', 'data-focus': `approve:${g.id}`, disabled: anyBusy, onClick: () => askResolve(g.id, 'approve') }, '승인'),
+          el('button', { class: 'btn danger-outline', 'data-focus': `reject:${g.id}`, disabled: anyBusy, onClick: () => askResolve(g.id, 'reject') }, '거절')
         )
   )
+}
+
+function askResolve(gateId: string, decision: GateDecision): void {
+  state.result = null
+  state.pending = { gateId, decision }
+  state.focusNext = `cancel:gate:${gateId}`
+  render()
 }
 
 function answerBox(g: GateView, disabled: boolean): HTMLElement {
@@ -419,7 +472,7 @@ function resultBlock(r: GateResolveResult): HTMLElement {
           el('pre', null, JSON.stringify(r.hostActions, null, 2))
         )
       : null,
-    el('button', { class: 'btn ghost', onClick: () => { state.result = null; render() } }, '닫기')
+    el('button', { class: 'btn ghost', 'data-focus': 'close-result', onClick: () => { state.result = null; render() } }, '닫기')
   )
 }
 
@@ -465,9 +518,9 @@ function orderDetail(o: OrderView, v: ConductorView): HTMLElement {
       ? el(
           'div',
           { class: 'row' },
-          o.workspaceId ? el('button', { class: 'btn', onClick: () => void openWorker(o.id) }, '워크트리로 이동') : null,
+          o.workspaceId ? el('button', { class: 'btn', 'data-focus': `open-detail:${o.id}`, onClick: () => void openWorker(o.id) }, '워크트리로 이동') : null,
           isTerminal(o.status)
-            ? el('button', { class: 'btn danger-outline', disabled: state.removeBusy, onClick: () => askRemove(orderKey(o.id), [o.id]) }, '기록 지우기')
+            ? el('button', { class: 'btn danger-outline', 'data-focus': `remove:${orderKey(o.id)}`, disabled: state.removeBusy, onClick: () => askRemove(orderKey(o.id), [o.id]) }, '기록 지우기')
             : null
         )
       : null,
@@ -481,7 +534,7 @@ function orderDetail(o: OrderView, v: ConductorView): HTMLElement {
         )
       : null,
     gates.length > 0 ? el('div', null, el('h3', null, `확인 대기 ${gates.length}`), ...gates.map(gateCard)) : null,
-    o.bypasses.length > 0 ? el('div', null, el('h3', null, `bypass 사후 보고 ${o.bypasses.length}건`), bypassList(o.bypasses)) : null
+    o.bypasses.length > 0 ? el('div', null, el('h3', null, `bypass 사후 보고 ${o.bypasses.length}개`), bypassList(o.bypasses)) : null
   )
 }
 
@@ -525,7 +578,7 @@ function renderSide(v: ConductorView): void {
         )
       )
     }
-    if (v.unassignedBypasses.length > 0) parts.push(el('h3', null, `주문 없는 bypass ${v.unassignedBypasses.length}건`), bypassList(v.unassignedBypasses))
+    if (v.unassignedBypasses.length > 0) parts.push(el('h3', null, `주문 없는 bypass ${v.unassignedBypasses.length}개`), bypassList(v.unassignedBypasses))
   }
   fill(side, ...parts)
 }
@@ -534,7 +587,21 @@ function allNodes(v: ConductorView): HierarchyNode[] {
   return summarize(v).repos.flatMap((s) => buildHierarchy(s.orders))
 }
 
+/** 그리기마다 DOM을 새로 만들어서 포커스가 body로 떨어진다. data-focus로 같은 자리를 다시 찾아 돌려준다 */
 function render(): void {
+  const active = document.activeElement
+  const keep = state.focusNext ?? (active && root.contains(active) ? active.closest('[data-focus]')?.getAttribute('data-focus') : null) ?? null
+  state.focusNext = null
+  draw()
+  if (keep === null) return
+  for (const n of Array.from(root.querySelectorAll<HTMLElement>('[data-focus]'))) {
+    if (n.getAttribute('data-focus') !== keep) continue
+    if (n !== document.activeElement) n.focus()
+    return
+  }
+}
+
+function draw(): void {
   const v = state.view
   renderHeader(v)
   if (!v) {
@@ -556,83 +623,113 @@ function render(): void {
 
 const style = document.createElement('style')
 style.textContent = `
-:root { color-scheme: light dark; --warn: #d97706; --ok: #16a34a; }
-html, body { margin: 0; height: 100%; background: var(--orca-background); color: var(--orca-foreground);
-  font: 13px/1.45 system-ui, -apple-system, sans-serif; }
+:root { color-scheme: light dark;
+  --canvas: #f4f5f6; --s1: #ffffff; --s2: #f7f8f9; --s3: #eff1f3;
+  --ink: #08090a; --ink-muted: #3c4149; --ink-subtle: #6b6f76;
+  --line: #e4e6e9; --line-strong: #d3d6db; --line-3: #c6cad0;
+  --accent: #5e6ad2; --accent-ink: #ffffff; --ok: #1f8f3a; --warn: #c27c0e; --danger: #d63c3c; --danger-ink: #b42323;
+  --edge: 0 1px 2px rgba(8, 9, 10, 0.04); }
+@media (prefers-color-scheme: dark) { :root:not(.light) {
+  --canvas: #010102; --s1: #0f1011; --s2: #141516; --s3: #18191a;
+  --ink: #f7f8f8; --ink-muted: #d0d6e0; --ink-subtle: #8a8f98;
+  --line: #23252a; --line-strong: #34343a; --line-3: #3e3e44;
+  --ok: #27a644; --warn: #e2a33b; --danger: #eb5757; --danger-ink: #eb5757;
+  --edge: inset 0 1px 0 rgba(255, 255, 255, 0.04); } }
+html.dark {
+  --canvas: #010102; --s1: #0f1011; --s2: #141516; --s3: #18191a;
+  --ink: #f7f8f8; --ink-muted: #d0d6e0; --ink-subtle: #8a8f98;
+  --line: #23252a; --line-strong: #34343a; --line-3: #3e3e44;
+  --ok: #27a644; --warn: #e2a33b; --danger: #eb5757; --danger-ink: #eb5757;
+  --edge: inset 0 1px 0 rgba(255, 255, 255, 0.04); }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--canvas); color: var(--ink);
+  font: 400 13px/1.5 "Inter Variable", Inter, "SF Pro Text", -apple-system, system-ui, sans-serif; letter-spacing: -0.05px; }
+button, input, textarea { font: inherit; letter-spacing: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.tone-accent { --tone: var(--accent); }
+.tone-warning { --tone: var(--warn); }
+.tone-success { --tone: var(--ok); }
+.tone-danger { --tone: var(--danger); }
+.tone-neutral { --tone: var(--ink-subtle); }
+
 .board { display: flex; flex-direction: column; height: 100vh; }
-.top { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--orca-border); flex-wrap: wrap; }
-.top h1 { font-size: 15px; margin: 0 8px 0 0; }
+.top { display: flex; align-items: center; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--s1); flex-wrap: wrap; }
+.top h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.2px; margin: 0 8px 0 0; }
 .grow { flex: 1; }
 .body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 380px; }
-.map { overflow: auto; padding: 16px; }
-.side { overflow: auto; padding: 16px; border-left: 1px solid var(--orca-border); background: var(--orca-card); color: var(--orca-card-foreground); }
-@media (max-width: 860px) { .body { grid-template-columns: 1fr; } .side { border-left: 0; border-top: 1px solid var(--orca-border); } }
+.map { overflow: auto; padding: 20px; }
+.side { overflow: auto; padding: 20px; border-left: 1px solid var(--line); background: var(--s1); }
+@media (max-width: 860px) { .body { grid-template-columns: 1fr; } .side { border-left: 0; border-top: 1px solid var(--line); } }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; align-items: start; }
-.repo { border: 1px solid var(--orca-border); border-radius: var(--orca-radius, 8px); padding: 12px; background: var(--orca-card); }
-.repo.tone-warning { border-color: var(--warn); }
-.repo.tone-accent { border-color: var(--orca-primary); }
-.repo-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.repo h2 { font-size: 14px; margin: 0; }
-.pills { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
-.pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; background: var(--orca-muted); color: var(--orca-muted-foreground); white-space: nowrap; }
-.pill.tone-warning { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
-.pill.tone-accent { background: color-mix(in srgb, var(--orca-primary) 18%, transparent); color: var(--orca-primary); }
-.pill.tone-success { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
-.pill.tone-danger { background: color-mix(in srgb, var(--orca-destructive) 18%, transparent); color: var(--orca-destructive); }
-.muted { color: var(--orca-muted-foreground); }
+
+.repo { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--s1); box-shadow: var(--edge); }
+.repo.tone-warning { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.repo.tone-accent { border-color: var(--line-strong); }
+.repo-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.repo h2 { font-size: 14px; font-weight: 600; letter-spacing: -0.2px; margin: 0; }
+
+.pills { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500; line-height: 16px;
+  background: var(--s3); border: 1px solid var(--line); color: var(--ink-muted); white-space: nowrap; }
+.pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--tone, var(--ink-subtle)); }
+.muted { color: var(--ink-subtle); }
 .small { font-size: 12px; }
+
 .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
-.tree ul { margin-left: 10px; padding-left: 16px; border-left: 1px solid var(--orca-border); }
+.tree ul { margin-left: 10px; padding-left: 16px; border-left: 1px solid var(--line); }
 .tree li { position: relative; padding: 3px 0; }
-.tree ul > li::before { content: ''; position: absolute; left: -16px; top: 20px; width: 14px; border-top: 1px solid var(--orca-border); }
-.node { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: 6px 8px; border-radius: 6px;
-  border: 1px solid var(--orca-border); background: var(--orca-background); color: inherit; font: inherit; cursor: pointer; }
-.node:hover { background: var(--orca-accent); color: var(--orca-accent-foreground); }
+.tree ul > li::before { content: ''; position: absolute; left: -16px; top: 21px; width: 14px; border-top: 1px solid var(--line); }
+.node { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: 7px 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--s2); color: var(--ink); cursor: pointer; }
+.node:hover { background: var(--s3); border-color: var(--line-strong); }
 .node-row { display: flex; align-items: stretch; gap: 4px; }
 .node-row > .node { flex: 1; min-width: 0; }
-.node-open { flex: none; width: 28px; border-radius: 6px; border: 1px solid var(--orca-border); background: transparent; color: var(--orca-muted-foreground); cursor: pointer; }
-.node-open:hover { background: var(--orca-accent); color: var(--orca-accent-foreground); }
-.node-open:focus-visible { outline: 2px solid var(--orca-ring); outline-offset: 1px; }
-.node.selected { outline: 2px solid var(--orca-ring); outline-offset: 1px; }
-.node.faded { opacity: .6; }
+.node-open { flex: none; width: 28px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--ink-subtle); cursor: pointer; }
+.node-open:hover { background: var(--s3); color: var(--ink); }
+.node.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--s1); }
+.node.faded .node-title { color: var(--ink-subtle); }
 .node.worktree { border-style: dashed; background: transparent; }
-.node-head { display: flex; align-items: center; gap: 6px; }
-.node-title { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.node-meta { font-size: 11px; color: var(--orca-muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--orca-muted-foreground); flex: none; }
-.tone-accent > .node-head .dot { background: var(--orca-primary); }
-.tone-warning > .node-head .dot { background: var(--warn); }
-.tone-success > .node-head .dot { background: var(--ok); }
-.tone-danger > .node-head .dot { background: var(--orca-destructive); }
-.glyph { color: var(--orca-muted-foreground); }
-.btn { font: inherit; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--orca-border); background: var(--orca-secondary); color: var(--orca-secondary-foreground); cursor: pointer; }
+.node-head { display: flex; align-items: center; gap: 8px; }
+.node-title { font-weight: 500; letter-spacing: -0.1px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-meta { font-size: 11px; color: var(--ink-subtle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tone, var(--ink-subtle)); flex: none; }
+.glyph { color: var(--ink-subtle); }
+
+.btn { padding: 4px 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--s1); color: var(--ink); font-weight: 500; cursor: pointer; }
+.btn:hover:not(:disabled) { background: var(--s3); }
 .btn:disabled { opacity: .5; cursor: default; }
-.btn.primary { background: var(--orca-primary); color: var(--orca-primary-foreground); border-color: transparent; }
-.btn.danger { background: var(--orca-destructive); color: var(--orca-destructive-foreground); border-color: transparent; }
-.btn.danger-outline { background: transparent; color: var(--orca-destructive); border-color: var(--orca-destructive); }
-.btn.ghost { background: transparent; border-color: transparent; }
-.link { font: inherit; background: none; border: 0; padding: 0; color: var(--orca-primary); cursor: pointer; text-align: left; text-decoration: underline; text-underline-offset: 2px; }
-.row { display: flex; gap: 6px; margin-top: 6px; }
-.repo-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, #ffffff); }
+.btn.danger { background: var(--danger); color: #ffffff; border-color: transparent; }
+.btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 88%, #000000); }
+.btn.danger-outline { background: transparent; color: var(--danger-ink); border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--ink-muted); }
 .btn.xs { font-size: 11px; padding: 2px 8px; }
-.toggle { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--orca-muted-foreground); }
-.side h2 { font-size: 15px; margin: 6px 0 8px; }
-.side h3 { font-size: 13px; margin: 14px 0 6px; }
-.gate { border: 1px solid var(--warn); border-radius: 8px; padding: 8px 10px; margin: 4px 0 10px; }
-.gate p { margin: 6px 0; }
-.answer { width: 100%; box-sizing: border-box; min-height: 56px; font: inherit; padding: 6px; border-radius: 6px; border: 1px solid var(--orca-input); background: var(--orca-background); color: inherit; }
-.confirm, .result { border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px; border: 1px solid var(--orca-border); }
-.tone-warning.confirm, .tone-warning.result { border-color: var(--warn); }
-.tone-danger.confirm, .tone-danger.result { border-color: var(--orca-destructive); }
-.tone-success.result { border-color: var(--ok); }
-pre { font: 11px/1.4 ui-monospace, monospace; white-space: pre-wrap; word-break: break-all; background: var(--orca-muted); padding: 6px; border-radius: 6px; }
-dl { margin: 8px 0; }
-.field { display: grid; grid-template-columns: 88px 1fr; gap: 8px; padding: 2px 0; }
-dt { color: var(--orca-muted-foreground); }
-dd { margin: 0; word-break: break-all; }
+.link { background: none; border: 0; padding: 0; color: var(--ink); cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 3px; }
+.link:hover { text-decoration-color: var(--ink); }
+.row { display: flex; gap: 6px; margin-top: 8px; }
+.repo-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-muted); }
+.toggle input { accent-color: var(--accent); }
+
+.side h2 { font-size: 16px; font-weight: 600; letter-spacing: -0.3px; line-height: 1.3; margin: 8px 0 10px; }
+.side h3 { font-size: 12px; font-weight: 500; letter-spacing: 0.3px; color: var(--ink-subtle); margin: 18px 0 8px; }
+.gate { border: 1px solid var(--line-strong); border-radius: 12px; padding: 12px; margin: 6px 0 12px; background: var(--s2); box-shadow: var(--edge); }
+.gate p { margin: 8px 0; color: var(--ink); }
+.answer { width: 100%; min-height: 56px; padding: 8px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--s1); color: var(--ink); }
+.confirm, .result { border-radius: 8px; padding: 10px 12px; margin: 8px 0 12px; border: 1px solid var(--line); background: var(--s1); }
+.confirm.tone-warning, .result.tone-warning, .confirm.tone-danger, .result.tone-danger, .result.tone-success {
+  border-color: color-mix(in srgb, var(--tone) 55%, var(--line)); background: color-mix(in srgb, var(--tone) 6%, var(--s1)); }
+.confirm strong, .result strong { font-weight: 600; }
+pre { font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; word-break: break-all; background: var(--s3); border: 1px solid var(--line); padding: 8px; border-radius: 8px; }
+dl { margin: 10px 0; }
+.field { display: grid; grid-template-columns: 88px 1fr; gap: 8px; padding: 3px 0; }
+dt { color: var(--ink-subtle); }
+dd { margin: 0; word-break: break-all; color: var(--ink); }
 ul.plain { list-style: none; padding: 0; margin: 4px 0; }
-ul.plain li { padding: 2px 0; }
-.empty { color: var(--orca-muted-foreground); padding: 24px; text-align: center; }
+ul.plain li { padding: 3px 0; }
+.empty { color: var(--ink-subtle); padding: 24px; text-align: center; }
 `
 document.head.append(style)
 document.body.append(root)
