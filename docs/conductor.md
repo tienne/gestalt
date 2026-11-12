@@ -131,6 +131,8 @@ gestalt conductor gate resolve <gateId> --reject
 
 `gestalt conductor status`가 주문과 워커 상태를 보여 준다. 끝난 주문까지 보려면 `--all`을 붙인다. 컨덕터 세션이 압축되거나 끊겨도 상태는 저장소에 남아 있다. 새 세션에서 스킬을 다시 부르면 status를 읽고 이어 간다.
 
+끝난 주문(done, failed, cancelled)이 쌓여 보기 번거로우면 `gestalt conductor order remove <주문 id...> [--json]`으로 지운다. 저장소에 `order-removed` 이벤트를 덧붙이는 방식이라 로그 기록은 남고 status에서만 빠진다. 주문의 워커와 체크포인트, 게이트, bypass 기록도 같이 빠진다. 열린 게이트가 있거나 워커가 아직 도는 주문은 거절한다. 지운 주문의 출처(지라 티켓, PR, 큐 메시지)는 따로 기억해 두고 다음 tick이 같은 주문을 다시 만들지 않는다. 지운 하위 주문도 상위 주문의 하위 주문 상한에 그대로 센다. 워크트리와 브랜치는 건드리지 않으니 필요하면 따로 정리한다. 여러 id를 넘기면 지울 수 있는 것만 지우고 나머지는 이유와 함께 알려 준다. 하나도 못 지우면 exit 1이다.
+
 효과를 재려면 `gestalt conductor metrics --since <날짜>`를 쓴다. 무엇을 비교하는지는 [효과 재기](#효과-재기)에 있다.
 
 #### 오르카 플러그인
@@ -145,7 +147,7 @@ orca plugin dev load ./orca-plugin --json
 
 설정의 `gestaltPath`는 오르카가 셸 PATH를 못 물려받을 때 gestalt 절대 경로를 적는 자리다. `stateDir`은 `conductor.json`에 저장소 위치를 따로 정했을 때 같은 경로를 적는다. 둘 다 비워 두면 PATH의 gestalt와 CLI 기본 위치를 쓴다.
 
-패널의 승인과 거절은 한 번 더 눌러야 확정되고 `gate resolve`를 부른다. 응답의 `hostActions`는 "컨덕터 세션에서 처리할 일"로 보여 주기만 하고 실행하지 않는다. 결정이 워커에 닿으려면 컨덕터 세션이 다음 tick에 처리해야 한다. 주문을 맡은 오르카 워크트리를 찾으면 "워크트리 열기" 버튼으로 바로 연다. 자세한 동작은 [`orca-plugin/README.md`](../orca-plugin/README.md)에 있다.
+패널의 승인과 거절은 한 번 더 눌러야 확정되고 `gate resolve`를 부른다. 응답의 `hostActions`는 "컨덕터 세션에서 처리할 일"로 보여 주기만 하고 실행하지 않는다. 결정이 워커에 닿으려면 컨덕터 세션이 다음 tick에 처리해야 한다. 주문을 맡은 오르카 워크트리를 찾으면 "워크트리 열기" 버튼으로 바로 연다. 끝난 주문은 패널과 보드에서 하나씩 또는 레포 단위로 지울 수 있고 이것도 한 번 더 눌러야 `order remove`를 부른다. 자세한 동작은 [`orca-plugin/README.md`](../orca-plugin/README.md)에 있다.
 
 ## 바깥 텍스트는 자료다
 
