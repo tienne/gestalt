@@ -34,6 +34,7 @@ import {
   conductorGateResolveCommand,
   conductorMetricsCommand,
   conductorOrderAddCommand,
+  conductorQueueAddCommand,
   conductorSlackDraftCommand,
   conductorStatusCommand,
   conductorTickCommand,
@@ -1079,6 +1080,7 @@ export function createCli(): Command {
     )
     .option('--force', '감시 간격 안이어도 돈다')
     .option('--no-pr-watch', '이번엔 PR 감시를 건너뛴다')
+    .option('--no-queue', '이번엔 외부 큐를 건너뛴다')
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action(async (o) => {
@@ -1159,6 +1161,19 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorDeployReportCommand(o));
+
+  conductor
+    .command('queue')
+    .description('외부 큐')
+    .command('add')
+    .description(
+      '큐에 메시지를 넣는다. 다음 tick이 주문으로 받는다. 본문은 repo와 title이 든 JSON 객체다',
+    )
+    .requiredOption('--body-file <path>', '메시지 JSON 파일. -면 stdin')
+    .option('--id <id>', '메시지 id. 같은 id는 한 번만 주문이 된다. 비우면 새로 만든다')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action((o) => conductorQueueAddCommand(o));
 
   conductor
     .command('slack')

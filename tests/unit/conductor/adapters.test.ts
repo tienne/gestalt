@@ -1,16 +1,22 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   fileDeploySource,
+  fileQueue,
+  FAILED_QUEUE_DIR,
   GhAccounts,
   GhAccountSwitcher,
   GhPrWatchSource,
   hostJiraClient,
   PR_LIST_LIMIT,
   hostSlackClient,
+  QUEUE_FILE_MAX_BYTES,
   writeDeploySignal,
+  writeQueueMessage,
 } from '../../../src/conductor/adapters.js';
+import { pollQueue } from '../../../src/conductor/intake.js';
+import { ConductorStore } from '../../../src/conductor/store.js';
 import type { CommandRunner, HostAction } from '../../../src/conductor/launcher.js';
 import { cleanupStateDirs, order, tempStateDir } from './fixtures.js';
 
@@ -73,6 +79,79 @@ describe('호스트로 넘기는 쓰기', () => {
     const src = fileDeploySource(dir);
     expect(await src.status(order({ id: 'ord-1' }))).toEqual({ status: 'unknown' });
     expect(await src.status(order({ id: 'ord-2' }))).toEqual({ status: 'unknown' });
+  });
+});
+
+describe('파일 큐', () => {
+  const body = { repo: 'acme/web', title: '배너 교체' };
+
+  it('넣은 메시지를 이름 순으로 받고 ack하면 파일을 지운다', async () => {
+    const dir = join(tempStateDir(), 'queue');
+    writeQueueMessage(dir, { ...body, title: '둘째' }, 'b-2');
+    writeQueueMessage(dir, body, 'a-1');
+    // 쓰다 만 파일은 점으로 시작하니 건너뛴다
+    writeFileSync(join(dir, '.c-3.json'), '{"repo"');
+    const q = fileQueue(dir);
+    const got = await q.receive(1);
+    expect(got).toEqual([{ id: 'a-1', body }]);
+    await q.ack('a-1');
+    await q.ack('a-1');
+    expect(readdirSync(dir).sort()).toEqual(['.c-3.json', 'b-2.json']);
+    expect(q.errors).toEqual([]);
+  });
+
+  it('id를 비우면 새로 만들고 같은 id는 덮지 않으며 꼴이 틀린 본문은 넣지 않는다', () => {
+    const dir = join(tempStateDir(), 'queue');
+    expect(writeQueueMessage(dir, body)).toMatch(/^\d+-[0-9a-f]{8}$/);
+    writeQueueMessage(dir, body, 'm1');
+    expect(() => writeQueueMessage(dir, body, 'm1')).toThrow('아직 큐에 있어요');
+    expect(() => writeQueueMessage(dir, body, '../x')).toThrow('id 형식');
+    expect(() => writeQueueMessage(dir, { title: 'x' }, 'm2')).toThrow('repo');
+    expect(readdirSync(dir).filter((f) => f.startsWith('.'))).toEqual([]);
+  });
+
+  it('못 읽는 파일은 failed로 옮기고 이유를 errors에 남긴다', async () => {
+    const dir = join(tempStateDir(), 'queue');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'broken.json'), '{"repo": "ac');
+    writeFileSync(
+      join(dir, 'big.json'),
+      JSON.stringify({ ...body, description: 'x'.repeat(QUEUE_FILE_MAX_BYTES) }),
+    );
+    writeFileSync(join(dir, 'b@d.json'), JSON.stringify(body));
+    writeFileSync(join(tempStateDir(), 'secret.json'), JSON.stringify(body));
+    symlinkSync(join(process.cwd(), 'package.json'), join(dir, 'link.json'));
+    const q = fileQueue(dir);
+    expect(await q.receive(20)).toEqual([]);
+    expect(q.errors).toHaveLength(4);
+    expect(readdirSync(join(dir, FAILED_QUEUE_DIR)).sort()).toEqual([
+      'b@d.json',
+      'big.json',
+      'broken.json',
+      'link.json',
+    ]);
+  });
+
+  it('큐 디렉토리가 없으면 빈 목록이고 tick 접수와 이어지면 주문이 한 번만 생긴다', async () => {
+    const stateDir = tempStateDir();
+    const dir = join(stateDir, 'queue');
+    const q = fileQueue(dir);
+    expect(await q.receive(20)).toEqual([]);
+    expect(existsSync(dir)).toBe(false);
+
+    const store = ConductorStore.open(stateDir);
+    writeQueueMessage(dir, { ...body, scope: 'merge-through' }, 'm1');
+    const r = await pollQueue(store, q, { defaultScope: 'approval' });
+    // 바깥에서 온 주문은 범위를 넓히지 못한다
+    expect(r.created[0]).toMatchObject({
+      source: 'external-queue',
+      sourceRef: 'queue:m1',
+      scope: 'approval',
+    });
+    expect(existsSync(join(dir, 'm1.json'))).toBe(false);
+    writeQueueMessage(dir, body, 'm1');
+    await pollQueue(store, q, { defaultScope: 'approval' });
+    expect(store.orders()).toHaveLength(1);
   });
 });
 

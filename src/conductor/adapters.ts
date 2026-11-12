@@ -1,7 +1,19 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import {
+  existsSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { log } from '../core/log.js';
 import { isAccountName } from './account-name.js';
+import { parseQueueBody, type ExternalQueue, type QueueMessage } from './intake.js';
 import type { DeploySignal, DeploySource, JiraClient } from './jira.js';
 import {
   execRunner,
@@ -19,7 +31,8 @@ import type { Order } from './types.js';
  *
  * 지라와 슬랙 쓰기는 사람 계정의 MCP 연결이 필요해 이 프로세스가 직접 못 한다. 그래서 할 일을
  * HostAction으로 모아 돌려주고 컨덕터 호스트 세션이 실행한다. 배포 결과도 호스트가 확인해
- * `gestalt conductor deploy report`로 넘긴다. gh로 읽을 수 있는 PR과 계정만 여기서 직접 읽는다.
+ * `gestalt conductor deploy report`로 넘긴다. gh로 읽을 수 있는 PR과 계정, 큐 디렉토리의 파일만
+ * 여기서 직접 읽는다.
  */
 
 export function hostJiraClient(actions: HostAction[]): JiraClient {
@@ -81,6 +94,108 @@ export function fileDeploySource(dir: string): DeploySource {
       return { status: raw.status, ...(raw.ref ? { ref: raw.ref } : {}) };
     },
   };
+}
+
+/** 큐 파일 하나의 상한. 주문 설명은 접수에서 4000자로 잘리니 이보다 클 일이 없다 */
+export const QUEUE_FILE_MAX_BYTES = 256 * 1024;
+/** 못 읽은 큐 파일을 옮겨 두는 하위 디렉토리. 사람이 보고 지운다 */
+export const FAILED_QUEUE_DIR = 'failed';
+/** 메시지 id는 파일 이름이자 sourceRef(`queue:<id>`)에 그대로 들어간다 */
+const QUEUE_ID_RE = /^[\w-][\w.-]{0,127}$/;
+
+export interface FileQueue extends ExternalQueue {
+  /** 이번 tick에 못 읽어 failed로 옮긴 파일. CLI가 tick 결과의 errors에 싣는다 */
+  readonly errors: string[];
+}
+
+/**
+ * 디렉토리에 떨군 JSON 파일을 외부 큐로 읽는다.
+ *
+ * 웹훅 수신기나 슬랙 봇처럼 tick 밖에서 도는 쪽이 `<id>.json`을 쓰면 tick이 주문으로 받는다.
+ * 반쯤 쓴 파일을 읽지 않게 점으로 시작하는 이름은 건너뛴다. 쓰는 쪽은 `.<id>.json`에 다 쓴 뒤
+ * 이름을 바꾸거나 `gestalt conductor queue add`를 쓴다. ack는 파일을 지운다.
+ */
+export function fileQueue(dir: string): FileQueue {
+  const errors: string[] = [];
+  const fail = (f: string, why: string) => {
+    let where = `${FAILED_QUEUE_DIR}/${f}로 옮겼어요`;
+    try {
+      mkdirSync(join(dir, FAILED_QUEUE_DIR), { recursive: true });
+      renameSync(join(dir, f), join(dir, FAILED_QUEUE_DIR, f));
+    } catch (err) {
+      where = `옮기지도 못했어요: ${String(err)}`;
+    }
+    errors.push(`큐 파일 ${f}: ${why} (${where})`);
+  };
+  return {
+    errors,
+    receive: async (max) => {
+      if (!existsSync(dir)) return [];
+      const files = readdirSync(dir)
+        .filter((f) => f.endsWith('.json') && !f.startsWith('.'))
+        .sort();
+      const out: QueueMessage[] = [];
+      for (const f of files) {
+        if (out.length >= max) break;
+        const id = f.slice(0, -'.json'.length);
+        const path = join(dir, f);
+        if (!QUEUE_ID_RE.test(id)) {
+          fail(f, '파일 이름에 쓸 수 없는 글자가 있어요');
+          continue;
+        }
+        // 심볼릭 링크를 따라가면 큐 밖 파일 내용이 주문 설명으로 들어온다
+        const st = lstatSync(path);
+        if (!st.isFile()) {
+          fail(f, '일반 파일이 아니에요');
+          continue;
+        }
+        if (st.size > QUEUE_FILE_MAX_BYTES) {
+          fail(f, `${QUEUE_FILE_MAX_BYTES}바이트를 넘어요`);
+          continue;
+        }
+        let body: unknown;
+        try {
+          body = JSON.parse(readFileSync(path, 'utf-8'));
+        } catch (err) {
+          fail(f, `JSON이 아니에요: ${String(err)}`);
+          continue;
+        }
+        out.push({ id, body });
+      }
+      return out;
+    },
+    ack: async (id) => {
+      if (!QUEUE_ID_RE.test(id)) throw new Error(`큐 메시지 id 형식이 아니에요: ${id}`);
+      try {
+        unlinkSync(join(dir, `${id}.json`));
+      } catch (err) {
+        // 이미 지워졌으면 끝난 것이다. 못 지운 파일은 다음 tick에 다시 와도 sourceRef로 걸러진다
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
+    },
+  };
+}
+
+/** 큐에 메시지를 넣는다. 꼴은 tick이 읽을 때와 같은 규칙으로 미리 보고 걸리면 던진다 */
+export function writeQueueMessage(dir: string, body: unknown, id?: string): string {
+  const parsed = parseQueueBody(body);
+  if (typeof parsed === 'string') throw new Error(`큐 메시지로 못 읽어요: ${parsed}`);
+  const name = id ?? `${Date.now()}-${randomUUID().slice(0, 8)}`;
+  if (!QUEUE_ID_RE.test(name)) throw new Error(`큐 메시지 id 형식이 아니에요: ${name}`);
+  mkdirSync(dir, { recursive: true });
+  const tmp = join(dir, `.${name}-${randomUUID().slice(0, 8)}.json`);
+  writeFileSync(tmp, JSON.stringify(body));
+  try {
+    // tick이 반쯤 쓴 파일을 읽지 않게 다 쓴 뒤 건다. rename과 달리 같은 id가 있으면 덮지 않고 실패한다
+    linkSync(tmp, join(dir, `${name}.json`));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST')
+      throw new Error(`같은 id의 메시지가 아직 큐에 있어요: ${name}`, { cause: err });
+    throw err;
+  } finally {
+    unlinkSync(tmp);
+  }
+  return name;
 }
 
 interface GhActivity {

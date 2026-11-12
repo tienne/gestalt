@@ -5,12 +5,14 @@ import { loadConfig } from '../../core/config.js';
 import { gestaltPath } from '../../core/home.js';
 import {
   fileDeploySource,
+  fileQueue,
   GhAccounts,
   GhAccountSwitcher,
   GhPrWatchSource,
   hostJiraClient,
   hostSlackClient,
   writeDeploySignal,
+  writeQueueMessage,
 } from '../../conductor/adapters.js';
 import {
   deliverGateDecision,
@@ -105,7 +107,7 @@ function launchersFor(
 }
 
 /**
- * 컨덕터 전용 명령(tick, gate resolve, order add, deploy report)을 워커 안에서 부르면 거절한다.
+ * 컨덕터 전용 명령(tick, gate resolve, order add, deploy report, queue add)을 워커 안에서 부르면 거절한다.
  *
  * 환경 변수는 호스트가 git 워크트리 세션을 열 때 넣어 준 경우에만 있다. 오르카 워커는 환경이
  * 컨덕터와 같아서 작업 디렉토리가 살아 있는 워커의 워크트리 안인지로 가른다. 서브에이전트는
@@ -246,6 +248,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
 export interface ConductorTickOptions extends ConductorCommonOptions {
   force?: boolean;
   prWatch?: boolean;
+  queue?: boolean;
 }
 
 export async function conductorTickCommand(opts: ConductorTickOptions): Promise<void> {
@@ -259,6 +262,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     const prSource = prWatch
       ? new GhPrWatchSource({ repoPaths: ctx.config.repoPaths, accounts: gh })
       : undefined;
+    const queue = opts.queue !== false ? fileQueue(queueDirOf(ctx)) : undefined;
     const deps: EngineDeps = {
       config: ctx.config,
       ...launchersFor(ctx, process.env),
@@ -266,12 +270,14 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
       slack: hostSlackClient(deferred),
       deploy: fileDeploySource(join(ctx.store.dir, 'deploy')),
       ...(prSource ? { prSource } : {}),
+      ...(queue ? { queue } : {}),
       ...(Object.keys(ctx.config.accounts).length > 0
         ? { accounts: new GhAccountSwitcher({ accounts: gh }) }
         : {}),
     };
     const report = await tick(ctx.store, deps, { force: opts.force === true });
     report.hostActions.push(...deferred);
+    report.errors.push(...(queue?.errors ?? []));
     for (const repo of prSource?.truncatedRepos ?? [])
       report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
     if (opts.json) return print(report);
@@ -430,6 +436,34 @@ export function conductorDeployReportCommand(opts: ConductorDeployReportOptions)
     if (opts.json) return print({ orderId: opts.order, ...signal });
     console.log('배포 결과를 남겼어요. 다음 tick에 반영돼요');
   });
+}
+
+export interface ConductorQueueAddOptions extends ConductorCommonOptions {
+  bodyFile: string;
+  id?: string;
+}
+
+/** 외부 큐에 메시지를 넣는다. 웹훅 수신기 같은 바깥 프로세스가 부른다. `-`면 stdin에서 읽는다 */
+export function conductorQueueAddCommand(opts: ConductorQueueAddOptions): void {
+  run(() => {
+    const ctx = open(opts);
+    // 워커가 큐로 주문을 만들면 하위 워커를 컨덕터 몰래 띄우는 길이 된다
+    assertConductorSession(ctx, 'queue add');
+    const raw = readFileSync(opts.bodyFile === '-' ? 0 : opts.bodyFile, 'utf-8');
+    let body: unknown;
+    try {
+      body = JSON.parse(raw);
+    } catch (err) {
+      throw new Error(`JSON이 아니에요: ${String(err)}`, { cause: err });
+    }
+    const id = writeQueueMessage(queueDirOf(ctx), body, opts.id);
+    if (opts.json) return print({ id, sourceRef: `queue:${id}` });
+    console.log(`큐에 넣었어요: ${id}. 다음 tick에 주문으로 받아요`);
+  });
+}
+
+function queueDirOf(ctx: Ctx): string {
+  return join(ctx.store.dir, 'queue');
 }
 
 export interface ConductorSlackDraftOptions extends ConductorCommonOptions {

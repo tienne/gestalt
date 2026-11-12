@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -7,8 +7,10 @@ import {
   conductorGateListCommand,
   conductorGateResolveCommand,
   conductorOrderAddCommand,
+  conductorQueueAddCommand,
   conductorSlackDraftCommand,
   conductorStatusCommand,
+  conductorTickCommand,
   conductorWorkerReportCommand,
 } from '../../../src/cli/commands/conductor.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
@@ -244,5 +246,43 @@ describe('gestalt conductor', () => {
     vi.spyOn(process, 'cwd').mockReturnValue(wt);
     expect(() => conductorOrderAddCommand({ ...add, title: 'y' })).toThrow('exit 1');
     expect(err.at(-1)).toContain('wrk-g');
+  });
+
+  it('queue add는 파일로 넣고 워커 세션이나 JSON이 아닌 본문은 거절한다', () => {
+    const stateDir = tempStateDir();
+    const bodyFile = join(stateDir, 'body.json');
+    writeFileSync(bodyFile, JSON.stringify({ repo: 'acme/app', title: '배너 교체' }));
+    conductorQueueAddCommand({ stateDir, json: true, bodyFile, id: 'm1' });
+    expect(last()).toEqual({ id: 'm1', sourceRef: 'queue:m1' });
+    expect(readdirSync(join(stateDir, 'queue'))).toEqual(['m1.json']);
+
+    writeFileSync(bodyFile, '{"repo": ');
+    expect(() => conductorQueueAddCommand({ stateDir, bodyFile })).toThrow('exit 1');
+    expect(err.at(-1)).toContain('JSON이 아니에요');
+
+    vi.stubEnv('GESTALT_CONDUCTOR_WORKER_ID', 'wrk-1');
+    try {
+      expect(() => conductorQueueAddCommand({ stateDir, bodyFile, id: 'm2' })).toThrow('exit 1');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(existsSync(join(stateDir, 'queue', 'm2.json'))).toBe(false);
+  });
+
+  it('tick은 큐를 읽어 꼴이 틀린 본문은 게이트로 올리고 못 읽는 파일은 오류로 알린다', async () => {
+    const stateDir = tempStateDir();
+    const dir = join(stateDir, 'queue');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'no-title.json'), JSON.stringify({ repo: 'acme/app' }));
+    writeFileSync(join(dir, 'broken.json'), '{"repo"');
+
+    await conductorTickCommand({ stateDir, json: true, force: true, queue: false });
+    expect(readdirSync(dir).sort()).toEqual(['broken.json', 'no-title.json']);
+
+    await conductorTickCommand({ stateDir, json: true, force: true });
+    const report = last() as { counts: { openGates: number }; errors: string[] };
+    expect(report.counts.openGates).toBe(1);
+    expect(report.errors.some((e) => e.includes('broken.json'))).toBe(true);
+    expect(readdirSync(dir)).toEqual(['failed']);
   });
 });
