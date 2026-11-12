@@ -258,7 +258,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 이 레벨에 서는 kind는 `network`, `subnet`, `cluster`, `workload`, `firewall`, `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target`, `datastore`다 (`types.ts`의 `INFRA_LEVEL_KINDS`). 그중 prod와 환경 없는 노드만 그린다. 전체 레벨과 같은 기준이다. 환경을 안 적은 노드라도 `placedIn`이나 `parent`로 올라가다 prod가 아닌 환경의 자리를 만나면 뺀다. stage VPC에만 `environment`를 적으면 그 안 서브넷과 서버도 함께 빠진다. stage나 dev 노드는 이 레벨에 안 서고 환경별로 박스를 나누는 그림도 아직 없다.
 
-**새 필드를 하나라도 적어야 레벨이 생긴다.** 위 kind 노드 가운데 하나라도 `provider`, `region`, `exposure`, `placedIn` 중 하나를 적었을 때만 만든다. kind만 맞아서는 안 생긴다. 이 필드를 안 쓰는 옛 IR은 HTML이 바이트까지 예전과 같아야 해서다. 레벨이 없으면 인프라용 스타일과 스크립트, 구름 아이콘, 루트의 `data-icons` 속성도 싣지 않는다. 레벨이 있으면 `service` 노드가 없어도 드릴다운 HTML이 된다.
+**새 필드를 하나라도 적어야 레벨이 생긴다.** 위 kind 노드 중 이 레벨에 그려지는 노드 가운데 하나라도 `provider`, `region`, `exposure`, `placedIn` 중 하나를 적었을 때만 만든다. kind만 맞아서는 안 생긴다. 이 필드를 안 쓰는 옛 IR은 HTML이 바이트까지 예전과 같아야 해서다. 레벨이 없으면 인프라용 스타일과 스크립트, 구름 아이콘, 루트의 `data-icons` 속성도 싣지 않는다. 레벨이 있으면 `service` 노드가 없어도 드릴다운 HTML이 된다.
 
 | 필드       | 쓰는 노드                               | 뜻                                                                                               |
 | ---------- | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
@@ -700,7 +700,7 @@ private 근거의 원문은 세 겹으로 막는다.
 
 ## 드릴다운
 
-서비스 하나에 화면이 수십 개, 엔드포인트가 수백 개면 평면 그림 한 장은 캔버스가 수천 px로 커져 읽을 수 없다. 그래서 그린 `service` 노드가 하나라도 있으면 render가 레벨을 나눠 HTML 한 장에 담는다 (`src/architecture/drilldown.ts`의 `shouldDrillDown`, `computeDrilldown`). 서비스가 없으면 아래 네 경우를 빼고 평면 그림이다. deploy-path에는 서비스가 없으니 질문별 그림을 얹지 않으면 평면이다. 인프라 구성 레벨 때문에만 레벨이 나뉘면 전체 레벨은 평면 그림과 같은 노드와 배치 그대로이고 인프라 구성 카드만 붙는다 (`flatRootWithInfra`).
+서비스 하나에 화면이 수십 개, 엔드포인트가 수백 개면 평면 그림 한 장은 캔버스가 수천 px로 커져 읽을 수 없다. 그래서 그린 `service` 노드가 하나라도 있으면 render가 레벨을 나눠 HTML 한 장에 담는다 (`src/architecture/drilldown.ts`의 `shouldDrillDown`, `computeDrilldown`). 서비스가 없으면 아래 네 경우를 빼고 평면 그림이다. deploy-path에는 서비스가 없으니 질문별 그림을 얹었거나 인프라 구성 레벨이 생길 때만 레벨로 나뉜다. 인프라 구성 레벨 때문에만 레벨이 나뉘면 전체 레벨은 평면 그림과 같은 노드와 배치 그대로이고 인프라 구성 카드만 붙는다 (`flatRootWithInfra`).
 
 서비스가 없어도 아래 넷 중 하나면 드릴다운 HTML이 된다. 넷 다 레벨로만 그려지는 그림이라서다.
 
