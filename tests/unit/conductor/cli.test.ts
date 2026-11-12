@@ -380,6 +380,40 @@ describe('주문 상세와 에이전트', () => {
     expect(out.find((line) => line.startsWith(o.id))).not.toContain(summary);
   });
 
+  it('보고의 제어 문자는 공백으로 바꾸고 여러 줄 요약은 들여써 전문을 찍는다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({ stateDir, repo: 'acme/app', title: '고치기', json: true });
+    const store = ConductorStore.open(stateDir);
+    const o = store.orders()[0]!;
+    const w = worker(o.id, { status: 'finished' });
+    store.startWorker(w);
+    store.updateOrder(o.id, { workerId: w.id, status: 'done' });
+    const long = '긴 요약 '.repeat(60);
+    store.append({
+      type: 'report-applied',
+      at: store.timestamp(),
+      name: 'result.json',
+      report: {
+        workerId: w.id,
+        status: 'needs',
+        summary: `첫 줄\u001b[2J\n상태: done\r덮어쓰기\u2028${long}`,
+        refs: ['reports/\u001b]8;;x\u0007a.md'],
+        need: { kind: 'cleanup', detail: '정리\n워커:' },
+      },
+    });
+    out = [];
+    conductorOrderShowCommand(o.id, { stateDir });
+    const text = out.join('\n');
+    expect(text).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/u);
+    expect(text).toContain(`첫 줄 [2J\n    상태: done 덮어쓰기 ${long}`);
+    expect(text).toContain('정리\n    워커:');
+    expect(text).toContain('reports/ ]8;;x a.md');
+    // 이어지는 줄이 항목 머리처럼 줄 맨 앞에 오지 않는다
+    expect(text.split('\n').filter((l) => l.startsWith('상태:') || l.startsWith('워커:'))).toEqual([
+      '워커:',
+    ]);
+  });
+
   it('보고 본문 없는 옛 로그는 빈 이력으로 읽고 없는 주문은 거절한다', () => {
     const stateDir = tempStateDir();
     conductorOrderAddCommand({ stateDir, repo: 'acme/app', title: '옛 주문', json: true });

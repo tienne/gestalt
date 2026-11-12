@@ -197,6 +197,22 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
   });
 }
 
+/**
+ * 워커 보고처럼 바깥에서 온 값을 터미널에 찍을 꼴로 바꾼다. ESC 같은 제어 문자가 화면을 조작하지 못하게
+ * 개행 말고는 공백으로 바꾸고, 이어지는 줄은 들여써 다른 항목 줄로 보이지 않게 한다. 전문을 읽는 자리라 자르지 않는다
+ */
+function terminalText(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    out +=
+      ch !== '\n' && (c < 0x20 || (c >= 0x7f && c < 0xa0) || c === 0x2028 || c === 0x2029)
+        ? ' '
+        : ch;
+  }
+  return out.replace(/\n/g, '\n    ');
+}
+
 export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptions): void {
   run(() => {
     const { store } = open(opts);
@@ -208,11 +224,11 @@ export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptio
     const bypasses = store.snapshot.bypasses.filter((b) => b.orderId === id);
     const refs = [...new Set(reports.flatMap((r) => r.refs))];
     if (opts.json) return print({ order, workers, reports, refs, gates, bypasses });
-    console.log(`${order.id}  ${order.title}`);
+    console.log(`${order.id}  ${terminalText(order.title)}`);
     console.log(`레포: ${order.repo}  범위: ${order.scope}  상태: ${order.status}`);
-    console.log(`설명: ${order.description ?? '없음'}`);
+    console.log(`설명: ${order.description ? terminalText(order.description) : '없음'}`);
     console.log(`체인: ${order.skillChain.join(' → ')}`);
-    console.log(`PR: ${order.prRef ?? '없음'}`);
+    console.log(`PR: ${order.prRef ? terminalText(order.prRef) : '없음'}`);
     if (order.agent) console.log(`주문 에이전트: ${order.agent}`);
     console.log('워커:');
     for (const w of workers)
@@ -221,21 +237,22 @@ export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptio
       );
     console.log('보고 이력:');
     for (const r of reports) {
-      console.log(`  ${r.at}  ${r.workerId}  ${r.status}  ${r.summary}`);
-      if (r.skill) console.log(`    스킬: ${r.skill}`);
-      if (r.prRef) console.log(`    PR: ${r.prRef}`);
+      console.log(`  ${r.at}  ${r.workerId}  ${r.status}  ${terminalText(r.summary)}`);
+      if (r.skill) console.log(`    스킬: ${terminalText(r.skill)}`);
+      if (r.prRef) console.log(`    PR: ${terminalText(r.prRef)}`);
       if (r.merged !== undefined) console.log(`    머지: ${r.merged}`);
       if (r.stopReason) console.log(`    중단: ${r.stopReason}`);
-      if (r.need) console.log(`    요청: ${r.need.kind}  ${r.need.detail}`);
+      if (r.need) console.log(`    요청: ${r.need.kind}  ${terminalText(r.need.detail)}`);
     }
-    console.log(`refs: ${refs.join(', ') || '없음'}`);
+    console.log(`refs: ${refs.map(terminalText).join(', ') || '없음'}`);
     console.log('gate:');
     for (const g of gates)
       console.log(
-        `  ${g.id}  ${g.type}  ${g.status}  ${g.decision ?? '-'}  ${g.reason}${g.answer ? `  답: ${g.answer}` : ''}`,
+        `  ${g.id}  ${g.type}  ${g.status}  ${g.decision ?? '-'}  ${terminalText(g.reason)}${g.answer ? `  답: ${terminalText(g.answer)}` : ''}`,
       );
     console.log('bypass:');
-    for (const b of bypasses) console.log(`  ${b.at}  ${b.need}  ${b.action}`);
+    for (const b of bypasses)
+      console.log(`  ${b.at}  ${terminalText(b.need)}  ${terminalText(b.action)}`);
   });
 }
 
