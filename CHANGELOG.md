@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.133.0] - 2026-11-13
+
+> **인계 훅은 플러그인 훅이에요.** 플러그인을 업데이트한 뒤에는 돌고 있던 컨덕터 세션을 닫고 새로 띄워야 컴팩트 횟수를 세기 시작해요. 이미 떠 있던 세션에는 새 훅이 안 걸려요.
+
+### Added
+
+- **컨덕터 세션이 컨텍스트를 거의 다 쓰면 새 세션에 일을 넘겨요(#126).** 컨덕터는 대화 하나로 오래 돌아서 컴팩트를 몇 번 거치면 대화에만 있던 값(기다리던 질문, 사람이 정해 준 규칙)이 흐려졌어요.
+  - `SessionStart(compact)`에 걸리는 bash 훅을 더했어요. tick이 등록한 컨덕터 세션만 상태 저장소의 `sessions/<세션 id>/compactions`에 횟수와 트랜스크립트 경로를 적고 나머지 세션은 Node를 띄우지 않고 바로 끝나요.
+  - tick이 `CLAUDE_CODE_SESSION_ID`로 세션을 등록하고 출력에 `handoff`를 실어요. 한 번 컴팩트한 뒤 트랜스크립트의 컨텍스트 사용량이 `handoffContextPercent`(기본 70%) 이상이거나 두 번째 컴팩트가 오면 `due: true`가 돼요.
+  - `due`를 본 세션은 그 tick의 hostActions와 확인 자리 점검까지 마친 다음 `gestalt conductor handoff`로 넘겨요. 명령은 `handoffs/`에 인계 파일을 쓰고 오르카가 있으면 `agent launch`로 같은 워크스페이스에 새 세션을 띄워요. 오르카가 없거나 띄우기가 실패하면 파일만 남기고 사람에게 전할 문장을 돌려줘요.
+  - 띄우기 전에 `handoff.json`을 먼저 남겨서 넘긴 세션의 tick은 거절돼요. 띄운 뒤 기록을 못 덮어쓰면 stderr에 한 줄을 내고 결과에 `recordError`를 실어요.
+  - `--loop-prompt`는 `/gestalt:conductor`로 시작하는 한 줄(앞에 간격 하나는 붙어도 되고 500자 이하)만 받아요. 새 세션이 그 원문 그대로 반복을 걸어서요. 인계 파일의 메모는 펜스로 감싸 앞의 고정 절과 안 섞이게 했어요.
+  - 사용량을 못 읽으면 `due: false`와 이유를 싣고 텍스트 출력에 `인계 판정 못 함: <이유>` 줄을 찍어요.
+
+### 남긴 것
+
+- 이 흐름은 Claude Code 전용이에요. 세션 id와 컴팩트 훅이 없는 호스트에서는 `handoff`가 출력에 안 실려요.
+- `--state-dir`로 다른 저장소를 쓰면 훅이 그 자리를 몰라 횟수를 못 세요. 훅은 `GESTALT_CONDUCTOR_STATE_DIR`와 `~/.gestalt/conductor.json`의 `stateDir`(절대 경로만), 기본값 순서로 저장소를 찾아요.
+
 ## [0.132.0] - 2026-11-13
 
 > **업데이트하면 컨덕터 PR 감시가 꺼져요.** 감시를 다시 켜려면 `~/.gestalt/conductor.json`의 `prWatchRepos`에 레포를 적어 주세요.
