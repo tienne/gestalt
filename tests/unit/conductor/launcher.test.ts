@@ -179,6 +179,13 @@ describe('워커 자리 알아보기', () => {
     expect(workerAt('/ws/app/ord-2-1', all)).toBeUndefined();
     expect(workerAt(join(root, 'wt'), all)).toBeUndefined();
   });
+
+  it('점 두 개로 시작하는 이름의 하위 디렉토리도 워크트리 안으로 본다', () => {
+    const wt = join(tempStateDir(), 'wt');
+    mkdirSync(join(wt, '..cache'), { recursive: true });
+    const git = worker('ord-1', { id: 'wrk-g', kind: 'git-worktree', handle: wt });
+    expect(workerAt(join(wt, '..cache'), [git])?.id).toBe('wrk-g');
+  });
 });
 
 describe('런처', () => {
@@ -372,5 +379,164 @@ describe('오르카 에이전트 인자', () => {
     await l.start({ order: order({ agent: 'codex' }), worker: worker('ord-1'), prompt: 'p' });
     const args = calls[0]!.args;
     expect(args[args.indexOf('--agent') + 1]).toBe('claude');
+  });
+});
+
+describe('오르카 런처 release', () => {
+  const ws = 'repo-1::/ws/app/ord-1-2';
+
+  const shown = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      ok: true,
+      result: {
+        worktree: {
+          repoId: 'repo-1',
+          path: '/ws/app/ord-1-2',
+          isMainWorktree: false,
+          parentWorktreeId: null,
+          ...over,
+        },
+      },
+    });
+
+  function scripted(
+    over: {
+      show?: string;
+      wtShow?: { code: number; stdout: string };
+      rm?: { code: number; stdout: string; stderr?: string };
+    } = {},
+  ) {
+    const calls: string[][] = [];
+    const runner: CommandRunner = async (_cmd, args) => {
+      calls.push(args);
+      if (args[1] === 'worker-show')
+        return {
+          code: 0,
+          stdout: over.show ?? JSON.stringify({ ok: true, result: { workspace: ws } }),
+          stderr: '',
+        };
+      if (args[0] === 'worktree' && args[1] === 'show')
+        return { ...(over.wtShow ?? { code: 0, stdout: shown() }), stderr: '' };
+      if (args[0] === 'worktree' && args[1] === 'rm')
+        return { stderr: '', ...(over.rm ?? { code: 0, stdout: '{"ok":true}' }) };
+      return { code: 0, stdout: '{"ok":true}', stderr: '' };
+    };
+    const l = new OrcaLauncher({ orcaCommand: 'orca', promptDir: tempStateDir(), runner });
+    return { calls, l };
+  }
+  const w = () => worker('ord-1', { kind: 'orca-worktree', attempt: 2, handle: 'ctx_9' });
+
+  it('옵션 없이는 워커 터미널만 거둔다', async () => {
+    const { calls, l } = scripted();
+    await l.release(w());
+    expect(calls).toEqual([['orchestration', 'worker-release', '--dispatch', 'ctx_9', '--json']]);
+  });
+
+  it('removeWorktree면 worker-show로 워크스페이스를 찾아 강제 없이 지우고 브랜치는 오르카 판단에 맡긴다', async () => {
+    const { calls, l } = scripted();
+    await l.release(w(), { removeWorktree: true });
+    expect(calls.map((c) => c.slice(0, 2).join(' '))).toEqual([
+      'orchestration worker-show',
+      'orchestration worker-release',
+      'worktree show',
+      'worktree rm',
+    ]);
+    const rm = calls[3]!;
+    expect(rm[rm.indexOf('--worktree') + 1]).toBe(`id:${ws}`);
+    expect(rm).toContain('--delete-branch');
+    expect(rm).not.toContain('--force');
+  });
+
+  it('지우기가 실패하면 강제로 지우지 않고 에러를 던진다', async () => {
+    const { calls, l } = scripted({
+      rm: { code: 1, stdout: '{"ok":false,"error":{"code":"worktree_dirty"}}' },
+    });
+    await expect(l.release(w(), { removeWorktree: true })).rejects.toThrow(/worktree rm 실패/);
+    expect(calls.filter((c) => c[1] === 'rm')).toHaveLength(1);
+  });
+
+  it('이미 없는 워크트리는 지운 것으로 본다', async () => {
+    const { l } = scripted({
+      rm: { code: 1, stdout: '{"ok":false,"error":{"code":"selector_not_found"}}' },
+    });
+    await expect(l.release(w(), { removeWorktree: true })).resolves.toBeUndefined();
+  });
+
+  it('이름이 회차와 다른 워크트리는 지우지 않는다', async () => {
+    const { calls, l } = scripted({
+      show: JSON.stringify({ ok: true, result: { workspace: 'repo-1::/ws/app/feat' } }),
+    });
+    await expect(l.release(w(), { removeWorktree: true })).rejects.toThrow(/지우지 않았어요/);
+    expect(calls.some((c) => c[1] === 'rm')).toBe(false);
+  });
+
+  it('부모 워크트리이거나 그 위 경로면 지우지 않는다', async () => {
+    const { calls, l } = scripted();
+    await expect(
+      l.release(w(), { removeWorktree: true, parentWorktree: '/ws/app/ord-1-2/nested' }),
+    ).rejects.toThrow(/부모 워크트리/);
+    expect(calls.some((c) => c[1] === 'rm')).toBe(false);
+
+    const child = scripted({
+      show: JSON.stringify({ ok: true, result: { workspace: 'repo-1::/ws/ord-1-2' } }),
+      wtShow: { code: 0, stdout: shown({ parentWorktreeId: 'repo-1::/ws/feat' }) },
+    });
+    await child.l.release(w(), { removeWorktree: true, parentWorktree: '/ws/feat' });
+    expect(child.calls.some((c) => c[1] === 'rm')).toBe(true);
+  });
+
+  it.each([
+    ['메인 워크트리', { isMainWorktree: true }, /메인 워크트리/],
+    ['메인 여부를 안 알려 준 워크트리', { isMainWorktree: undefined }, /메인 워크트리/],
+    ['다른 레포 워크트리', { repoId: 'repo-2' }, /다른 레포/],
+  ])('%s는 지우지 않는다', async (_label, over, error) => {
+    const { calls, l } = scripted({ wtShow: { code: 0, stdout: shown(over) } });
+    await expect(l.release(w(), { removeWorktree: true })).rejects.toThrow(error);
+    expect(calls.some((c) => c[1] === 'rm')).toBe(false);
+  });
+
+  it('주문의 부모 워크트리에서 갈라지지 않은 워크트리는 지우지 않는다', async () => {
+    for (const parentWorktreeId of [null, 'repo-1::/ws/other']) {
+      const { calls, l } = scripted({ wtShow: { code: 0, stdout: shown({ parentWorktreeId }) } });
+      await expect(
+        l.release(w(), { removeWorktree: true, parentWorktree: '/ws/feat' }),
+      ).rejects.toThrow(/부모 워크트리에서 갈라진/);
+      expect(calls.some((c) => c[1] === 'rm')).toBe(false);
+    }
+  });
+
+  it('확인 단계에서 이미 없는 워크트리면 지운 것으로 보고 rm을 안 부른다', async () => {
+    const { calls, l } = scripted({
+      wtShow: { code: 1, stdout: '{"ok":false,"error":{"code":"selector_not_found"}}' },
+    });
+    await expect(l.release(w(), { removeWorktree: true })).resolves.toBeUndefined();
+    expect(calls.some((c) => c[1] === 'rm')).toBe(false);
+  });
+
+  it('실패 출력은 한 줄로 줄이고 복구 명령은 그대로 둔다', async () => {
+    const { l } = scripted({
+      rm: { code: 1, stdout: '', stderr: `line1\nline2\u001b[31m\n${'x'.repeat(400)}` },
+    });
+    const err = await l.release(w(), { removeWorktree: true }).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    const msg = (err as Error).message;
+    expect(msg).not.toContain('\n');
+    expect(msg).not.toContain('\u001b');
+    expect(msg).not.toContain('x'.repeat(300));
+    expect(msg).toContain(`orca worktree rm --worktree id:${ws} --delete-branch`);
+  });
+
+  it('dispatch id 없이 워크트리 삭제를 요청하면 에러를 던진다', async () => {
+    const { calls, l } = scripted();
+    const bare = worker('ord-1', { kind: 'orca-worktree', attempt: 2 });
+    await expect(l.release(bare, { removeWorktree: true })).rejects.toThrow(/dispatch id가 없어/);
+    await expect(l.release(bare)).resolves.toBeUndefined();
+    expect(calls).toEqual([]);
+  });
+
+  it('워크스페이스를 못 읽으면 터미널도 거두지 않고 에러를 던진다', async () => {
+    const { calls, l } = scripted({ show: '{"ok":true,"result":{}}' });
+    await expect(l.release(w(), { removeWorktree: true })).rejects.toThrow(/워크트리를 안 알려/);
+    expect(calls.some((c) => c[1] === 'worker-release')).toBe(false);
   });
 });

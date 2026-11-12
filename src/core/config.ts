@@ -410,6 +410,11 @@ const conductorConfigSchema = z.object({
   handoffContextPercent: z.number().int().min(10).max(99).default(70),
   /** 사용량 비율을 낼 컨텍스트 창 크기(토큰). 비우면 모델 id와 사용량으로 200k나 1M을 고른다 */
   contextWindowTokens: z.number().int().min(10_000).max(10_000_000).optional(),
+  /**
+   * 머지된 주문의 오르카 워커 워크트리를 정리 단계에서 지운다. 끄면 워커 터미널만 거두고 워크트리는 남긴다.
+   * 레포 gestalt.json이 켜서 남의 워크트리를 지우게 하면 안 되므로 REPO_CONDUCTOR_KEYS에 넣지 않는다
+   */
+  removeMergedOrcaWorktrees: z.boolean().default(false),
 });
 
 /**

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { delimiter, isAbsolute, join, relative, sep } from 'node:path';
+import { basename, delimiter, isAbsolute, join, relative, sep } from 'node:path';
 import { isAccountName } from './account-name.js';
 import { handleNeed, openOrReuse } from './gates.js';
 import { oneLine } from './intake.js';
@@ -59,10 +59,7 @@ export function workerAt(cwd: string, workers: readonly Worker[]): Worker | unde
   const segments = new Set(here.split(sep));
   return workers.find((w) => {
     if (!ACTIVE_WORKER_STATUSES.has(w.status) && w.status !== 'stopped') return false;
-    if (w.kind === 'git-worktree' && w.handle) {
-      const rel = relative(real(w.handle), here);
-      return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
-    }
+    if (w.kind === 'git-worktree' && w.handle) return contains(real(w.handle), here);
     if (w.kind === 'orca-worktree') return segments.has(orcaWorktreeName(w));
     return false;
   });
@@ -108,7 +105,14 @@ export interface Launcher {
   /** 도는 워커에 지시를 전한다. 컨덕터 세션이 대신 전해야 하면 HostAction을 돌려준다 */
   send(worker: Worker, message: string): Promise<HostAction | undefined>;
   /** 끝난 워커의 자원을 정리한다 */
-  release(worker: Worker): Promise<void>;
+  release(worker: Worker, opts?: ReleaseOptions): Promise<void>;
+}
+
+export interface ReleaseOptions {
+  /** 워커 워크트리까지 지운다. 컨덕터는 머지된 주문의 오르카 워커에만 켠다 */
+  removeWorktree?: boolean;
+  /** 주문의 부모 워크트리. 이 워크트리와 그 위 경로는 지우지 않는다 */
+  parentWorktree?: string;
 }
 
 export interface CommandResult {
@@ -170,8 +174,7 @@ async function mustRun(
 ): Promise<string> {
   const r = await runner(cmd, args, opts);
   if (r.code !== 0) {
-    const head = (r.stderr || r.stdout).trim().split('\n').slice(0, 3).join(' ');
-    throw new Error(`${cmd} ${args[0] ?? ''} 실패(${r.code}): ${head}`);
+    throw new Error(`${cmd} ${args[0] ?? ''} 실패(${r.code}): ${outputHead(r)}`);
   }
   return r.stdout;
 }
@@ -525,14 +528,149 @@ export class OrcaLauncher implements Launcher {
     return undefined;
   }
 
-  async release(worker: Worker): Promise<void> {
-    if (!worker.handle) return;
+  /**
+   * 워커 터미널을 거둔다. removeWorktree면 그 뒤에 워크트리도 지운다.
+   *
+   * 워크트리는 `--force` 없이 지운다. 커밋 안 한 변경이 있으면 오르카가 거절하고 그 실패가
+   * 컨덕터의 정리 실패 게이트로 올라간다. 브랜치는 `--delete-branch`로 오르카가 머지됐다고
+   * 확인한 것만 지운다. 스쿼시 머지처럼 확인 못 하는 브랜치는 오르카가 남긴다
+   */
+  async release(worker: Worker, opts: ReleaseOptions = {}): Promise<void> {
+    if (!worker.handle) {
+      // 그냥 넘기면 컨덕터가 워크트리까지 지웠다고 남긴다
+      if (opts.removeWorktree)
+        throw new Error(`${worker.id}의 dispatch id가 없어 워크트리를 못 찾았어요`);
+      return;
+    }
+    // 터미널을 거둔 뒤에도 worker-show는 되지만 순서에 기대지 않으려고 먼저 읽는다
+    const workspace = opts.removeWorktree ? await this.workspaceOf(worker) : undefined;
     await mustRun(
       this.runner,
       this.opts.orcaCommand,
       ['orchestration', 'worker-release', '--dispatch', worker.handle, '--json'],
       { timeoutMs: ORCA_TIMEOUT_MS },
     );
+    if (workspace) await this.removeWorktree(worker, workspace, opts.parentWorktree);
+  }
+
+  /** worker-show가 돌려주는 워크스페이스(`<레포 id>::<경로>`)를 읽는다 */
+  private async workspaceOf(worker: Worker): Promise<Workspace> {
+    const out = await mustRun(
+      this.runner,
+      this.opts.orcaCommand,
+      ['orchestration', 'worker-show', '--dispatch', worker.handle!, '--json'],
+      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+    );
+    const workspace = workspaceField(out);
+    const at = workspace?.indexOf('::') ?? -1;
+    if (!workspace || at <= 0)
+      throw new Error(
+        `오르카가 ${worker.id}의 워크트리를 안 알려 줘서 못 지웠어요. worker-show 응답: ${oneLine(out, 200)}`,
+      );
+    return {
+      selector: `id:${workspace}`,
+      repoId: workspace.slice(0, at),
+      path: workspace.slice(at + 2),
+    };
+  }
+
+  private async removeWorktree(
+    worker: Worker,
+    workspace: Workspace,
+    parentWorktree: string | undefined,
+  ): Promise<void> {
+    const { path } = workspace;
+    const name = orcaWorktreeName(worker);
+    // 컨덕터가 만든 이름과 다르면 사람이 옮겼거나 다른 워크트리를 고른 것이라 손대지 않는다
+    if (basename(path) !== name)
+      throw new Error(`${worker.id}의 워크트리(${path})가 ${name}이 아니라 지우지 않았어요`);
+    if (parentWorktree && contains(real(path), real(parentWorktree)))
+      throw new Error(`${worker.id}의 워크트리(${path})가 부모 워크트리라 지우지 않았어요`);
+    // worker-show가 알려 준 경로만 믿지 않고 오르카가 아는 워크트리 정보로 한 번 더 확인한다
+    const shown = await this.runner(
+      this.opts.orcaCommand,
+      ['worktree', 'show', '--worktree', workspace.selector, '--json'],
+      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+    );
+    if (shown.code !== 0) {
+      if (errorCode(shown.stdout) === 'selector_not_found') return;
+      throw new Error(
+        `${this.opts.orcaCommand} worktree show 실패(${shown.code}): ${outputHead(shown)}`,
+      );
+    }
+    const refusal = removalRefusal(shown.stdout, workspace.repoId, parentWorktree);
+    if (refusal) throw new Error(`${worker.id}의 워크트리(${path})가 ${refusal} 지우지 않았어요`);
+    const r = await this.runner(
+      this.opts.orcaCommand,
+      ['worktree', 'rm', '--worktree', workspace.selector, '--delete-branch', '--json'],
+      { timeoutMs: ORCA_TIMEOUT_MS },
+    );
+    if (r.code === 0 || errorCode(r.stdout) === 'selector_not_found') return;
+    throw new Error(
+      `${this.opts.orcaCommand} worktree rm 실패(${r.code}): ${outputHead(r)}. 커밋 안 한 변경이 있는지 확인하고 \`orca worktree rm --worktree ${workspace.selector} --delete-branch\`로 지워 주세요`,
+    );
+  }
+}
+
+/** dir이 target이거나 target의 상위 경로면 참이다 */
+function contains(dir: string, target: string): boolean {
+  const rel = relative(dir, target);
+  // `..foo`처럼 점 두 개로 시작하는 이름은 안쪽 경로다
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+/** 게이트 사유로 올라가는 자리라 제어 문자를 걷고 한 줄로 줄인다 */
+function outputHead(r: { stdout: string; stderr: string }): string {
+  return oneLine((r.stderr || r.stdout).trim(), 200);
+}
+
+interface Workspace {
+  /** `id:<레포 id>::<경로>` */
+  selector: string;
+  repoId: string;
+  path: string;
+}
+
+/** `worktree show` 응답을 보고 지우면 안 되는 이유를 돌려준다. 지워도 되면 undefined */
+function removalRefusal(
+  stdout: string,
+  repoId: string,
+  parentWorktree: string | undefined,
+): string | undefined {
+  let wt: Record<string, unknown> | undefined;
+  try {
+    wt = (JSON.parse(stdout) as { result?: { worktree?: Record<string, unknown> } }).result
+      ?.worktree;
+  } catch {
+    wt = undefined;
+  }
+  if (!wt) return '오르카 응답으로 확인되지 않아';
+  if (wt['isMainWorktree'] !== false) return '메인 워크트리일 수 있어';
+  if (wt['repoId'] !== repoId) return '다른 레포의 워크트리라';
+  if (!parentWorktree) return undefined;
+  const parentId = typeof wt['parentWorktreeId'] === 'string' ? wt['parentWorktreeId'] : '';
+  const at = parentId.indexOf('::');
+  if (at <= 0 || real(parentId.slice(at + 2)) !== real(parentWorktree))
+    return '주문의 부모 워크트리에서 갈라진 워크트리가 아니라';
+  return undefined;
+}
+
+function workspaceField(stdout: string): string | undefined {
+  try {
+    const d = JSON.parse(stdout) as { result?: { workspace?: unknown }; workspace?: unknown };
+    const v = d.result?.workspace ?? d.workspace;
+    return typeof v === 'string' && v ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function errorCode(stdout: string): string | undefined {
+  try {
+    const d = JSON.parse(stdout) as { error?: { code?: unknown } };
+    return typeof d.error?.code === 'string' ? d.error.code : undefined;
+  } catch {
+    return undefined;
   }
 }
 

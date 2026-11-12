@@ -33,6 +33,7 @@ import {
   type AccountSwitcher,
   type HostAction,
   type LauncherSet,
+  type ReleaseOptions,
 } from './launcher.js';
 import { repoOfPrRef } from './pr-ref.js';
 import { pollPrs, type PrWatchSource } from './pr-watch.js';
@@ -719,8 +720,18 @@ async function settleOne(
   }
 }
 
+/** 이번 tick에 거둘 워커인지. 머지된 주문의 오르카 워크트리는 재개로 멈춘 앞 회차도 거둔다 */
+function isCleanupTarget(w: Worker, removeWorktree: boolean): boolean {
+  if (w.status === 'finished' || w.status === 'failed') return true;
+  return removeWorktree && w.status === 'stopped';
+}
+
 /**
  * 끝난 워커의 자원을 정리한다. 멈춘 워커는 재개가 그 dispatch id나 워크트리를 다시 쓸 수 있어 남긴다.
+ *
+ * removeMergedOrcaWorktrees를 켜면 머지된 주문의 오르카 워커는 워크트리까지 지운다. 재개로 갈린
+ * 앞 회차는 stopped로 남는데 주문이 머지되면 다시 쓸 일이 없어 같이 거둔다. 머지 안 된 주문의
+ * 워크트리는 확인할 거리가 남았을 수 있어 그대로 둔다.
  *
  * 정리가 실패하면 주문 없는 게이트로 올린다. 주문에 붙이면 주문이 waiting-gate로 바뀌어 머지 뒤
  * 정산까지 멈추는데 정리는 주문 진행과 무관하다. 그 게이트가 열린 동안은 다시 시도하지 않는다.
@@ -734,25 +745,47 @@ async function cleanupWorkers(
   const cleanupGates = Object.values(store.snapshot.gates).filter(
     (g) => g.payload?.kind === CLEANUP_FAILED,
   );
-  const targets: Worker[] = [];
+  const targets: { worker: Worker; opts: ReleaseOptions }[] = [];
   for (const w of store.workers()) {
-    if (w.status !== 'finished' && w.status !== 'failed') continue;
+    const order = store.order(w.orderId);
+    const removeWorktree =
+      deps.config.removeMergedOrcaWorktrees === true &&
+      w.kind === 'orca-worktree' &&
+      order?.mergedAt !== undefined;
+    if (!isCleanupTarget(w, removeWorktree)) continue;
     const mine = cleanupGates.filter((g) => g.payload?.workerId === w.id);
     if (mine.some((g) => g.status === 'open')) continue;
     if (mine.some((g) => g.decision === 'approved')) {
       store.updateWorker(w.id, { status: 'released' });
       continue;
     }
-    targets.push(w);
+    targets.push({
+      worker: w,
+      opts: removeWorktree
+        ? {
+            removeWorktree,
+            ...(order?.parentWorktree ? { parentWorktree: order.parentWorktree } : {}),
+          }
+        : {},
+    });
   }
-  // release마다 외부 명령 타임아웃이 걸려 있어 차례로 기다리면 tick이 워커 수만큼 길어진다
+  // release마다 외부 명령 타임아웃이 걸려 있어 차례로 기다리면 tick이 워커 수만큼 길어진다.
+  // 워크트리 삭제만은 같은 레포의 git 락이 겹치지 않게 레포마다 차례로 돌린다
+  const repoChains = new Map<string, Promise<void>>();
   const results = await Promise.allSettled(
-    targets.map(async (w) => {
-      await deps.launchers[w.kind]?.release(w);
+    targets.map(({ worker, opts }) => {
+      const run = async (): Promise<void> => {
+        await deps.launchers[worker.kind]?.release(worker, opts);
+      };
+      if (!opts.removeWorktree) return run();
+      const repo = store.order(worker.orderId)?.repo ?? '';
+      const next = (repoChains.get(repo) ?? Promise.resolve()).then(run, run);
+      repoChains.set(repo, next);
+      return next;
     }),
   );
   results.forEach((r, i) => {
-    const w = targets[i]!;
+    const { worker: w, opts } = targets[i]!;
     if (r.status === 'fulfilled') {
       const at = store.timestamp();
       store.append({
@@ -761,7 +794,9 @@ async function cleanupWorkers(
         record: {
           orderId: w.orderId,
           need: 'cleanup',
-          action: `${w.kind} 워커 ${w.id}를 정리했어요`,
+          action: opts.removeWorktree
+            ? `${w.kind} 워커 ${w.id}를 워크트리까지 정리했어요`
+            : `${w.kind} 워커 ${w.id}를 정리했어요`,
           at,
         },
       });
