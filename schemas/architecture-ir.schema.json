@@ -210,6 +210,31 @@
           "minLength": 1,
           "description": "id of the cloud_account node this node belongs to; edges whose ends sit in different accounts get another color"
         },
+        "engine": {
+          "type": "string",
+          "minLength": 1,
+          "description": "datastore, deploy_target and cluster only: engine name such as mysql, redis, lambda or ecs. A known engine picks the logo"
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["aws", "gcp", "azure"],
+          "description": "infra level kinds only (network, subnet, cluster, workload, firewall, domain, cdn, bucket, cloud_account, deploy_target, datastore). Inherited through placedIn, parent, then account when omitted"
+        },
+        "region": {
+          "type": "string",
+          "minLength": 1,
+          "description": "infra level kinds only: region name. Inherited the same way as provider"
+        },
+        "exposure": {
+          "type": "string",
+          "enum": ["public", "private"],
+          "description": "subnet only. Omit when unknown; the subnet is then drawn as a neutral box"
+        },
+        "placedIn": {
+          "type": "string",
+          "minLength": 1,
+          "description": "deploy_target, datastore and bucket only: id of the network, subnet or cluster node this node sits in"
+        },
         "platforms": {
           "type": "array",
           "uniqueItems": true,

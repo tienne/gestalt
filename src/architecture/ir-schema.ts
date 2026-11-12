@@ -6,21 +6,26 @@ import { RENDER_CLASSES } from './packs/types.js';
 import {
   ARCHITECTURE_IR_SCHEMA_VERSION,
   ARCHITECTURE_VIEWS,
+  CLOUD_PROVIDERS,
   CONTEXT_SOURCE_VIAS,
   DOC_GAP_KINDS,
   EDGE_KINDS,
   ENDPOINT_PROTOCOLS,
+  ENGINE_KINDS,
   ENVIRONMENT_KINDS,
   EVIDENCE_TYPES,
   FLOW_ACTOR_KINDS,
   FLOW_PATHS,
   FLOW_STEP_KINDS,
   FLOW_STEP_OUTCOMES,
+  INFRA_LEVEL_KINDS,
+  PLACED_IN_SOURCE_KINDS,
   PROJECTION_SHAPES,
   SEQUENCE_BLOCK_KINDS,
   LINE_STYLES,
   NODE_KINDS,
   PLATFORMS,
+  SUBNET_EXPOSURES,
   VISIBILITIES,
   type ArchitectureIr,
 } from './types.js';
@@ -186,6 +191,10 @@ const nodeSchema = z
     environment: z.string().min(1).optional(),
     engine: z.string().min(1).optional(),
     account: z.string().min(1).optional(),
+    provider: z.enum(CLOUD_PROVIDERS).optional(),
+    region: z.string().min(1).optional(),
+    exposure: z.enum(SUBNET_EXPOSURES).optional(),
+    placedIn: z.string().min(1).optional(),
     platforms: z.array(platformSchema).optional(),
     platformEvidence: z.record(platformSchema, z.array(evidenceSchema)).optional(),
     protocol: z.enum(ENDPOINT_PROTOCOLS).optional(),
@@ -225,8 +234,23 @@ const nodeSchema = z
     if (node.environment !== undefined && !ENVIRONMENT_KINDS.includes(node.kind)) {
       custom('environment', `environment는 ${ENVIRONMENT_KINDS.join(', ')} 노드에만 쓸 수 있다`);
     }
-    if (node.engine !== undefined && node.kind !== 'datastore') {
-      custom('engine', 'engine은 datastore 노드에만 쓸 수 있다');
+    if (node.engine !== undefined && !ENGINE_KINDS.includes(node.kind)) {
+      custom('engine', `engine은 ${ENGINE_KINDS.join(', ')} 노드에만 쓸 수 있다`);
+    }
+    if (node.provider !== undefined && !INFRA_LEVEL_KINDS.includes(node.kind)) {
+      custom('provider', `provider는 ${INFRA_LEVEL_KINDS.join(', ')} 노드에만 쓸 수 있다`);
+    }
+    if (node.region !== undefined && !INFRA_LEVEL_KINDS.includes(node.kind)) {
+      custom('region', `region은 ${INFRA_LEVEL_KINDS.join(', ')} 노드에만 쓸 수 있다`);
+    }
+    if (node.exposure !== undefined && node.kind !== 'subnet') {
+      custom('exposure', 'exposure는 subnet 노드에만 쓸 수 있다');
+    }
+    if (node.placedIn !== undefined) {
+      if (!PLACED_IN_SOURCE_KINDS.includes(node.kind)) {
+        custom('placedIn', `placedIn은 ${PLACED_IN_SOURCE_KINDS.join(', ')} 노드에만 쓸 수 있다`);
+      }
+      if (node.placedIn === node.id) custom('placedIn', 'placedIn은 자기 자신을 가리킬 수 없다');
     }
     if (node.account !== undefined && node.kind === 'cloud_account') {
       custom('account', 'cloud_account 노드는 account를 가질 수 없다');

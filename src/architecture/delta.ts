@@ -75,6 +75,9 @@ type NodeAttr =
   | 'actions'
   | 'environment'
   | 'engine'
+  | 'provider'
+  | 'region'
+  | 'exposure'
   | 'platforms';
 
 // label은 병합 키라 바뀌면 다른 노드다. 여기 없는 필드는 그림의 구조를 바꾸지 않는다
@@ -88,6 +91,9 @@ const CHANGED_ATTRS: ReadonlyArray<[NodeAttr, string]> = [
   ['actions', '동작'],
   ['environment', '환경'],
   ['engine', '엔진'],
+  ['provider', '클라우드'],
+  ['region', '리전'],
+  ['exposure', '공개 여부'],
   ['platforms', '플랫폼'],
 ];
 
@@ -231,6 +237,9 @@ export function computeArchitectureDelta(
       const moves: string[] = [];
       if (b.parent !== a.parent) moves.push(`부모 ${bName(b.parent)} → ${aName(a.parent)}`);
       if (b.account !== a.account) moves.push(`계정 ${bName(b.account)} → ${aName(a.account)}`);
+      if (b.placedIn !== a.placedIn) {
+        moves.push(`놓인 곳 ${bName(b.placedIn)} → ${aName(a.placedIn)}`);
+      }
       const bStage = bStages.get(id);
       const aStage = aStages.get(id);
       if (bStage !== undefined && aStage !== undefined && bStage !== aStage) {

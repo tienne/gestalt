@@ -66,6 +66,26 @@ export const ENVIRONMENT_KINDS: readonly NodeKind[] = [
   'deploy_target',
   'datastore',
 ];
+/** 인프라 레벨에 서는 kind. 판정은 kind만 본다 */
+export const INFRA_LEVEL_KINDS: readonly NodeKind[] = [
+  'network',
+  'subnet',
+  'cluster',
+  'workload',
+  'firewall',
+  ...INFRA_KINDS,
+  'deploy_target',
+  'datastore',
+];
+export const CLOUD_PROVIDERS = ['aws', 'gcp', 'azure'] as const;
+export type CloudProvider = (typeof CLOUD_PROVIDERS)[number];
+export const SUBNET_EXPOSURES = ['public', 'private'] as const;
+export type SubnetExposure = (typeof SUBNET_EXPOSURES)[number];
+/** placedIn을 쓸 수 있는 kind와 가리킬 수 있는 kind */
+export const PLACED_IN_SOURCE_KINDS: readonly NodeKind[] = ['deploy_target', 'datastore', 'bucket'];
+export const PLACED_IN_TARGET_KINDS: readonly NodeKind[] = ['network', 'subnet', 'cluster'];
+/** engine을 쓸 수 있는 kind */
+export const ENGINE_KINDS: readonly NodeKind[] = ['datastore', 'deploy_target', 'cluster'];
 /** 환경 정렬 순서. 여기 없는 환경은 이름순으로 뒤에, 환경이 없으면 맨 뒤에 선다 */
 export const ENVIRONMENT_ORDER = ['prod', 'stage', 'qa', 'dev'] as const;
 export const ARCHITECTURE_IR_SCHEMA_VERSION = '1.0.0';
@@ -287,8 +307,16 @@ export interface ArchitectureNode {
   evidence: Evidence[];
   /** 인프라 노드와 deploy_target, datastore만. prod, stage, qa, dev 같은 환경 이름 */
   environment?: string;
-  /** datastore만. mysql, redis 같은 엔진 이름. 아는 엔진이면 카드에 그 로고가 선다. 없으면 label에서 찾는다 */
+  /** datastore, deploy_target, cluster만. mysql, lambda, ecs 같은 엔진 이름. 아는 엔진이면 카드에 그 로고가 선다 */
   engine?: string;
+  /** 인프라 레벨 kind만. 없으면 placedIn, parent, account 순으로 물려받는다 */
+  provider?: CloudProvider;
+  /** 인프라 레벨 kind만. 리전 이름. provider와 같은 순서로 물려받는다 */
+  region?: string;
+  /** subnet만. 없으면 공개 여부를 추정하지 않고 중립 박스로 그린다 */
+  exposure?: SubnetExposure;
+  /** deploy_target, datastore, bucket만. 이 노드가 놓인 network, subnet, cluster 노드 id */
+  placedIn?: string;
   /** 이 노드가 속한 cloud_account 노드 id. 양 끝 계정이 다른 선을 가려 그리는 데 쓴다 */
   account?: string;
   /** service만. web은 serves 엣지로도 판정하고 android와 ios는 platformEvidence가 있어야 그린다 */

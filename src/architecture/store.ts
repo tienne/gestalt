@@ -265,6 +265,7 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     id: mapNodeId(n.id),
     ...(n.parent !== undefined ? { parent: mapNodeId(n.parent) } : {}),
     ...(n.account !== undefined ? { account: mapNodeId(n.account) } : {}),
+    ...(n.placedIn !== undefined ? { placedIn: mapNodeId(n.placedIn) } : {}),
     ...(n.columns !== undefined
       ? {
           columns: n.columns.map((c) =>
