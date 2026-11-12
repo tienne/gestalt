@@ -96,7 +96,7 @@ Step 0 전에 두 가지를 정한다. 대상에 맞는 어휘 팩과 질문에 
 
 | 대상                                         | 팩                                                        |
 | -------------------------------------------- | --------------------------------------------------------- |
-| 웹 제품 레포 (화면, API, 서버, 저장소)        | `web-product`. `packs`를 안 적으면 이 팩과 `harness`다    |
+| 웹 제품 레포 (화면, API, 서버, 저장소)        | `web-product`. `packs`를 안 적으면 이 팩과 `harness`다. 벤더와 자리를 그리려면 `infra`를 더한다 ([4.5-6a](#45-6a-벤더와-자리를-적는다)) |
 | AI 하네스나 MCP 서버 레포                     | `harness`. 위와 같이 `packs`를 안 적는다 ([3-4](#3-4-ai-하네스와-mcp-서버-레포)) |
 | 네트워크, 방화벽, 클러스터 같은 실행 환경     | `infra`                                                   |
 | ETL, 이벤트 토픽, 웨어하우스, 데이터 리니지   | `data`                                                    |
@@ -389,7 +389,7 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
 
 ### 4.5-6a. 벤더와 자리를 적는다
 
-인프라 노드(`network`, `subnet`, `cluster`, `workload`, `firewall`, `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target`, `datastore`)에 아래 필드를 적으면 render가 벤더 박스 안에 아이콘으로 그린 "인프라 구성" 레벨을 붙인다. 하나도 안 적으면 이 레벨은 안 생긴다.
+인프라 노드(`network`, `subnet`, `cluster`, `workload`, `firewall`, `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target`, `datastore`)에 아래 필드를 적는다. 그중 `provider`, `region`, `exposure`, `placedIn`을 하나라도 적으면 render가 벤더 박스 안에 아이콘으로 그린 "인프라 구성" 레벨을 붙인다. 넷 다 안 적으면 이 레벨은 안 생긴다. `engine`만 적어서는 안 생긴다.
 
 | 필드       | 쓰는 노드                               | 근거 예                                                                  |
 | ---------- | --------------------------------------- | ------------------------------------------------------------------------ |
@@ -402,6 +402,7 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
 - **근거가 있을 때만 채운다.** 이름이나 관례로 짐작해 적지 않는다. 서브넷 이름에 `public`이 들어 있다고 `exposure`를 적지 않는다. 근거가 없으면 비워 둔다. 비우면 중립 박스나 내장 아이콘으로 그려질 뿐 그림이 틀리지는 않는다.
 - `provider`와 `region`은 `placedIn`, `parent`, `account` 순으로 물려받는다. 계정이나 VPC 노드에 적었으면 그 안 노드에는 다시 안 적는다. 다르게 적으면 validate가 `INFRA_PLACEMENT_CONFLICT` 경고를 낸다.
 - `placedIn`은 `network`, `subnet`, `cluster`만 가리킨다. 다른 kind면 `INVALID_PLACED_IN_KIND`, 없는 id면 `PLACED_IN_NOT_FOUND`로 거부된다.
+- `network`, `subnet`, `cluster`는 `infra` 팩 kind다. 그래서 이 자리를 그리려면 `packs`에 `infra`를 더한다. 웹 제품이나 하네스 레포는 `["web-product", "harness", "infra"]`로 적는다. `infra`만 적으면 `deploy_target`, `datastore`, `bucket`이 팩에 없어 `KIND_NOT_IN_PACKS`에 걸린다.
 - `region` 값에 계정 ID가 들어 있으면 공유본에서 가려진다. 그래도 id에는 넣지 않는다.
 - 이 레벨은 prod와 환경 없는 노드만 그린다. 공식 아이콘은 render가 홈 캐시에서 넣는다. 받기에 실패하면 내장 아이콘으로 그리고 render 응답 `stats.iconStats`의 `fallback`이 는다.
 
@@ -516,8 +517,8 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 { "schemaVersion": "1.0.0", "view": "screen-chain", "packs": ["infra"], "repos": [ ... ], "nodes": [ ... ] }
 ```
 
-- 웹 제품과 하네스 레포는 `packs`를 적지 않는다. 안 적으면 `web-product`와 `harness`로 읽는다.
-- `infra`, `data`, `process`를 적으면 `generic`이 따라 들어온다. 그 팩 kind에 안 맞는 노드는 `component`로 둔다.
+- 웹 제품과 하네스 레포는 `packs`를 적지 않는다. 안 적으면 `web-product`와 `harness`로 읽는다. 다만 벤더와 자리([4.5-6a](#45-6a-벤더와-자리를-적는다))를 그릴 때는 `["web-product", "harness", "infra"]`로 적는다.
+- `infra`, `data`, `process`를 적으면 `generic`이 따라 들어온다. 적은 팩 어디에도 kind가 없는 노드만 `component`로 둔다.
 - 적은 팩에 없는 kind를 쓰면 `KIND_NOT_IN_PACKS`다. 팩마다 쓰는 kind와 엣지는 [부록 1](#1-노드-kind)과 [부록 2](#2-엣지-kind)에 있다.
 - 엣지마다 양 끝으로 올 수 있는 kind가 정해져 있다. 어기면 이름과 달리 하네스가 아닌 팩에서도 `INVALID_HARNESS_EDGE_ENDS`가 온다.
 - `infra`, `data`, `process`는 parent 포함 관계로 드릴다운한다. 담는 노드를 누르면 그 안의 노드만 모인 레벨로 들어간다. 그래서 포함 관계를 아는 만큼 parent를 단다.
@@ -610,6 +611,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 - 성공해도 `warnings`가 올 수 있다. 어느 경고도 render를 막지 않는다. 고치는 법은 [노드 설명](#노드-설명)에 모아 두었다.
   - `NODE_DESCRIPTION_MISSING`은 그리는 노드 중 `description`이 빈 노드를 `nodeIds`에 모아 준다. 그 카드에는 설명 줄이 없으니 채운다.
   - 예산 경고(`LIFECYCLE_OVER_BUDGET`, `BLUEPRINT_OVER_BUDGET`, `ER_OVER_BUDGET`)에는 `nodeIds`가 없다. 넘친 그림의 id를 `subjectId`에, 넘친 개수를 `counts`에 담는다. 그림을 나누거나 줄이라는 신호다.
+  - `INFRA_PLACEMENT_CONFLICT`는 노드에 직접 적은 `provider`나 `region`이 `placedIn`, `parent`, `account`로 물려받은 값과 다를 때 온다. 근거를 다시 보고 한쪽을 지운다.
   - render 응답에도 같은 `warnings`가 실린다. render에는 `DELTA_OVER_BUDGET`이 더 올 수 있다. 읽는 법은 [Step 8](#step-8--render와-보고)에 있다.
 - 실패하면 `errors[]`에 `code`와 `nodeId`나 `edgeId`가 온다. 질문별 그림 에러면 `projectionId`와 `messageId`가 오고 구간 에러면 `phaseId`가 함께 온다.
 
@@ -633,6 +635,8 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 | `LIVE_COMMAND_NOT_READ_ONLY`  | live 근거의 명령을 `list`, `get`, `describe` 하위 명령 하나로 바꾼다. 그런 명령으로 확인할 수 없으면 근거에서 뺀다 |
 | `ACCOUNT_NOT_FOUND`           | `account`가 가리키는 `cloud_account` 노드를 `nodes`에 넣거나 `account`를 뺀다                                      |
 | `INVALID_ACCOUNT_KIND`        | `account`는 `cloud_account` 노드만 가리킨다                                                                        |
+| `PLACED_IN_NOT_FOUND`         | `placedIn`이 가리키는 `network`, `subnet`, `cluster` 노드를 `nodes`에 넣거나 `placedIn`을 뺀다                     |
+| `INVALID_PLACED_IN_KIND`      | `placedIn`은 `network`, `subnet`, `cluster`만 가리킨다. 다른 노드를 가리켰으면 그 노드가 속한 네트워크로 옮긴다   |
 | `CLOUD_ID_IN_ID`              | id에서 계정 ID나 CDN 배포 ID를 빼고 별칭으로 짓는다. 실제 ID는 `label`에 둔다                                      |
 | `UNKNOWN_PACK`                | `packs`의 팩 id를 `web-product`, `harness`, `generic`, `infra`, `data`, `process` 중에서 고른다                    |
 | `KIND_NOT_IN_PACKS`           | 그 kind가 든 팩을 `packs`에 더하거나 노드를 `component`로 바꾼다                                                   |
