@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.131.0] - 2026-11-12
+
+### Added
+
+- **컨덕터 워커를 claude 말고 다른 에이전트로 띄울 수 있어요(#122).** 런처가 오르카에 늘 `--agent claude`를 넘겨서 "codex로 넘겨줘"라고 해도 컨덕터를 거치면 claude 워커가 떴어요.
+  - `~/.gestalt/conductor.json`에 `defaultAgent`와 레포별 `repoAgents`를 두고 `order add --agent <id>`로 주문 하나만 바꿔요. 우선순위는 주문, 레포별 설정, 기본 설정, `claude` 순이에요.
+  - 고른 에이전트를 워커 이벤트에 남겨서 재개할 때 마지막 오르카 워커의 에이전트로 다시 떠요. 설정을 바꿔도 실행 도중 에이전트가 안 바뀌고 기록이 없는 옛 오르카 워커는 `claude`로 재개해요.
+  - id는 영문자나 숫자로 시작하는 64자 이하 꼴만 받아요. `--keep-open` 같은 값이 오르카 CLI 옵션으로 읽히지 않게 하려고요. 설정과 주문 접수, JSON 스키마가 같은 정규식을 써요.
+  - 이 선택은 오르카 워크트리 워커에만 걸려요. 부모 워크트리 아래 하위로 띄울 때도 같아요. `subagent`와 `git-worktree`는 호스트 방식을 따라요.
+- **끝난 주문의 결과를 다시 볼 수 있어요(#122).** 예전에는 tick이 워커 보고를 반영하고 파일을 지워서 요약과 refs, PR이 그 tick을 돌린 대화에만 남았어요.
+  - `report-applied` 이벤트에 검증된 보고 본문을 함께 저장해요. 진행 보고까지 남고 `spawnRequest`는 빼요.
+  - `gestalt conductor order show <id>`로 주문 설명과 워커, 보고 이력, refs, PR, gate, bypass를 한 번에 봐요. 텍스트 출력은 워커가 보낸 값의 제어 문자를 공백으로 바꿔요.
+  - `status --all`의 끝난 주문 줄에 마지막 요약을 100자까지 붙여요. `--json`의 `lastSummary`는 전문이에요.
+  - 보고는 반영됐는데 이력 기록만 실패하면 `inbox/unrecorded/`로 옮겨 두고 다음 tick에 기록만 다시 해요. 반영을 다시 돌리면 bypass와 하위 주문이 두 번 생겨서 나눴어요.
+  - 옛 로그에는 보고 본문이 없어서 빈 이력으로 보여요.
+
+### 검증 범위
+
+- 로컬 리뷰를 두 라운드 돌렸어요. 1라운드에 high 2건과 warning 9건이 나왔고 2라운드에는 warning 1건(제어 문자 판정식 중복)만 남아 고쳤어요.
+
+### 남긴 것
+
+- 주문별 보고 이력에 상한이 없어요. 지금은 주문당 보고가 몇 개 안 돼서 후속으로 미뤘어요.
+
 ## [0.130.0] - 2026-11-12
 
 ### Added
