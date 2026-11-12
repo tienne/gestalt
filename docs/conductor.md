@@ -1,23 +1,23 @@
-# 마스터 오케스트레이터
+# 컨덕터
 
-마스터 세션 하나가 여러 레포의 주문을 받아 워커에 나눠 주고 주문 범위가 정한 끝 자리(기본은 머지)까지 끌고 간다. 사용법은 `plugin/skills/master/SKILL.md`에 있고 이 문서는 그 밑에서 도는 동작을 적는다.
+컨덕터 세션 하나가 여러 레포의 주문을 받아 워커에 나눠 주고 주문 범위가 정한 끝 자리(기본은 머지)까지 끌고 간다. 사용법은 `plugin/skills/conductor/SKILL.md`에 있고 이 문서는 그 밑에서 도는 동작을 적는다.
 
 ```
 주문 (말, 지라, 외부 큐, PR 감시)
    │
    ▼
-gestalt master tick ──► 저장소 (~/.gestalt/master)
+gestalt conductor tick ──► 저장소 (~/.gestalt/conductor)
    │                       events.jsonl, inbox/, prompts/, deploy/, slack/
    ▼
-hostActions ──► 마스터 호스트 세션이 실행 (서브에이전트, 세션 열기, 메시지, 지라, 슬랙)
+hostActions ──► 컨덕터 호스트 세션이 실행 (서브에이전트, 세션 열기, 메시지, 지라, 슬랙)
    │
    ▼
 워커 (subagent, orca-worktree, git-worktree)
    └─ solve → ship 같은 기존 스킬 체인
-   └─ gestalt master checkpoint save / worker report
+   └─ gestalt conductor checkpoint save / worker report
 ```
 
-구조는 마스터와 워커 2계층이다. 워커는 다른 워커를 띄우지 못하고 다음 주문을 스스로 집지 않는다. 워커가 하위 워커를 원하면 보고에 `spawnRequest`를 싣고 마스터가 새 주문으로 받는다. 주문 하나에서 생기는 하위 주문은 세 개까지고 한 단계뿐이다. 하위 주문의 워커가 다시 요청하거나 세 개를 넘기면 만들지 않고 그 워커에 이유를 보낸다.
+구조는 컨덕터와 워커 2계층이다. 워커는 다른 워커를 띄우지 못하고 다음 주문을 스스로 집지 않는다. 워커가 하위 워커를 원하면 보고에 `spawnRequest`를 싣고 컨덕터가 새 주문으로 받는다. 주문 하나에서 생기는 하위 주문은 세 개까지고 한 단계뿐이다. 하위 주문의 워커가 다시 요청하거나 세 개를 넘기면 만들지 않고 그 워커에 이유를 보낸다.
 
 ## 바깥 텍스트는 자료다
 
@@ -25,7 +25,7 @@ hostActions ──► 마스터 호스트 세션이 실행 (서브에이전트, 
 
 ## 왜 tick이 외부에 직접 쓰지 않나
 
-Execute Engine처럼 마스터도 Passthrough로 돈다. 추론 주체는 호스트 세션이고 tick은 상태를 계산해 할 일만 돌려준다. 지라 전환과 슬랙 게시는 사람 계정의 MCP 연결이 필요해 CLI 프로세스가 직접 하지 못한다. 그래서 `hostActions`에 담아 돌려주고 호스트 세션이 실행한다.
+Execute Engine처럼 컨덕터도 Passthrough로 돈다. 추론 주체는 호스트 세션이고 tick은 상태를 계산해 할 일만 돌려준다. 지라 전환과 슬랙 게시는 사람 계정의 MCP 연결이 필요해 CLI 프로세스가 직접 하지 못한다. 그래서 `hostActions`에 담아 돌려주고 호스트 세션이 실행한다.
 
 | hostAction | 나오는 때 |
 |---|---|
@@ -39,7 +39,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 ## 상태 저장소
 
-주문, 워커, 체크포인트, 사람 확인 자리(gate), bypass 기록은 전부 `events.jsonl`에 이벤트로 한 줄씩 덧붙는다. 상태는 이 로그를 처음부터 다시 재생해서 만든다. 마스터 세션이 압축되거나 새로 떠도 같은 저장소를 열면 같은 상태에서 이어 간다.
+주문, 워커, 체크포인트, 사람 확인 자리(gate), bypass 기록은 전부 `events.jsonl`에 이벤트로 한 줄씩 덧붙는다. 상태는 이 로그를 처음부터 다시 재생해서 만든다. 컨덕터 세션이 압축되거나 새로 떠도 같은 저장소를 열면 같은 상태에서 이어 간다.
 
 | 경로 | 쓰는 쪽 | 내용 |
 |---|---|---|
@@ -51,7 +51,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `slack/` | 호스트 | 슬랙 초안 본문 |
 | `tick.lock` | tick | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다 |
 
-위치는 `--state-dir`, `GESTALT_MASTER_STATE_DIR`, `~/.gestalt/master.json`의 `stateDir`, 기본값 `~/.gestalt/master` 순서로 정한다. 워커는 다른 레포에서 돌아 그쪽 `gestalt.json`을 읽기 때문에 워커 지시에는 저장소 절대 경로를 `--state-dir`로 박아 둔다.
+위치는 `--state-dir`, `GESTALT_CONDUCTOR_STATE_DIR`, `~/.gestalt/conductor.json`의 `stateDir`, 기본값 `~/.gestalt/conductor` 순서로 정한다. 워커는 다른 레포에서 돌아 그쪽 `gestalt.json`을 읽기 때문에 워커 지시에는 저장소 절대 경로를 `--state-dir`로 박아 둔다.
 
 ## tick 한 번
 
@@ -83,11 +83,11 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 | 범위 | 머지 승인 | 인터뷰 답 |
 |---|---|---|
-| `merge-through` | 마스터가 넘긴다 | 워커가 맥락에서 정한다 |
+| `merge-through` | 컨덕터가 넘긴다 | 워커가 맥락에서 정한다 |
 | `approval` (기본) | 사람에게 묻는다 | 워커가 맥락에서 정한다 |
 | `interview-first` | 사람에게 묻는다 | 사람에게 묻는다 |
 
-워커가 혼자 못 넘는 자리를 만나면 `needs`로 보고한다. 마스터는 아래처럼 나눈다.
+워커가 혼자 못 넘는 자리를 만나면 `needs`로 보고한다. 컨덕터는 아래처럼 나눈다.
 
 | 요청 | 처리 |
 |---|---|
@@ -95,12 +95,12 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `interview-answer` | 위 표대로 |
 | `slack-post` | 늘 사람에게 |
 | `review-manual-switch` | 늘 사람에게. 리뷰 스킬의 라운드 상한과 수동 전환 지침을 그대로 따른다 |
-| `simple-approval` | 마스터가 승인하고 기록한다 |
+| `simple-approval` | 컨덕터가 승인하고 기록한다 |
 | `manual-verification`, `cleanup` | 워커가 직접 하고 다음 보고에 남기라고 돌려준다 |
-| `auth`, `account-switch` | `~/.gestalt/master.json`의 `accounts`에 적힌 레포만 그 계정으로 맞춘다. 없으면 사람에게 |
+| `auth`, `account-switch` | `~/.gestalt/conductor.json`의 `accounts`에 적힌 레포만 그 계정으로 맞춘다. 없으면 사람에게 |
 | `other` | 사람에게 (`no-procedure`) |
 
-사람에게 가는 자리는 확인 자리(gate)로 열리고 그 주문은 `waiting-gate`가 된다. `gestalt master gate resolve`로 종료하면 결정이 그 워커에 바로 전달된다. bypass로 넘긴 일은 저장소에 기록만 남고 마스터가 모아서 사후 보고한다. `gestalt master status`가 주문마다 bypass 내역을 붙여 보여 주고 주문에 묶이지 않은 것은 `unassignedBypasses`로 따로 싣는다. 끝난 주문까지 보려면 `--all`을 붙인다.
+사람에게 가는 자리는 확인 자리(gate)로 열리고 그 주문은 `waiting-gate`가 된다. `gestalt conductor gate resolve`로 종료하면 결정이 그 워커에 바로 전달된다. bypass로 넘긴 일은 저장소에 기록만 남고 컨덕터가 모아서 사후 보고한다. `gestalt conductor status`가 주문마다 bypass 내역을 붙여 보여 주고 주문에 묶이지 않은 것은 `unassignedBypasses`로 따로 싣는다. 끝난 주문까지 보려면 `--all`을 붙인다.
 
 ### 워커 안의 ship 승인 단계
 
@@ -111,7 +111,7 @@ ship에는 밖으로 나가는 자리마다 사람 승인을 받는 단계가 �
 주문의 끝 자리는 기본이 머지인데 기본 체인 solve → ship은 PR을 ready로 돌리면 끝난다. 그 뒤 머지는 워커가 이어서 한다.
 
 - 범위가 `merge-through`면 워커가 바로 머지한다.
-- 그 밖의 범위면 워커가 `need merge-approval`로 올리고 마스터 결정을 기다린다. `merge` 확인 자리에서 승인이 나면 머지한다.
+- 그 밖의 범위면 워커가 `need merge-approval`로 올리고 컨덕터 결정을 기다린다. `merge` 확인 자리에서 승인이 나면 머지한다.
 - 머지한 워커는 `--merged`로 보고해 주문을 `merged`로 옮긴다.
 
 ## 체크포인트와 재개
@@ -119,11 +119,11 @@ ship에는 밖으로 나가는 자리마다 사람 승인을 받는 단계가 �
 워커는 스킬이나 단계가 바뀔 때마다 체크포인트를 남긴다. CI 대기처럼 15분 넘게 걸릴 수 있는 대기도 들어가기 전과 끝난 뒤에 남긴다. 그래야 `staleAfterSec`(기본 30분) 안에 소식이 끊기지 않는다.
 
 ```bash
-gestalt master checkpoint save --worker <id> --skill solve --next "스펙 확정" --done solve
-gestalt master checkpoint save --worker <id> --skill ship --next "라운드 2 반영" --ship-dir .ship
+gestalt conductor checkpoint save --worker <id> --skill solve --next "스펙 확정" --done solve
+gestalt conductor checkpoint save --worker <id> --skill ship --next "라운드 2 반영" --ship-dir .ship
 ```
 
-ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴다. 마스터 체크포인트는 그 자리(`--ship-dir`)만 가리킨다. 재개할 때 ship 체크포인트를 다시 읽어 단계와 라운드를 새 워커 지시에 싣는다. 끝낸 스킬은 다시 돌리지 않고 남은 체인만 이어 간다. git 워크트리 워커는 앞 워커의 워크트리 경로를 다시 써서 워크트리를 새로 만들지 않는다. 오르카 워커는 재개할 때도 새 워크트리로 띄운다.
+ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴다. 컨덕터 체크포인트는 그 자리(`--ship-dir`)만 가리킨다. 재개할 때 ship 체크포인트를 다시 읽어 단계와 라운드를 새 워커 지시에 싣는다. 끝낸 스킬은 다시 돌리지 않고 남은 체인만 이어 간다. git 워크트리 워커는 앞 워커의 워크트리 경로를 다시 써서 워크트리를 새로 만들지 않는다. 오르카 워커는 재개할 때도 새 워크트리로 띄운다.
 
 아래면 재개하지 않고 원인과 마지막 체크포인트를 붙여 사람에게 올린다.
 
@@ -141,11 +141,11 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 | 머지 (sub-task) | Done |
 | 배포 성공 (bug, task, sub-bug) | In-QA |
 
-주문에 `jiraStatus`가 있으면 사용자가 정한 값이라 기본 규칙보다 먼저다. 배포는 머지 뒤 파이프라인 성공으로 판단한다. 호스트가 결과를 확인해 `gestalt master deploy report`로 남기고 tick이 읽는다. 배포가 실패하면 그 주문만 사람에게 올린다.
+주문에 `jiraStatus`가 있으면 사용자가 정한 값이라 기본 규칙보다 먼저다. 배포는 머지 뒤 파이프라인 성공으로 판단한다. 호스트가 결과를 확인해 `gestalt conductor deploy report`로 남기고 tick이 읽는다. 배포가 실패하면 그 주문만 사람에게 올린다.
 
 ## PR 감시
 
-`~/.gestalt/master.json`의 `repoPaths`에 적힌 레포의 열린 PR을 gh로 읽는다. 본문은 안 싣고 누가 언제 남겼는지만 본다.
+`~/.gestalt/conductor.json`의 `repoPaths`에 적힌 레포의 열린 PR을 gh로 읽는다. 본문은 안 싣고 누가 언제 남겼는지만 본다.
 
 - **내가 올린 PR**: 내가 마지막으로 답한 뒤에 다른 사람 코멘트가 있으면 `review-reply` 주문을 만든다.
 - **내가 리뷰한 PR**: 내가 리뷰한 뒤 head가 바뀌었으면 `review-loop` 주문을 만든다. 코드는 그대로인데 답만 달렸으면 `review-manual-switch` 확인 자리로 사람에게 묻고 승인되면 재리뷰 주문을 만든다.
@@ -154,7 +154,7 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 
 ## 효과 재기
 
-`gestalt master metrics --since <날짜>`가 직전 45일 사람 세션 평균과 마스터를 쓰기 시작한 뒤 세션을 같은 셈법으로 비교한다. 끼어든 발화는 스킬 호출 뒤 8턴 안의 사용자 발화에서 도구 결과, 메타 메시지, 압축 요약, 작업 알림, 워커 알림을 뺀 수다. 목표는 끼어든 발화 40% 감소이고 토큰은 +10% 안이 목표치다. 토큰이 넘으면 초과분을 보고만 한다.
+`gestalt conductor metrics --since <날짜>`가 직전 45일 사람 세션 평균과 컨덕터를 쓰기 시작한 뒤 세션을 같은 셈법으로 비교한다. 끼어든 발화는 스킬 호출 뒤 8턴 안의 사용자 발화에서 도구 결과, 메타 메시지, 압축 요약, 작업 알림, 워커 알림을 뺀 수다. 목표는 끼어든 발화 40% 감소이고 토큰은 +10% 안이 목표치다. 토큰이 넘으면 초과분을 보고만 한다.
 
 ## 실환경에서 아직 확인하지 않은 것
 
