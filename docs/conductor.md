@@ -295,11 +295,18 @@ tick 마지막 단계는 `finished`나 `failed` 워커를 거두고 `released`�
 
 1. `orca orchestration worker-show`로 워커의 워크스페이스(`<레포 id>::<경로>`)를 읽는다.
 2. `worker-release`로 터미널을 거둔다.
-3. `orca worktree rm --worktree id:<레포 id>::<경로> --delete-branch`로 워크트리를 지운다. `--force`는 안 붙인다.
+3. `orca worktree show`로 오르카가 아는 워크트리 정보를 한 번 더 확인한다.
+4. `orca worktree rm --worktree id:<레포 id>::<경로> --delete-branch`로 워크트리를 지운다. `--force`는 안 붙인다.
 
 - 재개로 회차가 여러 개 생긴 주문이면 `stopped`로 남은 앞 회차 워커도 같이 거둬서 `<주문 id>-<회차>` 워크트리를 빠짐없이 지운다.
 - 머지 안 된 주문(`failed`, 사람이 중단한 주문 등)의 워크트리는 켜도 남긴다. 확인할 거리가 남았을 수 있어서다.
-- 지울 경로의 마지막 조각이 `<주문 id>-<회차>`와 다르거나 주문의 부모 워크트리(또는 그 위 경로)면 지우지 않는다.
+- 아래 중 하나라도 걸리면 지우지 않고 정리 실패로 올린다.
+  - 지울 경로의 마지막 조각이 `<주문 id>-<회차>`와 다르다
+  - 주문의 부모 워크트리이거나 그 위 경로다
+  - `worktree show`가 메인 워크트리라고 하거나 메인 여부를 안 알려 준다
+  - `worktree show`의 레포 id가 워크스페이스의 레포 id와 다르다
+  - 주문에 부모 워크트리가 있는데 `worktree show`의 `parentWorktreeId`가 그 부모를 가리키지 않는다
+- 같은 레포의 워크트리 삭제는 git 잠금이 겹치지 않게 차례로 돌리고 다른 레포끼리는 함께 돌린다.
 - `--delete-branch`는 오르카가 머지됐다고 확인한 브랜치만 지운다. 스쿼시 머지처럼 확인 못 하는 브랜치는 오르카가 남긴다.
 - 이미 없는 워크트리(`selector_not_found`)는 지운 것으로 본다.
 
