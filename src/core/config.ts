@@ -373,10 +373,10 @@ const webFetchCacheConfigSchema = z.object({
   enabled: z.boolean().default(false),
 });
 
-const masterConfigSchema = z.object({
+const conductorConfigSchema = z.object({
   /** 동시에 도는 워커 수 상한. 넘치는 주문은 큐에 쌓였다가 자리가 나면 뜬다 */
   maxConcurrentWorkers: z.number().int().min(1).max(100).default(10),
-  /** 진행 감시 주기(초). 마스터가 tick을 이 간격보다 자주 돌리지 않는다 */
+  /** 진행 감시 주기(초). 컨덕터가 tick을 이 간격보다 자주 돌리지 않는다 */
   pollIntervalSec: z.number().int().min(10).max(3600).default(60),
   /** 같은 주문의 워커를 체크포인트부터 다시 띄우는 최대 횟수. 넘으면 사람에게 올린다 */
   maxResumeAttempts: z.number().int().min(1).max(10).default(3),
@@ -384,12 +384,12 @@ const masterConfigSchema = z.object({
   staleAfterSec: z.number().int().min(60).max(86400).default(1800),
   /**
    * 주문에 범위를 안 적었을 때. 머지 전에 사람 승인을 받는 쪽이 기본이다.
-   * 레포의 gestalt.json이 바꿀 수 있는 칸은 REPO_MASTER_KEYS가 정한다. 이 칸은 못 바꾼다
+   * 레포의 gestalt.json이 바꿀 수 있는 칸은 REPO_CONDUCTOR_KEYS가 정한다. 이 칸은 못 바꾼다
    */
   defaultScope: z.enum(ORDER_SCOPES).default('approval'),
-  /** 워커 결과 요약의 글자 수 상한. 원문 로그가 마스터 대화로 새지 않게 막는다 */
+  /** 워커 결과 요약의 글자 수 상한. 원문 로그가 컨덕터 대화로 새지 않게 막는다 */
   resultMaxChars: z.number().int().min(200).max(20000).default(2000),
-  /** 실행 상태 저장소 위치. 비우면 `~/.gestalt/master` */
+  /** 실행 상태 저장소 위치. 비우면 `~/.gestalt/conductor` */
   stateDir: z.string().optional(),
   /** 레포(`owner/name`)마다 쓸 인증 계정. 워커를 띄우기 전에 이 값으로 확인하고 전환한다 */
   accounts: z.record(z.string(), z.string()).default({}),
@@ -398,12 +398,12 @@ const masterConfigSchema = z.object({
 });
 
 /**
- * 작업 디렉토리의 gestalt.json은 클론한 레포가 쓴다. 그 레포 안에서 마스터 세션을 열었다고
+ * 작업 디렉토리의 gestalt.json은 클론한 레포가 쓴다. 그 레포 안에서 컨덕터 세션을 열었다고
  * 머지 승인이 꺼지거나, 상태 저장소와 계정, 레포 경로가 남의 값으로 바뀌면 안 된다.
- * 그래서 master 블록은 감시 주기와 상한 같은 조율 값만 받고 나머지는 버린다.
- * 버린 칸은 사용자 전역 `~/.gestalt/master.json`이나 환경 변수에서만 정한다.
+ * 그래서 conductor 블록은 감시 주기와 상한 같은 조율 값만 받고 나머지는 버린다.
+ * 버린 칸은 사용자 전역 `~/.gestalt/conductor.json`이나 환경 변수에서만 정한다.
  */
-const REPO_MASTER_KEYS: ReadonlySet<string> = new Set([
+const REPO_CONDUCTOR_KEYS: ReadonlySet<string> = new Set([
   'maxConcurrentWorkers',
   'pollIntervalSec',
   'maxResumeAttempts',
@@ -411,27 +411,27 @@ const REPO_MASTER_KEYS: ReadonlySet<string> = new Set([
   'resultMaxChars',
 ]);
 
-export const USER_MASTER_FILE = 'master.json';
+export const USER_CONDUCTOR_FILE = 'conductor.json';
 
-function withoutRepoMasterOverrides(json: Record<string, unknown>): Record<string, unknown> {
-  const master = json['master'];
-  if (!isRecord(master)) return json;
+function withoutRepoConductorOverrides(json: Record<string, unknown>): Record<string, unknown> {
+  const conductor = json['conductor'];
+  if (!isRecord(conductor)) return json;
   const kept: Record<string, unknown> = {};
   const dropped: string[] = [];
-  for (const [key, value] of Object.entries(master)) {
-    if (REPO_MASTER_KEYS.has(key)) kept[key] = value;
+  for (const [key, value] of Object.entries(conductor)) {
+    if (REPO_CONDUCTOR_KEYS.has(key)) kept[key] = value;
     else dropped.push(key);
   }
   if (dropped.length === 0) return json;
   console.error(
-    `[gestalt] Warning: gestalt.json의 master.${dropped.join(', master.')}는 받지 않습니다. ~/.gestalt/${USER_MASTER_FILE}에 적어 주세요`,
+    `[gestalt] Warning: gestalt.json의 conductor.${dropped.join(', conductor.')}는 받지 않습니다. ~/.gestalt/${USER_CONDUCTOR_FILE}에 적어 주세요`,
   );
-  return { ...json, master: kept };
+  return { ...json, conductor: kept };
 }
 
-/** 사용자 전역 마스터 설정. 없으면 빈 값이고 못 읽으면 경고만 남긴다 */
-function loadUserMasterJson(): Record<string, unknown> {
-  const filePath = gestaltPath(USER_MASTER_FILE);
+/** 사용자 전역 컨덕터 설정. 없으면 빈 값이고 못 읽으면 경고만 남긴다 */
+function loadUserConductorJson(): Record<string, unknown> {
+  const filePath = gestaltPath(USER_CONDUCTOR_FILE);
   let raw: string;
   try {
     raw = readFileSync(filePath, 'utf-8');
@@ -500,7 +500,7 @@ const configSchema = z.object({
   notifications: z.boolean().default(false),
   codeGraph: codeGraphConfigSchema.default({}),
   webFetchCache: webFetchCacheConfigSchema.default({}),
-  master: masterConfigSchema.default({}),
+  conductor: conductorConfigSchema.default({}),
   // 상수가 아니라 함수다. 모듈을 읽을 때 굳히면 테스트 setupFiles가 GESTALT_HOME을
   // 세우기 전에 값이 정해져서 진짜 홈을 가리킨다
   dbPath: z.string().default(() => gestaltPath('events.db')),
@@ -667,11 +667,11 @@ function buildEnvConfig(): Record<string, unknown> {
     result.webFetchCache = { enabled: webFetchCacheEnabled };
   }
 
-  if (env['GESTALT_MASTER_MAX_WORKERS'] !== undefined) {
-    const n = Number(env['GESTALT_MASTER_MAX_WORKERS']);
+  if (env['GESTALT_CONDUCTOR_MAX_WORKERS'] !== undefined) {
+    const n = Number(env['GESTALT_CONDUCTOR_MAX_WORKERS']);
     // 숫자가 아니면 그대로 넘겨 스키마 검증에서 이유와 함께 걸리게 둔다
-    result.master = {
-      maxConcurrentWorkers: Number.isNaN(n) ? env['GESTALT_MASTER_MAX_WORKERS'] : n,
+    result.conductor = {
+      maxConcurrentWorkers: Number.isNaN(n) ? env['GESTALT_CONDUCTOR_MAX_WORKERS'] : n,
     };
   }
 
@@ -825,12 +825,12 @@ export function loadConfig(
     loadDotEnv();
   }
 
-  // 2. Load gestalt.json, then the user-wide master file on top of it.
+  // 2. Load gestalt.json, then the user-wide conductor file on top of it.
   //    skipGestaltJson은 설정 파일을 하나도 안 읽는다는 뜻이라 사용자 파일도 함께 건너뛴다
   const jsonConfig = options?.skipGestaltJson
     ? {}
-    : deepMerge(withoutRepoMasterOverrides(loadGestaltJson()), {
-        master: loadUserMasterJson(),
+    : deepMerge(withoutRepoConductorOverrides(loadGestaltJson()), {
+        conductor: loadUserConductorJson(),
       });
 
   // 3. Build env config from process.env

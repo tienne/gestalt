@@ -28,17 +28,17 @@ import {
   shipCiWaitCommand,
 } from './commands/ship.js';
 import {
-  masterCheckpointSaveCommand,
-  masterDeployReportCommand,
-  masterGateListCommand,
-  masterGateResolveCommand,
-  masterMetricsCommand,
-  masterOrderAddCommand,
-  masterSlackDraftCommand,
-  masterStatusCommand,
-  masterTickCommand,
-  masterWorkerReportCommand,
-} from './commands/master.js';
+  conductorCheckpointSaveCommand,
+  conductorDeployReportCommand,
+  conductorGateListCommand,
+  conductorGateResolveCommand,
+  conductorMetricsCommand,
+  conductorOrderAddCommand,
+  conductorSlackDraftCommand,
+  conductorStatusCommand,
+  conductorTickCommand,
+  conductorWorkerReportCommand,
+} from './commands/conductor.js';
 import {
   harnessRefsClonesPruneCommand,
   harnessRefsCollectCommand,
@@ -1028,17 +1028,17 @@ export function createCli(): Command {
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => shipCheckpointCheckCommand(o));
 
-  const master = program
-    .command('master')
-    .description('마스터 오케스트레이터의 실행 상태 저장소. master 스킬과 워커가 쓴다');
+  const conductor = program
+    .command('conductor')
+    .description('컨덕터의 실행 상태 저장소. conductor 스킬과 워커가 쓴다');
   const stateDir = () =>
     new Option(
       '--state-dir <path>',
-      '상태 저장소 경로. 없으면 GESTALT_MASTER_STATE_DIR, 설정, 기본값 순서',
+      '상태 저장소 경로. 없으면 GESTALT_CONDUCTOR_STATE_DIR, 설정, 기본값 순서',
     );
   const collect = (v: string, prev: string[] = []) => [...prev, v];
 
-  master
+  conductor
     .command('order')
     .description('주문을 다룬다')
     .command('add')
@@ -1062,17 +1062,17 @@ export function createCli(): Command {
     .option('--pr <ref>', '연결된 PR (owner/name#번호나 GitHub PR 주소)')
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action((o) => masterOrderAddCommand(o));
+    .action((o) => conductorOrderAddCommand(o));
 
-  master
+  conductor
     .command('status')
     .description('끝나지 않은 주문과 열린 게이트, 주문별 bypass 내역을 짧게 보여준다')
     .addOption(stateDir())
     .option('--all', '끝난 주문까지 보여준다 (bypass 사후 보고용)')
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action((o) => masterStatusCommand(o));
+    .action((o) => conductorStatusCommand(o));
 
-  master
+  conductor
     .command('tick')
     .description(
       '결과 반영, 접수, 재개, 띄우기, 머지 뒤 처리, 정리를 한 번 돈다. 호스트가 할 일을 돌려준다',
@@ -1082,10 +1082,10 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action(async (o) => {
-      await masterTickCommand(o);
+      await conductorTickCommand(o);
     });
 
-  master
+  conductor
     .command('worker')
     .description('워커가 쓰는 명령')
     .command('report')
@@ -1108,15 +1108,15 @@ export function createCli(): Command {
     .option('--file <path>', '같은 필드를 담은 JSON 파일. 플래그가 먼저다')
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action((o) => masterWorkerReportCommand(o));
+    .action((o) => conductorWorkerReportCommand(o));
 
-  const gate = master.command('gate').description('사람 확인 자리');
+  const gate = conductor.command('gate').description('사람 확인 자리');
   gate
     .command('list')
     .description('열린 게이트를 보여준다')
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action((o) => masterGateListCommand(o));
+    .action((o) => conductorGateListCommand(o));
   gate
     .command('resolve <gateId>')
     .description('게이트를 종료하고 결정을 살아 있는 워커에 전한다')
@@ -1126,14 +1126,14 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action(async (id, o) => {
-      await masterGateResolveCommand(id, o);
+      await conductorGateResolveCommand(id, o);
     });
 
-  master
+  conductor
     .command('checkpoint')
     .description('스킬 체인 체크포인트')
     .command('save')
-    .description('스킬이나 단계가 바뀔 때 남긴다. 끊기면 마스터가 여기서부터 다시 띄운다')
+    .description('스킬이나 단계가 바뀔 때 남긴다. 끊기면 컨덕터가 여기서부터 다시 띄운다')
     .requiredOption('--worker <id>', '워커 id')
     .requiredOption('--skill <name>', '지금 돌던 스킬')
     .requiredOption('--next <text>', '다음에 할 일 한 줄')
@@ -1144,9 +1144,9 @@ export function createCli(): Command {
     .option('--ref <ref>', '참조 (여러 번)', collect)
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action((o) => masterCheckpointSaveCommand(o));
+    .action((o) => conductorCheckpointSaveCommand(o));
 
-  master
+  conductor
     .command('deploy')
     .description('머지 뒤 배포 파이프라인 결과')
     .command('report')
@@ -1158,9 +1158,9 @@ export function createCli(): Command {
     .option('--ref <url>', '파이프라인 링크')
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action((o) => masterDeployReportCommand(o));
+    .action((o) => conductorDeployReportCommand(o));
 
-  master
+  conductor
     .command('slack')
     .description('슬랙 초안')
     .command('draft')
@@ -1171,15 +1171,15 @@ export function createCli(): Command {
     .option('--thread <ts>', '답글로 달 스레드')
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action((o) => masterSlackDraftCommand(o));
+    .action((o) => conductorSlackDraftCommand(o));
 
-  master
+  conductor
     .command('metrics')
-    .description('직전 45일 사람 세션 평균과 마스터 세션의 끼어든 발화, 토큰을 비교한다')
-    .requiredOption('--since <date>', '마스터를 쓰기 시작한 날')
+    .description('직전 45일 사람 세션 평균과 컨덕터 세션의 끼어든 발화, 토큰을 비교한다')
+    .requiredOption('--since <date>', '컨덕터를 쓰기 시작한 날')
     .option('--root <path>', '세션 기록 폴더. 없으면 Claude Code 기본 위치')
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action((o) => masterMetricsCommand(o));
+    .action((o) => conductorMetricsCommand(o));
 
   return program;
 }

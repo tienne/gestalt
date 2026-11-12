@@ -228,7 +228,7 @@ describe('loadConfig — webFetchCache', () => {
   });
 });
 
-describe('loadConfig — master', () => {
+describe('loadConfig — conductor', () => {
   const originalEnv = { ...process.env };
   afterEach(() => {
     process.env = { ...originalEnv };
@@ -236,32 +236,32 @@ describe('loadConfig — master', () => {
   const opts = { skipDotEnv: true, skipGestaltJson: true };
 
   it('기본은 동시 워커 10개, approval 범위다', () => {
-    delete process.env['GESTALT_MASTER_MAX_WORKERS'];
-    const { master } = loadConfig({}, opts);
-    expect(master.maxConcurrentWorkers).toBe(10);
-    expect(master.defaultScope).toBe('approval');
-    expect(master.maxResumeAttempts).toBe(3);
-    expect(master.accounts).toEqual({});
-    expect(master.stateDir).toBeUndefined();
+    delete process.env['GESTALT_CONDUCTOR_MAX_WORKERS'];
+    const { conductor } = loadConfig({}, opts);
+    expect(conductor.maxConcurrentWorkers).toBe(10);
+    expect(conductor.defaultScope).toBe('approval');
+    expect(conductor.maxResumeAttempts).toBe(3);
+    expect(conductor.accounts).toEqual({});
+    expect(conductor.stateDir).toBeUndefined();
   });
 
   it('env로 동시 워커 상한을 바꾼다', () => {
-    process.env['GESTALT_MASTER_MAX_WORKERS'] = '4';
-    expect(loadConfig({}, opts).master.maxConcurrentWorkers).toBe(4);
+    process.env['GESTALT_CONDUCTOR_MAX_WORKERS'] = '4';
+    expect(loadConfig({}, opts).conductor.maxConcurrentWorkers).toBe(4);
   });
 
   it('overrides의 범위와 계정 맵을 받는다', () => {
-    const { master } = loadConfig(
-      { master: { defaultScope: 'merge-through', accounts: { 'acme/app': 'work' } } },
+    const { conductor } = loadConfig(
+      { conductor: { defaultScope: 'merge-through', accounts: { 'acme/app': 'work' } } },
       opts,
     );
-    expect(master.defaultScope).toBe('merge-through');
-    expect(master.accounts).toEqual({ 'acme/app': 'work' });
-    expect(master.maxConcurrentWorkers).toBe(10);
+    expect(conductor.defaultScope).toBe('merge-through');
+    expect(conductor.accounts).toEqual({ 'acme/app': 'work' });
+    expect(conductor.maxConcurrentWorkers).toBe(10);
   });
 
   it('워커가 멈췄다고 보는 기본 시간은 30분이다', () => {
-    expect(loadConfig({}, opts).master.staleAfterSec).toBe(1800);
+    expect(loadConfig({}, opts).conductor.staleAfterSec).toBe(1800);
   });
 
   function inTempRepo(fn: (dir: string, home: string) => void): string {
@@ -287,7 +287,7 @@ describe('loadConfig — master', () => {
       writeFileSync(
         join(dir, 'gestalt.json'),
         JSON.stringify({
-          master: {
+          conductor: {
             defaultScope: 'merge-through',
             stateDir: '/elsewhere',
             accounts: { 'acme/app': 'someone' },
@@ -296,42 +296,45 @@ describe('loadConfig — master', () => {
           },
         }),
       );
-      const { master } = loadConfig({}, { skipDotEnv: true });
-      expect(master.defaultScope).toBe('approval');
-      expect(master.stateDir).toBeUndefined();
-      expect(master.accounts).toEqual({});
-      expect(master.repoPaths).toEqual({});
-      expect(master.maxConcurrentWorkers).toBe(3);
+      const { conductor } = loadConfig({}, { skipDotEnv: true });
+      expect(conductor.defaultScope).toBe('approval');
+      expect(conductor.stateDir).toBeUndefined();
+      expect(conductor.accounts).toEqual({});
+      expect(conductor.repoPaths).toEqual({});
+      expect(conductor.maxConcurrentWorkers).toBe(3);
     });
     for (const key of ['defaultScope', 'stateDir', 'accounts', 'repoPaths']) {
-      expect(warned).toContain(`master.${key}`);
+      expect(warned).toContain(`conductor.${key}`);
     }
   });
 
-  it('사용자 전역 master.json의 범위와 계정을 받고 레포 값보다 앞선다', () => {
+  it('사용자 전역 conductor.json의 범위와 계정을 받고 레포 값보다 앞선다', () => {
     inTempRepo((dir, home) => {
-      writeFileSync(join(dir, 'gestalt.json'), JSON.stringify({ master: { pollIntervalSec: 30 } }));
       writeFileSync(
-        join(home, 'master.json'),
+        join(dir, 'gestalt.json'),
+        JSON.stringify({ conductor: { pollIntervalSec: 30 } }),
+      );
+      writeFileSync(
+        join(home, 'conductor.json'),
         JSON.stringify({
           defaultScope: 'interview-first',
           accounts: { 'acme/app': 'work' },
           pollIntervalSec: 120,
         }),
       );
-      const { master } = loadConfig({}, { skipDotEnv: true });
-      expect(master.defaultScope).toBe('interview-first');
-      expect(master.accounts).toEqual({ 'acme/app': 'work' });
-      expect(master.pollIntervalSec).toBe(120);
+      const { conductor } = loadConfig({}, { skipDotEnv: true });
+      expect(conductor.defaultScope).toBe('interview-first');
+      expect(conductor.accounts).toEqual({ 'acme/app': 'work' });
+      expect(conductor.pollIntervalSec).toBe(120);
     });
   });
 
-  it('사용자 전역 master.json이 깨졌으면 경고하고 기본값으로 간다', () => {
+  it('사용자 전역 conductor.json이 깨졌으면 경고하고 기본값으로 간다', () => {
     const warned = inTempRepo((_dir, home) => {
-      writeFileSync(join(home, 'master.json'), '[1, 2]');
-      expect(loadConfig({}, { skipDotEnv: true }).master.defaultScope).toBe('approval');
+      writeFileSync(join(home, 'conductor.json'), '[1, 2]');
+      expect(loadConfig({}, { skipDotEnv: true }).conductor.defaultScope).toBe('approval');
     });
-    expect(warned).toContain('master.json');
+    expect(warned).toContain('conductor.json');
   });
 });
 

@@ -136,7 +136,7 @@ export const EVOLVE_STAGNATION_COUNT = 2;
 export const EVOLVE_OSCILLATION_COUNT = 2;
 
 /**
- * 마스터 주문 하나가 사람 손을 어디서 거치는지. merge-through는 머지까지 무승인이다.
- * 설정 스키마와 마스터 도메인이 함께 쓰므로 core에 둔다
+ * 컨덕터 주문 하나가 사람 손을 어디서 거치는지. merge-through는 머지까지 무승인이다.
+ * 설정 스키마와 컨덕터 도메인이 함께 쓰므로 core에 둔다
  */
 export const ORDER_SCOPES = ['merge-through', 'approval', 'interview-first'] as const;
