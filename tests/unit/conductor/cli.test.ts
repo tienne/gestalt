@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   conductorCheckpointSaveCommand,
+  conductorContextPathCommand,
   conductorDeployReportCommand,
   conductorGateListCommand,
   conductorGateResolveCommand,
@@ -246,6 +247,39 @@ describe('gestalt conductor', () => {
     vi.spyOn(process, 'cwd').mockReturnValue(wt);
     expect(() => conductorOrderAddCommand({ ...add, title: 'y' })).toThrow('exit 1');
     expect(err.at(-1)).toContain('wrk-g');
+  });
+
+  it('긴 주문 설명은 파일로 받아 자르지 않고 공통 맥락 경로는 상태 저장소 아래로 알려 준다', () => {
+    const stateDir = tempStateDir();
+    const descriptionFile = join(stateDir, 'desc.md');
+    const long = Array.from({ length: 500 }, (_, i) => `- 결정 ${i}: "인용"과 \`백틱\``).join('\n');
+    writeFileSync(descriptionFile, `${long}\n`);
+    conductorOrderAddCommand({
+      stateDir,
+      json: true,
+      repo: 'acme/app',
+      title: 't',
+      descriptionFile,
+    });
+    expect((last()['order'] as { description: string }).description).toBe(long);
+    expect(() =>
+      conductorOrderAddCommand({
+        stateDir,
+        repo: 'acme/app',
+        title: 't',
+        description: 'a',
+        descriptionFile,
+      }),
+    ).toThrow('exit 1');
+
+    conductorContextPathCommand({ stateDir, json: true, repo: 'acme/app' });
+    expect(last()).toEqual({
+      repo: 'acme/app',
+      path: join(resolve(stateDir), 'context', 'acme', 'app.md'),
+      exists: false,
+    });
+    expect(existsSync(join(stateDir, 'context', 'acme'))).toBe(true);
+    expect(() => conductorContextPathCommand({ stateDir, repo: '../x' })).toThrow('exit 1');
   });
 
   it('queue add는 파일로 넣고 워커 세션이나 JSON이 아닌 본문은 거절한다', () => {

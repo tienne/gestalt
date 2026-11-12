@@ -29,6 +29,7 @@ import {
 } from './commands/ship.js';
 import {
   conductorCheckpointSaveCommand,
+  conductorContextPathCommand,
   conductorDeployReportCommand,
   conductorGateListCommand,
   conductorGateResolveCommand,
@@ -1048,7 +1049,11 @@ export function createCli(): Command {
     )
     .requiredOption('--repo <owner/name>', '대상 레포')
     .requiredOption('--title <text>', '주문 제목')
-    .option('--description <text>', '주문 설명')
+    .option(
+      '--description <text>',
+      '주문 설명. 워커는 컨덕터 대화를 못 보니 요구사항과 결정을 다 적는다',
+    )
+    .option('--description-file <path>', '주문 설명을 파일에서 읽는다. -면 stdin')
     .option(
       '--scope <scope>',
       'merge-through, approval, interview-first 중 하나. 없으면 설정의 기본값',
@@ -1064,6 +1069,16 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorOrderAddCommand(o));
+
+  conductor
+    .command('context')
+    .description('여러 주문에 걸친 레포 공통 맥락 파일')
+    .command('path')
+    .description('레포 공통 맥락 파일 경로를 알려 준다. 디렉토리만 만들고 파일은 만들지 않는다')
+    .requiredOption('--repo <owner/name>', '대상 레포')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action((o) => conductorContextPathCommand(o));
 
   conductor
     .command('status')

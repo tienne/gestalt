@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { loadConfig } from '../../core/config.js';
 import { gestaltPath } from '../../core/home.js';
 import {
@@ -21,6 +21,7 @@ import {
   writeReport,
   type EngineDeps,
 } from '../../conductor/engine.js';
+import { repoContextPath } from '../../conductor/context.js';
 import { resolveGate } from '../../conductor/gates.js';
 import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS } from '../../conductor/intake.js';
 import type { DeploySignal } from '../../conductor/jira.js';
@@ -140,6 +141,8 @@ export interface ConductorOrderAddOptions extends ConductorCommonOptions {
   repo: string;
   title: string;
   description?: string;
+  /** 긴 설명은 셸 인용이 깨지기 쉬워 파일로 받는다. `-`면 stdin */
+  descriptionFile?: string;
   scope?: string;
   skills?: string;
   workerKind?: string;
@@ -156,6 +159,11 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
     const ctx = open(opts);
     assertConductorSession(ctx, 'order add');
     const source = oneOf<IntakeKind>(opts.source ?? 'spoken', INTAKE_KINDS, '--source');
+    if (opts.description && opts.descriptionFile)
+      throw new Error('--description과 --description-file은 하나만 써 주세요');
+    const description = opts.descriptionFile
+      ? readFileSync(opts.descriptionFile === '-' ? 0 : opts.descriptionFile, 'utf-8').trim()
+      : opts.description;
     const out = intakeOrder(
       ctx.store,
       {
@@ -163,7 +171,7 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
         repo: opts.repo,
         title: opts.title,
         ...(opts.sourceRef ? { sourceRef: opts.sourceRef } : {}),
-        ...(opts.description ? { description: opts.description } : {}),
+        ...(description ? { description } : {}),
         ...(opts.scope ? { scope: oneOf<OrderScope>(opts.scope, ORDER_SCOPES, '--scope') } : {}),
         ...(opts.skills ? { skillChain: skillList(opts.skills, '--skills') } : {}),
         ...(opts.workerKind
@@ -191,6 +199,24 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
     console.log(
       `${out.created ? '주문을 받았어요' : '이미 받은 주문이에요'}: ${out.order.id} (${out.order.scope})`,
     );
+  });
+}
+
+export interface ConductorContextPathOptions extends ConductorCommonOptions {
+  repo: string;
+}
+
+/**
+ * 레포 공통 맥락 파일 경로를 알려 준다. 디렉토리는 만들어 두고 파일은 만들지 않는다.
+ * 컨덕터가 경로를 받아 직접 쓰고 워커는 지시서에 실린 경로로 읽는다.
+ */
+export function conductorContextPathCommand(opts: ConductorContextPathOptions): void {
+  run(() => {
+    const ctx = open(opts);
+    const path = repoContextPath(resolve(ctx.store.dir), opts.repo);
+    mkdirSync(dirname(path), { recursive: true });
+    if (opts.json) return print({ repo: opts.repo, path, exists: existsSync(path) });
+    console.log(path);
   });
 }
 
