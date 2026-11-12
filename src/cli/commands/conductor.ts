@@ -25,13 +25,13 @@ import {
 import { existingRepoContext, repoContextPath } from '../../conductor/context.js';
 import {
   currentSessionId,
+  handoffRecordPath,
   handoffStatus,
   isSessionId,
   launchHandoff,
   readHandoffRecord,
   recordHandoff,
   registerSession,
-  sessionDir,
   writeHandoffFile,
   type HandoffStatus,
 } from '../../conductor/handoff.js';
@@ -446,7 +446,11 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
       report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
     const handoff = sessionId ? sessionHandoff(ctx, sessionId) : undefined;
     if (opts.json) return print(handoff ? { ...report, handoff } : report);
-    const handoffLine = handoff?.due ? `인계할 때예요: ${handoff.reason ?? ''}` : undefined;
+    const handoffLine = handoff?.due
+      ? `인계할 때예요: ${handoff.reason ?? ''}`
+      : handoff?.reason
+        ? `인계 판정 못 함: ${handoff.reason}`
+        : undefined;
     if (report.skipped) {
       console.log(`건너뛰었어요${report.errors[0] ? `: ${report.errors[0]}` : ' (감시 간격 안)'}`);
       if (handoffLine) console.log(handoffLine);
@@ -478,7 +482,7 @@ function sessionHandoff(ctx: Ctx, sessionId: string): HandoffStatus {
 function assertNotHandedOff(ctx: Ctx, sessionId: string): void {
   const prev = readHandoffRecord(ctx.store.dir, sessionId);
   if (!prev) return;
-  const record = join(sessionDir(ctx.store.dir, sessionId), 'handoff.json');
+  const record = handoffRecordPath(ctx.store.dir, sessionId);
   throw new Error(
     `이 세션은 ${prev.at}에 새 세션으로 인계했어요(${prev.file}). 반복을 멈추고 새 세션에서 돌려 주세요. 이 세션에서 계속 돌리려면 ${record}를 지워 주세요`,
   );
@@ -494,7 +498,8 @@ export interface ConductorHandoffOptions extends ConductorCommonOptions {
 /**
  * 컨덕터 세션을 새 세션으로 넘긴다. 인계 파일을 쓰고 오르카가 있으면 새 세션을 띄워 첫 지시로 넘긴다.
  * 오르카가 없거나 띄우기가 실패하면 파일만 남기고 사람에게 전할 문장을 돌려준다.
- * 어느 쪽이든 이 세션은 인계한 것으로 적어 두고 이후 tick을 거절한다.
+ * 띄우기 전에 이 세션을 인계한 것으로 적어 두고 이후 tick을 거절한다. 띄운 뒤 기록 쓰기가 실패해도
+ * 거절은 이미 걸려 있어 컨덕터가 둘 돌지 않는다.
  */
 export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Promise<void> {
   try {
@@ -513,17 +518,27 @@ export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Pr
       status,
       now,
     );
+    recordHandoff(ctx.store.dir, sessionId, {
+      at: now.toISOString(),
+      file,
+      launched: false,
+      detail: '띄우는 중',
+    });
     const orca = opts.launch === false ? undefined : detectOrca(process.env);
     const outcome = await launchHandoff(file, {
       cwd: process.cwd(),
       ...(orca ? { orcaCommand: orca } : {}),
     });
-    recordHandoff(ctx.store.dir, sessionId, {
-      at: now.toISOString(),
-      file,
-      launched: outcome.launched,
-      detail: outcome.detail,
-    });
+    try {
+      recordHandoff(ctx.store.dir, sessionId, {
+        at: now.toISOString(),
+        file,
+        launched: outcome.launched,
+        detail: outcome.detail,
+      });
+    } catch {
+      // 거절 기록은 위에서 남겼다. 결과만 못 덮어쓴 것이라 사람에게 전할 문장은 그대로 낸다
+    }
     const result = { sessionId, file, ...outcome };
     if (opts.json) return print(result);
     console.log(`인계 파일: ${file}`);

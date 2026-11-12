@@ -1125,7 +1125,10 @@ export function createCli(): Command {
       '--notes-file <path>',
       '대화에서 정한 규칙, 답을 기다리는 질문, 대화에만 있는 값을 적은 마크다운. -면 stdin',
     )
-    .option('--loop-prompt <text>', '이 세션에 반복을 건 프롬프트 원문')
+    .option(
+      '--loop-prompt <text>',
+      '이 세션에 반복을 건 프롬프트 원문. 간격 하나와 /gestalt:conductor로 된 한 줄(500자 이하)만 받는다',
+    )
     .option('--session <id>', '이 세션 id. 없으면 CLAUDE_CODE_SESSION_ID')
     .option('--no-launch', '오르카가 있어도 새 세션을 띄우지 않고 인계 파일만 쓴다')
     .addOption(stateDir())
