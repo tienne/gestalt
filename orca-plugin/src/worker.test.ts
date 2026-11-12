@@ -2,6 +2,7 @@
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { request } from 'node:http'
 import { join } from 'node:path'
 import type { ConductorView } from './protocol'
 import * as main from './worker'
@@ -55,9 +56,9 @@ const WORKSPACES = {
   truncated: false
 }
 
-function host(dir: string, storage: Record<string, string[]> = {}) {
+function host(dir: string, storage: Record<string, string[]> = {}, extra: Record<string, unknown> = {}) {
   return mockHost({
-    settings: { gestaltPath: FAKE, stateDir: dir },
+    settings: { gestaltPath: FAKE, stateDir: dir, ...extra },
     storage,
     results: { 'workspace.list': WORKSPACES, 'workspace.open': { opened: true } }
   })
@@ -255,4 +256,29 @@ test('새로고침 명령은 상태 표시줄 문구를 돌려준다', async () 
   await run(s, host(s.dir), async (worker) => {
     assert.equal(await worker.command('conductor.refresh'), '주문 1 · 확인 대기 1')
   })
+})
+
+function getStatus(port: number): Promise<number> {
+  return new Promise((resolve) => {
+    const req = request({ host: '127.0.0.1', port, path: '/', method: 'GET' }, (res) => {
+      res.on('data', () => undefined)
+      res.on('end', () => resolve(res.statusCode ?? 0))
+    })
+    req.on('error', () => resolve(0))
+    req.end()
+  })
+}
+
+test('mobilePort를 정하면 보기 전용 페이지를 열고 워커가 내려가면 닫는다', async () => {
+  const s = store(STATUS)
+  const port = 41000 + Math.floor(Math.random() * 2000)
+  const worker = await mountWorker(main, { host: host(s.dir, {}, { mobilePort: port }) })
+  try {
+    await worker.request('conductor.refresh')
+    assert.equal(await getStatus(port), 200)
+  } finally {
+    await worker.deactivate()
+    s.cleanup()
+  }
+  assert.equal(await getStatus(port), 0)
 })

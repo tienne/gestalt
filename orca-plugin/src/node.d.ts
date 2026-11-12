@@ -44,3 +44,41 @@ declare module 'node:os' {
 }
 
 declare const process: { env: Record<string, string | undefined> }
+
+declare module 'node:http' {
+  export type IncomingMessage = {
+    method?: string
+    url?: string
+    headers: Record<string, string | string[] | undefined>
+  }
+  export type ServerResponse = {
+    writeHead(status: number, headers?: Record<string, string | number>): ServerResponse
+    end(body?: string): void
+  }
+  export type Server = {
+    listen(port: number, host: string, callback?: () => void): Server
+    close(callback?: (error?: Error) => void): Server
+    closeAllConnections?(): void
+    address(): { port: number } | string | null
+    once(event: 'error', listener: (error: Error & { code?: string }) => void): Server
+    once(event: 'listening', listener: () => void): Server
+    off(event: 'error', listener: (error: Error & { code?: string }) => void): Server
+  }
+  export function createServer(handler: (req: IncomingMessage, res: ServerResponse) => void): Server
+  // 아래는 테스트만 쓴다
+  export type ClientResponse = {
+    statusCode?: number
+    headers: Record<string, string | string[] | undefined>
+    setEncoding(encoding: 'utf8'): void
+    on(event: 'data', listener: (chunk: string) => void): ClientResponse
+    on(event: 'end', listener: () => void): ClientResponse
+  }
+  export type ClientRequest = {
+    on(event: 'error', listener: (error: Error) => void): ClientRequest
+    end(): void
+  }
+  export function request(
+    options: { host: string; port: number; path: string; method: string; headers?: Record<string, string> },
+    callback: (res: ClientResponse) => void
+  ): ClientRequest
+}

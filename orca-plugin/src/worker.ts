@@ -5,6 +5,7 @@ import { existsSync, watch, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { runGestalt } from './cli'
+import { MobileServer } from './mobile-server'
 import type { ConductorView, GateResolveInput, GateResolveResult, GateView, OrderRemoveResult } from './protocol'
 import {
   diffGates,
@@ -30,7 +31,7 @@ const RESOLVE_TIMEOUT_MS = 100_000
 const MAX_ANSWER = 4000
 const MAX_REMOVE = 200
 
-type Config = { command: string; stateDir: string }
+type Config = { command: string; stateDir: string; mobilePort: number }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -52,8 +53,33 @@ class Conductor {
   private retry: ReturnType<typeof setInterval> | null = null
   private debounce: ReturnType<typeof setTimeout> | null = null
   private stopped = false
+  private readonly mobile = new MobileServer(() => this.view)
+  private mobilePort = 0
 
   constructor(private readonly orca: OrcaWorkerApi) {}
+
+  /** 설정의 포트가 바뀔 때만 다시 연다. 못 연 포트는 설정이 바뀔 때까지 다시 시도하지 않는다 */
+  private async applyMobile(port: number): Promise<void> {
+    if (port === this.mobilePort) return
+    this.mobilePort = port
+    if (port === 0) {
+      await this.mobile.stop()
+      return
+    }
+    try {
+      await this.mobile.start(port)
+      if (this.stopped) return void (await this.mobile.stop())
+      this.orca.log(`보기 전용 페이지를 http://127.0.0.1:${port} 에 열었어요`)
+    } catch (e) {
+      this.orca.log(`보기 전용 페이지를 ${port} 포트에 못 열었어요: ${message(e)}`)
+      await this.orca.host
+        .call('notifications.show', {
+          title: '컨덕터 보기 전용 페이지',
+          body: `${port} 포트를 못 열었어요. 다른 프로그램이 쓰는지 확인하고 설정에서 포트를 바꿔 주세요.`
+        })
+        .catch(() => undefined)
+    }
+  }
 
   async config(): Promise<Config> {
     let settings: Record<string, unknown> = {}
@@ -65,7 +91,12 @@ class Conductor {
     // 셸을 안 거치니 `~`를 직접 풀어야 한다
     const text = (v: unknown) =>
       typeof v === 'string' ? v.trim().replace(/^~(?=$|[\\/])/, homedir()) : ''
-    return { command: text(settings['gestaltPath']) || 'gestalt', stateDir: text(settings['stateDir']) }
+    const port = settings['mobilePort']
+    return {
+      command: text(settings['gestaltPath']) || 'gestalt',
+      stateDir: text(settings['stateDir']),
+      mobilePort: typeof port === 'number' && Number.isInteger(port) && port > 0 && port < 65536 ? port : 0
+    }
   }
 
   /**
@@ -104,6 +135,7 @@ class Conductor {
 
   private async load(): Promise<void> {
     const cfg = await this.config()
+    if (!this.stopped) await this.applyMobile(cfg.mobilePort)
     const now = Date.now()
     let view: ConductorView
     if (cfg.stateDir && !existsSync(join(cfg.stateDir, EVENTS_FILE))) {
@@ -335,6 +367,7 @@ class Conductor {
     if (this.debounce) clearTimeout(this.debounce)
     this.debounce = null
     await this.running?.catch(() => undefined)
+    await this.mobile.stop()
   }
 }
 
