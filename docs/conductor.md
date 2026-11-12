@@ -129,8 +129,9 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 | 경로 | 쓰는 쪽 | 내용 |
 |---|---|---|
-| `events.jsonl` | tick, CLI 명령 | 상태 이벤트와 실제 워커 에이전트, 보고 이력. `report-applied`에 summary, refs, skill, prRef, merged, stopReason, need를 보존하며 진행 보고도 포함한다 |
-| `inbox/` | 워커 | `worker report`가 남긴 결과 파일. 다음 tick이 상태와 보고 본문을 이벤트에 기록한 뒤 지운다 |
+| `events.jsonl` | tick, CLI 명령 | 상태 이벤트와 실제 워커 에이전트, 보고 이력. `report-applied`에 workerId, status, summary, refs, skill, prRef, merged, stopReason, need를 보존하며 진행 보고도 포함한다. 하위 주문 요청(`spawnRequest`)은 주문 이벤트로 옮겨지므로 보고에는 다시 남기지 않는다 |
+| `inbox/` | 워커 | `worker report`가 남긴 결과 파일. 다음 tick이 상태와 보고 본문을 이벤트에 기록한 뒤 지운다. 적용하다 실패한 원문은 `inbox/failed/`로 옮긴다 |
+| `inbox/unrecorded/` | tick | 적용은 끝났는데 `report-applied` 기록만 실패한 결과 파일. 다음 tick이 다시 적용하지 않고 기록만 남긴 뒤 지운다. 다시 적용하면 bypass와 워커에 전하기, 하위 주문이 한 번 더 돌기 때문이다 |
 | `prompts/` | tick | 워커 첫 지시 파일 |
 | `worktrees/` | tick | 오르카가 없을 때 만든 git 워크트리 |
 | `deploy/` | 호스트 | `deploy report`가 남긴 배포 결과 |

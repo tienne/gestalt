@@ -64,6 +64,16 @@ export class ReportRejected extends Error {
   }
 }
 
+const MAX_SKILL_CHARS = 64;
+
+function hasControlChar(text: string): boolean {
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    if (c < 0x20 || (c >= 0x7f && c < 0xa0) || c === 0x2028 || c === 0x2029) return true;
+  }
+  return false;
+}
+
 /** JSON으로 들어온 결과를 검증해 꼴을 맞춘다. 걸리면 ReportRejected를 던진다 */
 export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -102,7 +112,12 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
   }
 
   const report: WorkerReport = { workerId, status: status as ReportStatus, summary, refs };
-  if (typeof r['skill'] === 'string' && r['skill'].trim()) report.skill = r['skill'].trim();
+  if (typeof r['skill'] === 'string' && r['skill'].trim()) {
+    // 스킬 이름은 기록용이라 꼴이 틀려도 보고 전체를 거절하지 않는다. 거절하면 재파싱에서 failed로 간다
+    const skill = r['skill'].trim();
+    if ([...skill].length <= MAX_SKILL_CHARS && !hasControlChar(skill)) report.skill = skill;
+    else log(`워커 ${workerId} 결과의 skill 꼴이 맞지 않아 버려요`);
+  }
   if (typeof r['prRef'] === 'string' && r['prRef'].trim()) {
     // 주문의 prRef는 PR 감시의 중복 판정 키라 꼴이 다르면 같은 PR을 다른 PR로 본다
     const prRef = normalizePrRef(r['prRef']);

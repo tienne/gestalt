@@ -17,6 +17,7 @@ import {
   MAX_SPAWN_PER_ORDER,
   resolveWorkerAgent,
   tick,
+  UNRECORDED_REPORTS_DIR,
   writeReport,
   type EngineDeps,
 } from '../../../src/conductor/engine.js';
@@ -820,7 +821,8 @@ describe('워커 에이전트와 보고 보존', () => {
       stopReason: 'unknown',
       need: { kind: 'cleanup', detail: '임시 파일 정리' },
     };
-    report(store, d, progress);
+    // 하위 주문 요청은 주문으로 옮겨지므로 이력에는 안 남는다
+    report(store, d, { ...progress, spawnRequest: { title: '하위', detail: 'x' } });
     await tick(store, d, { now: now(), force: true });
     report(store, d, {
       workerId,
@@ -840,6 +842,48 @@ describe('워커 에이전트와 보고 보존', () => {
         refs: ['reports/result.md'],
         at: now().toISOString(),
       },
+    ]);
+    expect(JSON.stringify(reopened.snapshot.reports)).not.toContain('spawnRequest');
+  });
+
+  it('적용 뒤 이력 기록만 실패한 보고는 다시 적용하지 않고 다음 tick에 기록만 남긴다', async () => {
+    const { store, now } = clockedStore();
+    const o = order();
+    store.addOrder(o);
+    const { deps: d, git } = deps();
+    await tick(store, d, { now: now(), force: true });
+    const workerId = git.started[0]!.worker.id;
+    report(store, d, {
+      workerId,
+      status: 'needs',
+      summary: '승인 부탁',
+      need: { kind: 'simple-approval', detail: '부탁해요' },
+      spawnRequest: { title: '하위', detail: 'x' },
+    });
+    const append = store.append.bind(store);
+    store.append = (e) => {
+      if (e.type === 'report-applied') throw new Error('디스크가 찼어요');
+      append(e);
+    };
+    const first = await tick(store, d, { now: now(), force: true });
+    expect(first.errors.some((e) => e.includes('이력 기록만 실패'))).toBe(true);
+    const inbox = inboxDirOf(store, d);
+    expect(readdirSync(join(inbox, UNRECORDED_REPORTS_DIR))).toHaveLength(1);
+    expect(existsSync(join(inbox, FAILED_REPORTS_DIR))).toBe(false);
+    const bypasses = store.snapshot.bypasses.length;
+    const sent = git.sent.length;
+    const orders = store.orders().length;
+    expect(bypasses).toBe(1);
+
+    store.append = append;
+    const second = await tick(store, d, { now: now(), force: true });
+    expect(second.errors).toEqual([]);
+    expect(store.snapshot.bypasses).toHaveLength(bypasses);
+    expect(git.sent).toHaveLength(sent);
+    expect(store.orders()).toHaveLength(orders);
+    expect(readdirSync(join(inbox, UNRECORDED_REPORTS_DIR))).toEqual([]);
+    expect(ConductorStore.open(store.dir).snapshot.reports[o.id]).toMatchObject([
+      { workerId, status: 'needs', summary: '승인 부탁' },
     ]);
   });
 });

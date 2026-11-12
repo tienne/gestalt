@@ -202,6 +202,9 @@ export interface WorkerReport {
   spawnRequest?: { title: string; detail: string };
 }
 
+/** 이력에 남기는 보고. 하위 주문 요청은 적용할 때 주문으로 옮겨지므로 다시 남기지 않는다 */
+export type StoredReport = Omit<WorkerReport, 'spawnRequest'>;
+
 export interface BypassRecord {
   orderId?: string;
   need: NeedKind;
@@ -244,7 +247,7 @@ export type ConductorEvent =
   /** clearedReports는 이번 tick이 inbox에서 지운 보고 파일이다. 적용 기록에서 뺀다 */
   | { type: 'tick'; at: string; clearedReports?: string[] }
   /** inbox의 보고 파일 하나를 적용했다. 지우기에 실패해 다음 tick에 다시 보여도 또 적용하지 않는다 */
-  | { type: 'report-applied'; at: string; name: string; report?: WorkerReport }
+  | { type: 'report-applied'; at: string; name: string; report?: StoredReport }
   /** 앞 프로세스가 줄 중간에 죽은 꼬리를 개행으로 끊었다는 표시. replay가 바로 앞 깨진 줄을 건너뛴다 */
   | { type: 'tail-repaired'; at: string };
 
@@ -259,7 +262,7 @@ export interface ConductorSnapshot {
   slackPosted: Record<string, string>;
   /** 적용한 보고 파일 이름과 시각 */
   appliedReports: Record<string, string>;
-  reports: Record<string, (WorkerReport & { at: string })[]>;
+  reports: Record<string, (StoredReport & { at: string })[]>;
   ticks: number;
   /** 마지막 tick 시각. 감시 주기보다 자주 돌지 않게 막는 데 쓴다 */
   lastTickAt?: string;
