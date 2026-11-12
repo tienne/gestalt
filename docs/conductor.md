@@ -129,14 +129,14 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
    - 사람에게 물어 두고 답을 기다리는 질문
    - 워커 reply id처럼 대화에만 있는 값
 
-   세션이 이걸 마크다운 파일로 쓰고 아래 명령을 부른다. `--loop-prompt`는 간격 하나(`5m` 같은 것)와 `/gestalt:conductor`로 시작하는 한 줄(500자 이하)만 받는다. 새 세션이 그 원문 그대로 반복을 걸기 때문이다. 꼴이 다르면 인계 파일을 쓰기 전에 거절하니 `--loop-prompt`를 빼고 다시 넘기고 사용자에게 알린다.
+   세션이 이걸 마크다운 파일로 쓰고 아래 명령을 부른다. `--loop-prompt`는 `/gestalt:conductor`로 시작하는 한 줄(앞에 `5m ` 같은 간격 하나는 붙어도 된다, 500자 이하)만 받는다. 새 세션이 그 원문 그대로 반복을 걸기 때문이다. 꼴이 다르면 인계 파일을 쓰기 전에 거절하니 `--loop-prompt`를 빼고 다시 넘기고 사용자에게 알린다.
 
    ```bash
    gestalt conductor handoff --notes-file "$tmp/handoff-notes.md" \
      --loop-prompt "/gestalt:conductor tick 돌리고 hostActions 처리" --json
    ```
 
-   명령은 상태 저장소의 `handoffs/`에 인계 파일을 쓴다. 파일은 이어받은 세션이 할 일, 반복 프롬프트 원문, 메모 순서이고 메모는 펜스로 감싸 앞의 고정 절과 섞이지 않게 한다. 그다음 띄우기 전에 거절 기록(`handoff.json`)을 남기고 오르카가 있으면 `orca agent launch --agent claude --worktree path:<지금 작업 디렉토리> --prompt "/gestalt:conductor … 인계 파일: <경로>"`로 같은 워크스페이스에 새 세션을 띄운다. 오르카가 없거나 띄우기가 실패하면 파일만 남기고 `launched: false`와 사람에게 전할 문장을 돌려준다. 세션은 그 문장을 사람에게 전한다.
+   명령은 상태 저장소의 `handoffs/`에 인계 파일을 쓴다. 파일은 이어받은 세션이 할 일, 반복 프롬프트 원문, 메모 순서이고 메모는 펜스로 감싸 앞의 고정 절과 섞이지 않게 한다. 그다음 띄우기 전에 거절 기록(`handoff.json`)을 남기고 오르카가 있으면 `orca agent launch --agent claude --worktree path:<지금 작업 디렉토리> --prompt "/gestalt:conductor … 인계 파일: <경로>"`로 같은 워크스페이스에 새 세션을 띄운다. 오르카가 없거나 띄우기가 실패하면 파일만 남기고 `launched: false`와 사람에게 전할 문장을 돌려준다. 세션은 그 문장을 사람에게 전한다. 띄운 뒤 결과를 `handoff.json`에 못 덮어쓰면 stderr에 `인계 기록 갱신 실패` 한 줄을 내고 결과에 `recordError`를 싣는다. 이때 기록에는 "띄우는 중"이 남지만 tick 거절은 그대로 걸린다.
 
 5. **기존 세션 멈추기.** 넘긴 세션은 `ScheduleWakeup`을 `stop: true`로 부르고 컨덕터 크론도 지운다. 그래도 반복이 남아 tick이 다시 돌면 `sessions/<세션 id>/handoff.json`이 있어서 거절한다. 그 세션에서 계속 돌리려면 이 파일을 지운다.
 
