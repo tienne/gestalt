@@ -9,6 +9,7 @@ import {
   GhAccounts,
   GhAccountSwitcher,
   GhPrWatchSource,
+  prWatchTargets,
   hostJiraClient,
   hostSlackClient,
   writeDeploySignal,
@@ -22,8 +23,27 @@ import {
   type EngineDeps,
 } from '../../conductor/engine.js';
 import { existingRepoContext, repoContextPath } from '../../conductor/context.js';
+import {
+  currentSessionId,
+  handoffNotice,
+  handoffRecordPath,
+  handoffStatus,
+  isSessionId,
+  launchHandoff,
+  readHandoffRecord,
+  recordHandoff,
+  registerSession,
+  writeHandoffFile,
+  type HandoffStatus,
+} from '../../conductor/handoff.js';
 import { resolveGate } from '../../conductor/gates.js';
-import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS } from '../../conductor/intake.js';
+import {
+  intakeOrder,
+  isControlChar,
+  ISSUE_KEY_RE,
+  KNOWN_SKILLS,
+  oneLine,
+} from '../../conductor/intake.js';
 import type { DeploySignal } from '../../conductor/jira.js';
 import {
   assertCanSpawn,
@@ -49,6 +69,7 @@ import {
   JIRA_STATUSES,
   ORDER_SCOPES,
   WORKER_KINDS,
+  TERMINAL_ORDER_STATUSES,
   type IntakeKind,
   type IssueType,
   type JiraStatus,
@@ -148,6 +169,7 @@ export interface ConductorOrderAddOptions extends ConductorCommonOptions {
   scope?: string;
   skills?: string;
   workerKind?: string;
+  agent?: string;
   parentWorktree?: string;
   baseBranch?: string;
   source?: string;
@@ -184,6 +206,7 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
       ctx.store,
       {
         source,
+        ...(opts.agent !== undefined ? { agent: opts.agent } : {}),
         repo: opts.repo,
         title: opts.title,
         ...(opts.sourceRef ? { sourceRef: opts.sourceRef } : {}),
@@ -260,6 +283,62 @@ export async function conductorOrderRemoveCommand(
   } catch (e) {
     exitWithError(e);
   }
+}
+
+/**
+ * 워커 보고처럼 바깥에서 온 값을 터미널에 찍을 꼴로 바꾼다. ESC 같은 제어 문자가 화면을 조작하지 못하게
+ * 개행 말고는 공백으로 바꾸고 이어지는 줄은 들여써 다른 항목 줄로 보이지 않게 한다. 전문을 읽는 자리라 자르지 않는다
+ */
+function terminalText(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    out += ch !== '\n' && isControlChar(c) ? ' ' : ch;
+  }
+  return out.replace(/\n/g, '\n    ');
+}
+
+export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptions): void {
+  run(() => {
+    const { store } = open(opts);
+    const order = store.order(id);
+    if (!order) throw new Error(`모르는 주문이에요: ${id}`);
+    const workers = store.workersOf(id);
+    const reports = store.snapshot.reports[id] ?? [];
+    const gates = Object.values(store.snapshot.gates).filter((g) => g.orderId === id);
+    const bypasses = store.snapshot.bypasses.filter((b) => b.orderId === id);
+    const refs = [...new Set(reports.flatMap((r) => r.refs))];
+    if (opts.json) return print({ order, workers, reports, refs, gates, bypasses });
+    console.log(`${order.id}  ${terminalText(order.title)}`);
+    console.log(`레포: ${order.repo}  범위: ${order.scope}  상태: ${order.status}`);
+    console.log(`설명: ${order.description ? terminalText(order.description) : '없음'}`);
+    console.log(`체인: ${order.skillChain.join(' → ')}`);
+    console.log(`PR: ${order.prRef ? terminalText(order.prRef) : '없음'}`);
+    if (order.agent) console.log(`주문 에이전트: ${order.agent}`);
+    console.log('워커:');
+    for (const w of workers)
+      console.log(
+        `  ${w.id}  ${w.kind}  에이전트: ${w.agent ?? (w.kind === 'orca-worktree' ? 'claude (기존 기록)' : '호스트에서 결정')}  ${w.status}`,
+      );
+    console.log('보고 이력:');
+    for (const r of reports) {
+      console.log(`  ${r.at}  ${r.workerId}  ${r.status}  ${terminalText(r.summary)}`);
+      if (r.skill) console.log(`    스킬: ${terminalText(r.skill)}`);
+      if (r.prRef) console.log(`    PR: ${terminalText(r.prRef)}`);
+      if (r.merged !== undefined) console.log(`    머지: ${r.merged}`);
+      if (r.stopReason) console.log(`    중단: ${r.stopReason}`);
+      if (r.need) console.log(`    요청: ${r.need.kind}  ${terminalText(r.need.detail)}`);
+    }
+    console.log(`refs: ${refs.map(terminalText).join(', ') || '없음'}`);
+    console.log('gate:');
+    for (const g of gates)
+      console.log(
+        `  ${g.id}  ${g.type}  ${g.status}  ${g.decision ?? '-'}  ${terminalText(g.reason)}${g.answer ? `  답: ${terminalText(g.answer)}` : ''}`,
+      );
+    console.log('bypass:');
+    for (const b of bypasses)
+      console.log(`  ${b.at}  ${terminalText(b.need)}  ${terminalText(b.action)}`);
+  });
 }
 
 /** 신뢰 경로라 길이로 자르지 않으니 엉뚱한 파일을 통째로 싣지 않게 크기에서 막는다 */
@@ -345,6 +424,9 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
             ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}),
             ...(o.prRef ? { pr: o.prRef } : {}),
             ...(o.issueKey ? { issue: o.issueKey } : {}),
+            ...(opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
+              ? { lastSummary: store.snapshot.reports[o.id]?.at(-1)?.summary ?? null }
+              : {}),
             bypasses: bypassesOf.get(o.id) ?? [],
           };
         }),
@@ -360,7 +442,13 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
     }
     console.log(`마지막 tick: ${store.snapshot.lastTickAt ?? '없음'}`);
     for (const o of orders) {
-      console.log(`${o.id}  ${o.status}  ${o.scope}  ${o.repo}  ${o.title}`);
+      const summary =
+        opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
+          ? store.snapshot.reports[o.id]?.at(-1)?.summary
+          : undefined;
+      console.log(
+        `${o.id}  ${o.status}  ${o.scope}  ${o.repo}  ${o.title}${summary ? `  ${oneLine(summary, 100)}` : ''}`,
+      );
       for (const b of bypassesOf.get(o.id) ?? [])
         console.log(`  bypass ${b.at}  ${b.need}  ${b.action}`);
     }
@@ -379,13 +467,22 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'tick');
+    const sessionId = currentSessionId();
+    if (sessionId) {
+      assertNotHandedOff(ctx, sessionId);
+      registerSession(ctx.store.dir, sessionId, process.cwd(), new Date());
+    }
     const deferred: HostAction[] = [];
-    const prWatch = opts.prWatch !== false && Object.keys(ctx.config.repoPaths).length > 0;
+    const watch =
+      opts.prWatch !== false
+        ? prWatchTargets(ctx.config.prWatchRepos, ctx.config.repoPaths)
+        : undefined;
     // 토큰과 로그인 계정 캐시를 PR 감시와 계정 맞추기가 tick 하나 동안 함께 쓴다
     const gh = new GhAccounts(ctx.config.accounts);
-    const prSource = prWatch
-      ? new GhPrWatchSource({ repoPaths: ctx.config.repoPaths, accounts: gh })
-      : undefined;
+    const prSource =
+      watch && Object.keys(watch.repoPaths).length > 0
+        ? new GhPrWatchSource({ repoPaths: watch.repoPaths, accounts: gh })
+        : undefined;
     const queue = opts.queue !== false ? fileQueue(queueDirOf(ctx)) : undefined;
     const deps: EngineDeps = {
       config: ctx.config,
@@ -401,12 +498,16 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     };
     const report = await tick(ctx.store, deps, { force: opts.force === true });
     report.hostActions.push(...deferred);
-    report.errors.push(...(queue?.errors ?? []));
+    // 건너뛴 tick은 감시를 안 돌았다. 경로 누락 오류를 붙이면 출력이 그걸 건너뛴 이유로 보여 준다
+    if (!report.skipped) report.errors.push(...(queue?.errors ?? []), ...(watch?.errors ?? []));
     for (const repo of prSource?.truncatedRepos ?? [])
       report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
-    if (opts.json) return print(report);
+    const handoff = sessionId ? sessionHandoff(ctx, sessionId) : undefined;
+    if (opts.json) return print(handoff ? { ...report, handoff } : report);
+    const handoffLine = handoffNotice(handoff);
     if (report.skipped) {
       console.log(`건너뛰었어요${report.errors[0] ? `: ${report.errors[0]}` : ' (감시 간격 안)'}`);
+      if (handoffLine) console.log(handoffLine);
       return;
     }
     const c = report.counts;
@@ -416,6 +517,89 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     for (const a of report.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
     for (const w of report.warnings) console.log(`경고: ${w}`);
     for (const e of report.errors) console.log(`오류: ${e}`);
+    if (handoffLine) console.log(handoffLine);
+  } catch (e) {
+    exitWithError(e);
+  }
+}
+
+function sessionHandoff(ctx: Ctx, sessionId: string): HandoffStatus {
+  return handoffStatus(ctx.store.dir, sessionId, {
+    thresholdPercent: ctx.config.handoffContextPercent,
+    ...(ctx.config.contextWindowTokens !== undefined
+      ? { contextWindowTokens: ctx.config.contextWindowTokens }
+      : {}),
+  });
+}
+
+/** 인계한 세션의 반복이 안 멈췄으면 tick을 거절해 컨덕터가 둘이 되지 않게 한다 */
+function assertNotHandedOff(ctx: Ctx, sessionId: string): void {
+  const prev = readHandoffRecord(ctx.store.dir, sessionId);
+  if (!prev) return;
+  const record = handoffRecordPath(ctx.store.dir, sessionId);
+  throw new Error(
+    `이 세션은 ${prev.at}에 새 세션으로 인계했어요(${prev.file}). 반복을 멈추고 새 세션에서 돌려 주세요. 이 세션에서 계속 돌리려면 ${record}를 지워 주세요`,
+  );
+}
+
+export interface ConductorHandoffOptions extends ConductorCommonOptions {
+  notesFile: string;
+  loopPrompt?: string;
+  session?: string;
+  launch?: boolean;
+}
+
+/**
+ * 컨덕터 세션을 새 세션으로 넘긴다. 인계 파일을 쓰고 오르카가 있으면 새 세션을 띄워 첫 지시로 넘긴다.
+ * 오르카가 없거나 띄우기가 실패하면 파일만 남기고 사람에게 전할 문장을 돌려준다.
+ * 띄우기 전에 이 세션을 인계한 것으로 적어 두고 이후 tick을 거절한다. 띄운 뒤 결과를 못 덮어써도
+ * 거절은 이미 걸려 있어 컨덕터가 둘 돌지 않는다. 그때는 stderr 한 줄과 결과의 recordError로 알린다.
+ */
+export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'handoff');
+    const sessionId = opts.session ?? currentSessionId();
+    if (!isSessionId(sessionId)) throw new Error('이 세션의 id를 몰라요. --session <id>로 주세요');
+    assertNotHandedOff(ctx, sessionId);
+    const notes = readDescriptionFile(opts.notesFile);
+    const now = new Date();
+    const status = sessionHandoff(ctx, sessionId);
+    const file = writeHandoffFile(
+      ctx.store.dir,
+      sessionId,
+      { ...(opts.loopPrompt ? { loopPrompt: opts.loopPrompt } : {}), notes },
+      status,
+      now,
+    );
+    recordHandoff(ctx.store.dir, sessionId, {
+      at: now.toISOString(),
+      file,
+      launched: false,
+      detail: '띄우는 중',
+    });
+    const orca = opts.launch === false ? undefined : detectOrca(process.env);
+    const outcome = await launchHandoff(file, {
+      cwd: process.cwd(),
+      ...(orca ? { orcaCommand: orca } : {}),
+    });
+    let recordError: string | undefined;
+    try {
+      recordHandoff(ctx.store.dir, sessionId, {
+        at: now.toISOString(),
+        file,
+        launched: outcome.launched,
+        detail: outcome.detail,
+      });
+    } catch (e) {
+      // 거절은 위의 기록으로 이미 걸려 있다. handoff.json에 '띄우는 중'이 남는다는 것만 알리고 문장은 그대로 낸다
+      recordError = (e as Error).message;
+      console.error(`인계 기록 갱신 실패: ${recordError}`);
+    }
+    const result = { sessionId, file, ...outcome, ...(recordError ? { recordError } : {}) };
+    if (opts.json) return print(result);
+    console.log(`인계 파일: ${file}`);
+    console.log(outcome.detail);
   } catch (e) {
     exitWithError(e);
   }

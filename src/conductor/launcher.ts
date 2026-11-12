@@ -272,10 +272,10 @@ export function buildWorkerPrompt(
     '- `gestalt conductor tick`, `gate resolve`, `order add`, `deploy report`는 컨덕터 전용이라 부르지 않는다.',
   );
   lines.push(
-    `- 스킬이나 단계가 바뀔 때마다 \`gestalt conductor checkpoint save${at} --worker ${worker.id} ...\`로 체크포인트를 남긴다. 15분 넘게 걸릴 수 있는 대기(CI 대기 등) 앞뒤로도 남긴다.`,
+    `- 스킬이나 단계가 바뀔 때마다 \`gestalt conductor checkpoint save${at} --worker ${worker.id} --skill <스킬> --next "<다음 할 일>"\`로 체크포인트를 남긴다. 15분 넘게 걸릴 수 있는 대기(CI 대기 등) 앞뒤로도 남긴다.`,
   );
   lines.push(
-    `- 결과는 \`${report}\`로 낸다. 요약과 refs만 싣고 diff나 로그 원문은 파일로 두고 경로만 적는다.`,
+    `- 결과는 \`${report} --status done --summary "<결과 요약>" --ref "<파일 경로>"\`로 낸다. 요약과 refs만 싣고 diff나 로그 원문은 파일로 두고 경로만 적는다.`,
   );
   lines.push('- PR을 만들거나 다루면 결과 보고에 `--pr owner/name#번호` 꼴로 싣는다.');
   lines.push(
@@ -283,15 +283,15 @@ export function buildWorkerPrompt(
   );
   if (order.scope === 'merge-through') {
     lines.push(
-      `- 체인이 PR을 남기고 끝나면 바로 머지하고 \`${report} --status done --merged --pr owner/name#번호\`로 보고한다.`,
+      `- 체인이 PR을 남기고 끝나면 바로 머지하고 \`${report} --status done --merged --pr owner/name#번호 --summary "머지 완료"\`로 보고한다.`,
     );
   } else {
     lines.push(
-      `- 체인이 PR을 남기고 끝나면 머지하지 않는다. \`${report} --status needs --need merge-approval --need-detail "<한 줄>" --pr owner/name#번호\`로 올리고 컨덕터 결정을 기다린다. 승인되면 머지하고 \`--status done --merged --pr owner/name#번호\`로 보고한다. 거절되면 머지하지 않고 다음 지시를 기다린다.`,
+      `- 체인이 PR을 남기고 끝나면 머지하지 않는다. \`${report} --status needs --summary "머지 승인 대기" --need merge-approval --need-detail "<한 줄>" --pr owner/name#번호\`로 올리고 컨덕터 결정을 기다린다. 승인되면 머지하고 \`${report} --status done --merged --pr owner/name#번호 --summary "머지 완료"\`로 보고한다. 거절되면 머지하지 않고 다음 지시를 기다린다.`,
     );
   }
   lines.push(
-    `- ship의 ⓐ(draft PR 올리기), ⓑ(Copilot 반영 계획), ⓒ(ready 전환)는 머지가 아니라 사람에게 묻지 않고 진행한다. 넘길 때마다 \`${report} --status needs --need simple-approval --need-detail "ship ⓐ draft PR 올리기"\`처럼 남기고 답을 기다리지 않고 이어 간다. 컨덕터가 이걸 bypass로 기록한다. 머지만 위 승인 절차를 탄다.`,
+    `- ship의 ⓐ(draft PR 올리기), ⓑ(Copilot 반영 계획), ⓒ(ready 전환)는 머지가 아니라 사람에게 묻지 않고 진행한다. 넘길 때마다 \`${report} --status needs --summary "draft PR 생성 진행" --need simple-approval --need-detail "ship ⓐ draft PR 올리기"\`처럼 남기고 답을 기다리지 않고 이어 간다. 컨덕터가 이걸 bypass로 기록한다. 머지만 위 승인 절차를 탄다.`,
   );
   if (worker.account) {
     // 계정 이름이 셸 명령 예시에 그대로 들어간다. ensureAccount가 거르지만 다른 길로 들어온 값도 막는다
@@ -341,7 +341,6 @@ export interface OrcaLauncherOptions {
   orcaCommand: string;
   promptDir: string;
   runner?: CommandRunner;
-  agent?: string;
   repoPaths?: Record<string, string>;
 }
 
@@ -356,9 +355,10 @@ export class OrcaLauncher implements Launcher {
     const file = writePrompt(this.opts.promptDir, spec.worker.id, spec.prompt);
     const name = orcaWorktreeName(spec.worker);
     const displayName = oneLine(spec.order.title, 60);
+    const agent = spec.worker.agent ?? 'claude';
     return spec.order.parentWorktree
-      ? this.startInChild(spec.order, file, name, displayName)
-      : this.startTopLevel(spec.order, file, name, displayName);
+      ? this.startInChild(spec.order, file, name, displayName, agent)
+      : this.startTopLevel(spec.order, file, name, displayName, agent);
   }
 
   private async startTopLevel(
@@ -366,6 +366,7 @@ export class OrcaLauncher implements Launcher {
     file: string,
     name: string,
     displayName: string,
+    agent: string,
   ): Promise<LaunchResult> {
     const path = this.opts.repoPaths?.[order.repo];
     const repo = path ? `path:${path}` : `name:${order.repo.split('/')[1]!}`;
@@ -381,7 +382,8 @@ export class OrcaLauncher implements Launcher {
         file,
         '--worktree',
         'new-top-level',
-        ...this.agentArgs(),
+        '--agent',
+        agent,
         '--repo',
         repo,
         ...(order.baseBranch ? ['--base-branch', order.baseBranch] : []),
@@ -408,6 +410,7 @@ export class OrcaLauncher implements Launcher {
     file: string,
     name: string,
     displayName: string,
+    agent: string,
   ): Promise<LaunchResult> {
     const worktree = await this.createChild(order, name, displayName);
     const r = await this.runner(
@@ -419,7 +422,8 @@ export class OrcaLauncher implements Launcher {
         file,
         '--worktree',
         worktree,
-        ...this.agentArgs(),
+        '--agent',
+        agent,
         '--json',
       ],
       { timeoutMs: ORCA_TIMEOUT_MS },
@@ -446,10 +450,6 @@ export class OrcaLauncher implements Launcher {
     ).catch(() => undefined);
     if (rm?.code !== 0) throw new Error(`${failure}. 워크트리를 못 지웠어요. ${leftover}`);
     throw new Error(failure);
-  }
-
-  private agentArgs(): string[] {
-    return ['--agent', this.opts.agent ?? 'claude'];
   }
 
   /**

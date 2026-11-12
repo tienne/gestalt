@@ -84,7 +84,7 @@
           "minimum": 0,
           "maximum": 1,
           "description": "Goal alignment threshold (env: GESTALT_EVOLVE_GOAL_ALIGNMENT_THRESHOLD)",
-          "default": 0.80
+          "default": 0.8
         }
       },
       "additionalProperties": false
@@ -236,6 +236,21 @@
           "enum": ["merge-through", "approval", "interview-first"],
           "description": "Scope for orders that do not name one. Read only from ~/.gestalt/conductor.json; a repo gestalt.json value is ignored",
           "default": "approval"
+        },
+        "defaultAgent": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$",
+          "description": "Default Orca worker agent. Read only from ~/.gestalt/conductor.json; a repo gestalt.json value is ignored",
+          "default": "claude"
+        },
+        "repoAgents": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$"
+          },
+          "description": "Orca worker agent per repo (owner/name). Read only from ~/.gestalt/conductor.json; a repo gestalt.json value is ignored",
+          "default": {}
         },
         "resultMaxChars": {
           "type": "integer",

@@ -140,3 +140,9 @@ export const EVOLVE_OSCILLATION_COUNT = 2;
  * 설정 스키마와 컨덕터 도메인이 함께 쓰므로 core에 둔다
  */
 export const ORDER_SCOPES = ['merge-through', 'approval', 'interview-first'] as const;
+
+/**
+ * 워커 에이전트 id의 허용 꼴. 오르카 CLI 인자로 그대로 넘어가므로 `-`로 시작하는 값은 옵션으로 읽힌다.
+ * 설정 스키마와 주문 접수가 같은 규칙을 쓰도록 core에 둔다. JSON 스키마 pattern도 같은 식이다
+ */
+export const AGENT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;

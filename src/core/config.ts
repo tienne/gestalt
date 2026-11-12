@@ -16,6 +16,7 @@ import {
   EVOLVE_SUCCESS_THRESHOLD,
   EVOLVE_GOAL_ALIGNMENT_THRESHOLD,
   ORDER_SCOPES,
+  AGENT_ID_RE,
 } from './constants.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -387,6 +388,8 @@ const conductorConfigSchema = z.object({
    * 레포의 gestalt.json이 바꿀 수 있는 칸은 REPO_CONDUCTOR_KEYS가 정한다. 이 칸은 못 바꾼다
    */
   defaultScope: z.enum(ORDER_SCOPES).default('approval'),
+  defaultAgent: z.string().regex(AGENT_ID_RE).default('claude'),
+  repoAgents: z.record(z.string(), z.string().regex(AGENT_ID_RE)).default({}),
   /** 워커 결과 요약의 글자 수 상한. 원문 로그가 컨덕터 대화로 새지 않게 막는다 */
   resultMaxChars: z.number().int().min(200).max(20000).default(2000),
   /** 실행 상태 저장소 위치. 비우면 `~/.gestalt/conductor` */
@@ -395,6 +398,18 @@ const conductorConfigSchema = z.object({
   accounts: z.record(z.string(), z.string()).default({}),
   /** 레포(`owner/name`)의 로컬 경로. git 워크트리를 만들거나 오르카에 레포를 가리킬 때 쓴다 */
   repoPaths: z.record(z.string(), z.string()).default({}),
+  /**
+   * tick이 열린 PR을 감시할 레포(`owner/name`). 비어 있으면 감시하지 않는다.
+   * 감시는 repoPaths의 경로에서 gh를 부르므로 여기 적은 레포는 repoPaths에도 있어야 한다
+   */
+  prWatchRepos: z.array(z.string()).default([]),
+  /**
+   * 컨덕터 세션이 컴팩트를 한 번 거친 뒤 컨텍스트 사용량이 이 비율(%)을 넘으면 다음 tick을 마친 자리에서
+   * 새 세션으로 인계한다. 두 번째 컴팩트가 오면 사용량과 상관없이 인계한다
+   */
+  handoffContextPercent: z.number().int().min(10).max(99).default(70),
+  /** 사용량 비율을 낼 컨텍스트 창 크기(토큰). 비우면 모델 id와 사용량으로 200k나 1M을 고른다 */
+  contextWindowTokens: z.number().int().min(10_000).max(10_000_000).optional(),
 });
 
 /**
@@ -409,6 +424,8 @@ const REPO_CONDUCTOR_KEYS: ReadonlySet<string> = new Set([
   'maxResumeAttempts',
   'staleAfterSec',
   'resultMaxChars',
+  'handoffContextPercent',
+  'contextWindowTokens',
 ]);
 
 export const USER_CONDUCTOR_FILE = 'conductor.json';

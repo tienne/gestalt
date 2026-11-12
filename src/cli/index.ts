@@ -33,9 +33,11 @@ import {
   conductorDeployReportCommand,
   conductorGateListCommand,
   conductorGateResolveCommand,
+  conductorHandoffCommand,
   conductorMetricsCommand,
   conductorOrderAddCommand,
   conductorOrderRemoveCommand,
+  conductorOrderShowCommand,
   conductorQueueAddCommand,
   conductorSlackDraftCommand,
   conductorStatusCommand,
@@ -1041,8 +1043,15 @@ export function createCli(): Command {
     );
   const collect = (v: string, prev: string[] = []) => [...prev, v];
 
-  const order = conductor.command('order').description('주문을 다룬다');
-  order
+  const conductorOrder = conductor.command('order').description('주문을 다룬다');
+  conductorOrder
+    .command('show <id>')
+    .description('주문의 상세 상태와 보고 이력, 참조를 보여준다')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action((id, o) => conductorOrderShowCommand(id, o));
+
+  conductorOrder
     .command('add')
     .description(
       '말로 던진 요청이나 호스트가 읽은 지라 티켓을 주문으로 받는다. 같은 출처는 한 번만 받는다',
@@ -1060,6 +1069,7 @@ export function createCli(): Command {
     )
     .option('--skills <a,b>', '스킬 체인. 게슈탈트 스킬 이름만 받는다. 없으면 solve,ship')
     .option('--worker-kind <kind>', 'subagent, orca-worktree, git-worktree 중 하나로 고정')
+    .option('--agent <id>', '이 주문의 오르카 워커 에이전트')
     .option(
       '--parent-worktree <path|selector>',
       '오르카 워커를 이 워크트리 아래 하위로 띄운다. 경로나 오르카 선택자(branch:x 등). 레포가 다르면 거절한다',
@@ -1074,7 +1084,7 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorOrderAddCommand(o));
-  order
+  conductorOrder
     .command('remove <orderIds...>')
     .description(
       '끝난 주문(done, failed, cancelled)을 지운다. 지운 주문의 출처는 다시 받지 않는다. 워크트리와 브랜치는 그대로 둔다',
@@ -1115,6 +1125,27 @@ export function createCli(): Command {
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action(async (o) => {
       await conductorTickCommand(o);
+    });
+
+  conductor
+    .command('handoff')
+    .description(
+      '컨덕터 세션을 새 세션으로 넘긴다. 인계 파일을 쓰고 오르카가 있으면 새 세션을 띄워 첫 지시로 넘긴다',
+    )
+    .requiredOption(
+      '--notes-file <path>',
+      '대화에서 정한 규칙, 답을 기다리는 질문, 대화에만 있는 값을 적은 마크다운. -면 stdin',
+    )
+    .option(
+      '--loop-prompt <text>',
+      '이 세션에 반복을 건 프롬프트 원문. /gestalt:conductor로 시작하는 한 줄(앞에 5m 같은 간격 하나는 붙어도 된다, 500자 이하)만 받는다',
+    )
+    .option('--session <id>', '이 세션 id. 없으면 CLAUDE_CODE_SESSION_ID')
+    .option('--no-launch', '오르카가 있어도 새 세션을 띄우지 않고 인계 파일만 쓴다')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (o) => {
+      await conductorHandoffCommand(o);
     });
 
   conductor

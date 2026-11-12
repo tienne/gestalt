@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -9,6 +18,7 @@ import {
   conductorGateResolveCommand,
   conductorOrderAddCommand,
   conductorOrderRemoveCommand,
+  conductorOrderShowCommand,
   conductorQueueAddCommand,
   conductorSlackDraftCommand,
   conductorStatusCommand,
@@ -443,5 +453,235 @@ describe('gestalt conductor', () => {
     expect(report.counts.openGates).toBe(1);
     expect(report.errors.some((e) => e.includes('broken.json'))).toBe(true);
     expect(readdirSync(dir)).toEqual(['failed']);
+  });
+
+  it('tick은 prWatchRepos에 있는데 repoPaths에 없는 레포를 오류로 알리고 --no-pr-watch면 조용하다', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'gestalt-conductor-home-'));
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    writeFileSync(
+      join(home, '.gestalt', 'conductor.json'),
+      JSON.stringify({ prWatchRepos: ['acme/app'], repoPaths: {} }),
+    );
+    vi.stubEnv('GESTALT_HOME', home);
+    try {
+      const stateDir = tempStateDir();
+      await conductorTickCommand({ stateDir, json: true, force: true, queue: false });
+      const report = last() as { errors: string[] };
+      expect(report.errors.some((e) => e.startsWith('acme/app:') && e.includes('repoPaths'))).toBe(
+        true,
+      );
+
+      await conductorTickCommand({
+        stateDir,
+        json: true,
+        force: true,
+        queue: false,
+        prWatch: false,
+      });
+      expect((last() as { errors: string[] }).errors).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('감시 간격 안이라 건너뛴 tick은 경로 누락 오류를 건너뛴 이유로 보여 주지 않는다', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'gestalt-conductor-home-'));
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    writeFileSync(
+      join(home, '.gestalt', 'conductor.json'),
+      JSON.stringify({ prWatchRepos: ['acme/app'], repoPaths: {} }),
+    );
+    vi.stubEnv('GESTALT_HOME', home);
+    try {
+      const stateDir = tempStateDir();
+      await conductorTickCommand({ stateDir, json: true, force: true, queue: false });
+      await conductorTickCommand({ stateDir, queue: false });
+      expect(out.at(-1)).toBe('건너뛰었어요 (감시 간격 안)');
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('prWatchRepos가 비어 있으면 repoPaths에 레포가 있어도 gh를 부르지 않는다', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'gestalt-conductor-home-'));
+    const bin = join(home, 'bin');
+    const calls = join(home, 'gh-calls');
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'gh'), `#!/bin/sh\necho "$@" >> '${calls}'\necho '[]'\n`);
+    chmodSync(join(bin, 'gh'), 0o755);
+    const conf = join(home, '.gestalt', 'conductor.json');
+    vi.stubEnv('GESTALT_HOME', home);
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`);
+    try {
+      writeFileSync(conf, JSON.stringify({ repoPaths: { 'acme/app': home } }));
+      await conductorTickCommand({
+        stateDir: tempStateDir(),
+        json: true,
+        force: true,
+        queue: false,
+      });
+      expect(existsSync(calls)).toBe(false);
+
+      // 같은 가짜 gh가 감시를 켜면 실제로 불리는지 함께 봐야 위 단언이 빈 통과가 아니다
+      writeFileSync(
+        conf,
+        JSON.stringify({ prWatchRepos: ['acme/app'], repoPaths: { 'acme/app': home } }),
+      );
+      await conductorTickCommand({
+        stateDir: tempStateDir(),
+        json: true,
+        force: true,
+        queue: false,
+      });
+      expect(existsSync(calls)).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('주문 상세와 에이전트', () => {
+  it('주문의 agent를 이벤트로 보존하고 허용 꼴이 아니면 거절한다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({
+      stateDir,
+      repo: 'acme/app',
+      title: '고치기',
+      agent: 'custom:v2',
+      json: true,
+    });
+    expect(ConductorStore.open(stateDir).orders()[0]!.agent).toBe('custom:v2');
+    for (const agent of ['', ' ', 'codex agent', 'codex\n', '--keep-open', '-x', 'a'.repeat(65)]) {
+      expect(() =>
+        conductorOrderAddCommand({ stateDir, repo: 'acme/app', title: '고치기', agent }),
+      ).toThrow('exit 1');
+    }
+  });
+
+  it('끝난 주문의 워커, 결과, gate와 bypass를 텍스트와 JSON으로 읽는다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({
+      stateDir,
+      repo: 'acme/app',
+      title: '고치기',
+      description: '상세 주문',
+      agent: 'codex',
+      json: true,
+    });
+    const store = ConductorStore.open(stateDir);
+    const o = store.orders()[0]!;
+    const w = worker(o.id, { kind: 'orca-worktree', agent: 'codex', status: 'finished' });
+    store.startWorker(w);
+    store.updateOrder(o.id, { workerId: w.id, status: 'done', prRef: 'acme/app#123' });
+    const at = store.timestamp();
+    const summary = '완료 결과 '.repeat(30);
+    store.append({
+      type: 'report-applied',
+      at,
+      name: 'result.json',
+      report: {
+        workerId: w.id,
+        status: 'done',
+        summary,
+        refs: ['reports/final.md'],
+        skill: 'ship',
+      },
+    });
+    store.openGate({
+      id: 'gate-1',
+      orderId: o.id,
+      type: 'merge',
+      status: 'resolved',
+      reason: '머지 확인',
+      refs: [],
+      openedAt: at,
+      decision: 'approved',
+    });
+    store.append({
+      type: 'bypass',
+      at,
+      record: { orderId: o.id, need: 'cleanup', action: '정리 완료', at },
+    });
+    conductorOrderShowCommand(o.id, { stateDir, json: true });
+    expect(last()).toMatchObject({
+      order: { description: '상세 주문' },
+      workers: [{ agent: 'codex' }],
+      reports: [{ summary }],
+      refs: ['reports/final.md'],
+      gates: [{ id: 'gate-1' }],
+      bypasses: [{ action: '정리 완료' }],
+    });
+    out = [];
+    conductorOrderShowCommand(o.id, { stateDir });
+    const text = out.join('\n');
+    for (const part of [
+      '상세 주문',
+      'codex',
+      'orca-worktree',
+      summary,
+      'reports/final.md',
+      'acme/app#123',
+      'gate-1',
+      '정리 완료',
+      'solve → ship',
+    ])
+      expect(text).toContain(part);
+    out = [];
+    conductorStatusCommand({ stateDir, all: true });
+    expect(out.find((line) => line.startsWith(o.id))).toContain('완료 결과');
+    expect(out.find((line) => line.startsWith(o.id))).not.toContain(summary);
+  });
+
+  it('보고의 제어 문자는 공백으로 바꾸고 여러 줄 요약은 들여써 전문을 찍는다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({ stateDir, repo: 'acme/app', title: '고치기', json: true });
+    const store = ConductorStore.open(stateDir);
+    const o = store.orders()[0]!;
+    const w = worker(o.id, { status: 'finished' });
+    store.startWorker(w);
+    store.updateOrder(o.id, { workerId: w.id, status: 'done' });
+    const long = '긴 요약 '.repeat(60);
+    store.append({
+      type: 'report-applied',
+      at: store.timestamp(),
+      name: 'result.json',
+      report: {
+        workerId: w.id,
+        status: 'needs',
+        summary: `첫 줄\u001b[2J\n상태: done\r덮어쓰기\u2028${long}`,
+        refs: ['reports/\u001b]8;;x\u0007a.md'],
+        need: { kind: 'cleanup', detail: '정리\n워커:' },
+      },
+    });
+    out = [];
+    conductorOrderShowCommand(o.id, { stateDir });
+    const text = out.join('\n');
+    const controls = [...text].filter((ch) => {
+      const c = ch.codePointAt(0)!;
+      return ch !== '\n' && (c < 0x20 || (c >= 0x7f && c < 0xa0) || c === 0x2028 || c === 0x2029);
+    });
+    expect(controls).toEqual([]);
+    expect(text).toContain(`첫 줄 [2J\n    상태: done 덮어쓰기 ${long}`);
+    expect(text).toContain('정리\n    워커:');
+    expect(text).toContain('reports/ ]8;;x a.md');
+    // 이어지는 줄이 항목 머리처럼 줄 맨 앞에 오지 않는다
+    expect(text.split('\n').filter((l) => l.startsWith('상태:') || l.startsWith('워커:'))).toEqual([
+      '워커:',
+    ]);
+  });
+
+  it('보고 본문 없는 옛 로그는 빈 이력으로 읽고 없는 주문은 거절한다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({ stateDir, repo: 'acme/app', title: '옛 주문', json: true });
+    const store = ConductorStore.open(stateDir);
+    const o = store.orders()[0]!;
+    store.append({ type: 'report-applied', at: store.timestamp(), name: 'old.json' });
+    conductorOrderShowCommand(o.id, { stateDir, json: true });
+    expect(last()['reports']).toEqual([]);
+    expect(() => conductorOrderShowCommand('ord-missing', { stateDir })).toThrow('exit 1');
   });
 });

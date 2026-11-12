@@ -255,6 +255,18 @@ describe('런처가 부모와 기준 브랜치를 따른다', () => {
     expect(start).not.toContain('--repo');
   });
 
+  it('하위 워크트리로 띄워도 워커에 적힌 에이전트를 넘긴다', async () => {
+    const { calls, runner } = orcaRunner();
+    const l = new OrcaLauncher({ orcaCommand: 'orca', promptDir: tempStateDir(), runner });
+    await l.start({
+      order: order({ id: 'ord-1', parentWorktree: '/w/feat' }),
+      worker: worker('ord-1', { agent: 'codex' }),
+      prompt: 'p',
+    });
+    const start = calls.find((c) => c.slice(0, 2).join(' ') === 'orchestration worker-start')!;
+    expect(start[start.indexOf('--agent') + 1]).toBe('codex');
+  });
+
   it('워커가 확실히 안 떴으면 하위 워크트리를 지우고 실패를 올린다', async () => {
     const { calls, runner } = orcaRunner({
       'orchestration worker-start': { code: 1, stdout: FAILED, stderr: 'boom' },
