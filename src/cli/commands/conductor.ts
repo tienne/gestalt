@@ -100,7 +100,6 @@ function launchersFor(
   if (orca) {
     launchers['orca-worktree'] = new OrcaLauncher({
       orcaCommand: orca,
-      agent: ctx.config.defaultAgent,
       promptDir,
       repoPaths: ctx.config.repoPaths,
     });

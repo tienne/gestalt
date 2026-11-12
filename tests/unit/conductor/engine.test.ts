@@ -15,6 +15,7 @@ import {
   FAILED_REPORTS_DIR,
   inboxDirOf,
   MAX_SPAWN_PER_ORDER,
+  resolveWorkerAgent,
   tick,
   writeReport,
   type EngineDeps,
@@ -687,7 +688,7 @@ describe('워커 에이전트와 보고 보존', () => {
     { agent: 'opencode', repoAgent: 'codex', defaultAgent: 'cursor', expected: 'opencode' },
     { agent: undefined, repoAgent: 'codex', defaultAgent: 'cursor', expected: 'codex' },
     { agent: undefined, repoAgent: undefined, defaultAgent: 'cursor', expected: 'cursor' },
-    { agent: undefined, repoAgent: undefined, defaultAgent: undefined, expected: 'claude' },
+    { agent: undefined, repoAgent: undefined, defaultAgent: 'claude', expected: 'claude' },
   ])('주문 > 레포 > 기본 > claude 우선순위: $expected', async (row) => {
     const { store, now } = clockedStore();
     store.addOrder(order({ agent: row.agent }));
@@ -695,7 +696,7 @@ describe('워커 에이전트와 보고 보존', () => {
     const { deps: d } = deps({
       config: {
         ...config,
-        defaultAgent: row.defaultAgent!,
+        defaultAgent: row.defaultAgent,
         repoAgents: row.repoAgent ? { 'acme/app': row.repoAgent } : {},
       },
       orcaAvailable: true,
@@ -726,6 +727,54 @@ describe('워커 에이전트와 보고 보존', () => {
       { now: now(), force: true },
     );
     expect(orca.started[1]!.worker.agent).toBe('codex');
+  });
+
+  it('재개는 레포 설정이 있어도 앞 워커의 에이전트를 유지한다', async () => {
+    const { store, now } = clockedStore();
+    const o = order();
+    store.addOrder(o);
+    const prev = worker(o.id, { kind: 'orca-worktree', agent: 'cursor', status: 'stopped' });
+    store.startWorker(prev);
+    store.updateOrder(o.id, { workerId: prev.id, status: 'running' });
+    const orca = fakeLauncher('orca-worktree');
+    const { deps: d } = deps({
+      config: { ...config, repoAgents: { 'acme/app': 'codex' } },
+      orcaAvailable: true,
+      launchers: { 'orca-worktree': orca.launcher },
+    });
+    await tick(store, d, { now: now(), force: true });
+    expect(orca.started[0]!.worker.agent).toBe('cursor');
+  });
+
+  it('주문에 에이전트가 있으면 재개도 주문 값을 쓴다', async () => {
+    const { store, now } = clockedStore();
+    const o = order({ agent: 'opencode' });
+    store.addOrder(o);
+    const prev = worker(o.id, { kind: 'orca-worktree', agent: 'cursor', status: 'stopped' });
+    store.startWorker(prev);
+    store.updateOrder(o.id, { workerId: prev.id, status: 'running' });
+    const orca = fakeLauncher('orca-worktree');
+    const { deps: d } = deps({
+      config: { ...config, repoAgents: { 'acme/app': 'codex' } },
+      orcaAvailable: true,
+      launchers: { 'orca-worktree': orca.launcher },
+    });
+    await tick(store, d, { now: now(), force: true });
+    expect(orca.started[0]!.worker.agent).toBe('opencode');
+  });
+
+  it('중간에 git 워크트리로 돌았어도 마지막 오르카 워커의 에이전트로 재개한다', () => {
+    const workers = [
+      { kind: 'orca-worktree' as const, agent: 'codex' },
+      { kind: 'git-worktree' as const },
+    ];
+    const cfg = { repoAgents: { 'acme/app': 'cursor' }, defaultAgent: 'claude' };
+    expect(resolveWorkerAgent({ repo: 'acme/app' }, workers, cfg)).toBe('codex');
+    expect(resolveWorkerAgent({ repo: 'acme/app' }, [], cfg)).toBe('cursor');
+    expect(resolveWorkerAgent({ repo: 'acme/web' }, [], cfg)).toBe('claude');
+    expect(
+      resolveWorkerAgent({ repo: 'acme/app' }, [{ kind: 'orca-worktree' as const }], cfg),
+    ).toBe('claude');
   });
 
   it('에이전트 기록 없는 옛 오르카 워커는 claude로 재개한다', async () => {

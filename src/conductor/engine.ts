@@ -498,6 +498,25 @@ async function sendTo(
   }
 }
 
+/**
+ * 오르카 워커가 쓸 에이전트. 주문 > 앞 오르카 워커 > 레포 설정 > 기본 설정 순이다.
+ * 앞 워커는 마지막 오르카 워커를 본다. 중간에 git-worktree로 돌았어도 설정 변경으로 에이전트가 바뀌지 않게 한다.
+ * 에이전트 기록이 없는 옛 오르카 워커는 그때 기본값인 claude로 이어 간다
+ */
+export function resolveWorkerAgent(
+  order: Pick<Order, 'agent' | 'repo'>,
+  workers: readonly Pick<Worker, 'kind' | 'agent'>[],
+  config: Pick<ConductorConfig, 'repoAgents' | 'defaultAgent'>,
+): string {
+  const lastOrca = workers.filter((w) => w.kind === 'orca-worktree').at(-1);
+  return (
+    order.agent ??
+    (lastOrca ? (lastOrca.agent ?? 'claude') : undefined) ??
+    config.repoAgents[order.repo] ??
+    config.defaultAgent
+  );
+}
+
 async function launchQueued(
   store: ConductorStore,
   deps: EngineDeps,
@@ -521,20 +540,12 @@ async function launchQueued(
     }
 
     const resume = resumeLaunchFor(store, order, deps.readShip);
-    const previous = store.workersOf(order.id).at(-1);
     const worker: Worker = {
       id: newId('wrk'),
       orderId: order.id,
       kind,
       ...(kind === 'orca-worktree'
-        ? {
-            agent:
-              order.agent ??
-              (previous?.kind === 'orca-worktree' ? (previous.agent ?? 'claude') : undefined) ??
-              deps.config.repoAgents[order.repo] ??
-              deps.config.defaultAgent ??
-              'claude',
-          }
+        ? { agent: resolveWorkerAgent(order, store.workersOf(order.id), deps.config) }
         : {}),
       spawnedBy: 'conductor',
       attempt: store.workersOf(order.id).length + 1,

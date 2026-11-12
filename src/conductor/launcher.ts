@@ -339,7 +339,6 @@ export interface OrcaLauncherOptions {
   orcaCommand: string;
   promptDir: string;
   runner?: CommandRunner;
-  agent?: string;
   repoPaths?: Record<string, string>;
 }
 
@@ -365,7 +364,7 @@ export class OrcaLauncher implements Launcher {
         '--worktree',
         'new-top-level',
         '--agent',
-        spec.worker.agent ?? spec.order.agent ?? this.opts.agent ?? 'claude',
+        spec.worker.agent ?? 'claude',
         '--repo',
         repo,
         '--name',
