@@ -1,0 +1,61 @@
+{
+  "manifestVersion": 2,
+  "id": "gestalt-conductor",
+  "name": "Gestalt Conductor",
+  "version": "0.1.0",
+  "description": "Shows Gestalt conductor orders, open gates and bypass reports, and lets you approve or reject gates.",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "gestalt-conductor",
+        "title": "Gestalt Conductor",
+        "icon": "activity",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ],
+    "commands": [
+      {
+        "id": "conductor.refresh",
+        "title": "Gestalt 컨덕터: 상태 새로고침"
+      }
+    ],
+    "statusBarItems": [
+      {
+        "id": "conductor",
+        "text": "컨덕터",
+        "icon": "activity",
+        "command": "conductor.refresh"
+      }
+    ],
+    "settings": [
+      {
+        "key": "gestaltPath",
+        "type": "string",
+        "title": "gestalt 실행 파일",
+        "description": "비워 두면 PATH의 gestalt를 씁니다. 오르카가 셸 PATH를 못 물려받으면 절대 경로를 적어 주세요.",
+        "placeholder": "gestalt"
+      },
+      {
+        "key": "stateDir",
+        "type": "string",
+        "title": "컨덕터 저장소 폴더",
+        "description": "비워 두면 gestalt CLI의 기본 위치를 씁니다. conductor.json에 stateDir을 따로 정했다면 여기에도 같은 경로를 적어 주세요.",
+        "placeholder": "~/.gestalt/conductor"
+      }
+    ]
+  },
+  "capabilities": [
+    { "kind": "notifications:show" },
+    { "kind": "workspace:read" },
+    { "kind": "workspace:write" },
+    { "kind": "settings:own" },
+    { "kind": "storage:own" }
+  ]
+}
