@@ -254,7 +254,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 ### 인프라 구성 레벨
 
-인프라 노드를 클라우드 벤더의 테두리 안에 겹겹이 담아 그리는 레벨이다. 레벨 id는 `infra`이고 제목은 "인프라 구성"이다 (`drilldown.ts`의 `INFRA_LEVEL_ID`). 벤더, 리전, VPC, 서브넷 테두리 안에 아이콘 타일을 세우고 타일 사이를 직각 선으로 잇는다. 클라우드 벤더가 내놓는 아키텍처 그림과 같은 꼴이다. 배치는 `src/architecture/infra-layout.ts`, 아이콘은 `src/architecture/vendor-icons.ts`가 맡는다.
+인프라 노드를 클라우드 벤더의 테두리 안에 겹겹이 담아 그리는 레벨이다. 레벨 id는 `infra`이고 제목은 "인프라 구성"이다 (`drilldown.ts`의 `INFRA_LEVEL_ID`). 벤더, 리전, VPC, 서브넷 테두리 안에 아이콘 타일을 세우고 타일 사이를 직각 선으로 잇는다. 클라우드 벤더가 내놓는 아키텍처 그림과 같은 꼴이다. 배치는 `src/architecture/infra-layout.ts`, 선 경로는 `src/architecture/infra-router.ts`가 맡는다. 아이콘은 `src/architecture/vendor-icons.ts`가 진입점이고 이름 표는 `vendor-icon-keys.ts`, 내려받기와 캐시는 `vendor-icon-cache.ts`에 있다.
 
 이 레벨에 서는 kind는 `network`, `subnet`, `cluster`, `workload`, `firewall`, `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target`, `datastore`다 (`types.ts`의 `INFRA_LEVEL_KINDS`). 그중 prod와 환경 없는 노드만 그린다. 전체 레벨과 같은 기준이다. stage나 dev 노드는 이 레벨에 안 서고 환경별로 박스를 나누는 그림도 아직 없다.
 
@@ -272,9 +272,9 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 #### 벤더별 박스
 
-타일이 어느 박스에 들어갈지는 `placedIn`을 먼저 보고 없으면 `parent`를 본다. 둘 중 같은 벤더의 `network`, `subnet`, `cluster`를 가리키는 쪽만 매단 곳으로 친다. 매단 곳이 없으면 아래 표의 기본 자리에 선다.
+타일이 어느 박스에 들어갈지는 `placedIn`을 먼저 보고 없으면 `parent`를 본다. 둘 중 같은 벤더의 `network`나 `subnet`을 가리키면 그 박스에 들어가고 `cluster`를 가리키면 그 클러스터와 같은 박스에 선다. 가리키는 곳이 없으면 아래 표의 기본 자리에 선다.
 
-| 벤더  | 박스 순서                           | 매단 곳 없는 노드의 자리                                                         |
+| 벤더  | 박스 순서                           | 가리키는 곳이 없는 노드의 자리                                                   |
 | ----- | ----------------------------------- | -------------------------------------------------------------------------------- |
 | AWS   | AWS Cloud > 리전 > VPC > 서브넷     | `domain`과 `cdn`은 Cloud 안 리전 밖. 나머지는 리전 안 VPC 밖. 리전이 없으면 Cloud 안 |
 | GCP   | Google Cloud > VPC > 리전 > 서브넷  | kind와 상관없이 VPC 밖 Cloud 안. 리전 박스는 VPC 안에만 선다                    |
@@ -289,7 +289,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 #### 노드 아이콘
 
-노드마다 벤더와 kind로 공식 아이콘 하나를 고른다 (`vendorIconKey`). 표는 개요다. 정확한 이름 표는 `vendor-icons.ts`의 `KIND_ICONS`, `ENGINE_ICONS`, `DATASTORE_ICONS`에 있다.
+노드마다 벤더와 kind로 공식 아이콘 하나를 고른다 (`vendorIconKey`). 표는 개요다. 정확한 이름 표는 `vendor-icon-keys.ts`의 `KIND_ICONS`, `ENGINE_ICONS`, `DATASTORE_ICONS`에 있다.
 
 | kind            | AWS                                          | GCP                                          | Azure                                        |
 | --------------- | -------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
@@ -300,7 +300,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `subnet`        | public, private 그룹 아이콘                  | 없음                                         | Subnet                                       |
 | `firewall`      | WAF                                          | Cloud Armor                                  | NSG                                          |
 | `cluster`       | `engine`을 따르고 없으면 EKS                 | `engine`을 따르고 없으면 GKE                 | `engine`을 따르고 없으면 AKS                 |
-| `workload`      | 매단 클러스터의 아이콘                       | Compute Engine                               | Container Apps                               |
+| `workload`      | 속한 클러스터의 아이콘                       | Compute Engine                               | Container Apps                               |
 | `deploy_target` | `engine`: Lambda, Fargate, EC2, ECS 등       | `engine`: Cloud Run, App Engine 등           | `engine`: App Service, Functions 등          |
 | `datastore`     | `engine`이나 `label`: RDS, Aurora, ElastiCache 등 | `engine`이나 `label`: Cloud SQL, Memorystore 등 | `engine`이나 `label`: SQL Database, Cosmos DB 등 |
 | `cloud_account` | AWS Cloud 로고 (박스 라벨)                   | Google Cloud 로고 (박스 라벨)                | Azure 로고 (박스 라벨)                       |
@@ -343,7 +343,9 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `off`            | 캐시도 안 보고 늘 내장 아이콘이다                                    |
 
 - **제한 시간**은 안내 페이지 15초, zip 패키지 120초다. 벤더끼리는 따로 받아서 한 벤더가 실패해도 나머지는 캐시에 쓴다.
-- **실패해도 render는 안 깨진다.** 타임아웃이나 네트워크 오류, 패키지에 이름이 없는 경우 모두 그 아이콘만 내장 선 아이콘으로 돌리고 stderr에 로그를 남긴다. 패키지에 이름이 없으면 manifest에 빈 항목을 남겨 다음 render가 다시 받으러 가지 않는다. 네트워크 실패는 남기지 않아 다음 render가 다시 시도한다. 그래서 오프라인에서 `auto`로 두면 render마다 받기를 시도하고 느려진다. 그럴 때는 `offline`이나 `off`로 둔다.
+- **받는 곳과 크기를 제한한다.** 리다이렉트를 따라간 최종 주소가 https이고 벤더 도메인(`aws.amazon.com`, `awsstatic.com`, `services.google.com`, `learn.microsoft.com`, `arch-center.azureedge.net`과 그 하위)일 때만 받는다. zip은 300MB, 항목 수는 20000개를 넘으면 버린다. 풀어 둔 SVG에 스크립트나 이벤트 핸들러, `foreignObject`가 있으면 쓰지 않는다.
+- **첫 render는 느릴 수 있다.** 캐시가 비어 있으면 벤더 패키지 zip을 받느라 수십 초가 걸린다. 그다음부터는 캐시를 쓴다. 기다리기 어려우면 `GESTALT_ARCH_ICONS=offline`으로 두고 내장 아이콘으로 그린다.
+- **실패해도 render는 안 깨진다.** 타임아웃이나 네트워크 오류, 패키지에 이름이 없는 경우 모두 그 아이콘만 내장 선 아이콘으로 돌리고 stderr에 로그를 남긴다. 패키지에 이름이 없으면 manifest에 빈 항목을 남겨 다음 render가 다시 받으러 가지 않는다. 빈 항목은 30일이 지나면 다시 받아 본다. 벤더가 패키지에 새 아이콘을 넣었을 수 있어서다. 네트워크 실패는 남기지 않아 다음 render가 다시 시도한다. 그래서 오프라인에서 `auto`로 두면 render마다 받기를 시도하고 느려진다. 그럴 때는 `offline`이나 `off`로 둔다.
 - **레포에 커밋하지 않는다.** 벤더 패키지를 다시 배포해도 되는지 확인하지 못해서다. 그래서 아이콘 파일을 레포에 두지 않고 각자 홈에 받는다.
 - **받은 SVG는 손대지 않는다.** 색을 바꾸지 않고 크기만 맞춰 그대로 넣는다. Azure 아이콘은 Microsoft가 자르거나 뒤집거나 모양을 바꾸는 걸 막고 있어서 특히 그렇다.
 - **출처를 적는다.** 공식 아이콘을 하나라도 받은 벤더만 캔버스 아래 줄에 패키지 이름을 적고 상표가 각 소유자의 것이라는 문장을 붙인다.
