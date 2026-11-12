@@ -54,7 +54,11 @@ gestalt conductor order add --repo acme/app --title "배너 문구 고치기" --
 
 외부 큐는 tick이 상태 저장소의 `queue/`에서 직접 읽는다. 다른 시스템이 넣는 자리라 이 세션이 대신 넣을 일은 없다. 사용자가 큐 파일을 넣어 달라고 하면 `gestalt conductor queue add --body-file <파일>`을 쓴다. 꼴이 틀린 메시지는 확인 자리로 올라오고 못 읽은 파일은 tick 보고의 `errors`에 뜬다.
 
-사용자가 기존 워크트리 아래 하위로 맡기라고 하면 `--parent-worktree <경로나 오르카 선택자>`를, 갈라질 브랜치를 말하면 `--base-branch <ref>`를 붙인다. 부모 브랜치에서 이어 가라는 뜻이면 둘 다 준다. 부모가 레포와 안 맞거나 없으면 접수에서 거절되니 사용자에게 맞는 경로를 묻는다. git 워크트리 워커는 부모를 무시하고 tick 보고의 `warnings`에 남기므로 그 경고는 사용자에게 그대로 전한다.
+사용자가 기존 워크트리 아래 하위로 맡기라고 하면 `--parent-worktree <경로나 오르카 선택자>`를 붙인다. 갈라질 브랜치를 말하면 `--base-branch <ref>`에 브랜치 이름이나 `origin/main` 같은 ref를 넣는다. 둘은 따로 써도 된다. 부모 브랜치에서 이어 가라는 뜻이면 둘 다 준다.
+
+- 부모가 레포와 안 맞거나 없으면 접수에서 거절되니 사용자에게 맞는 경로를 묻는다.
+- 기준 브랜치가 `-`로 시작하거나 `..`, 공백, `.lock`으로 끝나는 조각처럼 ref 이름 꼴이 아니면 거절된다. 사용자에게 브랜치 이름을 다시 묻는다.
+- git 워크트리 워커는 부모를 무시한다. 서브에이전트 워커는 둘 다 무시한다. 읽기 전용 체인은 서브에이전트로 뜨므로 하위 워크트리가 꼭 필요하면 `--worker-kind orca-worktree`를 같이 준다. 무시한 내역은 tick 보고의 `warnings`에 남는다.
 
 범위를 사용자가 말하지 않았으면 설정의 `defaultScope`를 쓴다. 주문마다 다를 수 있으니 묻지 않고 넣은 값을 보고에 적는다.
 
@@ -66,7 +70,7 @@ gestalt conductor tick --json
 
 한 번에 워커 보고 반영, 접수, 끊긴 워커 재개, 빈 슬롯만큼 띄우기, 머지 뒤 지라와 배포 처리, 정리를 돈다. `pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝난다. 사람이 방금 확인 자리를 종료했거나 주문을 넣은 직후면 `--force`를 붙인다.
 
-응답은 짧은 숫자와 할 일만 담는다. 그대로 대화에 붙이지 말고 아래 `hostActions`만 처리한다.
+응답은 짧은 숫자와 할 일만 담는다. 그대로 대화에 붙이지 말고 아래 `hostActions`를 처리한다. `warnings`와 `errors`가 비어 있지 않으면 그 줄만 사용자에게 그대로 전한다.
 
 ## 3. hostActions 실행
 
@@ -132,7 +136,7 @@ gestalt conductor deploy report --order <orderId> --status success --ref <pipeli
 
 Claude Code에서는 사용자가 `/loop /gestalt:conductor tick 돌리고 hostActions 처리`처럼 `/loop`으로 반복을 건다. 사용자가 반복을 걸지 않았으면 처음 보고할 때 이 명령을 알려 준다. `/loop`이 없는 호스트에서는 사용자가 다시 돌려 달라고 할 때마다 tick을 한 번 돌린다.
 
-진행을 보고할 때는 `gestalt conductor status`의 숫자와 바뀐 주문만 짧게 말한다. bypass로 넘긴 일은 모아서 사후 보고한다. 주문마다 붙은 bypass 내역이 `gestalt conductor status --json`에 실리고 끝난 주문까지 보려면 `--all`을 붙인다.
+진행을 보고할 때는 `gestalt conductor status`의 숫자와 바뀐 주문만 짧게 말한다. 그 사이 tick이 낸 `warnings`와 `errors`가 있으면 함께 적는다. bypass로 넘긴 일은 모아서 사후 보고한다. 주문마다 붙은 bypass 내역이 `gestalt conductor status --json`에 실리고 끝난 주문까지 보려면 `--all`을 붙인다.
 
 ## 8. 효과 재기
 
