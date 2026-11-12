@@ -203,7 +203,7 @@
         "environment": {
           "type": "string",
           "minLength": 1,
-          "description": "domain, cdn, bucket, cloud_account, deploy_target and datastore only: prod, stage, qa, dev or another name"
+          "description": "infra level kinds only (network, subnet, cluster, workload, firewall, domain, cdn, bucket, cloud_account, deploy_target, datastore): prod, stage, qa, dev or another name. Nodes placed in a non-prod network, subnet or cluster follow its environment"
         },
         "account": {
           "type": "string",
@@ -387,7 +387,11 @@
       "required": ["name"],
       "properties": {
         "name": { "type": "string", "minLength": 1 },
-        "type": { "type": "string", "minLength": 1, "description": "SQL type as written in the source" },
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "description": "SQL type as written in the source"
+        },
         "pk": { "type": "boolean" },
         "nullable": { "type": "boolean" },
         "unique": { "type": "boolean" },
@@ -402,7 +406,11 @@
               "minLength": 1,
               "description": "column name on the target table. Must exist when the target lists columns"
             },
-            "onDelete": { "type": "string", "minLength": 1, "description": "ON DELETE action such as CASCADE or SET NULL" }
+            "onDelete": {
+              "type": "string",
+              "minLength": 1,
+              "description": "ON DELETE action such as CASCADE or SET NULL"
+            }
           }
         },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } }
@@ -664,7 +672,10 @@
       "required": ["id", "shape", "title", "question", "messages"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
-        "shape": { "type": "string", "enum": ["sequence", "dataflow", "compare", "lifecycle", "blueprint", "er"] },
+        "shape": {
+          "type": "string",
+          "enum": ["sequence", "dataflow", "compare", "lifecycle", "blueprint", "er"]
+        },
         "title": { "type": "string", "minLength": 1 },
         "question": {
           "type": "string",

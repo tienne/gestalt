@@ -88,6 +88,25 @@ describe('인프라 레벨 생성 조건', () => {
     expect(level.nodeIds).not.toContain('db-dev');
   });
 
+  it('prod가 아닌 자리에 든 노드는 환경을 안 적어도 레벨에서 뺀다', async () => {
+    const ir = awsIr();
+    ir.nodes.push(
+      node('vpc-stage', 'network', {
+        provider: 'aws',
+        region: 'ap-northeast-2',
+        account: 'acct',
+        environment: 'stage',
+      }),
+      node('sn-stage', 'subnet', { parent: 'vpc-stage', exposure: 'private' }),
+      node('api-stage', 'deploy_target', { placedIn: 'sn-stage', engine: 'lambda' }),
+    );
+    const level = (await computeDrilldown(validated(ir))).levels.find((l) => l.id === 'infra')!;
+    expect(level.nodeIds).toContain('vpc');
+    expect(level.nodeIds).toContain('api');
+    for (const id of ['vpc-stage', 'sn-stage', 'api-stage'])
+      expect(level.nodeIds).not.toContain(id);
+  });
+
   it('레벨의 노드는 id 순으로 정렬돼 있고 이 레벨 안 노드끼리의 선만 싣는다', async () => {
     const ir = awsIr();
     ir.nodes.push(node('svc', 'service'));

@@ -1205,13 +1205,31 @@ function groupDrafts(full: Graph): { drafts: LevelDraft[]; enter: Record<string,
 
 const INFRA_LEVEL_KIND_SET: ReadonlySet<NodeKind> = new Set(INFRA_LEVEL_KINDS);
 
+/** placedIn이나 parent로 올라가다 prod가 아닌 환경을 적은 자리를 만나는지. 환경을 안 적은 노드는 든 자리의 환경을 따른다 */
+function insideNonProd(g: Graph, n: ArchitectureNode): boolean {
+  const seen = new Set<string>([n.id]);
+  const queue = [n.placedIn, n.parent];
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (id === undefined || seen.has(id)) continue;
+    seen.add(id);
+    const up = g.nodeById.get(id);
+    if (up === undefined) continue;
+    if (!isProdOrUnknown(up)) return true;
+    queue.push(up.placedIn, up.parent);
+  }
+  return false;
+}
+
 /**
- * 인프라 레벨에 세울 노드. prod와 환경 없는 인프라 kind 노드다.
+ * 인프라 레벨에 세울 노드. prod와 환경 없는 인프라 kind 노드 중 prod가 아닌 자리에 들지 않은 것이다.
  * 인프라 노드 중 하나라도 provider, region, exposure, placedIn을 적었을 때만 레벨을 만든다.
  * 새 필드를 안 쓰는 옛 IR은 그림이 바이트까지 그대로여야 해서다
  */
 function infraLevelNodeIds(g: Graph): string[] {
-  const nodes = [...prodGraph(g).nodeById.values()].filter((n) => INFRA_LEVEL_KIND_SET.has(n.kind));
+  const nodes = [...prodGraph(g).nodeById.values()].filter(
+    (n) => INFRA_LEVEL_KIND_SET.has(n.kind) && !insideNonProd(g, n),
+  );
   const opted = nodes.some(
     (n) =>
       n.provider !== undefined ||

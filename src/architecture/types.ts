@@ -60,12 +60,6 @@ export const FLOW_REF_KINDS: readonly NodeKind[] = [
 export const HARNESS_KINDS: readonly NodeKind[] = Object.keys(HARNESS_PACK.nodeKinds) as NodeKind[];
 /** 서빙 인프라. 화면 흐름과 배포 경로 둘 다에 설 수 있다 */
 export const INFRA_KINDS = ['domain', 'cdn', 'bucket', 'cloud_account'] as const;
-/** environment를 가질 수 있는 kind. 네이티브 배포처는 deploy_target으로 그린다 */
-export const ENVIRONMENT_KINDS: readonly NodeKind[] = [
-  ...INFRA_KINDS,
-  'deploy_target',
-  'datastore',
-];
 /** 인프라 레벨에 서는 kind. 판정은 kind만 본다 */
 export const INFRA_LEVEL_KINDS: readonly NodeKind[] = [
   'network',
@@ -77,6 +71,11 @@ export const INFRA_LEVEL_KINDS: readonly NodeKind[] = [
   'deploy_target',
   'datastore',
 ];
+/**
+ * environment를 가질 수 있는 kind. 인프라 레벨 kind와 같다. 네이티브 배포처는 deploy_target으로 그린다.
+ * stage VPC처럼 자리 노드에 환경을 적어야 그 안에 든 노드를 prod 인프라 레벨에서 뺄 수 있다
+ */
+export const ENVIRONMENT_KINDS: readonly NodeKind[] = INFRA_LEVEL_KINDS;
 export const CLOUD_PROVIDERS = ['aws', 'gcp', 'azure'] as const;
 export type CloudProvider = (typeof CLOUD_PROVIDERS)[number];
 export const SUBNET_EXPOSURES = ['public', 'private'] as const;

@@ -37,7 +37,7 @@ triggers:
   # 분석 합치기
   - '아키텍처 그림 합쳐줘'
 routing:
-  note: "맥락 소스 찾기 → 읽기 전용 걸러내기 → 탐색 → IR validate → 미해결 질문 → render. 문서 레포는 scan_docs → link_docs → render. 설계 리뷰나 자문이면 `architect`"
+  note: '맥락 소스 찾기 → 읽기 전용 걸러내기 → 탐색 → IR validate → 미해결 질문 → render. 문서 레포는 scan_docs → link_docs → render. 설계 리뷰나 자문이면 `architect`'
 inputs:
   view:
     type: string
@@ -75,10 +75,10 @@ outputs:
 
 ## 뷰 두 가지
 
-| 뷰                   | 흐름                                                                                                                                                                            | 쓰는 노드 kind                                                                                                                                                                |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 뷰                   | 흐름                                                                                                                                                                            | 쓰는 노드 kind                                                                                                                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `screen-chain` (뷰①) | 서비스와 기능영역 안의 화면 → `gateway` → 백엔드 엔드포인트 → 백엔드 앱 모듈 → 외부 서비스와 DB 테이블. 서비스를 서빙하는 도메인 → CDN → 버킷이나 SSR 서버는 서비스 앞에 붙는다 | `service`, `feature`, `screen`, `gateway`, `endpoint`, `app_module`, `external_service`, `datastore`, `db_table`, `domain`, `cdn`, `bucket`, `deploy_target`, `cloud_account`, `client`, `skill`, `agent` |
-| `deploy-path` (뷰②)  | 배포 단위별 트리거 → 빌드 → 산출물 → 배포 대상. 산출물이 떨어지는 버킷과 그 앞 CDN, 도메인이 인프라 레인으로 붙는다                                                             | `workflow`, `build`, `artifact`, `deploy_target`, `domain`, `cdn`, `bucket`, `cloud_account`                                                                                  |
+| `deploy-path` (뷰②)  | 배포 단위별 트리거 → 빌드 → 산출물 → 배포 대상. 산출물이 떨어지는 버킷과 그 앞 CDN, 도메인이 인프라 레인으로 붙는다                                                             | `workflow`, `build`, `artifact`, `deploy_target`, `domain`, `cdn`, `bucket`, `cloud_account`                                                                                                              |
 
 AI 하네스나 MCP 서버 레포도 screen-chain으로 그린다. 화면 자리에 스킬이 서고 API 자리에 MCP 도구가 선다 ([3-4](#3-4-ai-하네스와-mcp-서버-레포)).
 
@@ -94,32 +94,32 @@ Step 0 전에 두 가지를 정한다. 대상에 맞는 어휘 팩과 질문에 
 
 ### 팩 고르기
 
-| 대상                                         | 팩                                                        |
-| -------------------------------------------- | --------------------------------------------------------- |
-| 웹 제품 레포 (화면, API, 서버, 저장소)        | `web-product`. `packs`를 안 적으면 이 팩과 `harness`다. 벤더와 자리를 그리려면 `infra`를 더한다 ([4.5-6a](#45-6a-벤더와-자리를-적는다)) |
-| AI 하네스나 MCP 서버 레포                     | `harness`. 위와 같이 `packs`를 안 적는다 ([3-4](#3-4-ai-하네스와-mcp-서버-레포)) |
-| 네트워크, 방화벽, 클러스터 같은 실행 환경     | `infra`                                                   |
-| ETL, 이벤트 토픽, 웨어하우스, 데이터 리니지   | `data`                                                    |
-| 조직, 역할, 결재 양식, 업무 시스템            | `process`                                                 |
-| 위 어디에도 안 맞는다                        | `generic`의 [`component`](#범용-component를-쓴다)          |
-| 지식 문서 레포 (md 문서, 근거 표시, 질문 안내 표) | `knowledge`. IR을 손으로 안 쓴다 ([지식 문서 지도](#지식-문서-지도)) |
+| 대상                                              | 팩                                                                                                                                      |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 웹 제품 레포 (화면, API, 서버, 저장소)            | `web-product`. `packs`를 안 적으면 이 팩과 `harness`다. 벤더와 자리를 그리려면 `infra`를 더한다 ([4.5-6a](#45-6a-벤더와-자리를-적는다)) |
+| AI 하네스나 MCP 서버 레포                         | `harness`. 위와 같이 `packs`를 안 적는다 ([3-4](#3-4-ai-하네스와-mcp-서버-레포))                                                        |
+| 네트워크, 방화벽, 클러스터 같은 실행 환경         | `infra`                                                                                                                                 |
+| ETL, 이벤트 토픽, 웨어하우스, 데이터 리니지       | `data`                                                                                                                                  |
+| 조직, 역할, 결재 양식, 업무 시스템                | `process`                                                                                                                               |
+| 위 어디에도 안 맞는다                             | `generic`의 [`component`](#범용-component를-쓴다)                                                                                       |
+| 지식 문서 레포 (md 문서, 근거 표시, 질문 안내 표) | `knowledge`. IR을 손으로 안 쓴다 ([지식 문서 지도](#지식-문서-지도))                                                                    |
 
 - 한 대상에 여러 분야가 섞이면 팩도 여럿 적는다 (예: `["infra", "data"]`).
 - 어디에도 안 맞아 `component`로 그렸는데 같은 분야가 실행마다 되풀이되면 보고 끝에 그 분야 팩을 만들자고 사용자에게 제안한다. 팩은 `src/architecture/packs/` 아래 코드라서 세션이 IR 안에서 만들 수 없다.
 
 ### 모양 고르기
 
-| 질문                                         | 모양                                                          |
-| -------------------------------------------- | ------------------------------------------------------------- |
-| 구조가 어떻게 생겼나                         | 지도(뷰 그대로)와 드릴다운                                    |
-| 누가 무엇을 누구에게 어떤 순서로 주고받나    | `sequence` [질문별 그림](#질문별-그림을-얹는다)                |
-| 데이터가 어디서 와서 어디로 가나             | `dataflow` 질문별 그림                                        |
-| 둘이 무엇이 같고 무엇이 다른가               | `compare` 질문별 그림                                         |
-| 상태나 단계, 업무 절차                       | `flows` ([Step 3.5](#step-35--도메인-흐름))                    |
-| 한 대상이 어떤 상태를 거쳐 어디서 끝나나     | `flows`를 먼저 쓰고 그 위에 `lifecycle` 질문별 그림            |
-| 고객이 한 걸음 갈 때 뒤에서 무엇이 일하나    | `flows`를 먼저 쓰고 그 위에 `blueprint` 질문별 그림            |
-| 테이블끼리 어떤 컬럼으로 묶이나              | `db_table`에 `columns`를 먼저 쓰고 그 위에 `er` 질문별 그림     |
-| 분명하지 않다                                | 지도를 그리고 Step 8 보고에서 포커스 쓰는 법을 안내한다         |
+| 질문                                      | 모양                                                        |
+| ----------------------------------------- | ----------------------------------------------------------- |
+| 구조가 어떻게 생겼나                      | 지도(뷰 그대로)와 드릴다운                                  |
+| 누가 무엇을 누구에게 어떤 순서로 주고받나 | `sequence` [질문별 그림](#질문별-그림을-얹는다)             |
+| 데이터가 어디서 와서 어디로 가나          | `dataflow` 질문별 그림                                      |
+| 둘이 무엇이 같고 무엇이 다른가            | `compare` 질문별 그림                                       |
+| 상태나 단계, 업무 절차                    | `flows` ([Step 3.5](#step-35--도메인-흐름))                 |
+| 한 대상이 어떤 상태를 거쳐 어디서 끝나나  | `flows`를 먼저 쓰고 그 위에 `lifecycle` 질문별 그림         |
+| 고객이 한 걸음 갈 때 뒤에서 무엇이 일하나 | `flows`를 먼저 쓰고 그 위에 `blueprint` 질문별 그림         |
+| 테이블끼리 어떤 컬럼으로 묶이나           | `db_table`에 `columns`를 먼저 쓰고 그 위에 `er` 질문별 그림 |
+| 분명하지 않다                             | 지도를 그리고 Step 8 보고에서 포커스 쓰는 법을 안내한다     |
 
 - 질문별 그림은 지도 위에 얹는다. 지도를 먼저 그린다. 답에 필요한 사실이 지도에 없으면 먼저 탐색해 근거와 함께 `nodes`와 `edges`에 넣는다. 그다음에 질문별 그림에서 가리킨다. 끝내 못 찾은 사실은 그리지 않고 미해결 질문으로 남긴다.
 - 코드 밖 주제(업무 절차, 기획)는 근거가 문서나 사용자 답이라 선이 전부 점선이다. 그게 맞는 그림이다. 실선으로 바꾸려고 근거를 끌어오지 않는다.
@@ -391,20 +391,20 @@ AI 클라이언트가 플러그인으로 읽어 들이는 스킬과 에이전트
 
 인프라 노드(`network`, `subnet`, `cluster`, `workload`, `firewall`, `domain`, `cdn`, `bucket`, `cloud_account`, `deploy_target`, `datastore`)에 아래 필드를 적는다. 그중 `provider`, `region`, `exposure`, `placedIn`을 하나라도 적으면 render가 벤더 박스 안에 아이콘으로 그린 "인프라 구성" 레벨을 붙인다. 넷 다 안 적으면 이 레벨은 안 생긴다. `engine`만 적어서는 안 생긴다.
 
-| 필드       | 쓰는 노드                               | 근거 예                                                                  |
-| ---------- | --------------------------------------- | ------------------------------------------------------------------------ |
-| `provider` | 위 kind 전부                            | terraform 리소스 타입(`aws_`, `google_`, `azurerm_`), CDK 패키지 이름    |
-| `region`   | 위 kind 전부                            | provider 블록의 `region`, 스택 환경 설정, 조회 결과의 리전               |
+| 필드       | 쓰는 노드                               | 근거 예                                                                                          |
+| ---------- | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `provider` | 위 kind 전부                            | terraform 리소스 타입(`aws_`, `google_`, `azurerm_`), CDK 패키지 이름                            |
+| `region`   | 위 kind 전부                            | provider 블록의 `region`, 스택 환경 설정, 조회 결과의 리전                                       |
 | `exposure` | `subnet`                                | VPC 모듈의 `public_subnets`, `private_subnets` 목록, 인터넷 게이트웨이로 나가는 라우트에 묶인 줄 |
-| `placedIn` | `deploy_target`, `datastore`, `bucket`  | 리소스의 `subnet_ids`, `vpc_id`, 클러스터 지정 줄. 값은 그 노드의 id     |
-| `engine`   | `datastore`, `deploy_target`, `cluster` | 엔진이나 런타임 설정 줄 (`engine = "aurora-mysql"`, `lambda`, `cloudrun`) |
+| `placedIn` | `deploy_target`, `datastore`, `bucket`  | 리소스의 `subnet_ids`, `vpc_id`, 클러스터 지정 줄. 값은 그 노드의 id                             |
+| `engine`   | `datastore`, `deploy_target`, `cluster` | 엔진이나 런타임 설정 줄 (`engine = "aurora-mysql"`, `lambda`, `cloudrun`)                        |
 
 - **근거가 있을 때만 채운다.** 이름이나 관례로 짐작해 적지 않는다. 서브넷 이름에 `public`이 들어 있다고 `exposure`를 적지 않는다. 근거가 없으면 비워 둔다. 비우면 중립 박스나 내장 아이콘으로 그려질 뿐 그림이 틀리지는 않는다.
 - `provider`와 `region`은 `placedIn`, `parent`, `account` 순으로 물려받는다. 계정이나 VPC 노드에 적었으면 그 안 노드에는 다시 안 적는다. 다르게 적으면 validate가 `INFRA_PLACEMENT_CONFLICT` 경고를 낸다.
 - `placedIn`은 `network`, `subnet`, `cluster`만 가리킨다. 다른 kind면 `INVALID_PLACED_IN_KIND`, 없는 id면 `PLACED_IN_NOT_FOUND`로 거부된다.
 - `network`, `subnet`, `cluster`는 `infra` 팩 kind다. 그래서 이 자리를 그리려면 `packs`에 `infra`를 더한다. 웹 제품이나 하네스 레포는 `["web-product", "harness", "infra"]`로 적는다. `infra`만 적으면 `deploy_target`, `datastore`, `bucket`이 팩에 없어 `KIND_NOT_IN_PACKS`에 걸린다.
 - `region` 값에 계정 ID가 들어 있으면 공유본에서 가려진다. 그래도 id에는 넣지 않는다.
-- 이 레벨은 prod와 환경 없는 노드만 그린다. 공식 아이콘은 render가 홈 캐시에서 넣는다. 받기에 실패하면 내장 아이콘으로 그리고 render 응답 `stats.iconStats`의 `fallback`이 는다.
+- `environment`는 위 kind 전부에 적을 수 있다. 이 레벨은 prod와 환경 없는 노드만 그린다. stage VPC처럼 자리 노드에 환경을 적으면 그 안에 `placedIn`이나 `parent`로 든 노드도 함께 빠지니 안쪽 노드마다 다시 적지 않아도 된다. 공식 아이콘은 render가 홈 캐시에서 넣는다. 받기에 실패하면 내장 아이콘으로 그리고 render 응답 `stats.iconStats`의 `fallback`이 는다.
 
 ### 4.5-7. 서비스 플랫폼
 
@@ -526,17 +526,21 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 
 `infra`, `data`, `process` 팩은 이름으로 서로를 가리키는 일이 많다. 레포에서 참조와 선언을 모았으면 `match_endpoints`의 `nameRefs`로 넘겨 짝을 받는다. `matcher`는 그 팩 것을 쓴다.
 
-| 팩        | `matcher`     | `refs`로 모을 것                                                    | `decls`로 모을 것                                                   |
-| --------- | ------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| 팩        | `matcher`     | `refs`로 모을 것                                                                   | `decls`로 모을 것                                                                    |
+| --------- | ------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `infra`   | `iac-ref`     | terraform 참조(`aws_lb.main.arn`), 쿠버네티스 `secretKeyRef`나 `configMapRef` 참조 | terraform 리소스 블록(`resource "aws_lb" "main"`), 쿠버네티스 매니페스트의 kind/name |
-| `data`    | `dataset-io`  | 잡 코드의 `FROM`, `JOIN`, `INSERT INTO`, `ref()`, `source()`        | `CREATE TABLE`이나 dbt 모델 파일                                    |
-| `process` | `state-value` | 흐름 단계 `state`                                                   | 코드의 상태 enum이나 상수 정의                                      |
+| `data`    | `dataset-io`  | 잡 코드의 `FROM`, `JOIN`, `INSERT INTO`, `ref()`, `source()`                       | `CREATE TABLE`이나 dbt 모델 파일                                                     |
+| `process` | `state-value` | 흐름 단계 `state`                                                                  | 코드의 상태 enum이나 상수 정의                                                       |
 
 ```json
-{ "action": "match_endpoints",
-  "nameRefs": { "matcher": "iac-ref",
+{
+  "action": "match_endpoints",
+  "nameRefs": {
+    "matcher": "iac-ref",
     "refs": [{ "id": "ref-1", "name": "aws_lb.main.arn" }],
-    "decls": [{ "id": "lb-main", "name": "aws_lb.main" }] } }
+    "decls": [{ "id": "lb-main", "name": "aws_lb.main" }]
+  }
+}
 ```
 
 - 결과는 `refs.matches`(`{ refId, declId }[]`)와 `refs.unmatched`로 온다. `matches`에 든 짝만 실선으로 잇는다.
@@ -615,47 +619,47 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
   - render 응답에도 같은 `warnings`가 실린다. render에는 `DELTA_OVER_BUDGET`이 더 올 수 있다. 읽는 법은 [Step 8](#step-8--render와-보고)에 있다.
 - 실패하면 `errors[]`에 `code`와 `nodeId`나 `edgeId`가 온다. 질문별 그림 에러면 `projectionId`와 `messageId`가 오고 구간 에러면 `phaseId`가 함께 온다.
 
-| 에러 코드                     | 고치는 법                                                                                                          |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `IR_PARSE_ERROR`              | 스키마 위반이다. 메시지의 필드를 `schemaPath`와 맞춘다                                                             |
-| `VIEW_MISMATCH`               | `view` 인자와 `ir.view`를 맞춘다                                                                                   |
-| `SOLID_EDGE_WITHOUT_EVIDENCE` | code나 spec 근거를 찾아 달거나, 못 찾으면 점선으로 바꾼다                                                          |
-| `CODE_EVIDENCE_NOT_FOUND`     | `grep -n`으로 줄을 다시 찾는다. `repoId`가 `repos`에 있는지, 경로가 상대 경로인지 본다                             |
-| `PRIVATE_EXCERPT_PRESENT`     | 그 근거의 `excerpt`를 지운다                                                                                       |
-| `DANGLING_EDGE`               | 엣지가 가리키는 노드를 `nodes`에 넣거나 엣지를 뺀다                                                                |
-| `PARENT_NOT_FOUND`            | parent가 가리키는 노드를 `nodes`에 넣거나 parent를 뺀다                                                            |
-| `PARENT_CYCLE`                | parent를 따라가면 자기로 돌아온다. 서비스에서 기능영역, 화면으로 내려가는 한 방향만 남긴다                         |
-| `INVALID_PARENT_KIND`         | 위 포함 규칙에 맞게 parent를 고친다. 화면이 화면을 담거나 HTTP 엔드포인트에 parent를 달면 여기 걸린다              |
-| `SERVES_SERVICE_WITH_APPS`    | `micro_app`이 달린 서비스를 `serves`로 가리켰다. 그 사슬이 서빙하는 호스트나 리모트 앱으로 `to`를 옮긴다           |
-| `INVALID_LOADS_ENDS`          | `loads`는 `micro_app → micro_app`, `client → service`, `app_module → agent`만 된다. 서비스끼리 이었으면 앱 노드를 두고 다시 잇는다. 스킬에서 에이전트로 그었으면 `spawns`로 바꾼다 |
-| `INVALID_HARNESS_EDGE_ENDS`   | `spawns`는 스킬이나 에이전트 → 에이전트, `invokes`는 스킬 → 스킬이다. 스킬과 에이전트의 `calls`는 endpoint만 가리킨다. 다른 팩 엣지면 [부록 2](#2-엣지-kind)의 from → to를 본다 |
-| `INVALID_CALL_ACTIONS`        | 엣지 `actions`는 MCP 도구로 가는 `calls`에만 단다                                                                  |
-| `UNKNOWN_MCP_ACTION`          | 엣지 `actions`에 도구 `actions`에 없는 값이 있다. 도구 등록의 enum을 다시 보거나 그 호출을 질문으로 돌린다         |
-| `MD_CODE_EVIDENCE`            | 하네스 IR에서 스킬과 에이전트 밖에 md 줄을 `code`로 달았다. `doc` 근거로 바꾼다                                   |
-| `LIVE_COMMAND_NOT_READ_ONLY`  | live 근거의 명령을 `list`, `get`, `describe` 하위 명령 하나로 바꾼다. 그런 명령으로 확인할 수 없으면 근거에서 뺀다 |
-| `ACCOUNT_NOT_FOUND`           | `account`가 가리키는 `cloud_account` 노드를 `nodes`에 넣거나 `account`를 뺀다                                      |
-| `INVALID_ACCOUNT_KIND`        | `account`는 `cloud_account` 노드만 가리킨다                                                                        |
-| `PLACED_IN_NOT_FOUND`         | `placedIn`이 가리키는 `network`, `subnet`, `cluster` 노드를 `nodes`에 넣거나 `placedIn`을 뺀다                     |
-| `INVALID_PLACED_IN_KIND`      | `placedIn`은 `network`, `subnet`, `cluster`만 가리킨다. 다른 노드를 가리켰으면 그 노드가 속한 네트워크로 옮긴다   |
-| `CLOUD_ID_IN_ID`              | id에서 계정 ID나 CDN 배포 ID를 빼고 별칭으로 짓는다. 실제 ID는 `label`에 둔다                                      |
-| `UNKNOWN_PACK`                | `packs`의 팩 id를 `web-product`, `harness`, `generic`, `infra`, `data`, `process` 중에서 고른다                    |
-| `KIND_NOT_IN_PACKS`           | 그 kind가 든 팩을 `packs`에 더하거나 노드를 `component`로 바꾼다                                                   |
-| `CODE_EVIDENCE_IN_DOC_REPO`   | `root` 없는 레포에 `code` 근거를 달았다. `doc` 근거로 바꾸거나 코드가 있는 레포를 `root`와 함께 적는다              |
-| `DUPLICATE_PROJECTION_ID`, `DUPLICATE_MESSAGE_ID` | 질문별 그림 id나 메시지 id를 다시 짓는다. 메시지 id는 그림을 넘어서도 겹치면 안 된다         |
-| `PROJECTION_NODE_NOT_FOUND`   | 가리킨 노드를 지도에 먼저 넣는다. `participants`를 적었으면 메시지 끝이 다 들어 있는지 본다                        |
-| `PROJECTION_EDGE_NOT_FOUND`, `PROJECTION_EDGE_MISMATCH` | 메시지 `edge`를 그 두 노드를 잇는 지도 엣지로 고친다. 그런 엣지가 없으면 지도에 먼저 넣거나 `edge`를 뺀다 |
-| `PROJECTION_BLOCK_NOT_FOUND`, `PROJECTION_BLOCK_SPLIT` | 메시지 `block`을 `blocks`의 id로 고치고 한 묶음의 메시지를 붙여 적는다                       |
-| `SOLID_MESSAGE_WITHOUT_EVIDENCE` | 가리킨 엣지나 자기 근거에 code나 spec이 없다. 근거를 찾아 달거나 점선으로 바꾼다                                |
-| `PROJECTION_EMPTY`            | sequence와 dataflow에 메시지를 넣는다. 넣을 메시지가 없으면 그 그림을 뺀다. lifecycle이면 가리킨 흐름 단계에 `state`를 단다. blueprint면 갈림길 말고 단계를 하나라도 둔다. er이면 `participants`에 테이블을 하나라도 둔다 |
-| `PROJECTION_FLOW_NOT_FOUND`   | lifecycle이나 blueprint의 `flow`를 `flows`에 있는 흐름 id로 고친다. 흐름이 아직 없으면 [Step 3.5](#step-35--도메인-흐름)대로 먼저 쓴다 |
-| `COLUMN_REFERENCE_NOT_FOUND`  | 컬럼 `references.table`을 지도에 있는 `db_table` id로 고친다. 대상이 `columns`를 적었으면 `references.column`도 그 안의 이름이어야 한다. 대상 테이블을 못 찾았으면 `references`를 빼고 질문으로 남긴다 |
-| `INVALID_COLUMN_REFERENCE_KIND` | 외래 키는 `db_table`만 가리킨다. 저장소를 가리켰으면 그 안의 테이블 노드를 두고 다시 가리킨다             |
-| `PROJECTION_SHAPE_FIELD`      | 모양에 안 맞는 필드를 뺀다. [질문별 그림을 얹는다](#질문별-그림을-얹는다)의 모양별 설명을 본다                      |
-| `DUPLICATE_PHASE_ID`          | 한 그림 안에서 구간 id가 겹친다. 다시 짓는다                                                                       |
-| `PROJECTION_PHASE_MESSAGE_NOT_FOUND` | 구간 `from`이나 `to`를 그 그림의 메시지 id로 고친다. 다른 그림의 메시지는 못 가리킨다                       |
-| `PROJECTION_PHASE_REVERSED`   | `from`이 `to`보다 뒤 메시지다. 메시지 순서대로 앞쪽을 `from`에 둔다                                                |
-| `PROJECTION_PHASE_OVERLAP`    | 구간이 겹치면 다음 구간을 앞 구간의 `to` 바로 다음 메시지에서 시작한다. 구간 배열이 메시지 순서를 안 따르면 배열을 메시지 순서대로 다시 적는다 |
-| `PROJECTION_PHASE_GAP`        | 첫 구간은 첫 메시지에서 시작하고 마지막 구간은 마지막 메시지에서 끝낸다. 어느 구간에도 안 든 메시지는 앞뒤 구간에 넣는다. 배열이 메시지 순서대로인지도 함께 본다 |
+| 에러 코드                                               | 고치는 법                                                                                                                                                                                                                 |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IR_PARSE_ERROR`                                        | 스키마 위반이다. 메시지의 필드를 `schemaPath`와 맞춘다                                                                                                                                                                    |
+| `VIEW_MISMATCH`                                         | `view` 인자와 `ir.view`를 맞춘다                                                                                                                                                                                          |
+| `SOLID_EDGE_WITHOUT_EVIDENCE`                           | code나 spec 근거를 찾아 달거나, 못 찾으면 점선으로 바꾼다                                                                                                                                                                 |
+| `CODE_EVIDENCE_NOT_FOUND`                               | `grep -n`으로 줄을 다시 찾는다. `repoId`가 `repos`에 있는지, 경로가 상대 경로인지 본다                                                                                                                                    |
+| `PRIVATE_EXCERPT_PRESENT`                               | 그 근거의 `excerpt`를 지운다                                                                                                                                                                                              |
+| `DANGLING_EDGE`                                         | 엣지가 가리키는 노드를 `nodes`에 넣거나 엣지를 뺀다                                                                                                                                                                       |
+| `PARENT_NOT_FOUND`                                      | parent가 가리키는 노드를 `nodes`에 넣거나 parent를 뺀다                                                                                                                                                                   |
+| `PARENT_CYCLE`                                          | parent를 따라가면 자기로 돌아온다. 서비스에서 기능영역, 화면으로 내려가는 한 방향만 남긴다                                                                                                                                |
+| `INVALID_PARENT_KIND`                                   | 위 포함 규칙에 맞게 parent를 고친다. 화면이 화면을 담거나 HTTP 엔드포인트에 parent를 달면 여기 걸린다                                                                                                                     |
+| `SERVES_SERVICE_WITH_APPS`                              | `micro_app`이 달린 서비스를 `serves`로 가리켰다. 그 사슬이 서빙하는 호스트나 리모트 앱으로 `to`를 옮긴다                                                                                                                  |
+| `INVALID_LOADS_ENDS`                                    | `loads`는 `micro_app → micro_app`, `client → service`, `app_module → agent`만 된다. 서비스끼리 이었으면 앱 노드를 두고 다시 잇는다. 스킬에서 에이전트로 그었으면 `spawns`로 바꾼다                                        |
+| `INVALID_HARNESS_EDGE_ENDS`                             | `spawns`는 스킬이나 에이전트 → 에이전트, `invokes`는 스킬 → 스킬이다. 스킬과 에이전트의 `calls`는 endpoint만 가리킨다. 다른 팩 엣지면 [부록 2](#2-엣지-kind)의 from → to를 본다                                           |
+| `INVALID_CALL_ACTIONS`                                  | 엣지 `actions`는 MCP 도구로 가는 `calls`에만 단다                                                                                                                                                                         |
+| `UNKNOWN_MCP_ACTION`                                    | 엣지 `actions`에 도구 `actions`에 없는 값이 있다. 도구 등록의 enum을 다시 보거나 그 호출을 질문으로 돌린다                                                                                                                |
+| `MD_CODE_EVIDENCE`                                      | 하네스 IR에서 스킬과 에이전트 밖에 md 줄을 `code`로 달았다. `doc` 근거로 바꾼다                                                                                                                                           |
+| `LIVE_COMMAND_NOT_READ_ONLY`                            | live 근거의 명령을 `list`, `get`, `describe` 하위 명령 하나로 바꾼다. 그런 명령으로 확인할 수 없으면 근거에서 뺀다                                                                                                        |
+| `ACCOUNT_NOT_FOUND`                                     | `account`가 가리키는 `cloud_account` 노드를 `nodes`에 넣거나 `account`를 뺀다                                                                                                                                             |
+| `INVALID_ACCOUNT_KIND`                                  | `account`는 `cloud_account` 노드만 가리킨다                                                                                                                                                                               |
+| `PLACED_IN_NOT_FOUND`                                   | `placedIn`이 가리키는 `network`, `subnet`, `cluster` 노드를 `nodes`에 넣거나 `placedIn`을 뺀다                                                                                                                            |
+| `INVALID_PLACED_IN_KIND`                                | `placedIn`은 `network`, `subnet`, `cluster`만 가리킨다. 다른 노드를 가리켰으면 그 노드가 속한 네트워크로 옮긴다                                                                                                           |
+| `CLOUD_ID_IN_ID`                                        | id에서 계정 ID나 CDN 배포 ID를 빼고 별칭으로 짓는다. 실제 ID는 `label`에 둔다                                                                                                                                             |
+| `UNKNOWN_PACK`                                          | `packs`의 팩 id를 `web-product`, `harness`, `generic`, `infra`, `data`, `process` 중에서 고른다                                                                                                                           |
+| `KIND_NOT_IN_PACKS`                                     | 그 kind가 든 팩을 `packs`에 더하거나 노드를 `component`로 바꾼다                                                                                                                                                          |
+| `CODE_EVIDENCE_IN_DOC_REPO`                             | `root` 없는 레포에 `code` 근거를 달았다. `doc` 근거로 바꾸거나 코드가 있는 레포를 `root`와 함께 적는다                                                                                                                    |
+| `DUPLICATE_PROJECTION_ID`, `DUPLICATE_MESSAGE_ID`       | 질문별 그림 id나 메시지 id를 다시 짓는다. 메시지 id는 그림을 넘어서도 겹치면 안 된다                                                                                                                                      |
+| `PROJECTION_NODE_NOT_FOUND`                             | 가리킨 노드를 지도에 먼저 넣는다. `participants`를 적었으면 메시지 끝이 다 들어 있는지 본다                                                                                                                               |
+| `PROJECTION_EDGE_NOT_FOUND`, `PROJECTION_EDGE_MISMATCH` | 메시지 `edge`를 그 두 노드를 잇는 지도 엣지로 고친다. 그런 엣지가 없으면 지도에 먼저 넣거나 `edge`를 뺀다                                                                                                                 |
+| `PROJECTION_BLOCK_NOT_FOUND`, `PROJECTION_BLOCK_SPLIT`  | 메시지 `block`을 `blocks`의 id로 고치고 한 묶음의 메시지를 붙여 적는다                                                                                                                                                    |
+| `SOLID_MESSAGE_WITHOUT_EVIDENCE`                        | 가리킨 엣지나 자기 근거에 code나 spec이 없다. 근거를 찾아 달거나 점선으로 바꾼다                                                                                                                                          |
+| `PROJECTION_EMPTY`                                      | sequence와 dataflow에 메시지를 넣는다. 넣을 메시지가 없으면 그 그림을 뺀다. lifecycle이면 가리킨 흐름 단계에 `state`를 단다. blueprint면 갈림길 말고 단계를 하나라도 둔다. er이면 `participants`에 테이블을 하나라도 둔다 |
+| `PROJECTION_FLOW_NOT_FOUND`                             | lifecycle이나 blueprint의 `flow`를 `flows`에 있는 흐름 id로 고친다. 흐름이 아직 없으면 [Step 3.5](#step-35--도메인-흐름)대로 먼저 쓴다                                                                                    |
+| `COLUMN_REFERENCE_NOT_FOUND`                            | 컬럼 `references.table`을 지도에 있는 `db_table` id로 고친다. 대상이 `columns`를 적었으면 `references.column`도 그 안의 이름이어야 한다. 대상 테이블을 못 찾았으면 `references`를 빼고 질문으로 남긴다                    |
+| `INVALID_COLUMN_REFERENCE_KIND`                         | 외래 키는 `db_table`만 가리킨다. 저장소를 가리켰으면 그 안의 테이블 노드를 두고 다시 가리킨다                                                                                                                             |
+| `PROJECTION_SHAPE_FIELD`                                | 모양에 안 맞는 필드를 뺀다. [질문별 그림을 얹는다](#질문별-그림을-얹는다)의 모양별 설명을 본다                                                                                                                            |
+| `DUPLICATE_PHASE_ID`                                    | 한 그림 안에서 구간 id가 겹친다. 다시 짓는다                                                                                                                                                                              |
+| `PROJECTION_PHASE_MESSAGE_NOT_FOUND`                    | 구간 `from`이나 `to`를 그 그림의 메시지 id로 고친다. 다른 그림의 메시지는 못 가리킨다                                                                                                                                     |
+| `PROJECTION_PHASE_REVERSED`                             | `from`이 `to`보다 뒤 메시지다. 메시지 순서대로 앞쪽을 `from`에 둔다                                                                                                                                                       |
+| `PROJECTION_PHASE_OVERLAP`                              | 구간이 겹치면 다음 구간을 앞 구간의 `to` 바로 다음 메시지에서 시작한다. 구간 배열이 메시지 순서를 안 따르면 배열을 메시지 순서대로 다시 적는다                                                                            |
+| `PROJECTION_PHASE_GAP`                                  | 첫 구간은 첫 메시지에서 시작하고 마지막 구간은 마지막 메시지에서 끝낸다. 어느 구간에도 안 든 메시지는 앞뒤 구간에 넣는다. 배열이 메시지 순서대로인지도 함께 본다                                                          |
 
 **최대 3회까지 고쳐 다시 validate한다.** 세 번째에도 같은 노드나 엣지에서 실패하면 더 붙잡지 않는다. 그 노드나 엣지를 IR에서 빼고 `unresolved`에 무엇을 왜 확인 못 했는지 질문으로 남긴다.
 
@@ -704,15 +708,15 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 
 그려진 `service` 노드가 하나라도 있으면 HTML 한 장 안에 레벨을 나눠 담는다. 서비스가 없어도 `service` 없는 흐름이나 질문별 그림이 있으면, 또는 `infra`, `data`, `process` 팩 노드 사이에 parent가 있으면 레벨로 나눈다. 그 밖에는 `levels` 없이 평면 그림 한 장이다. deploy-path는 질문별 그림을 얹지 않으면 늘 평면이다.
 
-| 레벨                      | 보이는 것                                                                                                                                                                                 |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 전체 (`root`)             | 서비스, `gateway`, 서버(앱 모듈)만. 세부 엣지를 묶은 선의 굵기와 숫자가 건수다                                                                                                            |
-| 서비스 (`service:<id>`)   | 그 서비스의 기능영역과 서비스에 바로 단 화면, 거기서 닿는 `gateway`와 서버. 서비스를 서빙하는 버킷이 있으면 왼쪽에 도메인, CDN, 버킷 레인이 붙고 서비스 카드가 기능영역 레인 맨 위에 선다 |
-| 기능영역 (`feature:<id>`) | 그 기능영역의 화면, 화면이 부르는 엔드포인트, 거쳐 가는 `gateway`와 받는 모듈                                                                                                             |
-| 서버 (`server:<id>`)      | 그 모듈이나 `gateway`에 걸린 엔드포인트, 읽고 쓰는 테이블, 쓰는 클라이언트                                                                                                                |
+| 레벨                      | 보이는 것                                                                                                                                                                                                                                                                                                                     |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 전체 (`root`)             | 서비스, `gateway`, 서버(앱 모듈)만. 세부 엣지를 묶은 선의 굵기와 숫자가 건수다                                                                                                                                                                                                                                                |
+| 서비스 (`service:<id>`)   | 그 서비스의 기능영역과 서비스에 바로 단 화면, 거기서 닿는 `gateway`와 서버. 서비스를 서빙하는 버킷이 있으면 왼쪽에 도메인, CDN, 버킷 레인이 붙고 서비스 카드가 기능영역 레인 맨 위에 선다                                                                                                                                     |
+| 기능영역 (`feature:<id>`) | 그 기능영역의 화면, 화면이 부르는 엔드포인트, 거쳐 가는 `gateway`와 받는 모듈                                                                                                                                                                                                                                                 |
+| 서버 (`server:<id>`)      | 그 모듈이나 `gateway`에 걸린 엔드포인트, 읽고 쓰는 테이블, 쓰는 클라이언트                                                                                                                                                                                                                                                    |
 | 흐름 (`flow:<id>`)        | Step 3.5의 흐름 하나. 행위자 가로줄 위에 단계 카드가 왼쪽에서 오른쪽으로 선다. 옆 흐름은 정상 흐름과 다른 색 선이다. 갈림길은 마름모로 서고 행위자가 한 명이면 가로줄 대신 맨 위에 칩 하나가 선다. 서비스 레벨의 **흐름** 버튼으로 들어간다. `service` 없는 흐름은 전체 바로 아래 서고 전체 레벨의 **흐름** 버튼으로 들어간다 |
-| 묶음 (`group:<id>`)       | `infra`, `data`, `process` 팩에서 자식을 가진 노드 하나. 바로 아래 자식만 보이고 손자 사이 선은 자식 카드 사이 선으로 묶인다. 바깥과 잇는 카드는 보내기만 하면 왼쪽, 받으면 오른쪽에 서고 한 열에 네 장이 넘으면 옆 열로 넘어간다 |
-| 질문 (`view:<id>`)        | 질문별 그림 하나. 전체 바로 아래 서고 전체 레벨 지도 위의 카드 줄이나 위쪽 바의 **질문별 그림** 버튼으로 들어간다. 메시지를 누르면 보내는 쪽, 받는 쪽, 근거가 나오고 지도의 카드로 건너간다 |
+| 묶음 (`group:<id>`)       | `infra`, `data`, `process` 팩에서 자식을 가진 노드 하나. 바로 아래 자식만 보이고 손자 사이 선은 자식 카드 사이 선으로 묶인다. 바깥과 잇는 카드는 보내기만 하면 왼쪽, 받으면 오른쪽에 서고 한 열에 네 장이 넘으면 옆 열로 넘어간다                                                                                             |
+| 질문 (`view:<id>`)        | 질문별 그림 하나. 전체 바로 아래 서고 전체 레벨 지도 위의 카드 줄이나 위쪽 바의 **질문별 그림** 버튼으로 들어간다. 메시지를 누르면 보내는 쪽, 받는 쪽, 근거가 나오고 지도의 카드로 건너간다                                                                                                                                   |
 
 **드릴다운이면 `levels`를 요약해 먼저 안내한다.** 전체 1장, 서비스 몇 개, 기능영역 몇 개인지와 `htmlPath`를 알려준다. 조작법도 한두 줄 붙인다. 노드를 누르면 출처와 상세보기 버튼이 나오고 더블클릭하면 바로 들어간다. 브라우저 뒤로가기를 누르면 앞 화면으로 돌아온다. 전체 화면에서 Shift나 ⌘를 누른 채 두 노드를 고르면 그 사이 경로를 펼친다. 카드를 고르고 **포커스** 버튼이나 `F` 키를 누르면 그 노드와 위아래로 이어진 카드만 남는다. ✕나 ESC를 누르면 원래 그림에 돌아온다. 공유용을 원하면 `sharedHtmlPath`를 알려준다.
 
@@ -757,51 +761,51 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 
 ### 1. 노드 kind
 
-| kind               | 뷰           | 뜻                                                                                               |
-| ------------------ | ------------ | ------------------------------------------------------------------------------------------------ |
-| `service`          | screen-chain | 사용자가 쓰는 FE 앱이나 제품                                                                     |
-| `micro_app`        | screen-chain | 서비스를 이루는 마이크로 프론트엔드 앱 하나. label은 federation 설정의 `name`, `parent`는 서비스 |
-| `feature`          | screen-chain | 서비스 안의 기능영역. 페이지보다 한 단계 위인 제품 단위 (예: 등록모드, 대시보드, 설정)           |
-| `screen`           | screen-chain | 사용자가 보는 화면이나 페이지                                                                    |
-| `gateway`          | screen-chain | 요청을 받아 다른 서버로 넘기는 서버                                                              |
+| kind               | 뷰           | 뜻                                                                                                                                         |
+| ------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `service`          | screen-chain | 사용자가 쓰는 FE 앱이나 제품                                                                                                               |
+| `micro_app`        | screen-chain | 서비스를 이루는 마이크로 프론트엔드 앱 하나. label은 federation 설정의 `name`, `parent`는 서비스                                           |
+| `feature`          | screen-chain | 서비스 안의 기능영역. 페이지보다 한 단계 위인 제품 단위 (예: 등록모드, 대시보드, 설정)                                                     |
+| `screen`           | screen-chain | 사용자가 보는 화면이나 페이지                                                                                                              |
+| `gateway`          | screen-chain | 요청을 받아 다른 서버로 넘기는 서버                                                                                                        |
 | `endpoint`         | screen-chain | 백엔드 HTTP 엔드포인트. label은 `METHOD /정규화 경로`. MCP 도구면 `protocol: "mcp"`이고 label은 도구 이름, `parent`는 도구를 내놓는 서비스 |
-| `app_module`       | screen-chain | 엔드포인트를 처리하는 백엔드 모듈이나 컨트롤러                                                   |
-| `external_service` | screen-chain | 모듈이 부르는 다른 서비스, 외부 API, 메시지 브로커                                               |
-| `datastore`        | screen-chain | 테이블이 사는 DB 클러스터나 캐시 클러스터. id는 별칭, label은 `<엔진>:<클러스터 식별자>`         |
-| `db_table`         | screen-chain | 모듈이 읽고 쓰는 테이블. `parent`는 자기 `datastore`                                             |
-| `client`           | screen-chain | 플러그인을 읽어 들이는 AI 클라이언트 (Claude Code, Codex, Grok 등). 근거는 매니페스트 줄          |
-| `skill`            | screen-chain | SKILL.md 하나. `parent`는 `feature`나 `service`                                                 |
-| `agent`            | screen-chain | AGENT.md 하나. 스킬이나 다른 에이전트가 띄우는 서브에이전트                                      |
-| `workflow`         | deploy-path  | 배포를 시작하는 CI 워크플로와 그 트리거                                                          |
-| `build`            | deploy-path  | 빌드 잡이나 스텝                                                                                 |
-| `artifact`         | deploy-path  | 이미지, 번들, 패키지 같은 빌드 산출물                                                            |
-| `deploy_target`    | deploy-path  | 산출물이 올라가는 클러스터, 런타임, 네이티브 앱 배포처                                           |
-| `domain`           | 둘 다        | 사용자가 접속하는 도메인                                                                         |
-| `cdn`              | 둘 다        | CDN 배포. label은 배포 ID나 이름                                                                 |
-| `bucket`           | 둘 다        | 정적 번들이나 코드푸시 번들이 올라가는 버킷                                                      |
-| `cloud_account`    | 둘 다        | 클라우드 계정. 다른 노드의 `account`가 이 노드를 가리킨다                                        |
+| `app_module`       | screen-chain | 엔드포인트를 처리하는 백엔드 모듈이나 컨트롤러                                                                                             |
+| `external_service` | screen-chain | 모듈이 부르는 다른 서비스, 외부 API, 메시지 브로커                                                                                         |
+| `datastore`        | screen-chain | 테이블이 사는 DB 클러스터나 캐시 클러스터. id는 별칭, label은 `<엔진>:<클러스터 식별자>`                                                   |
+| `db_table`         | screen-chain | 모듈이 읽고 쓰는 테이블. `parent`는 자기 `datastore`                                                                                       |
+| `client`           | screen-chain | 플러그인을 읽어 들이는 AI 클라이언트 (Claude Code, Codex, Grok 등). 근거는 매니페스트 줄                                                   |
+| `skill`            | screen-chain | SKILL.md 하나. `parent`는 `feature`나 `service`                                                                                            |
+| `agent`            | screen-chain | AGENT.md 하나. 스킬이나 다른 에이전트가 띄우는 서브에이전트                                                                                |
+| `workflow`         | deploy-path  | 배포를 시작하는 CI 워크플로와 그 트리거                                                                                                    |
+| `build`            | deploy-path  | 빌드 잡이나 스텝                                                                                                                           |
+| `artifact`         | deploy-path  | 이미지, 번들, 패키지 같은 빌드 산출물                                                                                                      |
+| `deploy_target`    | deploy-path  | 산출물이 올라가는 클러스터, 런타임, 네이티브 앱 배포처                                                                                     |
+| `domain`           | 둘 다        | 사용자가 접속하는 도메인                                                                                                                   |
+| `cdn`              | 둘 다        | CDN 배포. label은 배포 ID나 이름                                                                                                           |
+| `bucket`           | 둘 다        | 정적 번들이나 코드푸시 번들이 올라가는 버킷                                                                                                |
+| `cloud_account`    | 둘 다        | 클라우드 계정. 다른 노드의 `account`가 이 노드를 가리킨다                                                                                  |
 
 위 표는 `web-product`와 `harness` 팩이다. 아래는 `packs`에 적어야 쓰는 kind다. 뷰는 screen-chain으로 둔다.
 
-| kind        | 팩        | 뜻                                                                   |
-| ----------- | --------- | -------------------------------------------------------------------- |
-| `component` | `generic` | 맞는 팩이 없는 구성 요소. `displayKind`와 `renderClass`를 함께 단다   |
-| `network`   | `infra`   | 가상 네트워크                                                         |
-| `subnet`    | `infra`   | 네트워크 안의 서브넷. `parent`는 `network`                            |
-| `firewall`  | `infra`   | 방화벽이나 보안 그룹. `parent`는 `network`나 `subnet`                 |
-| `cluster`   | `infra`   | 실행 클러스터. `parent`는 `network`나 `subnet`                        |
+| kind        | 팩        | 뜻                                                                       |
+| ----------- | --------- | ------------------------------------------------------------------------ |
+| `component` | `generic` | 맞는 팩이 없는 구성 요소. `displayKind`와 `renderClass`를 함께 단다      |
+| `network`   | `infra`   | 가상 네트워크                                                            |
+| `subnet`    | `infra`   | 네트워크 안의 서브넷. `parent`는 `network`                               |
+| `firewall`  | `infra`   | 방화벽이나 보안 그룹. `parent`는 `network`나 `subnet`                    |
+| `cluster`   | `infra`   | 실행 클러스터. `parent`는 `network`나 `subnet`                           |
 | `workload`  | `infra`   | 클러스터에서 도는 서비스나 잡. `parent`는 `network`, `subnet`, `cluster` |
-| `source`    | `data`    | 데이터가 처음 생기는 곳 (운영 DB, 로그 수집기)                        |
-| `topic`     | `data`    | 이벤트 토픽이나 큐                                                    |
-| `pipeline`  | `data`    | ETL 파이프라인이나 DAG                                                |
-| `job`       | `data`    | 파이프라인 안의 처리 작업. `parent`는 `pipeline`                      |
-| `warehouse` | `data`    | 데이터 웨어하우스나 레이크                                            |
-| `dataset`   | `data`    | 테이블이나 데이터셋. `parent`는 `warehouse`                          |
-| `report`    | `data`    | 대시보드나 리포트                                                     |
-| `org_unit`  | `process` | 조직이나 팀. `parent`는 상위 `org_unit`                               |
-| `role`      | `process` | 역할이나 담당. `parent`는 `org_unit`                                  |
-| `form`      | `process` | 결재 양식이나 신청서                                                  |
-| `system`    | `process` | 업무에 쓰는 시스템                                                    |
+| `source`    | `data`    | 데이터가 처음 생기는 곳 (운영 DB, 로그 수집기)                           |
+| `topic`     | `data`    | 이벤트 토픽이나 큐                                                       |
+| `pipeline`  | `data`    | ETL 파이프라인이나 DAG                                                   |
+| `job`       | `data`    | 파이프라인 안의 처리 작업. `parent`는 `pipeline`                         |
+| `warehouse` | `data`    | 데이터 웨어하우스나 레이크                                               |
+| `dataset`   | `data`    | 테이블이나 데이터셋. `parent`는 `warehouse`                              |
+| `report`    | `data`    | 대시보드나 리포트                                                        |
+| `org_unit`  | `process` | 조직이나 팀. `parent`는 상위 `org_unit`                                  |
+| `role`      | `process` | 역할이나 담당. `parent`는 `org_unit`                                     |
+| `form`      | `process` | 결재 양식이나 신청서                                                     |
+| `system`    | `process` | 업무에 쓰는 시스템                                                       |
 
 ### 2. 엣지 kind
 
@@ -810,7 +814,7 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | `navigates`    | screen → screen                            | `navigate()`, `Link`, `history.push` 줄                                                           |
 | `calls`        | screen → endpoint                          | 화면 쪽 API 호출 줄                                                                               |
 | `calls`        | external_service → gateway                 | 클라이언트 base URL이 `gateway` 호스트를 가리키는 줄                                              |
-| `calls`        | skill, agent → endpoint (MCP 도구)         | 지시문의 도구 호출 줄. `actions`에 그 호출이 넘기는 action                                       |
+| `calls`        | skill, agent → endpoint (MCP 도구)         | 지시문의 도구 호출 줄. `actions`에 그 호출이 넘기는 action                                        |
 | `routes`       | gateway → endpoint, gateway, app_module    | `gateway` 라우트 설정의 `Path`나 `uri` 줄                                                         |
 | `handles`      | endpoint → app_module                      | 라우트 매핑 어노테이션이나 라우터 등록 줄. MCP 도구면 도구 등록에서 핸들러로 넘기는 줄            |
 | `uses`         | app_module → external_service, app_module  | 외부 클라이언트 호출 줄. 모듈끼리면 같은 프로세스 안의 호출 줄 (핸들러 → 엔진)                    |
@@ -830,18 +834,18 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 
 팩 엣지다. 양 끝 규칙을 어기면 `INVALID_HARNESS_EDGE_ENDS`다.
 
-| kind         | 팩        | from → to                              | 뜻          |
-| ------------ | --------- | -------------------------------------- | ----------- |
-| `connects`   | `generic` | 가리지 않는다                          | 연결        |
-| `sends`      | `generic` | 가리지 않는다                          | 보냄        |
-| `depends_on` | `generic` | 가리지 않는다                          | 의존        |
-| `peers`      | `infra`   | network → network                      | 피어링      |
-| `allows`     | `infra`   | firewall → subnet, cluster, workload   | 통신 허용   |
-| `feeds`      | `data`    | 가리지 않는다                          | 데이터 공급 |
-| `publishes`  | `data`    | source, job → topic                    | 발행        |
-| `hands_over` | `process` | org_unit, role → org_unit, role        | 넘김        |
-| `approves`   | `process` | org_unit, role → form                  | 승인        |
-| `records`    | `process` | org_unit, role, system → form, system  | 기록        |
+| kind         | 팩        | from → to                             | 뜻          |
+| ------------ | --------- | ------------------------------------- | ----------- |
+| `connects`   | `generic` | 가리지 않는다                         | 연결        |
+| `sends`      | `generic` | 가리지 않는다                         | 보냄        |
+| `depends_on` | `generic` | 가리지 않는다                         | 의존        |
+| `peers`      | `infra`   | network → network                     | 피어링      |
+| `allows`     | `infra`   | firewall → subnet, cluster, workload  | 통신 허용   |
+| `feeds`      | `data`    | 가리지 않는다                         | 데이터 공급 |
+| `publishes`  | `data`    | source, job → topic                   | 발행        |
+| `hands_over` | `process` | org_unit, role → org_unit, role       | 넘김        |
+| `approves`   | `process` | org_unit, role → form                 | 승인        |
+| `records`    | `process` | org_unit, role, system → form, system | 기록        |
 
 ### 3. 근거 종류와 선 모양
 
