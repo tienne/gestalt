@@ -49,7 +49,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `worktrees/` | tick | 오르카가 없을 때 만든 git 워크트리 |
 | `deploy/` | 호스트 | `deploy report`가 남긴 배포 결과 |
 | `slack/` | 호스트 | 슬랙 초안 본문 |
-| `tick.lock` | tick | 겹쳐 도는 tick을 막는 잠금 |
+| `tick.lock` | tick | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다 |
 
 위치는 `--state-dir`, `GESTALT_MASTER_STATE_DIR`, `~/.gestalt/master.json`의 `stateDir`, 기본값 `~/.gestalt/master` 순서로 정한다. 워커는 다른 레포에서 돌아 그쪽 `gestalt.json`을 읽기 때문에 워커 지시에는 저장소 절대 경로를 `--state-dir`로 박아 둔다.
 

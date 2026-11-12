@@ -560,6 +560,94 @@ describe('마스터 tick', () => {
     expect((await tick(store, d, { force: true })).skipped).toBeUndefined();
   });
 
+  it('다른 호스트의 잠금은 pid를 안 보고 6시간 상한만 본다', async () => {
+    const { store, dir } = clockedStore();
+    const { deps: d } = deps();
+    const lock = join(dir, 'tick.lock');
+    writeFileSync(lock, `2147483646:${Date.now() - 60 * 60 * 1000}:other-host:x`);
+    expect((await tick(store, d, { force: true })).skipped).toBe(true);
+    writeFileSync(lock, `2147483646:${Date.now() - 7 * 60 * 60 * 1000}:other-host:x`);
+    expect((await tick(store, d, { force: true })).skipped).toBeUndefined();
+  });
+
+  it("호스트 이름에 ':'가 있어도 잠금을 읽어 옛 꼴로 걷지 않는다", async () => {
+    const { store, dir } = clockedStore();
+    const { deps: d } = deps();
+    const lock = join(dir, 'tick.lock');
+    writeFileSync(lock, `2147483646:${Date.now()}:fe80::1:x`);
+    const old = new Date(Date.now() - 11 * 60 * 1000);
+    utimesSync(lock, old, old);
+    const r = await tick(store, d, { force: true });
+    expect(r.skipped).toBe(true);
+    expect(r.errors[0]).toContain('pid 2147483646');
+  });
+
+  it('다른 프로세스가 걷는 중이면 건너뛰고 걷다 죽은 steal은 치운 뒤 다음 tick이 잡는다', async () => {
+    const { store, dir } = clockedStore();
+    const { deps: d } = deps();
+    const lock = join(dir, 'tick.lock');
+    const steal = `${lock}.steal`;
+    writeFileSync(lock, lockOf(2147483646, Date.now()));
+
+    writeFileSync(steal, lockOf(process.pid, Date.now()));
+    expect((await tick(store, d, { force: true })).skipped).toBe(true);
+    expect(existsSync(steal)).toBe(true);
+
+    writeFileSync(steal, lockOf(2147483646, Date.now()));
+    expect((await tick(store, d, { force: true })).skipped).toBe(true);
+    expect(existsSync(steal)).toBe(false);
+    expect((await tick(store, d, { force: true })).skipped).toBeUndefined();
+    expect(readdirSync(dir).filter((f) => f.includes('tick.lock'))).toEqual([]);
+  });
+
+  it('잠금을 풀 때 steal 줄에 서고 줄이 안 비어도 끝내 자기 잠금은 지운다', async () => {
+    const { store, dir } = clockedStore();
+    store.addOrder(order({ id: 'ord-1' }));
+    const lock = join(dir, 'tick.lock');
+    const steal = `${lock}.steal`;
+    const other = lockOf(process.pid, Date.now());
+    const { deps: base, git } = deps();
+    // tick이 도는 사이에 다른 프로세스가 걷는 중인 것처럼 steal을 만든다
+    const d: EngineDeps = {
+      ...base,
+      launchers: {
+        'git-worktree': {
+          ...git.launcher,
+          start: async (spec) => {
+            writeFileSync(steal, other);
+            return git.launcher.start(spec);
+          },
+        },
+      },
+    };
+    const r = await tick(store, d, { force: true });
+    expect(r.skipped).toBeUndefined();
+    expect(existsSync(lock)).toBe(false);
+    expect(readFileSync(steal, 'utf-8')).toBe(other);
+  });
+
+  it('잠금을 풀 때 걷다 죽은 steal을 치우고 그 줄에 서서 푼다', async () => {
+    const { store, dir } = clockedStore();
+    store.addOrder(order({ id: 'ord-1' }));
+    const lock = join(dir, 'tick.lock');
+    const steal = `${lock}.steal`;
+    const { deps: base, git } = deps();
+    const d: EngineDeps = {
+      ...base,
+      launchers: {
+        'git-worktree': {
+          ...git.launcher,
+          start: async (spec) => {
+            writeFileSync(steal, lockOf(2147483646, Date.now()));
+            return git.launcher.start(spec);
+          },
+        },
+      },
+    };
+    expect((await tick(store, d, { force: true })).skipped).toBeUndefined();
+    expect(readdirSync(dir).filter((f) => f.includes('tick.lock'))).toEqual([]);
+  });
+
   it('같은 저장소를 연 두 마스터가 차례로 tick해도 같은 주문을 두 번 띄우지 않는다', async () => {
     const { store, dir, now } = clockedStore();
     store.addOrder(order({ id: 'ord-1' }));

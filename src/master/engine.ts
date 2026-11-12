@@ -117,6 +117,9 @@ const LOCK_STALE_MS = 10 * 60 * 1000;
 const LOCK_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 /** 낡은 잠금을 걷어내는 프로세스를 하나로 줄 세우는 파일. 걷어내다 죽었으면 이 시간 뒤 다시 걷는다 */
 const STEAL_STALE_MS = 60 * 1000;
+/** 잠금을 풀 때 steal 줄에 서려고 다시 해보는 횟수와 간격. 걷는 쪽은 읽기, 지우기, 만들기 한 번씩만 하고 놓는다 */
+const RELEASE_RETRIES = 20;
+const RELEASE_RETRY_MS = 50;
 /** 주문 하나의 워커들이 spawnRequest로 만들 수 있는 하위 주문 수. 넘는 요청은 거절해 워커에 알린다 */
 export const MAX_SPAWN_PER_ORDER = 3;
 /** 보고를 적용하다 실패한 원문을 남기는 자리. inbox 아래에 둔다 */
@@ -743,12 +746,13 @@ interface LockInfo {
  * 잠금 파일에 pid와 잡은 시각, 호스트, 토큰을 적는다. 같은 호스트에서 적힌 프로세스가 살아 있으면
  * 잡은 지 LOCK_MAX_AGE_MS가 지나기 전에는 걷어내지 않는다. 다른 호스트의 pid는 살아 있는지 볼 수
  * 없어 시간 상한만 본다. 걷어내는 쪽은 steal 파일로 한 프로세스씩 줄 세운다. 줄을 선 프로세스는
- * 잠금을 다시 읽어 낡았다고 본 그 내용일 때만 지우고 새로 잡는다. 풀 때도 자기 토큰일 때만 지운다.
+ * 잠금을 다시 읽어 낡았다고 본 그 내용일 때만 지우고 새로 잡는다.
+ * 풀 때도 같은 steal 줄에 서서 자기 토큰일 때만 지운다(releaseLock).
  */
 function acquireLock(dir: string): LockResult {
   const path = join(dir, LOCK_FILE);
   const token = `${process.pid}:${Date.now()}:${hostname()}:${randomUUID()}`;
-  const release = () => removeIfOwned(path, token);
+  const release = () => releaseLock(path, token);
   if (tryCreateLock(path, token)) return { ok: true, release };
 
   let seen: string;
@@ -782,6 +786,33 @@ function acquireLock(dir: string): LockResult {
   } finally {
     removeIfOwned(stealPath, token);
   }
+}
+
+/**
+ * 잠금을 푼다. 걷는 쪽이 다시 읽어 비교하고 지우는 사이에 주인이 풀고 제3자가 잡으면 걷는 쪽이
+ * 제3자의 잠금을 지운다. 주인이 읽고 지우는 사이에 걷는 쪽이 끼어들어도 같은 일이 난다. 그래서
+ * 푸는 쪽도 steal 줄에 선다.
+ */
+function releaseLock(path: string, token: string): void {
+  const stealPath = `${path}.steal`;
+  for (let i = 0; i < RELEASE_RETRIES; i++) {
+    if (tryCreateLock(stealPath, token)) {
+      try {
+        removeIfOwned(path, token);
+      } finally {
+        removeIfOwned(stealPath, token);
+      }
+      return;
+    }
+    clearStaleSteal(stealPath);
+    sleepSync(RELEASE_RETRY_MS);
+  }
+  // 끝내 줄을 못 서도 잠금은 지운다. 남기면 다른 호스트에서는 상한까지 tick이 멈춘다
+  removeIfOwned(path, token);
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 function isStaleLock(path: string, info: LockInfo | undefined): boolean {
@@ -834,7 +865,8 @@ function tryCreateLock(path: string, token: string): boolean {
 }
 
 function parseLock(content: string): LockInfo | undefined {
-  const m = /^(\d+):(\d+):([^:]*):[^:]+$/.exec(content);
+  // 끝 칸은 randomUUID라 ':'가 없다. 가운데를 넓게 잡아 ':'가 든 호스트 이름도 읽는다
+  const m = /^(\d+):(\d+):(.*):[^:]+$/.exec(content);
   if (!m) return undefined;
   const pid = Number(m[1]!);
   const startedAt = Number(m[2]!);
