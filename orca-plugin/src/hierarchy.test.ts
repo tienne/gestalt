@@ -51,6 +51,17 @@ test('고리가 생겨도 멈추고 모든 주문을 한 번씩만 그린다', (
   assert.deepEqual(shape(roots), [{ 'order:a': ['order:b'] }, 'order:c'])
 })
 
+test('고리 밖에서 고리로 들어오는 주문은 끊지 않고 배열 순서가 달라도 같은 모양을 그린다', () => {
+  const x = order('x', { parentOrderId: 'a' })
+  const a = order('a', { parentOrderId: 'b' })
+  const b = order('b', { parentOrderId: 'a' })
+  const expected = [{ 'order:a': ['order:b', 'order:x'] }]
+  const sorted = (nodes: readonly HierarchyNode[]): unknown[] =>
+    nodes.map((n) => (n.children.length > 0 ? { [n.key]: sorted(n.children).sort() } : n.key))
+  assert.deepEqual(sorted(buildHierarchy([x, a, b])), expected)
+  assert.deepEqual(sorted(buildHierarchy([b, a, x])), expected)
+})
+
 test('끝난 주문을 숨겨도 진행 중인 하위 주문의 조상은 남긴다', () => {
   const roots = buildHierarchy([
     order('a', { status: 'done' }),

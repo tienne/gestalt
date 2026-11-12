@@ -39,17 +39,20 @@ export function parentOf(orders: readonly OrderView[]): Map<string, string | nul
     parent.set(o.id, key)
   }
 
-  // 저장소가 꼬여 고리가 생겨도 무한히 돌지 않게 고리에 걸린 주문을 뿌리로 끊는다
+  // 저장소가 꼬여 고리가 생겨도 무한히 돌지 않게 고리 안의 간선 하나만 끊는다.
+  // 고리 밖에서 고리로 들어오는 주문은 그대로 두고, 배열 순서와 상관없이 고리에서 id가 가장 작은 주문을 뿌리로 올린다.
   for (const o of orders) {
-    const seen = new Set<string>([o.id])
+    const path = [o.id]
     let cur = parent.get(o.id)
     while (cur?.startsWith('order:')) {
       const id = cur.slice('order:'.length)
-      if (seen.has(id)) {
-        parent.set(o.id, null)
+      const at = path.indexOf(id)
+      if (at !== -1) {
+        const cycle = path.slice(at)
+        parent.set(cycle.reduce((a, b) => (b < a ? b : a)), null)
         break
       }
-      seen.add(id)
+      path.push(id)
       cur = parent.get(id)
     }
   }
