@@ -38,23 +38,38 @@ routing:
 
 - **워커 결과는 요약과 참조로만 받는다.** 워커 대화를 열어 로그나 diff를 읽지 않는다. 원문이 필요하면 보고의 `refs`에 적힌 파일 경로만 읽는다.
 - **상태는 저장소에 있다.** 세션이 압축되거나 다시 떠도 `gestalt conductor status`로 이어 간다. 대화 기억으로 진행 상황을 복원하지 않는다.
+- **주문을 넣은 뒤에는 그 대화 원문에 기대지 않는다.** 주문 하나에 필요한 맥락은 전부 description에 옮긴다. 세션을 새로 띄워도 잃는 게 없어야 한다.
+- **여러 주문에 걸친 맥락은 레포 공통 맥락 파일에 둔다.** 대화에만 남기지 않는다. 자세한 건 1-1이다.
 - **워커 생성은 컨덕터만 한다.** 워커가 하위 워커를 원하면 보고의 `spawnRequest`로 올라오고 다음 tick이 새 주문으로 받는다. 주문 하나에 하위 주문은 세 개까지고 하위 주문의 워커는 더 못 늘린다. 넘치면 만들지 않고 그 워커에 이유를 보낸다.
 - **이 스킬 자신은 워커 안에서 돌지 않는다.** `tick`과 `gate resolve`, `order add`, `queue add`, `deploy report`는 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이면 거절한다. 서브에이전트 워커는 컨덕터와 같은 자리에서 돌아서 이 검사에 안 걸리므로 지시서 규칙에만 기댄다.
 - **워커는 자기 id로만 보고한다.** `worker report`와 `checkpoint save`는 `GESTALT_CONDUCTOR_WORKER_ID`와 `--worker`가 다르면 거절한다. 이 환경 변수는 git 워크트리 워커에만 있어서 오르카와 서브에이전트 워커가 남의 id를 적는 건 못 막는다.
 
 ## 1. 주문 넣기
 
-말로 받은 요청은 바로 넣는다.
+말로 받은 요청은 바로 넣는다. 워커는 이 대화를 못 본다는 전제로 description을 쓴다. 대화에서 나온 요구사항과 제약, 결정, 범위 밖으로 뺀 것, 참고할 파일 경로를 빠짐없이 적는다. "앞에서 말한 대로" 같은 대화 참조는 쓰지 않고 내용을 풀어 적는다. 길면 파일에 써서 `--description-file`로 넘긴다.
 
 ```bash
-gestalt conductor order add --repo acme/app --title "배너 문구 고치기" --scope merge-through --json
+gestalt conductor order add --repo acme/app --title "배너 문구 고치기" --scope merge-through \
+  --description-file "$tmp/order.md" --json
 ```
+
+넣은 뒤에는 그 주문 얘기를 대화 기억으로 이어 가지 않는다. 진행은 `gestalt conductor status`와 워커 보고로만 본다.
 
 지라 티켓은 호스트가 Atlassian MCP로 읽어 같은 명령에 `--source jira --source-ref jira:<KEY> --issue-key <KEY> --issue-type <type>`을 붙여 넣는다. `--source-ref`가 같으면 두 번 받지 않는다. 사용자가 지라 상태를 정해 줬으면 `--jira-status`로 넘긴다. 기본 규칙보다 먼저다.
 
 외부 큐는 tick이 상태 저장소의 `queue/`에서 직접 읽는다. 다른 시스템이 넣는 자리라 이 세션이 대신 넣을 일은 없다. 사용자가 큐 파일을 넣어 달라고 하면 `gestalt conductor queue add --body-file <파일>`을 쓴다. 꼴이 틀린 메시지는 확인 자리로 올라오고 못 읽은 파일은 tick 보고의 `errors`에 뜬다.
 
 범위를 사용자가 말하지 않았으면 설정의 `defaultScope`를 쓴다. 주문마다 다를 수 있으니 묻지 않고 넣은 값을 보고에 적는다.
+
+### 1-1. 레포 공통 맥락
+
+배포 방법이나 쓰는 계정, 요즘 우선순위처럼 한 레포의 여러 주문에 걸친 사실이 대화에 나오면 그 레포의 공통 맥락 파일에 적는다.
+
+```bash
+gestalt conductor context path --repo acme/app
+```
+
+나온 경로의 마크다운 파일에 짧은 항목으로 덧붙이고 낡은 항목은 고친다. 주문을 넣거나 판단할 때는 그 주문 레포의 파일만 읽는다. 다른 레포 파일까지 열지 않는다. 파일이 있으면 tick이 워커 지시에 경로를 실어 워커도 읽는다. 주문 하나에만 해당하는 얘기는 description에 적고 여기엔 적지 않는다.
 
 ## 2. tick
 
