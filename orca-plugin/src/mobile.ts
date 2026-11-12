@@ -147,109 +147,108 @@ export function mobileFragment(v: ConductorView | null, now = Date.now()): strin
 
 const summarizeProject = (repos: readonly RepoSummary[], repo: string) => repos.find((r) => r.repo === repo)?.project
 
-// 위계는 세 겹으로 나눈다. 글자는 레포 이름 > 주문 제목 > 하위 주문 > 끝난 주문 > 메타 순으로 작아진다.
-// 면은 페이지 바탕 > 레포 카드 > 끝난 주문 안쪽 상자 순이다. 선은 카드 테두리 > 주문 사이 구분선 > 하위 주문 안내선 순으로 옅어진다.
+// Linear 디자인 문서(awesome-design-md의 linear.app)를 따른다. 다크 전용이고 위계는 그림자 대신 면 단계와 가는 테두리로 나눈다.
+// 바탕 > 레포 카드(s1) > 확인 대기 카드와 끝난 주문 상자(s2) > 사유 상자와 배지(s3) 순으로 한 단계씩 밝아진다.
+// 상태색은 배지와 점에만 쓰고 카드 면이나 테두리를 칠하지 않는다.
 const STYLE = `
-:root { color-scheme: light dark;
-  --bg: #f4f4f5; --surface: #ffffff; --inset: #f7f7f8; --fg: #18181b; --fg2: #3f3f46; --muted: #71717a;
-  --line: #e4e4e7; --line-strong: #d4d4d8;
-  --accent: #2563eb; --warn: #c2410c; --ok: #15803d; --danger: #dc2626; --chip: #f1f1f3; }
-@media (prefers-color-scheme: dark) { :root {
-  --bg: #09090b; --surface: #141417; --inset: #1b1b1f; --fg: #fafafa; --fg2: #d4d4d8; --muted: #8b8b94;
-  --line: #26262b; --line-strong: #3a3a41;
-  --accent: #60a5fa; --warn: #f59e0b; --ok: #4ade80; --danger: #f87171; --chip: #232328; } }
+:root { color-scheme: dark;
+  --canvas: #010102; --s1: #0f1011; --s2: #141516; --s3: #18191a;
+  --ink: #f7f8f8; --ink-muted: #d0d6e0; --ink-subtle: #8a8f98; --ink-3: #62666d;
+  --line: #23252a; --line-strong: #34343a; --line-3: #3e3e44;
+  --accent: #5e6ad2; --accent-hi: #828fff; --ok: #27a644; --warn: #e2a33b; --danger: #eb5757;
+  --edge: inset 0 1px 0 rgba(255, 255, 255, 0.04); }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 -apple-system, system-ui, sans-serif;
-  padding: max(14px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom)); -webkit-text-size-adjust: 100%; }
-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-h1 { font-size: 24px; line-height: 1.2; font-weight: 800; letter-spacing: -0.02em; margin: 0; flex: 1; }
-.muted { color: var(--muted); }
+body { margin: 0; background: var(--canvas); color: var(--ink);
+  font: 400 15px/1.5 "SF Pro Text", -apple-system, system-ui, "Inter", sans-serif; letter-spacing: -0.05px;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(32px, env(safe-area-inset-bottom)); -webkit-text-size-adjust: 100%; }
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+h1 { font: 600 24px/1.2 "SF Pro Display", -apple-system, system-ui, sans-serif; letter-spacing: -0.5px; margin: 0; flex: 1; }
+.muted { color: var(--ink-subtle); }
 .small { font-size: 13px; }
 .xs { font-size: 12px; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; letter-spacing: 0; }
 .pad { padding: 8px 0; }
 
 .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
-.stat-value { font-size: 20px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stat-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.stat.tone-warning { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
-.stat.tone-warning .stat-value { color: var(--warn); }
-.stat.tone-accent .stat-value { color: var(--accent); }
+.stat { background: var(--s1); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; box-shadow: var(--edge); }
+.stat-value { font: 600 22px/1.2 "SF Pro Display", -apple-system, system-ui, sans-serif; letter-spacing: -0.4px; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-subtle); margin-top: 4px; }
+.stat.tone-warning .stat-label::before, .stat.tone-accent .stat-label::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--tone); }
 
-section { margin-top: 24px; }
-.section-head { display: flex; align-items: center; gap: 8px; margin: 0 2px 10px; }
-h2 { font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--muted); margin: 0; }
-.count { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--chip); border-radius: 999px; padding: 0 7px; }
+section { margin-top: 32px; }
+.section-head { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+h2 { font-size: 13px; font-weight: 500; line-height: 1.3; letter-spacing: 0.4px; color: var(--ink-subtle); margin: 0; }
+.count { font-size: 12px; font-weight: 500; color: var(--ink-subtle); }
 .section-head::after { content: ''; flex: 1; height: 1px; background: var(--line); }
-.hint { font-size: 12px; color: var(--muted); margin: -4px 2px 10px; }
+.hint { font-size: 12px; color: var(--ink-3); margin: -4px 0 12px; }
 
-.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; line-height: 18px;
-  background: var(--chip); color: var(--muted); white-space: nowrap; }
-.pill.tone-accent { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.pill.tone-warning { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
-.pill.tone-success { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
-.pill.tone-danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.tone-accent { --tone: var(--accent); }
+.tone-warning { --tone: var(--warn); }
+.tone-success { --tone: var(--ok); }
+.tone-danger { --tone: var(--danger); }
+.tone-neutral { --tone: var(--ink-3); }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 9999px; font-size: 12px; font-weight: 500; line-height: 16px;
+  background: var(--s3); border: 1px solid var(--line); color: var(--ink-muted); white-space: nowrap; }
+.pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--tone, var(--ink-3)); }
 .pills { display: flex; gap: 6px; flex-wrap: wrap; }
 
-.gate, .repo, .notice { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; margin: 0 0 10px; }
-.gate { padding: 12px 14px 12px 16px; box-shadow: inset 3px 0 0 var(--warn); }
+.gate, .repo, .notice { border-radius: 12px; margin: 0 0 8px; box-shadow: var(--edge); }
+.repo, .notice { background: var(--s1); border: 1px solid var(--line); }
+.gate { background: var(--s2); border: 1px solid var(--line-strong); padding: 16px; }
 .gate-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.gate-repo { font-size: 12px; color: var(--muted); margin-top: 8px; }
-.gate-title { font-size: 15px; font-weight: 600; margin-top: 2px; overflow-wrap: anywhere; }
-.reason { margin: 8px 0; padding: 8px 10px; background: var(--inset); border-radius: 8px; font-size: 14px; color: var(--fg2);
-  white-space: pre-wrap; overflow-wrap: anywhere; }
-.notice { padding: 12px 14px; margin-top: 12px; box-shadow: inset 3px 0 0 var(--danger); }
+.gate-repo { font-size: 12px; color: var(--ink-subtle); margin-top: 12px; }
+.gate-title { font-size: 15px; font-weight: 500; letter-spacing: -0.1px; margin-top: 2px; overflow-wrap: anywhere; }
+.reason { margin: 12px 0 8px; padding: 10px 12px; background: var(--s3); border: 1px solid var(--line); border-radius: 8px;
+  font-size: 14px; color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.gate > .mono { color: var(--ink-3); }
+.notice { padding: 12px 16px; margin-top: 16px; border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
 
 .repo { overflow: hidden; }
-.repo.tone-warning { box-shadow: inset 3px 0 0 var(--warn); }
-.repo.tone-accent { box-shadow: inset 3px 0 0 var(--accent); }
 summary { cursor: pointer; list-style: none; }
 summary::-webkit-details-marker { display: none; }
-.repo-head { position: relative; padding: 12px 36px 12px 14px; display: grid; gap: 4px; }
-.repo-head::after { content: ''; position: absolute; right: 16px; top: 18px; width: 7px; height: 7px;
-  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .15s; }
-.repo[open] > .repo-head::after { transform: rotate(45deg); top: 15px; }
+.repo-head { position: relative; padding: 16px 40px 16px 16px; display: grid; gap: 4px; }
+.repo-head::after { content: ''; position: absolute; right: 18px; top: 22px; width: 6px; height: 6px;
+  border-right: 1.5px solid var(--ink-subtle); border-bottom: 1.5px solid var(--ink-subtle); transform: rotate(-45deg); transition: transform .15s; }
+.repo[open] > .repo-head::after { transform: rotate(45deg); top: 19px; }
 .repo[open] > .repo-head { border-bottom: 1px solid var(--line); }
-.repo-name { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; overflow-wrap: anywhere; }
-.repo-sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; font-size: 13px; color: var(--muted); }
-.project { color: var(--fg2); font-weight: 500; }
-.owner { font-size: 12px; }
-.repo-head .pills { margin-top: 4px; }
-.repo-body { padding: 0 14px 12px; }
+.repo-name { font: 600 17px/1.3 "SF Pro Display", -apple-system, system-ui, sans-serif; letter-spacing: -0.3px; overflow-wrap: anywhere; }
+.repo-sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; font-size: 13px; color: var(--ink-subtle); }
+.project { color: var(--ink-muted); }
+.owner { font-size: 12px; color: var(--ink-3); }
+.repo-head .pills { margin-top: 8px; }
+.repo-body { padding: 0 16px 12px; }
 
 .tree, .branch { list-style: none; margin: 0; padding: 0; }
 .tree > li + li { border-top: 1px solid var(--line); }
-.branch { margin: 0 0 6px 3px; padding-left: 14px; border-left: 2px solid var(--line-strong); }
-.order { padding: 12px 0 10px; }
+.branch { margin: 0 0 8px 3px; padding-left: 14px; border-left: 1px solid var(--line-3); }
+.order { padding: 12px 0; }
 .branch .order { padding: 8px 0; }
-.order-title { display: flex; align-items: baseline; gap: 8px; font-size: 15px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
-.order.child .order-title { font-size: 14px; font-weight: 500; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; transform: translateY(-1px); }
-.tone-accent > .order-title .dot { background: var(--accent); }
-.tone-warning > .order-title .dot { background: var(--warn); }
-.tone-success > .order-title .dot { background: var(--ok); }
-.tone-danger > .order-title .dot { background: var(--danger); }
-.meta { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 10px; margin: 6px 0 0 16px; font-size: 12px; color: var(--muted); }
+.order-title { display: flex; align-items: baseline; gap: 10px; font-size: 15px; font-weight: 500; line-height: 1.45; letter-spacing: -0.1px; overflow-wrap: anywhere; }
+.order.child .order-title { font-size: 14px; color: var(--ink-muted); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tone, var(--ink-3)); flex: none; transform: translateY(-1px); }
+.meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 6px 0 0 17px; font-size: 12px; line-height: 1.4; color: var(--ink-subtle); }
 .meta .m { white-space: nowrap; }
-.worktree { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 10px 0 6px; font-size: 13px; }
-.wt-tag { font-size: 11px; font-weight: 600; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 6px; }
-.wt-name { font-weight: 600; color: var(--fg2); }
+.meta .mono { color: var(--ink-3); }
+.worktree { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 0 6px; font-size: 13px; }
+.wt-tag { font-size: 11px; font-weight: 500; color: var(--ink-subtle); background: var(--s3); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; }
+.wt-name { font-weight: 500; color: var(--ink-muted); }
 
-.finished { margin-top: 8px; background: var(--inset); border: 1px solid var(--line); border-radius: 10px; }
-.finished > summary { padding: 9px 12px; font-size: 13px; font-weight: 600; color: var(--muted); display: flex; justify-content: space-between; }
-.finished > summary::after { content: '펼치기'; font-weight: 500; font-size: 12px; }
+.finished { margin-top: 4px; background: var(--s2); border: 1px solid var(--line); border-radius: 8px; }
+.finished > summary { padding: 10px 12px; font-size: 13px; font-weight: 500; color: var(--ink-subtle); display: flex; justify-content: space-between; }
+.finished > summary::after { content: '펼치기'; font-weight: 400; font-size: 12px; color: var(--ink-3); }
 .finished[open] > summary::after { content: '접기'; }
 .finished-list { padding: 0 12px 4px; border-top: 1px solid var(--line); }
 .finished-list > .order + .order { border-top: 1px solid var(--line); }
-.order.done { padding: 9px 0; }
-.order.done .order-title { font-size: 13px; font-weight: 500; color: var(--fg2); }
-.order.done .meta { font-size: 11.5px; }
+.order.done { padding: 10px 0; }
+.order.done .order-title { font-size: 13px; font-weight: 400; color: var(--ink-subtle); }
+.order.done .meta { font-size: 12px; }
+.order.done .pill { color: var(--ink-subtle); background: transparent; }
 
-.empty { color: var(--muted); padding: 24px 8px; text-align: center; }
-.foot { margin-top: 20px; text-align: center; font-size: 12px; color: var(--muted); }
+.empty { color: var(--ink-subtle); padding: 32px 8px; text-align: center; }
+.foot { margin-top: 32px; text-align: center; font-size: 12px; color: var(--ink-3); }
 #offline { display: none; }
-body.offline #offline { display: inline-block; }
+body.offline #offline { display: inline-flex; }
 `
 
 // 같은 주소에 헤더만 붙여 본문을 다시 받는다. 테일스케일이 붙인 경로 접두사를 몰라도 된다.
@@ -284,6 +283,7 @@ export function mobilePage(fragment: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#010102">
 <title>컨덕터</title>
 <style>${STYLE}</style>
 </head>
