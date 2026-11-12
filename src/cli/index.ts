@@ -33,6 +33,7 @@ import {
   conductorDeployReportCommand,
   conductorGateListCommand,
   conductorGateResolveCommand,
+  conductorHandoffCommand,
   conductorMetricsCommand,
   conductorOrderAddCommand,
   conductorOrderShowCommand,
@@ -1113,6 +1114,27 @@ export function createCli(): Command {
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action(async (o) => {
       await conductorTickCommand(o);
+    });
+
+  conductor
+    .command('handoff')
+    .description(
+      '컨덕터 세션을 새 세션으로 넘긴다. 인계 파일을 쓰고 오르카가 있으면 새 세션을 띄워 첫 지시로 넘긴다',
+    )
+    .requiredOption(
+      '--notes-file <path>',
+      '대화에서 정한 규칙, 답을 기다리는 질문, 대화에만 있는 값을 적은 마크다운. -면 stdin',
+    )
+    .option(
+      '--loop-prompt <text>',
+      '이 세션에 반복을 건 프롬프트 원문. /gestalt:conductor로 시작하는 한 줄(앞에 5m 같은 간격 하나는 붙어도 된다, 500자 이하)만 받는다',
+    )
+    .option('--session <id>', '이 세션 id. 없으면 CLAUDE_CODE_SESSION_ID')
+    .option('--no-launch', '오르카가 있어도 새 세션을 띄우지 않고 인계 파일만 쓴다')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (o) => {
+      await conductorHandoffCommand(o);
     });
 
   conductor

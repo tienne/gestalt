@@ -403,6 +403,13 @@ const conductorConfigSchema = z.object({
    * 감시는 repoPaths의 경로에서 gh를 부르므로 여기 적은 레포는 repoPaths에도 있어야 한다
    */
   prWatchRepos: z.array(z.string()).default([]),
+  /**
+   * 컨덕터 세션이 컴팩트를 한 번 거친 뒤 컨텍스트 사용량이 이 비율(%)을 넘으면 다음 tick을 마친 자리에서
+   * 새 세션으로 인계한다. 두 번째 컴팩트가 오면 사용량과 상관없이 인계한다
+   */
+  handoffContextPercent: z.number().int().min(10).max(99).default(70),
+  /** 사용량 비율을 낼 컨텍스트 창 크기(토큰). 비우면 모델 id와 사용량으로 200k나 1M을 고른다 */
+  contextWindowTokens: z.number().int().min(10_000).max(10_000_000).optional(),
 });
 
 /**
@@ -417,6 +424,8 @@ const REPO_CONDUCTOR_KEYS: ReadonlySet<string> = new Set([
   'maxResumeAttempts',
   'staleAfterSec',
   'resultMaxChars',
+  'handoffContextPercent',
+  'contextWindowTokens',
 ]);
 
 export const USER_CONDUCTOR_FILE = 'conductor.json';

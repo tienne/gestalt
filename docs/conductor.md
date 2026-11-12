@@ -96,7 +96,7 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
 
 ### 반복 돌리기
 
-스킬은 사람이 멈추라고 할 때까지 tick → hostActions → 확인 자리 점검을 반복한다. Claude Code에서는 스킬을 처음 부르면 첫 tick을 돌린 뒤 세션이 loop 스킬을 직접 불러 아래와 같은 반복을 간격 없이 건다. 간격을 비우면 세션이 간격을 스스로 정한다.
+스킬은 사람이 멈추라고 하거나 [세션 인계](#세션-인계)를 마칠 때까지 tick → hostActions → 확인 자리 점검을 반복한다. Claude Code에서는 스킬을 처음 부르면 첫 tick을 돌린 뒤 세션이 loop 스킬을 직접 불러 아래와 같은 반복을 간격 없이 건다. 간격을 비우면 세션이 간격을 스스로 정한다.
 
 ```text
 /loop /gestalt:conductor tick 돌리고 hostActions 처리
@@ -111,6 +111,38 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
 직접 `/loop`으로 시작해도 된다. 그때는 스킬이 반복을 더 걸지 않는다. `pollIntervalSec` 안에 다시 부른 tick은 `skipped: true`로 바로 끝나서 자주 불러도 토큰이 거의 안 든다. 멈추려면 멈추라고 말한다. 세션에 남은 `ScheduleWakeup`과 컨덕터 크론을 함께 끈다.
 
 `/loop`이 없는 호스트(Codex, Grok 등)에서는 반복을 걸지 않고 안내만 한다. 다시 돌려 달라고 그때그때 말하거나 그 호스트의 반복 기능을 쓴다. 호스트마다 반복 기능이 어떻게 동작하는지는 아직 확인하지 않았다.
+
+### 세션 인계
+
+컨덕터 세션은 컴팩트를 한 번까지만 허용한다. 두 번째 컴팩트가 오기 전에 새 세션을 띄워 대화에만 있던 맥락을 넘기고 기존 세션은 반복을 멈춘다. 진행 상태는 이미 저장소에 들어 있으니 다시 쓰지 않는다.
+
+1. **세션 등록.** Claude Code에서 `gestalt conductor tick`을 부르면 Bash 환경의 `CLAUDE_CODE_SESSION_ID`로 이 세션을 상태 저장소의 `sessions/<세션 id>/`에 등록한다. 이 디렉토리가 있는 세션만 컨덕터 세션으로 본다.
+2. **컴팩트 세기.** 플러그인 훅 `scripts/conductor-compact-hook.sh`가 `SessionStart`의 `compact` 시작(자동과 수동 둘 다)에 걸린다. 등록된 세션이면 `sessions/<세션 id>/compactions`의 횟수를 하나 올리고 훅 입력의 `transcript_path`를 같이 적는다. 그리고 컴팩트 뒤 맥락에 "컨덕터 세션이고 N번째 컴팩트"라는 한 줄을 붙인다. 등록 안 된 세션은 아무것도 안 쓰고 끝난다. 훅은 bash와 cat, mv로만 돌고 Node를 띄우지 않는다.
+3. **판정.** tick은 매번 이 세션의 `handoff`를 JSON 출력에 싣는다. 훅 입력에는 컨텍스트 사용량이 없어서 트랜스크립트 끝의 마지막 메인 응답 usage(input, cache 생성, cache 읽기의 합)를 창 크기로 나눠 사용량을 낸다. 창 크기는 `contextWindowTokens` 설정이 먼저고 비어 있으면 모델 id에 `[1m]`이 있거나 사용량이 200k를 넘을 때 1M, 아니면 200k로 본다.
+   - 컴팩트 전이면 `due: false`
+   - 한 번 컴팩트했고 사용량이 `handoffContextPercent`(기본 70%) 이상이면 `due: true`
+   - 두 번째 컴팩트가 이미 왔으면 사용량과 상관없이 `due: true`
+   - 사용량을 못 읽으면 `due: false`와 이유. 세션은 그 이유를 사용자에게 한 번 전하고 두 번째 컴팩트가 오면 넘긴다. 텍스트 출력에는 `인계 판정 못 함: <이유>` 줄로 찍힌다
+4. **인계.** `due: true`를 본 세션은 그 tick에서 hostActions를 처리하고 확인 자리를 점검하는 일까지 마친 뒤 넘긴다. tick 도중이나 사람에게 확인 자리를 묻고 답을 처리하는 도중에는 넘기지 않는다. 넘길 것은 대화에만 있는 값이다.
+   - `/loop` 프롬프트 원문
+   - 사용자가 대화로 정한 규칙(특정 티켓 제외, tick 플래그 같은 것)
+   - 사람에게 물어 두고 답을 기다리는 질문
+   - 워커 reply id처럼 대화에만 있는 값
+
+   세션이 이걸 마크다운 파일로 쓰고 아래 명령을 부른다. `--loop-prompt`는 `/gestalt:conductor`로 시작하는 한 줄(앞에 `5m ` 같은 간격 하나는 붙어도 된다, 500자 이하)만 받는다. 새 세션이 그 원문 그대로 반복을 걸기 때문이다. 꼴이 다르면 인계 파일을 쓰기 전에 거절하니 `--loop-prompt`를 빼고 다시 넘기고 사용자에게 알린다.
+
+   ```bash
+   gestalt conductor handoff --notes-file "$tmp/handoff-notes.md" \
+     --loop-prompt "/gestalt:conductor tick 돌리고 hostActions 처리" --json
+   ```
+
+   명령은 상태 저장소의 `handoffs/`에 인계 파일을 쓴다. 파일은 이어받은 세션이 할 일, 반복 프롬프트 원문, 메모 순서이고 메모는 펜스로 감싸 앞의 고정 절과 섞이지 않게 한다. 그다음 띄우기 전에 거절 기록(`handoff.json`)을 남기고 오르카가 있으면 `orca agent launch --agent claude --worktree path:<지금 작업 디렉토리> --prompt "/gestalt:conductor … 인계 파일: <경로>"`로 같은 워크스페이스에 새 세션을 띄운다. 오르카가 없거나 띄우기가 실패하면 파일만 남기고 `launched: false`와 사람에게 전할 문장을 돌려준다. 세션은 그 문장을 사람에게 전한다. 띄운 뒤 결과를 `handoff.json`에 못 덮어쓰면 stderr에 `인계 기록 갱신 실패` 한 줄을 내고 결과에 `recordError`를 싣는다. 이때 기록에는 "띄우는 중"이 남지만 tick 거절은 그대로 걸린다.
+
+5. **기존 세션 멈추기.** 넘긴 세션은 `ScheduleWakeup`을 `stop: true`로 부르고 컨덕터 크론도 지운다. 그래도 반복이 남아 tick이 다시 돌면 `sessions/<세션 id>/handoff.json`이 있어서 거절한다. 그 세션에서 계속 돌리려면 이 파일을 지운다.
+
+새 세션은 인계 파일을 읽고 규칙을 이어 지킨다. 기다리던 질문은 사람에게 다시 묻고 tick을 한 번 돌린 뒤 원문 그대로 반복을 건다. 새 세션은 세션 id가 달라서 컴팩트 횟수를 0부터 센다.
+
+이 흐름은 Claude Code 전용이다. 세션 id와 컴팩트 훅이 없는 호스트에서는 `handoff`가 출력에 안 실린다. `--state-dir`로 다른 저장소를 쓰면 훅이 그 자리를 몰라 횟수를 못 센다. 훅은 `GESTALT_CONDUCTOR_STATE_DIR`, `~/.gestalt/conductor.json`의 `stateDir`(절대 경로만), 기본값 순서로 저장소를 찾는다.
 
 ### 사람이 답할 자리
 
@@ -164,18 +196,20 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 주문, 워커, 체크포인트, 사람 확인 자리(gate), bypass 기록은 전부 `events.jsonl`에 이벤트로 한 줄씩 덧붙는다. 상태는 이 로그를 처음부터 다시 재생해서 만든다. 컨덕터 세션이 압축되거나 새로 떠도 같은 저장소를 열면 같은 상태에서 이어 간다.
 
-| 경로                        | 쓰는 쪽        | 내용                                                                                                                                                                                                                                                           |
-| --------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `events.jsonl`              | tick, CLI 명령 | 상태 이벤트와 실제 워커 에이전트, 보고 이력. `report-applied`에 workerId, status, summary, refs, skill, prRef, merged, stopReason, need를 보존하며 진행 보고도 포함한다. 하위 주문 요청(`spawnRequest`)은 주문 이벤트로 옮겨지므로 보고에는 다시 남기지 않는다 |
-| `inbox/`                    | 워커           | `worker report`가 남긴 결과 파일. 다음 tick이 상태와 보고 본문을 이벤트에 기록한 뒤 지운다. 적용하다 실패한 원문은 `inbox/failed/`로 옮긴다                                                                                                                    |
-| `inbox/unrecorded/`         | tick           | 적용은 끝났는데 `report-applied` 기록만 실패한 결과 파일. 다음 tick이 다시 적용하지 않고 기록만 남긴 뒤 지운다. 다시 적용하면 bypass와 워커에 전하기, 하위 주문이 한 번 더 돌기 때문이다                                                                       |
-| `prompts/`                  | tick           | 워커 첫 지시 파일                                                                                                                                                                                                                                              |
-| `worktrees/`                | tick           | 오르카가 없을 때 만든 git 워크트리                                                                                                                                                                                                                             |
-| `deploy/`                   | 호스트         | `deploy report`가 남긴 배포 결과                                                                                                                                                                                                                               |
-| `queue/`                    | 외부 시스템    | 외부 큐 메시지. 다음 tick이 읽고 지운다. 못 읽은 파일은 `queue/failed/`로 옮긴다                                                                                                                                                                               |
-| `slack/`                    | 호스트         | 슬랙 초안 본문                                                                                                                                                                                                                                                 |
-| `context/<owner>/<name>.md` | 컨덕터 세션    | 레포 공통 맥락. 워커 지시에 경로가 실린다                                                                                                                                                                                                                      |
-| `tick.lock`                 | tick           | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다                                                                                                                                                        |
+| 경로                        | 쓰는 쪽         | 내용                                                                                                                                                                                                                                                           |
+| --------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `events.jsonl`              | tick, CLI 명령  | 상태 이벤트와 실제 워커 에이전트, 보고 이력. `report-applied`에 workerId, status, summary, refs, skill, prRef, merged, stopReason, need를 보존하며 진행 보고도 포함한다. 하위 주문 요청(`spawnRequest`)은 주문 이벤트로 옮겨지므로 보고에는 다시 남기지 않는다 |
+| `inbox/`                    | 워커            | `worker report`가 남긴 결과 파일. 다음 tick이 상태와 보고 본문을 이벤트에 기록한 뒤 지운다. 적용하다 실패한 원문은 `inbox/failed/`로 옮긴다                                                                                                                    |
+| `inbox/unrecorded/`         | tick            | 적용은 끝났는데 `report-applied` 기록만 실패한 결과 파일. 다음 tick이 다시 적용하지 않고 기록만 남긴 뒤 지운다. 다시 적용하면 bypass와 워커에 전하기, 하위 주문이 한 번 더 돌기 때문이다                                                                       |
+| `prompts/`                  | tick            | 워커 첫 지시 파일                                                                                                                                                                                                                                              |
+| `worktrees/`                | tick            | 오르카가 없을 때 만든 git 워크트리                                                                                                                                                                                                                             |
+| `deploy/`                   | 호스트          | `deploy report`가 남긴 배포 결과                                                                                                                                                                                                                               |
+| `queue/`                    | 외부 시스템     | 외부 큐 메시지. 다음 tick이 읽고 지운다. 못 읽은 파일은 `queue/failed/`로 옮긴다                                                                                                                                                                               |
+| `slack/`                    | 호스트          | 슬랙 초안 본문                                                                                                                                                                                                                                                 |
+| `context/<owner>/<name>.md` | 컨덕터 세션     | 레포 공통 맥락. 워커 지시에 경로가 실린다                                                                                                                                                                                                                      |
+| `sessions/<세션 id>/`       | tick, 컴팩트 훅 | 등록한 컨덕터 세션. `session.json`은 tick이, `compactions`(횟수와 트랜스크립트 경로)는 훅이, `handoff.json`(인계 기록)은 `handoff` 명령이 쓴다                                                                                                                 |
+| `handoffs/`                 | `handoff` 명령  | 새 컨덕터 세션에 넘긴 인계 파일                                                                                                                                                                                                                                |
+| `tick.lock`                 | tick            | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다                                                                                                                                                        |
 
 위치는 `--state-dir`, `GESTALT_CONDUCTOR_STATE_DIR`, `~/.gestalt/conductor.json`의 `stateDir`, 기본값 `~/.gestalt/conductor` 순서로 정한다. 워커는 다른 레포에서 돌아 그쪽 `gestalt.json`을 읽기 때문에 워커 지시에는 저장소 절대 경로를 `--state-dir`로 박아 둔다.
 
@@ -387,5 +421,7 @@ tick은 메시지를 이렇게 처리한다.
 테스트는 지라, 슬랙, gh, 오르카를 전부 가짜 어댑터로 돌린다. 아래는 실제 환경에서 처음 쓸 때 확인해야 한다.
 
 - 오르카 `worker-start` 응답 JSON에서 dispatch id가 담기는 필드
+- 오르카 `agent launch`가 첫 지시의 `/gestalt:conductor`를 스킬 호출로 받는지와 응답 JSON의 세션 id 필드
+- 실제 컴팩트 직후 트랜스크립트 마지막 응답의 usage가 줄어든 크기로 바로 잡히는지
 - gh `pr list --json`의 `reviews[].commit.oid`와 `comments[].id`
 - 지라 전환 이름이 프로젝트마다 다를 때 호스트가 고르는 전환

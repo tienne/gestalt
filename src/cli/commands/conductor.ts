@@ -23,6 +23,19 @@ import {
   type EngineDeps,
 } from '../../conductor/engine.js';
 import { existingRepoContext, repoContextPath } from '../../conductor/context.js';
+import {
+  currentSessionId,
+  handoffNotice,
+  handoffRecordPath,
+  handoffStatus,
+  isSessionId,
+  launchHandoff,
+  readHandoffRecord,
+  recordHandoff,
+  registerSession,
+  writeHandoffFile,
+  type HandoffStatus,
+} from '../../conductor/handoff.js';
 import { resolveGate } from '../../conductor/gates.js';
 import {
   intakeOrder,
@@ -397,6 +410,11 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'tick');
+    const sessionId = currentSessionId();
+    if (sessionId) {
+      assertNotHandedOff(ctx, sessionId);
+      registerSession(ctx.store.dir, sessionId, process.cwd(), new Date());
+    }
     const deferred: HostAction[] = [];
     const watch =
       opts.prWatch !== false
@@ -427,9 +445,12 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     if (!report.skipped) report.errors.push(...(queue?.errors ?? []), ...(watch?.errors ?? []));
     for (const repo of prSource?.truncatedRepos ?? [])
       report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
-    if (opts.json) return print(report);
+    const handoff = sessionId ? sessionHandoff(ctx, sessionId) : undefined;
+    if (opts.json) return print(handoff ? { ...report, handoff } : report);
+    const handoffLine = handoffNotice(handoff);
     if (report.skipped) {
       console.log(`건너뛰었어요${report.errors[0] ? `: ${report.errors[0]}` : ' (감시 간격 안)'}`);
+      if (handoffLine) console.log(handoffLine);
       return;
     }
     const c = report.counts;
@@ -439,6 +460,89 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     for (const a of report.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
     for (const w of report.warnings) console.log(`경고: ${w}`);
     for (const e of report.errors) console.log(`오류: ${e}`);
+    if (handoffLine) console.log(handoffLine);
+  } catch (e) {
+    exitWithError(e);
+  }
+}
+
+function sessionHandoff(ctx: Ctx, sessionId: string): HandoffStatus {
+  return handoffStatus(ctx.store.dir, sessionId, {
+    thresholdPercent: ctx.config.handoffContextPercent,
+    ...(ctx.config.contextWindowTokens !== undefined
+      ? { contextWindowTokens: ctx.config.contextWindowTokens }
+      : {}),
+  });
+}
+
+/** 인계한 세션의 반복이 안 멈췄으면 tick을 거절해 컨덕터가 둘이 되지 않게 한다 */
+function assertNotHandedOff(ctx: Ctx, sessionId: string): void {
+  const prev = readHandoffRecord(ctx.store.dir, sessionId);
+  if (!prev) return;
+  const record = handoffRecordPath(ctx.store.dir, sessionId);
+  throw new Error(
+    `이 세션은 ${prev.at}에 새 세션으로 인계했어요(${prev.file}). 반복을 멈추고 새 세션에서 돌려 주세요. 이 세션에서 계속 돌리려면 ${record}를 지워 주세요`,
+  );
+}
+
+export interface ConductorHandoffOptions extends ConductorCommonOptions {
+  notesFile: string;
+  loopPrompt?: string;
+  session?: string;
+  launch?: boolean;
+}
+
+/**
+ * 컨덕터 세션을 새 세션으로 넘긴다. 인계 파일을 쓰고 오르카가 있으면 새 세션을 띄워 첫 지시로 넘긴다.
+ * 오르카가 없거나 띄우기가 실패하면 파일만 남기고 사람에게 전할 문장을 돌려준다.
+ * 띄우기 전에 이 세션을 인계한 것으로 적어 두고 이후 tick을 거절한다. 띄운 뒤 결과를 못 덮어써도
+ * 거절은 이미 걸려 있어 컨덕터가 둘 돌지 않는다. 그때는 stderr 한 줄과 결과의 recordError로 알린다.
+ */
+export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'handoff');
+    const sessionId = opts.session ?? currentSessionId();
+    if (!isSessionId(sessionId)) throw new Error('이 세션의 id를 몰라요. --session <id>로 주세요');
+    assertNotHandedOff(ctx, sessionId);
+    const notes = readDescriptionFile(opts.notesFile);
+    const now = new Date();
+    const status = sessionHandoff(ctx, sessionId);
+    const file = writeHandoffFile(
+      ctx.store.dir,
+      sessionId,
+      { ...(opts.loopPrompt ? { loopPrompt: opts.loopPrompt } : {}), notes },
+      status,
+      now,
+    );
+    recordHandoff(ctx.store.dir, sessionId, {
+      at: now.toISOString(),
+      file,
+      launched: false,
+      detail: '띄우는 중',
+    });
+    const orca = opts.launch === false ? undefined : detectOrca(process.env);
+    const outcome = await launchHandoff(file, {
+      cwd: process.cwd(),
+      ...(orca ? { orcaCommand: orca } : {}),
+    });
+    let recordError: string | undefined;
+    try {
+      recordHandoff(ctx.store.dir, sessionId, {
+        at: now.toISOString(),
+        file,
+        launched: outcome.launched,
+        detail: outcome.detail,
+      });
+    } catch (e) {
+      // 거절은 위의 기록으로 이미 걸려 있다. handoff.json에 '띄우는 중'이 남는다는 것만 알리고 문장은 그대로 낸다
+      recordError = (e as Error).message;
+      console.error(`인계 기록 갱신 실패: ${recordError}`);
+    }
+    const result = { sessionId, file, ...outcome, ...(recordError ? { recordError } : {}) };
+    if (opts.json) return print(result);
+    console.log(`인계 파일: ${file}`);
+    console.log(outcome.detail);
   } catch (e) {
     exitWithError(e);
   }
