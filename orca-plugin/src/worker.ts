@@ -4,7 +4,7 @@ import type { OrcaWorkerApi } from 'orca/worker'
 import { existsSync, watch, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { runGestalt } from './cli'
+import { CliError, runGestalt } from './cli'
 import { MobileServer } from './mobile-server'
 import type { ConductorView, GateResolveInput, GateResolveResult, GateView, OrderRemoveResult } from './protocol'
 import {
@@ -24,6 +24,8 @@ const EVENTS_FILE = 'events.jsonl'
 const STATUS_BAR_ID = 'conductor'
 const NOTIFIED_KEY = 'notifiedGates'
 const DEBOUNCE_MS = 300
+/** 쓰기가 300ms보다 촘촘히 이어져도 이만큼 지나면 한 번은 다시 읽는다 */
+const DEBOUNCE_MAX_MS = 2000
 const RETRY_MS = 5000
 const STATUS_TIMEOUT_MS = 20_000
 const RESOLVE_TIMEOUT_MS = 100_000
@@ -51,6 +53,7 @@ class Conductor {
   private watchedFile: string | null = null
   private retry: ReturnType<typeof setInterval> | null = null
   private debounce: ReturnType<typeof setTimeout> | null = null
+  private debounceSince: number | null = null
   private stopped = false
   private readonly mobile = new MobileServer(() => this.view)
   private mobilePort = 0
@@ -255,11 +258,15 @@ class Conductor {
 
   private schedule(): void {
     if (this.stopped) return
+    const now = Date.now()
+    this.debounceSince ??= now
     if (this.debounce) clearTimeout(this.debounce)
+    const wait = Math.max(0, Math.min(DEBOUNCE_MS, this.debounceSince + DEBOUNCE_MAX_MS - now))
     this.debounce = setTimeout(() => {
       this.debounce = null
+      this.debounceSince = null
       void this.refresh()
-    }, DEBOUNCE_MS)
+    }, wait)
   }
 
   async resolveGate(input: GateResolveInput): Promise<GateResolveResult> {
@@ -314,16 +321,11 @@ class Conductor {
         cwd: this.cwd(cfg.stateDir || this.view?.stateDir || null),
         timeoutMs: STATUS_TIMEOUT_MS
       })
-      const parsed = parseJsonOutput(out) as { removed?: unknown; skipped?: unknown }
-      const removed = Array.isArray(parsed.removed) ? parsed.removed.map(String) : []
-      const skipped = Array.isArray(parsed.skipped)
-        ? parsed.skipped.map((v) => {
-            const r = (v ?? {}) as { id?: unknown; reason?: unknown }
-            return { id: String(r.id ?? ''), reason: String(r.reason ?? '') }
-          })
-        : []
-      return { ok: true, removed, skipped }
+      return { ok: true, ...removeOutcome(parseJsonOutput(out)) }
     } catch (e) {
+      // 하나도 못 지우면 CLI는 exit 1로 끝나지만 stdout에 주문마다 이유를 남긴다. stderr 끝 몇 줄보다 그쪽이 온전하다
+      const outcome = e instanceof CliError ? tryRemoveOutcome(e.stdout) : null
+      if (outcome && outcome.skipped.length > 0) return { ok: false, ...outcome, error: '하나도 못 지웠어요' }
       return fail(message(e))
     } finally {
       void this.refresh()
@@ -366,6 +368,7 @@ class Conductor {
     this.clearRetry()
     if (this.debounce) clearTimeout(this.debounce)
     this.debounce = null
+    this.debounceSince = null
     await this.running?.catch(() => undefined)
     await this.mobile.stop()
   }
@@ -396,4 +399,25 @@ export default function activate(orca: OrcaWorkerApi): void {
 export async function deactivate(): Promise<void> {
   await active?.stop()
   active = null
+}
+
+function removeOutcome(json: unknown): Pick<OrderRemoveResult, 'removed' | 'skipped'> {
+  const parsed = (json ?? {}) as { removed?: unknown; skipped?: unknown }
+  const removed = Array.isArray(parsed.removed) ? parsed.removed.map(String) : []
+  const skipped = Array.isArray(parsed.skipped)
+    ? parsed.skipped.map((v) => {
+        const r = (v ?? {}) as { id?: unknown; reason?: unknown }
+        return { id: String(r.id ?? ''), reason: String(r.reason ?? '') }
+      })
+    : []
+  return { removed, skipped }
+}
+
+function tryRemoveOutcome(stdout: string): Pick<OrderRemoveResult, 'removed' | 'skipped'> | null {
+  if (!stdout.trim()) return null
+  try {
+    return removeOutcome(parseJsonOutput(stdout))
+  } catch {
+    return null
+  }
 }

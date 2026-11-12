@@ -1,6 +1,6 @@
 // 진짜 gestalt 대신 test/fake-gestalt.mjs를 부른다. 저장소도 임시 폴더라 실제 컨덕터 상태는 건드리지 않는다.
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { request } from 'node:http'
 import { join } from 'node:path'
@@ -235,6 +235,59 @@ test('order.remove는 CLI가 하나도 못 지우면 stderr의 이유를 돌려�
     const out = await worker.request('order.remove', { orderIds: ['ord-a'] })
     assert.equal(out.ok, false)
     assert.match(out.error ?? '', /열린 게이트가 있어서 못 지워요/)
+  })
+})
+
+test('order.remove는 CLI가 하나도 못 지우면 stdout에 남긴 주문별 이유를 돌려준다', async () => {
+  const s = store(STATUS)
+  await run(s, host(s.dir), async (worker) => {
+    const skipped = Array.from({ length: 7 }, (_, i) => ({ id: `ord-${i}`, reason: `열린 게이트가 있어서 못 지워요: ord-${i}` }))
+    writeFileSync(join(s.dir, 'fake-fail-stdout.json'), JSON.stringify({ removed: [], skipped }))
+    writeFileSync(join(s.dir, 'fake-fail'), skipped.map((x) => x.reason).join('\n') + '\n')
+    const out = await worker.request('order.remove', { orderIds: skipped.map((x) => x.id) })
+    assert.equal(out.ok, false)
+    assert.deepEqual(out.skipped, skipped, 'stderr 끝 몇 줄이 아니라 주문마다 이유를 다 받는다')
+  })
+})
+
+test('CLI 실패 이유가 길면 잘랐다고 알린다', async () => {
+  const s = store(STATUS)
+  await run(s, host(s.dir), async (worker) => {
+    writeFileSync(join(s.dir, 'fake-fail'), Array.from({ length: 7 }, (_, i) => `줄 ${i}`).join('\n') + '\n')
+    const out = await worker.request('order.remove', { orderIds: ['ord-a'] })
+    assert.match(out.error ?? '', /^…\(앞 2줄 생략\)\n줄 2\n/)
+    assert.match(out.error ?? '', /줄 6$/)
+  })
+})
+
+test('겹쳐 들어온 새로고침은 한 번 더 읽는 것으로 합친다', async () => {
+  const s = store(STATUS)
+  await run(s, host(s.dir), async (worker) => {
+    await worker.request('conductor.status')
+    const before = s.calls().filter((c) => c.args[1] === 'status').length
+    await Promise.all([
+      worker.request('conductor.refresh'),
+      worker.request('conductor.refresh'),
+      worker.request('conductor.refresh')
+    ])
+    const after = s.calls().filter((c) => c.args[1] === 'status').length
+    assert.equal(after - before, 2, '처음 하나와 그사이 들어온 요청을 합친 하나')
+  })
+})
+
+test('events.jsonl에 연달아 쓰면 디바운스로 한 번만 다시 읽는다', async () => {
+  const s = store(STATUS)
+  await run(s, host(s.dir), async (worker) => {
+    await worker.request('conductor.status')
+    await new Promise((r) => setTimeout(r, 400))
+    const before = s.calls().filter((c) => c.args[1] === 'status').length
+    for (let i = 0; i < 5; i++) {
+      appendFileSync(join(s.dir, 'events.jsonl'), `{"n":${i}}\n`)
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    await new Promise((r) => setTimeout(r, 900))
+    const after = s.calls().filter((c) => c.args[1] === 'status').length
+    assert.equal(after - before, 1)
   })
 })
 

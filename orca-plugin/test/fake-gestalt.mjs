@@ -13,6 +13,8 @@ if (!dir) {
 const log = join(dir, 'fake-calls.jsonl')
 if (existsSync(log)) appendFileSync(log, JSON.stringify({ args, cwd: process.cwd() }) + '\n')
 if (existsSync(join(dir, 'fake-fail'))) {
+  // --json 명령은 실패해도 stdout에 결과를 남길 수 있다. 그 경우를 흉내 낸다
+  if (existsSync(join(dir, 'fake-fail-stdout.json'))) process.stdout.write(readFileSync(join(dir, 'fake-fail-stdout.json'), 'utf8'))
   process.stderr.write(readFileSync(join(dir, 'fake-fail'), 'utf8'))
   process.exit(1)
 }
