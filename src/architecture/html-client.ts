@@ -38,7 +38,16 @@ export interface ClientConstants {
   flowBranches?: boolean;
   /** screen 노드에 화면 캡처가 있으면 true. 서랍에 캡처를 그리는 코드를 싣는다 */
   captures?: boolean;
+  /** 인프라 레벨이 있으면 true. 서랍에 클라우드와 리전 줄을 그리고 그 레벨에서 포커스를 막는 코드를 싣는다 */
+  infra?: boolean;
 }
+
+// 인프라 레벨은 박스 배치가 고정이라 포커스로 노드를 걸러 다시 그릴 수 없다
+const INFRA_NO_FOCUS = `!(levels[current] && levels[current].kind === 'infra') && `;
+const INFRA_FACTS = `    if (n.provider) factRow(basics, '클라우드', n.provider);
+    if (n.region) factRow(basics, '리전', n.region);
+    if (n.placedIn) factRow(basics, '놓인 곳', label(n.placedIn));
+`;
 
 // 화면 캡처 조각은 캡처가 있는 그림에만 싣는다. 늘 실으면 캡처가 없는 그림의 바이트까지 바뀐다
 const CAPTURE_CODE = `  var CAPTURE_SOURCE = { browser: '실행 화면', figma: '피그마 프레임' };
@@ -665,7 +674,7 @@ ${FOCUS_SOURCE}
     var basics = el('ul', 'facts');
     if (n.environment) factRow(basics, '환경', n.environment);
     if (n.account) factRow(basics, '계정', label(n.account));
-    if (n.mcpServer) factRow(basics, 'MCP 서버', n.mcpServer);
+${c.infra ? INFRA_FACTS : ''}    if (n.mcpServer) factRow(basics, 'MCP 서버', n.mcpServer);
     if (n.actions) factRow(basics, 'action', n.actions.join(', '));
     if (basics.childNodes.length) body.appendChild(basics);
     var f = services[n.id];
@@ -908,7 +917,7 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     var body = el('div', 'dr-body');
     var target = enterMap[id];
     var canEnter = target && target !== current;
-    var canFocus = id !== focusId && !!cardMap(sectionOf(current))[id] && pair.hidden;
+    var canFocus = ${c.infra ? INFRA_NO_FOCUS : ''}id !== focusId && !!cardMap(sectionOf(current))[id] && pair.hidden;
     if (canEnter || canFocus) {
       var actions = el('div', 'actions');
       if (canEnter) {
@@ -1843,7 +1852,7 @@ ${c.sequences ? '    seqLeave();\n' : ''}    clearFocus();
     return levels[levelId].edges;
   }
   function syncFocusBtn() {
-    focusBtn.hidden = !(selectedId && !isStep(selectedId) && selectedId !== focusId && pair.hidden && cardMap(sectionOf(current))[selectedId]);
+    focusBtn.hidden = !(${c.infra ? INFRA_NO_FOCUS : ''}selectedId && !isStep(selectedId) && selectedId !== focusId && pair.hidden && cardMap(sectionOf(current))[selectedId]);
   }
   function clearFocus() {
     focusId = null;
@@ -1861,7 +1870,7 @@ ${c.sequences ? '    seqLeave();\n' : ''}    clearFocus();
   }
   function renderFocus(levelId, nodeId) {
     if (!levels[levelId]) return false;
-    var src = sectionOf(levelId);
+${c.infra ? "    if (levels[levelId].kind === 'infra') return false;\n" : ''}    var src = sectionOf(levelId);
     if (!src || !cardMap(src)[nodeId]) return false;
     renderLevel(levelId);
     var all = levelEdges(levelId);

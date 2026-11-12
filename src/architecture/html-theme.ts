@@ -123,8 +123,15 @@ function filledSymbol(id: string, body: string, viewBox = '0 0 24 24'): string {
   return `<symbol id="${id}" viewBox="${viewBox}"><g fill="currentColor">${body}</g></symbol>`;
 }
 
+// 인프라 레벨 벤더 박스의 공식 로고를 못 받았을 때 대신 쓰는 구름
+const CLOUD_ICON =
+  '<path d="M7 18.5h10.5a4 4 0 0 0 .4-7.98A5.75 5.75 0 0 0 6.9 9.2 4.65 4.65 0 0 0 7 18.5z"/>';
+
 /** 페이지에 한 번만 싣는 아이콘 묶음. 카드와 단추는 use로 가져다 쓴다 */
-export function renderIconSprite(vocab: Vocabulary = LEGACY_VOCABULARY): string {
+export function renderIconSprite(
+  vocab: Vocabulary = LEGACY_VOCABULARY,
+  opts: { infra?: boolean } = {},
+): string {
   const kinds = Object.keys(vocab.looks)
     .sort()
     .map((k) => symbol(`i-${k}`, vocab.looks[k]!.icon));
@@ -137,7 +144,9 @@ export function renderIconSprite(vocab: Vocabulary = LEGACY_VOCABULARY): string 
   const engines = (Object.keys(ENGINE_ICONS) as DatastoreEngine[])
     .sort()
     .map((k) => filledSymbol(`e-${k}`, ENGINE_ICONS[k].body, ENGINE_ICONS[k].viewBox));
-  return `<svg class="sprite" aria-hidden="true" focusable="false"><defs>${[...kinds, ...ui, ...platforms, ...engines].join('')}</defs></svg>`;
+  // 인프라 레벨이 없는 그림은 묶음이 바이트까지 그대로여야 해서 맨 뒤에 덧붙인다
+  const infra = opts.infra ? [symbol('u-cloud', CLOUD_ICON)] : [];
+  return `<svg class="sprite" aria-hidden="true" focusable="false"><defs>${[...kinds, ...ui, ...platforms, ...engines, ...infra].join('')}</defs></svg>`;
 }
 
 export function iconUse(id: string, cls = ''): string {
@@ -783,6 +792,100 @@ export const ER_CSS = `.node.er-table { display: block; padding: 0; overflow: hi
 }
 `;
 
+/**
+ * 인프라 레벨에만 붙이는 스타일. 벤더 박스 테두리 색은 stack-diagram 템플릿 값을 그대로 쓴다(각 벤더 그림 규칙의 색).
+ * 타일은 다크 테마에서도 흰 바탕이다. 공식 아이콘이 흰 바탕을 전제로 그려져서다
+ */
+export const INFRA_CSS = `.group { position: absolute; box-sizing: border-box; border-radius: 12px; }
+.group > .g-label {
+  position: absolute; top: 12px; left: 12px; display: flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; line-height: 1.2; color: var(--edge); white-space: nowrap;
+}
+.g-label img, .g-label svg { width: 14px; height: 14px; flex: none; }
+.group > .g-label.node {
+  height: auto; padding: 0; grid-template-columns: none; cursor: pointer;
+  background: none; border: 0; border-radius: 3px; box-shadow: none;
+}
+.group > .g-label.node::before { display: none; }
+.group > .g-label.node:hover, .group > .g-label.node.selected { color: var(--accent); box-shadow: none; }
+.group > .g-label.node.hit { box-shadow: 0 0 0 3px var(--hit); }
+.group.aws { border: 1.5px solid var(--text); border-radius: 0; }
+.group.aws > .g-label { top: -1.5px; left: -1.5px; gap: 8px; color: var(--text); }
+.group.aws > .g-label img, .group.aws > .g-label svg { width: 30px; height: 30px; }
+.group.aws.noimg > .g-label { top: 8px; left: 12px; }
+.group.aws.region { border-color: #00A4A6; border-style: dashed; }
+.group.aws.vpc { border-color: #8C4FFF; }
+.group.aws.private { border-color: #00A4A6; }
+.group.aws.public { border-color: #7AA116; }
+.group.aws.subnet { border-color: var(--edge); }
+.group.gcp { border: 1.5px solid #4285F4; border-radius: 6px; }
+.group.azure { border: 1.5px solid #0078D4; border-radius: 6px; }
+.group.gcp > .g-label, .group.azure > .g-label { gap: 8px; color: var(--text); }
+.group.gcp > .g-label img, .group.azure > .g-label img, .group.gcp > .g-label svg, .group.azure > .g-label svg { width: 20px; height: 20px; }
+.group.gcp.region, .group.azure.region { border-color: var(--border-strong); background: var(--surface-2); }
+.group.gcp.vpc { border: 1.5px dashed var(--edge-strong); }
+.group.gcp.subnet { border: 1px dashed var(--edge); }
+.group.azure.vnet { border: 1.5px solid #A4CBFB; }
+.group.azure.subnet { border: 1px solid #A4CBFB; }
+.node.inode {
+  display: block; width: 132px; height: 100px; padding: 0; text-align: center;
+  background: none; border: 0; border-radius: 0; box-shadow: none;
+}
+.node.inode::before { display: none; }
+.node.inode:hover, .node.inode.selected, .node.inode.hit, .node.inode.hit.current, .node.inode.focus-root, .node.inode.is-focus { box-shadow: none; }
+.node.inode .tile {
+  width: 60px; height: 60px; margin: 0 auto; display: grid; place-items: center; box-sizing: border-box;
+  color: #3f4753; background: #fff; border: 1px solid #cdd2d9; border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(27, 31, 36, 0.05); transition: border-color 0.15s, box-shadow 0.15s;
+}
+.node.inode .tile img { width: 34px; height: 34px; object-fit: contain; }
+.node.inode .tile svg { width: 30px; height: 30px; }
+.node.inode .tile.bare { background: none; border-color: transparent; box-shadow: none; }
+.node.inode .tile.bare img { width: 60px; height: 60px; }
+.node.inode:hover .tile { border-color: var(--accent); }
+.node.inode.selected .tile { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.node.inode.hit .tile { box-shadow: 0 0 0 3px var(--hit); }
+.node.inode .name {
+  display: block; margin-top: 8px; font-size: 13px; font-weight: 600; line-height: 16px;
+  color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.node.inode .role {
+  display: block; margin-top: 2px; font: 9.5px/14px var(--mono); letter-spacing: 0.04em;
+  color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.node.inode .name span, .node.inode .role span {
+  padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--bg) 78%, transparent);
+}
+.infra-level .link .edge.aws { stroke: var(--text); stroke-width: 1.6; stroke-opacity: 1; }
+.infra-level .link .edge.n { stroke: var(--edge); stroke-width: 1.4; stroke-opacity: 1; }
+.infra-level .link .edge.dash { stroke-dasharray: 4 5; }
+.infra-level .link.lit .edge, .infra-level .link:hover .edge { stroke: var(--accent); }
+.infra-level .el {
+  font: 10.5px var(--mono); letter-spacing: 0.04em; fill: var(--edge); pointer-events: none;
+  paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round;
+}
+.infra-credit { position: absolute; margin: 0; font: 10px/1.4 var(--mono); color: var(--muted); }
+@media (prefers-color-scheme: dark) {
+:root:not([data-theme="light"]) .g-label img { background: #fff; border-radius: 3px; }
+}
+:root[data-theme="dark"] .g-label img { background: #fff; border-radius: 3px; }`;
+
+/** 지도 위 카드 줄. 질문별 그림이나 인프라 레벨이 있을 때만 싣는다 */
+export const VIEW_STRIP_CSS = `.view-strip { position: absolute; }
+.view-strip h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--text); }
+.view-strip h3 .n { margin-left: 4px; color: var(--muted); font-weight: 600; }
+.view-strip .vs-row { position: relative; height: 92px; }
+.view-card {
+  position: absolute; top: 0; box-sizing: border-box; height: 92px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 2px; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px;
+  color: var(--text); text-decoration: none; font-size: 13px;
+}
+.view-card:hover, .view-card:focus-visible { border-color: var(--accent); }
+.view-card .vc-shape { font-size: 11px; font-weight: 700; color: var(--accent); }
+.view-card .vc-q { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.view-card .vc-n { margin-top: auto; font-size: 11.5px; color: var(--muted); }`;
+
 /** 질문별 그림이 있을 때만 붙이는 스타일. 공용 CSS에 넣으면 투영 없는 그림의 바이트가 바뀐다 */
 export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; font-size: 13px; color: var(--muted); }
 .lifeline { stroke: var(--border-strong); stroke-width: 1.5; stroke-dasharray: 4 5; }
@@ -811,20 +914,7 @@ export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; fon
 .viewport.glide .seq-sticky, .viewport.glide .view-level .node {
   transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.2, 1), opacity 0.15s, box-shadow 0.15s, border-color 0.15s;
 }
-.view-strip { position: absolute; }
-.view-strip h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--text); }
-.view-strip h3 .n { margin-left: 4px; color: var(--muted); font-weight: 600; }
-.view-strip .vs-row { position: relative; height: 92px; }
-.view-card {
-  position: absolute; top: 0; box-sizing: border-box; height: 92px; padding: 10px 12px;
-  display: flex; flex-direction: column; gap: 2px; overflow: hidden;
-  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px;
-  color: var(--text); text-decoration: none; font-size: 13px;
-}
-.view-card:hover, .view-card:focus-visible { border-color: var(--accent); }
-.view-card .vc-shape { font-size: 11px; font-weight: 700; color: var(--accent); }
-.view-card .vc-q { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.view-card .vc-n { margin-top: auto; font-size: 11.5px; color: var(--muted); }`;
+${VIEW_STRIP_CSS}`;
 
 /** 순서도가 있는 그림에만 붙이는 스타일. 보기 전환 단추, 단계별 카드, 따라가기 지도와 단계 목록 */
 export const SEQ_VIEW_CSS = `.seq-bar {
