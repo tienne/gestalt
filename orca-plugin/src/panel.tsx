@@ -8,6 +8,7 @@ import {
   CodeView,
   Collapsible,
   EmptyState,
+  Grid,
   Heading,
   IconButton,
   Input,
@@ -40,6 +41,8 @@ const busy = atom<string | null>(null)
 const answers = atom<Record<string, string>>({})
 const lastResult = atom<GateResolveResult | null>(null)
 const openError = atom<string | null>(null)
+/** null이면 레포 지도, 값이 있으면 그 레포의 상세 */
+const selectedRepo = atom<string | null>(null)
 
 const RESOLVE_TIMEOUT_MS = 120_000
 
@@ -58,6 +61,19 @@ const STATUS_LABEL: Record<string, string> = {
   failed: '실패',
   escalated: '사람 결정 필요',
   cancelled: '취소'
+}
+
+type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
+
+const STATUS_TONE: Record<string, Tone> = {
+  queued: 'neutral',
+  running: 'accent',
+  'waiting-gate': 'warning',
+  merged: 'success',
+  done: 'neutral',
+  failed: 'danger',
+  escalated: 'warning',
+  cancelled: 'neutral'
 }
 
 const DECISION_LABEL: Record<GateDecision, string> = { approve: '승인', reject: '거절' }
@@ -246,9 +262,6 @@ function OrderRow({ order }: { order: OrderView }) {
         <Row gap="xs" wrap>
           <Code>{order.id}</Code>
           <Badge>{order.scope}</Badge>
-          <Text size="xs" muted>
-            {order.repo}
-          </Text>
         </Row>
         <Row gap="xs" wrap>
           {order.pr ? <Text size="xs">PR {order.pr}</Text> : null}
@@ -286,12 +299,12 @@ function BypassList({ items }: { items: readonly Bypass[] }) {
   )
 }
 
-function Bypasses({ v }: { v: ConductorView }) {
-  const perOrder = v.orders.filter((o) => o.bypasses.length > 0)
-  const total = perOrder.reduce((n, o) => n + o.bypasses.length, 0) + v.unassignedBypasses.length
+function Bypasses({ title, orders, unassigned = [] }: { title: string; orders: readonly OrderView[]; unassigned?: readonly Bypass[] }) {
+  const perOrder = orders.filter((o) => o.bypasses.length > 0)
+  const total = perOrder.reduce((n, o) => n + o.bypasses.length, 0) + unassigned.length
   if (total === 0) return null
   return (
-    <Collapsible title={`bypass 사후 보고 ${total}건`} defaultOpen={false}>
+    <Collapsible title={`${title} ${total}건`} defaultOpen={false}>
       <Stack gap="sm">
         {perOrder.map((o) => (
           <Stack gap="xs" key={o.id}>
@@ -301,16 +314,169 @@ function Bypasses({ v }: { v: ConductorView }) {
             <BypassList items={o.bypasses} />
           </Stack>
         ))}
-        {v.unassignedBypasses.length > 0 ? (
-          <Stack gap="xs">
-            <Text size="xs" weight="medium">
-              주문 없음
-            </Text>
-            <BypassList items={v.unassignedBypasses} />
-          </Stack>
-        ) : null}
+        {unassigned.length > 0 ? <BypassList items={unassigned} /> : null}
       </Stack>
     </Collapsible>
+  )
+}
+
+type RepoSummary = {
+  repo: string
+  orders: OrderView[]
+  gates: GateView[]
+  active: number
+  needsPerson: number
+  lastAt: number
+}
+
+const NO_REPO = '(레포 없음)'
+
+function summarize(v: ConductorView): { repos: RepoSummary[]; orphanGates: GateView[] } {
+  const byRepo = new Map<string, RepoSummary>()
+  const repoOf = new Map<string, string>()
+  for (const o of v.orders) {
+    const repo = o.repo || NO_REPO
+    repoOf.set(o.id, repo)
+    const s = byRepo.get(repo) ?? { repo, orders: [], gates: [], active: 0, needsPerson: 0, lastAt: 0 }
+    s.orders.push(o)
+    if (!TERMINAL_ORDER_STATUSES.includes(o.status)) s.active++
+    if (o.status === 'escalated') s.needsPerson++
+    s.lastAt = Math.max(s.lastAt, ms(o.updatedAt) ?? 0)
+    byRepo.set(repo, s)
+  }
+  const orphanGates: GateView[] = []
+  for (const g of v.gates) {
+    const s = g.orderId ? byRepo.get(repoOf.get(g.orderId) ?? '') : undefined
+    if (s) {
+      s.gates.push(g)
+      s.needsPerson++
+    } else orphanGates.push(g)
+  }
+  // 사람 손이 필요한 레포, 굴러가는 레포, 최근에 움직인 레포 순으로 앞에 둔다
+  const repos = [...byRepo.values()].sort(
+    (a, b) =>
+      b.needsPerson - a.needsPerson ||
+      Number(b.active > 0) - Number(a.active > 0) ||
+      b.lastAt - a.lastAt ||
+      a.repo.localeCompare(b.repo)
+  )
+  return { repos, orphanGates }
+}
+
+function splitRepo(repo: string): { name: string; owner: string | null } {
+  const i = repo.lastIndexOf('/')
+  return i < 0 ? { name: repo, owner: null } : { name: repo.slice(i + 1), owner: repo.slice(0, i) }
+}
+
+function countByStatus(orders: readonly OrderView[]): [string, number][] {
+  return groupOrders(orders).map(([status, list]) => [status, list.length])
+}
+
+function RepoTile({ s }: { s: RepoSummary }) {
+  const { name, owner } = splitRepo(s.repo)
+  const border: boolean | Tone = s.needsPerson > 0 ? 'warning' : s.active > 0 ? 'accent' : true
+  return (
+    <Box key={s.repo} border={border} radius="md" padding="sm" background={s.active > 0 || s.gates.length > 0 ? 'card' : 'muted'}>
+      <Stack gap="xs">
+        <Button variant="ghost" size="sm" tooltip={`${s.repo} 자세히 보기`} onPress={() => set(selectedRepo, s.repo)}>
+          {name}
+        </Button>
+        {owner ? (
+          <Text size="xs" muted truncate>
+            {owner}
+          </Text>
+        ) : null}
+        <Row gap="xs" wrap>
+          {s.gates.length > 0 ? <Badge tone="warning">{`확인 대기 ${s.gates.length}`}</Badge> : null}
+          {countByStatus(s.orders)
+            // 게이트 배지와 waiting-gate 상태 배지가 둘 다 "확인 대기"라 겹치면 하나만 남긴다
+            .filter(([status]) => !(status === 'waiting-gate' && s.gates.length > 0))
+            .map(([status, n]) => (
+            <Badge tone={STATUS_TONE[status] ?? 'neutral'}>{`${STATUS_LABEL[status] ?? status} ${n}`}</Badge>
+          ))}
+        </Row>
+      </Stack>
+    </Box>
+  )
+}
+
+function RepoMap({ v }: { v: ConductorView }) {
+  const { repos, orphanGates } = summarize(v)
+  const active = v.orders.filter((o) => !TERMINAL_ORDER_STATUSES.includes(o.status)).length
+  return (
+    <Stack gap="md">
+      <Row gap="xs" wrap>
+        <Badge tone={v.gates.length > 0 ? 'warning' : 'neutral'}>{`확인 대기 ${v.gates.length}`}</Badge>
+        <Badge tone="accent">{`진행 중 주문 ${active}`}</Badge>
+        <Text size="xs" muted>
+          {`레포 ${repos.length}곳`}
+        </Text>
+      </Row>
+      {orphanGates.length > 0 ? (
+        <Stack gap="sm">
+          <Heading level={3}>주문 없는 확인 대기</Heading>
+          {orphanGates.map((g) => (
+            <GateCard gate={g} />
+          ))}
+        </Stack>
+      ) : null}
+      {repos.length === 0 ? (
+        <EmptyState icon="layers" title="받은 주문이 없어요" description="컨덕터가 주문을 받으면 레포마다 여기에 칸이 생겨요." />
+      ) : (
+        <Grid minItemWidth="sm" gap="sm">
+          {repos.map((s) => (
+            <RepoTile s={s} />
+          ))}
+        </Grid>
+      )}
+      <Bypasses title="주문 없는 bypass" orders={[]} unassigned={v.unassignedBypasses} />
+    </Stack>
+  )
+}
+
+function RepoDetail({ s }: { s: RepoSummary }) {
+  const { name, owner } = splitRepo(s.repo)
+  return (
+    <Stack gap="md">
+      <Stack gap="xs">
+        <Row>
+          <Button variant="ghost" size="xs" onPress={() => set(selectedRepo, null)}>
+            ← 지도
+          </Button>
+        </Row>
+        <Heading level={3}>{name}</Heading>
+        {owner ? (
+          <Text size="xs" muted>
+            {owner}
+          </Text>
+        ) : null}
+      </Stack>
+      {s.gates.length > 0 ? (
+        <Stack gap="sm">
+          <Row gap="xs">
+            <Heading level={3}>확인 대기</Heading>
+            <Badge tone="warning">{s.gates.length}</Badge>
+          </Row>
+          {s.gates.map((g) => (
+            <GateCard gate={g} />
+          ))}
+        </Stack>
+      ) : null}
+      {groupOrders(s.orders).map(([status, orders]) => (
+        <Collapsible
+          key={status}
+          title={`${STATUS_LABEL[status] ?? status} ${orders.length}`}
+          defaultOpen={!TERMINAL_ORDER_STATUSES.includes(status)}
+        >
+          <Stack gap="xs">
+            {orders.map((o) => (
+              <OrderRow order={o} />
+            ))}
+          </Stack>
+        </Collapsible>
+      ))}
+      <Bypasses title="bypass 사후 보고" orders={s.orders} />
+    </Stack>
   )
 }
 
@@ -354,7 +520,9 @@ export default function Panel() {
         />
       </Stack>
     )
-  const active = v.orders.filter((o) => !TERMINAL_ORDER_STATUSES.includes(o.status))
+  const picked = read(selectedRepo)
+  // 고른 레포의 주문이 다 사라졌으면 지도로 돌아간다
+  const detail = picked === null ? undefined : summarize(v).repos.find((s) => s.repo === picked)
   return (
     <Stack gap="md">
       <Header v={v} />
@@ -370,46 +538,8 @@ export default function Panel() {
         </Callout>
       ) : null}
       {result ? <ResultCallout result={result} /> : null}
-      <Stack gap="sm">
-        <Row gap="xs">
-          <Heading level={3}>확인 대기</Heading>
-          <Badge tone={v.gates.length > 0 ? 'warning' : 'neutral'}>{v.gates.length}</Badge>
-        </Row>
-        {v.gates.length === 0 ? (
-          <Text size="xs" muted>
-            사람 확인을 기다리는 게이트가 없어요.
-          </Text>
-        ) : (
-          v.gates.map((g) => <GateCard gate={g} />)
-        )}
-      </Stack>
-      <Stack gap="sm">
-        <Row gap="xs">
-          <Heading level={3}>주문</Heading>
-          <Badge tone="accent">{active.length}</Badge>
-        </Row>
-        {v.orders.length === 0 ? (
-          <Text size="xs" muted>
-            받은 주문이 없어요.
-          </Text>
-        ) : (
-          groupOrders(v.orders).map(([status, orders]) => (
-            <Collapsible
-              key={status}
-              title={`${STATUS_LABEL[status] ?? status} ${orders.length}`}
-              description={status}
-              defaultOpen={!TERMINAL_ORDER_STATUSES.includes(status)}
-            >
-              <Stack gap="xs">
-                {orders.map((o) => (
-                  <OrderRow order={o} />
-                ))}
-              </Stack>
-            </Collapsible>
-          ))
-        )}
-      </Stack>
-      <Bypasses v={v} />
+      {/* 지도와 상세가 같은 자리에 그려져서 key로 나누지 않으면 지도에서 펼친 상태가 상세로 넘어간다 */}
+      {detail ? <RepoDetail key={`repo:${detail.repo}`} s={detail} /> : <RepoMap key="map" v={v} />}
     </Stack>
   )
 }
