@@ -94,6 +94,7 @@ function choose(gateId: string, decision: GateDecision): void {
 }
 
 async function confirm(gate: GateView, decision: GateDecision): Promise<void> {
+  if (read(busy) !== null) return
   const answer = read(answers)[gate.id]?.trim()
   set(busy, gate.id)
   try {
@@ -119,6 +120,7 @@ async function confirm(gate: GateView, decision: GateDecision): Promise<void> {
 }
 
 async function removeOrders(ids: string[]): Promise<void> {
+  if (read(removeBusy)) return
   set(removeBusy, true)
   try {
     set(removeResult, await plugin.request('order.remove', { orderIds: ids }, { timeoutMs: RESOLVE_TIMEOUT_MS }))
@@ -130,8 +132,9 @@ async function removeOrders(ids: string[]): Promise<void> {
   }
 }
 
-/** 레포를 옮기면 앞 레포에서 띄운 지우기 확인과 결과를 걷는다 */
+/** 레포를 옮기면 앞 레포에서 띄운 게이트 확인과 지우기 확인, 결과를 걷는다 */
 function selectRepo(repo: string | null): void {
+  set(pending, null)
   set(removing, null)
   set(removeResult, null)
   set(selectedRepo, repo)
@@ -181,7 +184,9 @@ function RemoveResultCallout({ result }: { result: OrderRemoveResult }) {
         <Callout tone="warning" title={`${result.skipped.length}개는 남겼어요`}>
           <Stack gap="xs">
             {result.skipped.map((s) => (
-              <Text size="xs">{s.reason}</Text>
+              <Text key={s.id} size="xs">
+                {s.reason}
+              </Text>
             ))}
           </Stack>
         </Callout>
@@ -220,7 +225,7 @@ function GateCard({ gate }: { gate: GateView }) {
   const asking = p?.gateId === gate.id ? p.decision : null
   const opened = ms(gate.openedAt)
   return (
-    <Box border="warning" radius="md" padding="sm" key={gate.id}>
+    <Box border="warning" radius="md" padding="sm">
       <Stack gap="xs">
         <Row gap="xs" wrap>
           <Badge tone="warning">{gate.type}</Badge>
@@ -229,7 +234,7 @@ function GateCard({ gate }: { gate: GateView }) {
           </Text>
           {opened !== null ? <RelativeTime at={opened} muted /> : null}
         </Row>
-        <Text>{gate.reason}</Text>
+        <Text weight="medium">{gate.reason}</Text>
         {gate.type === 'interview' ? (
           <Input
             label="답"
@@ -295,8 +300,10 @@ function ResultCallout({ result }: { result: GateResolveResult }) {
       {result.errors.length > 0 ? (
         <Callout tone="danger" title="컨덕터가 남긴 오류">
           <Stack gap="xs">
-            {result.errors.map((e) => (
-              <Text size="xs">{e}</Text>
+            {result.errors.map((e, i) => (
+              <Text key={`${i}:${e}`} size="xs">
+                {e}
+              </Text>
             ))}
           </Stack>
         </Callout>
@@ -321,7 +328,7 @@ function ResultCallout({ result }: { result: GateResolveResult }) {
 function OrderRow({ order }: { order: OrderView }) {
   const at = ms(order.updatedAt)
   return (
-    <Box key={order.id} border radius="sm" padding="sm">
+    <Box border radius="sm" padding="sm">
       <Stack gap="xs">
         <Row justify="between" align="start">
           {order.workspaceId ? (
@@ -358,8 +365,16 @@ function OrderRow({ order }: { order: OrderView }) {
           <Badge>{order.scope}</Badge>
         </Row>
         <Row gap="xs" wrap>
-          {order.pr ? <Text size="xs">PR {order.pr}</Text> : null}
-          {order.issue ? <Text size="xs">이슈 {order.issue}</Text> : null}
+          {order.pr ? (
+            <Text size="xs" muted>
+              PR {order.pr}
+            </Text>
+          ) : null}
+          {order.issue ? (
+            <Text size="xs" muted>
+              이슈 {order.issue}
+            </Text>
+          ) : null}
           {at !== null ? <RelativeTime at={at} muted /> : null}
         </Row>
         <RemoveConfirm at={`order:${order.id}`} />
@@ -371,10 +386,10 @@ function OrderRow({ order }: { order: OrderView }) {
 function BypassList({ items }: { items: readonly Bypass[] }) {
   return (
     <Stack gap="xs">
-      {items.map((b) => {
+      {items.map((b, i) => {
         const at = ms(b.at)
         return (
-          <Row gap="xs" wrap>
+          <Row key={`${i}:${b.at}`} gap="xs" wrap>
             <Badge>{b.need}</Badge>
             <Text size="xs">{b.action}</Text>
             {at !== null ? <RelativeTime at={at} muted /> : null}
@@ -390,7 +405,7 @@ function Bypasses({ title, orders, unassigned = [] }: { title: string; orders: r
   const total = perOrder.reduce((n, o) => n + o.bypasses.length, 0) + unassigned.length
   if (total === 0) return null
   return (
-    <Collapsible title={`${title} ${total}건`} defaultOpen={false}>
+    <Collapsible title={`${title} ${total}개`} defaultOpen={false}>
       <Stack gap="sm">
         {perOrder.map((o) => (
           <Stack gap="xs" key={o.id}>
@@ -410,7 +425,7 @@ function RepoTile({ s }: { s: RepoSummary }) {
   const { name, owner } = splitRepo(s.repo)
   const border: boolean | Tone = s.needsPerson > 0 ? 'warning' : s.active > 0 ? 'accent' : true
   return (
-    <Box key={s.repo} border={border} radius="md" padding="sm" background={s.active > 0 || s.gates.length > 0 ? 'card' : 'muted'}>
+    <Box border={border} radius="md" padding="sm" background={s.active > 0 || s.gates.length > 0 ? 'card' : 'muted'}>
       <Stack gap="xs">
         <Button variant="ghost" size="sm" tooltip={`${s.repo} 자세히 보기`} onPress={() => selectRepo(s.repo)}>
           {name}
@@ -432,8 +447,8 @@ function RepoTile({ s }: { s: RepoSummary }) {
             // 게이트 배지와 waiting-gate 상태 배지가 둘 다 "확인 대기"라 겹치면 하나만 남긴다
             .filter(([status]) => !(status === 'waiting-gate' && s.gates.length > 0))
             .map(([status, n]) => (
-            <Badge tone={STATUS_TONE[status] ?? 'neutral'}>{`${STATUS_LABEL[status] ?? status} ${n}`}</Badge>
-          ))}
+              <Badge key={status} tone={STATUS_TONE[status] ?? 'neutral'}>{`${STATUS_LABEL[status] ?? status} ${n}`}</Badge>
+            ))}
         </Row>
       </Stack>
     </Box>
@@ -456,7 +471,7 @@ function RepoMap({ v }: { v: ConductorView }) {
         <Stack gap="sm">
           <Heading level={3}>주문 없는 확인 대기</Heading>
           {orphanGates.map((g) => (
-            <GateCard gate={g} />
+            <GateCard key={g.id} gate={g} />
           ))}
         </Stack>
       ) : null}
@@ -465,7 +480,7 @@ function RepoMap({ v }: { v: ConductorView }) {
       ) : (
         <Grid minItemWidth="sm" gap="sm">
           {repos.map((s) => (
-            <RepoTile s={s} />
+            <RepoTile key={s.repo} s={s} />
           ))}
         </Grid>
       )}
@@ -561,7 +576,7 @@ function RepoDetail({ s }: { s: RepoSummary }) {
             ← 지도
           </Button>
         </Row>
-        <Heading level={3}>{name}</Heading>
+        <Heading level={2}>{name}</Heading>
         {s.project || owner ? (
           <Text size="xs" muted>
             {[s.project, owner].filter(Boolean).join(' · ')}
@@ -575,7 +590,7 @@ function RepoDetail({ s }: { s: RepoSummary }) {
             <Badge tone="warning">{s.gates.length}</Badge>
           </Row>
           {s.gates.map((g) => (
-            <GateCard gate={g} />
+            <GateCard key={g.id} gate={g} />
           ))}
         </Stack>
       ) : null}
@@ -589,7 +604,7 @@ function RepoDetail({ s }: { s: RepoSummary }) {
         >
           <Stack gap="xs">
             {orders.map((o) => (
-              <OrderRow order={o} />
+              <OrderRow key={o.id} order={o} />
             ))}
           </Stack>
         </Collapsible>

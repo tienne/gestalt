@@ -151,6 +151,19 @@ test('거절도 취소하면 보내지 않는다', async () => {
   await view.unmount()
 })
 
+test('지도로 나갔다 오면 띄워 둔 게이트 확인 칸이 걷힌다', async () => {
+  const { host, resolved } = setup()
+  const view = await mount(panel, { host })
+  await view.press({ type: 'Button', text: 'api' })
+  await view.press({ text: '승인' })
+  assert.ok(view.find({ text: '승인 확정' }))
+  await view.press({ text: '← 지도' })
+  await view.press({ type: 'Button', text: 'api' })
+  assert.equal(view.find({ text: '승인 확정' }), null)
+  assert.deepEqual(resolved, [])
+  await view.unmount()
+})
+
 test('인터뷰 게이트는 적은 답을 함께 보낸다', async () => {
   const { host, resolved } = setup()
   const view = await mount(panel, { host })
@@ -188,12 +201,12 @@ test('bypass 보고는 접어 두고 레포 상세와 지도에 나눠 보인다
   })
   const view = await mount(panel, { host })
   assert.equal(view.find({ text: '슬랙 게시 생략' }), null)
-  await view.toggle({ type: 'Collapsible', text: /주문 없는 bypass 1건/ })
+  await view.toggle({ type: 'Collapsible', text: /주문 없는 bypass 1개/ })
   assert.ok(view.find({ text: '슬랙 게시 생략' }))
 
   await view.press({ type: 'Button', text: 'api' })
   assert.equal(view.find({ text: '로컬 리뷰 생략' }), null)
-  await view.toggle({ type: 'Collapsible', text: /bypass 사후 보고 1건/ })
+  await view.toggle({ type: 'Collapsible', text: /bypass 사후 보고 1개/ })
   assert.ok(view.find({ text: '로컬 리뷰 생략' }))
   await view.unmount()
 })
