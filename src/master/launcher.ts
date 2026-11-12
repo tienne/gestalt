@@ -442,7 +442,9 @@ export class GitWorktreeLauncher implements Launcher {
   async start(spec: LaunchSpec): Promise<LaunchResult> {
     const repoPath = this.opts.repoPaths[spec.order.repo];
     if (!repoPath)
-      throw new Error(`${spec.order.repo}의 로컬 경로가 없어요. master.repoPaths에 적어 주세요`);
+      throw new Error(
+        `${spec.order.repo}의 로컬 경로가 없어요. ~/.gestalt/master.json의 repoPaths에 적어 주세요`,
+      );
     const cwd =
       spec.previousHandle && existsSync(spec.previousHandle)
         ? spec.previousHandle

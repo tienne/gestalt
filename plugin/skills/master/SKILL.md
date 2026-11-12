@@ -62,7 +62,7 @@ gestalt master order add --repo acme/app --title "배너 문구 고치기" --sco
 gestalt master tick --json
 ```
 
-한 번에 접수, 워커 보고 반영, 끊긴 워커 재개, 빈 슬롯만큼 띄우기, 머지 뒤 지라와 배포 처리, 정리를 돈다. `pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝난다. 사람이 방금 확인 자리를 종료했거나 주문을 넣은 직후면 `--force`를 붙인다.
+한 번에 워커 보고 반영, 접수, 끊긴 워커 재개, 빈 슬롯만큼 띄우기, 머지 뒤 지라와 배포 처리, 정리를 돈다. `pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝난다. 사람이 방금 확인 자리를 종료했거나 주문을 넣은 직후면 `--force`를 붙인다.
 
 응답은 짧은 숫자와 할 일만 담는다. 그대로 대화에 붙이지 말고 아래 `hostActions`만 처리한다.
 

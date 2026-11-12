@@ -384,7 +384,7 @@ const masterConfigSchema = z.object({
   staleAfterSec: z.number().int().min(60).max(86400).default(1800),
   /**
    * 주문에 범위를 안 적었을 때. 머지 전에 사람 승인을 받는 쪽이 기본이다.
-   * 여기부터 repoPaths까지는 레포의 gestalt.json이 못 바꾼다(withoutRepoMasterOverrides)
+   * 레포의 gestalt.json이 바꿀 수 있는 칸은 REPO_MASTER_KEYS가 정한다. 이 칸은 못 바꾼다
    */
   defaultScope: z.enum(ORDER_SCOPES).default('approval'),
   /** 워커 결과 요약의 글자 수 상한. 원문 로그가 마스터 대화로 새지 않게 막는다 */

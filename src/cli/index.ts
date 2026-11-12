@@ -1075,7 +1075,7 @@ export function createCli(): Command {
   master
     .command('tick')
     .description(
-      '접수, 결과 반영, 재개, 띄우기, 머지 뒤 처리, 정리를 한 번 돈다. 호스트가 할 일을 돌려준다',
+      '결과 반영, 접수, 재개, 띄우기, 머지 뒤 처리, 정리를 한 번 돈다. 호스트가 할 일을 돌려준다',
     )
     .option('--force', '감시 간격 안이어도 돈다')
     .option('--no-pr-watch', '이번엔 PR 감시를 건너뛴다')

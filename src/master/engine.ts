@@ -56,7 +56,8 @@ import type {
  *
  * 결과 수신, 접수, 끊김 감지와 재개, 배정과 띄우기, 머지 뒤 마무리, 슬랙 게시, 정리를
  * 차례로 돈다. 결과 수신이 접수보다 앞인 건 워커가 방금 보고한 PR 주소를 PR 감시가 먼저 알게
- * 하려는 것이다. 순서가 바뀌면 그 PR에 달린 코멘트를 남의 코멘트로 읽고 주문을 하나 더 만든다. 상태는 전부 저장소에 남기고 마스터 세션에는 짧은 TickReport만 돌려준다.
+ * 하려는 것이다. 순서가 바뀌면 그 PR에 달린 코멘트를 남의 코멘트로 읽고 주문을 하나 더 만든다.
+ * 상태는 전부 저장소에 남기고 마스터 세션에는 짧은 TickReport만 돌려준다.
  * 마스터 세션이 대신 해야 하는 일(서브에이전트 띄우기, git 워크트리 세션 열기, 메시지 전하기)은
  * hostActions로 돌려준다. Passthrough 설계라 여기서 LLM을 부르지 않는다.
  */
@@ -120,6 +121,8 @@ const STEAL_STALE_MS = 60 * 1000;
 /** 잠금을 풀 때 steal 줄에 서려고 다시 해보는 횟수와 간격. 걷는 쪽은 읽기, 지우기, 만들기 한 번씩만 하고 놓는다 */
 const RELEASE_RETRIES = 20;
 const RELEASE_RETRY_MS = 50;
+/** 정리에 실패한 워커의 게이트를 알아보는 표식 */
+const CLEANUP_FAILED = 'cleanup-failed';
 /** 주문 하나의 워커들이 spawnRequest로 만들 수 있는 하위 주문 수. 넘는 요청은 거절해 워커에 알린다 */
 export const MAX_SPAWN_PER_ORDER = 3;
 /** 보고를 적용하다 실패한 원문을 남기는 자리. inbox 아래에 둔다 */
@@ -398,6 +401,8 @@ async function applyReport(
  * 한 단계만 받는다. 자식 주문의 워커가 또 요청하면 3, 9, 27개로 불어나므로 거절한다.
  * 수는 부모 주문 기준으로 센다. 워커 기준이면 재개로 새 워커가 뜰 때마다 몫이 다시 생긴다.
  * 거절은 게이트로 올리지 않고 워커에 알린다. 사람이 승인해도 상한이 그대로라 할 일이 없다.
+ * 거절은 기록하지 않아서 같은 요청을 다시 내면 매번 같은 거절을 돌려준다. 재개로 새로 뜬 워커도
+ * 거절 이유를 들어야 해서 워커 id 없이 요청만으로 막지 않는다.
  */
 async function spawnFromReport(
   store: MasterStore,
@@ -666,8 +671,6 @@ async function cleanupWorkers(
     report.escalated.push(gate.id);
   });
 }
-
-const CLEANUP_FAILED = 'cleanup-failed';
 
 async function moveJira(
   store: MasterStore,
