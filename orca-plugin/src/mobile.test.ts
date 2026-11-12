@@ -100,9 +100,13 @@ test('PR은 카드가 레포를 알려 주니 번호만 남기고 모르는 꼴�
   assert.equal(shortPr('draft'), 'draft')
 })
 
-test('CLI가 실패하면 이유를 보여 주고 저장소가 없으면 그 폴더를 알려 준다', () => {
-  has(mobileFragment(view({ state: 'error', error: 'spawn gestalt ENOENT' }), NOW), 'spawn gestalt ENOENT')
-  has(mobileFragment(view({ state: 'missing', stateDir: '/tmp/<x>' }), NOW), '/tmp/&lt;x&gt;에 events.jsonl')
+test('CLI 실패 원문과 저장소 경로는 인증 없는 폰 페이지에 싣지 않는다', () => {
+  const failed = mobileFragment(view({ state: 'error', error: 'spawn /Users/someone/bin/gestalt ENOENT' }), NOW)
+  has(failed, 'gestalt CLI가 실패했어요')
+  lacks(failed, '/Users/someone')
+  const missing = mobileFragment(view({ state: 'missing', stateDir: '/Users/someone/.gestalt/conductor' }), NOW)
+  has(missing, '저장소가 아직 없어요')
+  lacks(missing, '/Users/someone')
   has(mobileFragment(null, NOW), '불러오는 중')
 })
 
@@ -149,7 +153,10 @@ test('서버는 GET만 받고 낯선 Host는 막고 헤더에 따라 본문만 �
     assert.equal(page.status, 200)
     has(page.body, '<!doctype html>')
     has(page.body, '보이는 주문')
-    has(String(page.headers['content-security-policy']), "default-src 'none'")
+    const csp = String(page.headers['content-security-policy'])
+    has(csp, "default-src 'none'")
+    has(csp, "script-src 'sha256-")
+    lacks(csp, "script-src 'unsafe-inline'")
     assert.equal(page.headers['cache-control'], 'no-store')
 
     const fragment = await hit(port, { headers: { 'x-conductor-fragment': '1' } })

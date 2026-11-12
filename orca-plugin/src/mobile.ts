@@ -105,8 +105,9 @@ const stat = (label: string, value: string, tone: string) =>
 /** 폴링이 갈아 끼우는 본문. 페이지 안팎에서 같은 함수로 그린다 */
 export function mobileFragment(v: ConductorView | null, now = Date.now()): string {
   if (!v) return '<div class="empty">불러오는 중이에요</div>'
+  // 인증 없는 페이지라 저장소 경로와 CLI 오류 원문은 싣지 않는다. 홈 경로에 사용자 이름이 들어 있다
   if (v.state === 'missing')
-    return `<div class="empty">${esc(v.stateDir ?? '상태 폴더')}에 events.jsonl이 아직 없어요.</div>`
+    return '<div class="empty">컨덕터 저장소가 아직 없어요. 자세한 건 데스크톱 오르카에서 봐 주세요.</div>'
 
   const { repos } = summarize(v)
   const active = v.orders.filter((o) => !isTerminal(o.status)).length
@@ -119,7 +120,9 @@ export function mobileFragment(v: ConductorView | null, now = Date.now()): strin
     `<div class="stats">${stat('확인 대기', String(v.gates.length), v.gates.length > 0 ? 'warning' : 'neutral')}${stat('진행', String(active), active > 0 ? 'accent' : 'neutral')}${stat('마지막 tick', tick !== null ? ago(tick, now) : '없음', 'neutral')}</div>`
   )
   if (v.state === 'error')
-    parts.push(`<div class="notice"><b>gestalt CLI가 실패했어요</b><div class="small">${esc(v.error ?? '')}</div></div>`)
+    parts.push(
+      '<div class="notice"><b>gestalt CLI가 실패했어요</b><div class="small">이유는 데스크톱 오르카의 패널이나 상태 표시줄에서 봐 주세요.</div></div>'
+    )
 
   if (v.gates.length > 0) {
     const projectOf = (o: OrderView | undefined) => (o ? (summarizeProject(repos, o.repo) ?? null) : null)
@@ -156,13 +159,13 @@ const summarizeProject = (repos: readonly RepoSummary[], repo: string) => repos.
 const STYLE = `
 :root { color-scheme: light dark;
   --canvas: #f4f5f6; --s1: #ffffff; --s2: #f7f8f9; --s3: #eff1f3; --raised: #ffffff;
-  --ink: #08090a; --ink-muted: #3c4149; --ink-subtle: #6b6f76; --ink-3: #8a8f98;
+  --ink: #08090a; --ink-muted: #3c4149; --ink-subtle: #6b6f76; --ink-3: #6b6f76;
   --line: #e4e6e9; --line-strong: #d3d6db; --line-3: #c6cad0;
   --accent: #5e6ad2; --ok: #1f8f3a; --warn: #c27c0e; --danger: #d63c3c;
   --edge: 0 1px 2px rgba(8, 9, 10, 0.04); }
 @media (prefers-color-scheme: dark) { :root {
   --canvas: #010102; --s1: #0f1011; --s2: #141516; --s3: #18191a; --raised: #141516;
-  --ink: #f7f8f8; --ink-muted: #d0d6e0; --ink-subtle: #8a8f98; --ink-3: #62666d;
+  --ink: #f7f8f8; --ink-muted: #d0d6e0; --ink-subtle: #8a8f98; --ink-3: #8a8f98;
   --line: #23252a; --line-strong: #34343a; --line-3: #3e3e44;
   --accent: #5e6ad2; --ok: #27a644; --warn: #e2a33b; --danger: #eb5757;
   --edge: inset 0 1px 0 rgba(255, 255, 255, 0.04); } }
@@ -262,7 +265,7 @@ body.offline #offline { display: inline-flex; }
 
 // 같은 주소에 헤더만 붙여 본문을 다시 받는다. 테일스케일이 붙인 경로 접두사를 몰라도 된다.
 // 사람이 펼치고 접은 칸은 data-key로 기억했다가 갈아 끼운 뒤 되돌린다.
-const SCRIPT = `
+export const SCRIPT = `
 (() => {
   const main = document.getElementById('main');
   const INTERVAL = 10000;

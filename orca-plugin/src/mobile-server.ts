@@ -1,14 +1,17 @@
 // 보기 전용 페이지를 이 맥의 루프백에만 연다. 바깥에서 보려면 사람이 tailscale serve로 이 포트를 테일넷에 잇는다.
 // 읽기만 하므로 GET과 HEAD 말고는 받지 않고, 컨덕터 상태를 바꾸는 길은 두지 않는다.
+import { createHash } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { mobileFragment, mobilePage } from './mobile'
+import { mobileFragment, mobilePage, SCRIPT } from './mobile'
 import type { ConductorView } from './protocol'
 
 export const FRAGMENT_HEADER = 'x-conductor-fragment'
 
+// 인라인 스크립트는 해시로만 허용한다. 이스케이프가 한 자리 빠져도 주입된 스크립트는 안 돈다
+const SCRIPT_HASH = createHash('sha256').update(SCRIPT).digest('base64')
+
 const SECURITY_HEADERS = {
-  'Content-Security-Policy':
-    "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-${SCRIPT_HASH}'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'X-Frame-Options': 'DENY',
