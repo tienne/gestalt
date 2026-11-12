@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.129.0] - 2026-11-12
+
+### Added
+
+- **컨덕터 세션 하나가 여러 레포의 주문을 받아 워커에 나눠 주고 머지까지 끌고 가요(#119).** 사람이 워커를 하나씩 띄우고 리뷰와 CI, 승인 대기를 지켜보던 일을 `/gestalt:conductor` 스킬과 `gestalt conductor` 명령 묶음이 맡아요. 사용법은 `docs/conductor.md`의 시작하기 절을 보면 돼요.
+  - 주문은 말이나 지라 티켓, 외부 큐, PR 감시로 받아요. 말로 받은 요청은 세션이 `conductor order add`를 대신 부르고 `repoPaths`에 적은 레포는 tick마다 열린 PR을 보고 `review-reply`나 `review-loop` 주문을 만들어요.
+  - 외부 큐는 상태 저장소의 `queue/` 디렉토리를 파일 큐로 써요. 다른 시스템이 JSON 파일을 두거나 `conductor queue add`로 넣으면 다음 tick이 주문으로 받아요. 못 읽는 파일은 `queue/failed/`로 옮기고 tick 보고의 `errors`에 남겨요.
+  - 주문마다 범위가 있어요. `merge-through`는 머지까지 승인 없이 가고 기본인 `approval`은 머지 전에 묻고 `interview-first`는 인터뷰 답까지 사람에게 물어요. 지라와 외부 큐에서 온 주문은 설정의 `defaultScope`보다 넓힐 수 없어요.
+  - 사람에게는 머지 승인과 슬랙 게시, 인터뷰 답, 리뷰 수동 전환만 물어요. 단순 승인이나 수동 검증, 정리는 bypass로 기록하고 `conductor status`에서 주문별로 보여 줘요.
+  - 상태는 `~/.gestalt/conductor/events.jsonl`에 이벤트로 쌓고 다시 읽어서 만들어요. 그래서 컨덕터 세션이 압축되거나 새로 떠도 같은 자리에서 이어 가요. 소식이 끊긴 워커는 마지막 체크포인트부터 다시 띄우고 `maxResumeAttempts`(기본 3)를 넘기면 사람에게 올려요.
+  - tick은 상태 계산만 하고 지라 전환과 슬랙 게시는 `hostActions`로 돌려줘요. 호스트 세션이 사람 계정의 MCP로 실행해요.
+  - 동시 워커는 `maxConcurrentWorkers`(기본 10)까지 띄우고 넘치는 주문은 줄을 세워요. 오르카 안이면 오르카 워크트리로 띄우고 밖이면 git 워크트리로 띄워요. 읽기만 하는 주문은 서브에이전트로 돌려요.
+  - 워커는 하위 워커를 직접 못 띄워요. 보고의 `spawnRequest`로 올리면 컨덕터가 주문당 세 개까지 받아요. 워커 세션에서 부른 `tick`이나 `order add`, `queue add`, `gate resolve`, `deploy report`는 거절해요.
+  - `gestalt conductor metrics --since <날짜>`는 사람이 끼어든 발화를 직전 45일 평균과 같은 셈법으로 세요. 목표는 40% 감소예요.
+  - 범위와 계정, 레포 경로, 상태 저장소 위치는 사용자 파일 `~/.gestalt/conductor.json`에만 적어요. 레포의 `gestalt.json`이 주문 범위나 계정을 바꾸지 못하게 하려고요. 레포 쪽에는 워커 수와 감시 주기 같은 조율 값만 둬요.
+
+### 검증 범위
+
+- 로컬 리뷰를 5라운드 돌렸어요. 코멘트가 52개, 15개, 10개, 3개 순으로 줄었고 5라운드는 이슈 0개로 승인됐어요. 주로 tick 잠금 경합과 워커 id 대조, 외부 주문 검증, 하위 주문 상한이 걸렸어요.
+- 리뷰를 마친 뒤 이름을 master에서 conductor로 바꿨고 외부 큐 연결을 더했어요. 이 둘은 재리뷰 없이 gate와 CI만 통과했어요.
+- 지라와 슬랙, gh, 오르카는 테스트 더블로만 확인했어요. 워커 10개가 도는 중에 말과 지라, 큐 주문이 섞여 들어와 머지와 배포를 거쳐 In-QA까지 가는 장면을 시나리오 테스트로 돌려요.
+
+### 남긴 것
+
+- 실환경에서 처음 쓸 때 오르카 `worker-start` 응답의 워커 필드와 gh `pr list --json`의 리뷰 커밋 필드, 프로젝트마다 다른 지라 전환 이름을 확인해야 해요.
+- 워커 id 대조는 git 워크트리 워커에만 걸려요. 오르카와 서브에이전트 워커는 지시서 규칙에 기대요.
+- `hostActions` 실행 결과를 저장소에 남기는 일과 이벤트 로그 압축, `metrics` 스트리밍 읽기는 후속으로 미뤘어요.
+
 ## [0.128.1] - 2026-11-11
 
 ### Fixed
