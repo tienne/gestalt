@@ -102,9 +102,9 @@ gestalt conductor gate resolve <gateId> --reject --json
 
 그 밖의 요청(단순 승인, 수동 검증, 정리, 인증, 계정 전환)은 tick이 bypass로 넘기고 기록만 남긴다. 사람에게 묻지 않는다.
 
-워커 안에서 도는 ship의 승인 단계 셋, ⓐ draft PR 올리기와 ⓑ Copilot 반영 계획, ⓒ ready 전환도 머지가 아니라서 사람에게 묻지 않는다. 워커가 진행하면서 `gestalt conductor worker report --status needs --need simple-approval --need-detail "ship ⓐ …"`로 남기고 답을 기다리지 않는다. tick이 이걸 bypass로 기록한다.
+워커 안에서 도는 ship의 승인 단계 셋, ⓐ draft PR 올리기와 ⓑ Copilot 반영 계획, ⓒ ready 전환도 머지가 아니라서 사람에게 묻지 않는다. 워커가 진행하면서 `gestalt conductor worker report --status needs --summary "<한 줄 요약>" --need simple-approval --need-detail "ship ⓐ …"`로 남기고 답을 기다리지 않는다. tick이 이걸 bypass로 기록한다.
 
-기본 체인 solve → ship은 PR을 ready로 돌리면 끝나고 머지는 워커가 이어서 한다. 범위가 `merge-through`면 워커가 바로 머지한다. 그 밖의 범위면 워커가 `need merge-approval`로 올리고 기다리다가 `merge` 확인 자리에서 승인이 나면 머지한다. 머지한 워커는 `--merged`와 `--pr owner/name#번호`를 실어 보고한다. ship이 draft PR을 만들면 Copilot 리뷰를 요청하기 전에 `--status progress --skill ship --pr owner/name#번호`로 바로 보고한다. 미루면 PR 감시가 그 PR에 `review-reply` 주문을 또 만든다.
+기본 체인 solve → ship은 PR을 ready로 돌리면 끝나고 머지는 워커가 이어서 한다. 범위가 `merge-through`면 워커가 바로 머지한다. 그 밖의 범위면 워커가 `need merge-approval`로 올리고 기다리다가 `merge` 확인 자리에서 승인이 나면 머지한다. 머지한 워커는 `--merged`와 `--pr owner/name#번호`, `--summary "<한 줄 요약>"`을 실어 보고한다. ship이 draft PR을 만들면 Copilot 리뷰를 요청하기 전에 `--status progress --skill ship --summary "<한 줄 요약>" --pr owner/name#번호`로 바로 보고한다. 미루면 PR 감시가 그 PR에 `review-reply` 주문을 또 만든다.
 
 ## 5. 슬랙 초안
 
@@ -134,7 +134,7 @@ Claude Code에서는 사용자가 `/loop /gestalt:conductor tick 돌리고 hostA
 
 진행을 보고할 때는 `gestalt conductor status`의 숫자와 바뀐 주문만 짧게 말한다. bypass로 넘긴 일은 모아서 사후 보고한다. 주문마다 붙은 bypass 내역이 `gestalt conductor status --json`에 실리고 끝난 주문까지 보려면 `--all`을 붙인다.
 
-끝난 주문의 결과나 이전 보고를 물으면 `gestalt conductor order show <id> --json`으로 읽는다. 보고 이력의 요약과 refs, PR, gate, bypass를 근거로 답하고 대화 기억으로 복원하지 않는다. `status --all`의 마지막 요약은 100자까지만 보이므로 자세한 결과는 `order show`를 쓴다. 옛 로그에서 보고 이력이 비어 있으면 저장된 보고가 없다고 밝힌다.
+끝난 주문의 결과나 이전 보고를 물으면 `gestalt conductor order show <id> --json`으로 읽는다. 보고 이력의 요약과 refs, PR, gate, bypass를 근거로 답하고 대화 기억으로 복원하지 않는다. `status --all`의 텍스트 출력은 마지막 요약을 100자까지만 보여 주고 이전 진행 보고는 `order show`에만 있으므로 자세한 결과는 `order show`를 쓴다. 옛 로그에서 보고 이력이 비어 있으면 저장된 보고가 없다고 밝힌다.
 
 ## 8. 효과 재기
 

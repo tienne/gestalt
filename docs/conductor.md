@@ -101,7 +101,7 @@ gestalt conductor order show <id>
 gestalt conductor order show <id> --json
 ```
 
-`status --all`은 끝난 주문 줄에 마지막 보고 요약을 100자까지 붙인다. 전체 요약과 이전 진행 보고는 `order show`로 읽는다. 새 컨덕터 세션에서도 같은 결과를 볼 수 있다. 보고 본문을 저장하지 않던 옛 로그는 복원할 수 없어 빈 이력으로 보인다.
+`status --all`은 끝난 주문 줄에 마지막 보고 요약을 100자까지 붙인다. `status --all --json`의 `lastSummary`에는 요약 전문이 실린다. 이전 진행 보고는 `order show`로 읽는다. 새 컨덕터 세션에서도 같은 결과를 볼 수 있다. 보고 본문을 저장하지 않던 옛 로그는 복원할 수 없어 빈 이력으로 보인다.
 
 효과를 재려면 `gestalt conductor metrics --since <날짜>`를 쓴다. 무엇을 비교하는지는 [효과 재기](#효과-재기)에 있다.
 
@@ -165,7 +165,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 ### 워커 에이전트 고르기
 
-사용자 전역 `~/.gestalt/conductor.json`에 기본값과 레포별 값을 적는다. 레포마다 쓰는 에이전트가 다를 수 있어 `repoPaths`처럼 레포 키 맵을 둔다. 레포 안의 `gestalt.json`에서는 이 값을 받지 않는다.
+사용자 전역 `~/.gestalt/conductor.json`에 기본값과 레포별 값을 적는다. 레포마다 쓰는 에이전트가 다를 수 있어 `repoPaths`처럼 레포(`owner/name`)를 키로 하는 맵을 둔다. 레포 안의 `gestalt.json`에서는 이 값을 받지 않는다.
 
 ```json
 {
@@ -259,7 +259,7 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 - **내가 올린 PR**: 내가 마지막으로 답한 뒤에 다른 사람 코멘트가 있으면 `review-reply` 주문을 만든다.
 - **내가 리뷰한 PR**: 내가 리뷰한 뒤 head가 바뀌었으면 `review-loop` 주문을 만든다. 코드는 그대로인데 답만 달렸으면 `review-manual-switch` 확인 자리로 사람에게 묻고 승인되면 재리뷰 주문을 만든다.
 
-워커는 PR을 다루면 결과 보고에 `--pr owner/name#번호`를 싣는다. PR 감시는 끝나지 않은 주문에 붙은 이 값으로 이미 처리 중인 PR을 건너뛰므로 빠지면 같은 PR에 주문이 또 생긴다. ship이 draft PR을 만들면 Copilot 리뷰를 요청하기 전에 `--status progress --skill ship`으로 바로 보고한다. 끝 보고까지 미루면 그 사이 Copilot 코멘트가 달린 PR을 감시가 새 PR로 보고 `review-reply` 주문을 만든다.
+워커는 PR을 다루면 결과 보고에 `--pr owner/name#번호`를 싣는다. PR 감시는 끝나지 않은 주문에 붙은 이 값으로 이미 처리 중인 PR을 건너뛰므로 빠지면 같은 PR에 주문이 또 생긴다. ship이 draft PR을 만들면 Copilot 리뷰를 요청하기 전에 `--status progress --skill ship --summary "<한 줄 요약>"`으로 바로 보고한다. 끝 보고까지 미루면 그 사이 Copilot 코멘트가 달린 PR을 감시가 새 PR로 보고 `review-reply` 주문을 만든다.
 
 ## 외부 큐
 
