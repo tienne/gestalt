@@ -792,9 +792,9 @@ function acquireLock(dir: string): LockResult {
 }
 
 /**
- * 잠금을 푼다. 걷는 쪽이 다시 읽어 비교하고 지우는 사이에 주인이 풀고 제3자가 잡으면 걷는 쪽이
- * 제3자의 잠금을 지운다. 주인이 읽고 지우는 사이에 걷는 쪽이 끼어들어도 같은 일이 난다. 그래서
- * 푸는 쪽도 steal 줄에 선다.
+ * 잠금을 푼다. 걷는 쪽은 잠금을 다시 읽어 비교한 뒤 지운다. 그 사이에 주인이 풀고 제3자가 새로
+ * 잡으면 걷는 쪽이 제3자의 잠금을 지운다. 주인이 읽고 지우는 사이에 걷는 쪽이 끼어들면 주인이
+ * 걷는 쪽이 새로 잡은 잠금을 지운다. 그래서 푸는 쪽도 steal 줄에 선다.
  */
 function releaseLock(path: string, token: string): void {
   const stealPath = `${path}.steal`;
