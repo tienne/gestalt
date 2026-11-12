@@ -5,6 +5,7 @@ import {
   emptyView,
   findWorkspace,
   isSafeId,
+  needsWorkspaces,
   parseJsonOutput,
   parseStatus,
   statusBarOf,
@@ -43,9 +44,9 @@ test('findWorkspace는 오르카 워크트리는 디렉토리 이름으로, git 
     { id: 'w3', kind: 'worktree', path: '/tmp/wt/o2' }
   ]
   const order = { id: 'o1', status: 'running', scope: 'pr', repo: 'r', title: 't', bypasses: [] }
-  assert.equal(findWorkspace({ ...order, workerKind: 'orca-worktree', worktreeName: 'o1-2' }, ws), 'w1')
+  assert.equal(findWorkspace({ ...order, workerKind: 'orca-worktree', worktreeName: 'o1-2' }, ws)?.id, 'w1')
   assert.equal(findWorkspace({ ...order, workerKind: 'orca-worktree', worktreeName: 'o1-3' }, ws), undefined)
-  assert.equal(findWorkspace({ ...order, workerKind: 'git-worktree', workerHandle: '/tmp/wt/o2/' }, ws), 'w3')
+  assert.equal(findWorkspace({ ...order, workerKind: 'git-worktree', workerHandle: '/tmp/wt/o2/' }, ws)?.id, 'w3')
   assert.equal(findWorkspace({ ...order, workerKind: 'subagent', workerHandle: 'subagent:x' }, ws), undefined)
 })
 
@@ -96,4 +97,41 @@ test('isSafeId는 옵션처럼 읽히는 값을 막는다', () => {
   assert.equal(isSafeId('--approve'), false)
   assert.equal(isSafeId('a b'), false)
   assert.equal(isSafeId(''), false)
+})
+
+test('toView는 위계 필드를 싣고 워커와 부모 워크트리의 오르카 경로와 브랜치를 붙인다', () => {
+  const raw = parseStatus({
+    lastTickAt: null,
+    orders: [
+      {
+        id: 'p',
+        status: 'running',
+        workerKind: 'orca-worktree',
+        worktreeName: 'p-1',
+        parentWorktree: '/w/feat',
+        baseBranch: 'feat/table'
+      },
+      { id: 'c', status: 'queued', parentOrderId: 'p', parentWorktree: 7 }
+    ],
+    gates: []
+  })
+  const ws = [
+    { id: 'w-feat', kind: 'worktree', path: '/w/feat/', branch: 'feat/table' },
+    { id: 'w-p', kind: 'worktree', path: '/w/feat/p-1', branch: 'gestalt/p' }
+  ]
+  const [p, c] = toView(raw, '/s', ws, 0).orders
+  assert.equal(p?.workspaceId, 'w-p')
+  assert.equal(p?.worktreePath, '/w/feat/p-1')
+  assert.equal(p?.branch, 'gestalt/p')
+  assert.equal(p?.parentWorktree, '/w/feat')
+  assert.equal(p?.parentBranch, 'feat/table')
+  assert.equal(p?.baseBranch, 'feat/table')
+  assert.equal(c?.parentOrderId, 'p')
+  assert.equal(c?.parentWorktree, undefined, '꼴이 틀린 값은 버린다')
+})
+
+test('needsWorkspaces는 부모 워크트리만 있어도 목록을 읽게 한다', () => {
+  const raw = parseStatus({ lastTickAt: null, orders: [{ id: 'a', parentWorktree: '/w/x' }], gates: [] })
+  assert.equal(needsWorkspaces(raw.orders), true)
+  assert.equal(needsWorkspaces(parseStatus({ lastTickAt: null, orders: [{ id: 'a' }], gates: [] }).orders), false)
 })

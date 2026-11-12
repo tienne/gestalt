@@ -22,6 +22,9 @@ export type RawOrder = {
   worktreeName?: string
   pr?: string
   issue?: string
+  parentOrderId?: string
+  parentWorktree?: string
+  baseBranch?: string
   bypasses: Bypass[]
 }
 
@@ -33,7 +36,7 @@ export type RawStatus = {
   gates: GateView[]
 }
 
-export type Workspace = { id: string; kind: string; path: string }
+export type Workspace = { id: string; kind: string; path: string; branch?: string | null }
 
 /** CLI stdout에서 JSON 하나를 꺼낸다. 앞뒤에 다른 줄이 섞여도 바깥 중괄호 사이만 읽는다 */
 export function parseJsonOutput(stdout: string): unknown {
@@ -85,7 +88,10 @@ export function parseStatus(value: unknown): RawStatus {
       'workerHandle',
       'worktreeName',
       'pr',
-      'issue'
+      'issue',
+      'parentOrderId',
+      'parentWorktree',
+      'baseBranch'
     ] as const) {
       const v = str(o[key])
       if (v !== undefined) order[key] = v
@@ -115,34 +121,36 @@ export function parseStatus(value: unknown): RawStatus {
   }
 }
 
-function samePath(a: string, b: string): boolean {
+export function samePath(a: string, b: string): boolean {
   const trim = (p: string) => p.replace(/[\\/]+$/, '')
   return trim(a) === trim(b)
 }
 
-const lastSegment = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? ''
+export const lastSegment = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? ''
 
 /**
  * 주문을 맡은 워커의 오르카 워크스페이스를 찾는다. 서브에이전트는 워크트리가 없어 못 찾는다.
  * 오르카 워커는 컨덕터가 붙인 `<주문 id>-<회차>`가 디렉토리 이름이고 git 워크트리 워커는 handle이 경로다.
  */
-export function findWorkspace(order: RawOrder, workspaces: readonly Workspace[]): string | undefined {
+export function findWorkspace(order: RawOrder, workspaces: readonly Workspace[]): Workspace | undefined {
   if (order.workerKind === 'orca-worktree' && order.worktreeName) {
     const name = order.worktreeName
-    return workspaces.find((w) => w.kind === 'worktree' && lastSegment(w.path) === name)?.id
+    return workspaces.find((w) => w.kind === 'worktree' && lastSegment(w.path) === name)
   }
   if (order.workerKind === 'git-worktree' && order.workerHandle) {
     const handle = order.workerHandle
-    return workspaces.find((w) => samePath(w.path, handle))?.id
+    return workspaces.find((w) => samePath(w.path, handle))
   }
   return undefined
 }
 
+/** 부모 워크트리도 오르카 워크스페이스 이름과 브랜치로 보여 주려면 목록이 필요하다 */
 export function needsWorkspaces(orders: readonly RawOrder[]): boolean {
   return orders.some(
     (o) =>
       (o.workerKind === 'orca-worktree' && o.worktreeName) ||
-      (o.workerKind === 'git-worktree' && o.workerHandle)
+      (o.workerKind === 'git-worktree' && o.workerHandle) ||
+      o.parentWorktree
   )
 }
 
@@ -157,7 +165,10 @@ export function toView(
     stateDir,
     lastTickAt: raw.lastTickAt,
     orders: raw.orders.map((o): OrderView => {
-      const workspaceId = findWorkspace(o, workspaces)
+      const ws = findWorkspace(o, workspaces)
+      const parent = o.parentWorktree
+        ? workspaces.find((w) => samePath(w.path, o.parentWorktree!))
+        : undefined
       return {
         id: o.id,
         status: o.status,
@@ -170,7 +181,12 @@ export function toView(
         ...(o.workerKind ? { workerKind: o.workerKind } : {}),
         ...(o.pr ? { pr: o.pr } : {}),
         ...(o.issue ? { issue: o.issue } : {}),
-        ...(workspaceId ? { workspaceId } : {})
+        ...(o.parentOrderId ? { parentOrderId: o.parentOrderId } : {}),
+        ...(o.parentWorktree ? { parentWorktree: o.parentWorktree } : {}),
+        ...(parent?.branch ? { parentBranch: parent.branch } : {}),
+        ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}),
+        ...(ws ? { workspaceId: ws.id, worktreePath: ws.path } : {}),
+        ...(ws?.branch ? { branch: ws.branch } : {})
       }
     }),
     gates: raw.gates,

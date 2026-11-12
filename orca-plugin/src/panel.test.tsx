@@ -185,3 +185,51 @@ test('bypass 보고는 접어 두고 레포 상세와 지도에 나눠 보인다
   assert.ok(view.find({ text: '로컬 리뷰 생략' }))
   await view.unmount()
 })
+
+test('레포 상세는 하위 주문과 부모 워크트리를 위계 트리로 그리고 Enter로 워크트리를 연다', async () => {
+  const { host, opened } = setup({
+    ...base,
+    orders: [
+      ...base.orders,
+      { id: 'ord-s', status: 'queued', scope: 'pr', repo: 'web', title: '하위 작업', parentOrderId: 'ord-a', bypasses: [] },
+      {
+        id: 'ord-w',
+        status: 'running',
+        scope: 'pr',
+        repo: 'web',
+        title: '곁가지',
+        parentWorktree: '/w/feat',
+        parentBranch: 'feat/table',
+        bypasses: []
+      }
+    ]
+  })
+  const view = await mount(panel, { host })
+  assert.ok(view.find({ text: '하위 2' }), '타일에 위계에 걸린 주문 수를 붙인다')
+  await view.press({ type: 'Button', text: 'web' })
+  const tree = view.find({ type: 'Tree' })!
+  assert.ok(tree)
+  assert.deepEqual(view.expandedOf({ type: 'Tree' }), ['order:ord-a', 'wt:/w/feat'])
+  const items = tree.props['items'] as { key: string; children?: { key: string }[] }[]
+  assert.deepEqual(
+    items.map((i) => [i.key, (i.children ?? []).map((c) => c.key)]),
+    [
+      ['order:ord-a', ['order:ord-s']],
+      ['wt:/w/feat', ['order:ord-w']]
+    ]
+  )
+  await view.activateItem({ type: 'Tree' }, 'order:ord-a')
+  assert.deepEqual(opened, ['ord-a'])
+  await view.activateItem({ type: 'Tree' }, 'wt:/w/feat')
+  assert.deepEqual(opened, ['ord-a'], '워크트리 노드는 열 주문이 없다')
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('위계가 없는 레포에는 트리를 그리지 않는다', async () => {
+  const { host } = setup()
+  const view = await mount(panel, { host })
+  await view.press({ type: 'Button', text: 'web' })
+  assert.equal(view.find({ type: 'Tree' }), null)
+  await view.unmount()
+})

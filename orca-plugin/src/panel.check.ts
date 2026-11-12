@@ -19,6 +19,14 @@ export default defineCheck({
             path: '/workspaces/web/ord-a1-1',
             branch: 'ord-a1',
             hostId: 'local'
+          },
+          {
+            id: 'ws-feat',
+            kind: 'worktree',
+            name: 'feat-search',
+            path: '/w/web/feat-search',
+            branch: 'feat/search',
+            hostId: 'local'
           }
         ],
         truncated: false

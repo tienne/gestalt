@@ -277,7 +277,7 @@ class Conductor {
     } catch (e) {
       return { opened: false, error: message(e) }
     }
-    const workspaceId = findWorkspace(order, workspaces)
+    const workspaceId = findWorkspace(order, workspaces)?.id
     if (!workspaceId) return { opened: false, error: '이 주문의 워크트리를 오르카에서 못 찾았어요' }
     try {
       await this.orca.host.call('workspace.open', { workspaceId })

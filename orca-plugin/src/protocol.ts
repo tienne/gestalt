@@ -29,8 +29,17 @@ export type OrderView = {
   pr?: string
   issue?: string
   bypasses: Bypass[]
-  /** 워커 워크트리를 오르카에서 찾았을 때만 있다 */
+  /** 워커가 만든 하위 주문이면 그 워커의 주문 */
+  parentOrderId?: string
+  /** 오르카 워커가 하위 워크트리로 뜬 자리. 절대 경로다 */
+  parentWorktree?: string
+  /** 부모 워크트리를 오르카에서 찾았을 때 그 브랜치 */
+  parentBranch?: string
+  baseBranch?: string
+  /** 아래 셋은 워커 워크트리를 오르카에서 찾았을 때만 있다 */
   workspaceId?: string
+  worktreePath?: string
+  branch?: string
 }
 
 export type GateView = {

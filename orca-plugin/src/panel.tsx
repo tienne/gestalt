@@ -20,11 +20,24 @@ import {
   Skeleton,
   Stack,
   Text,
-  type PanelContext
+  Tree,
+  type PanelContext,
+  type TreeItem
 } from 'orca'
+import { buildHierarchy, hasNesting, type HierarchyNode } from './hierarchy'
 import {
-  ORDER_STATUSES,
-  TERMINAL_ORDER_STATUSES,
+  countByStatus,
+  groupOrders,
+  isTerminal,
+  ms,
+  splitRepo,
+  STATUS_LABEL,
+  STATUS_TONE,
+  summarize,
+  type RepoSummary,
+  type Tone
+} from './model'
+import {
   type Bypass,
   type ConductorView,
   type GateDecision,
@@ -47,34 +60,6 @@ const selectedRepo = atom<string | null>(null)
 const RESOLVE_TIMEOUT_MS = 120_000
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
-const ms = (iso?: string | null) => {
-  const t = iso ? Date.parse(iso) : NaN
-  return Number.isNaN(t) ? null : t
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  queued: '대기',
-  running: '진행',
-  'waiting-gate': '확인 대기',
-  merged: '머지됨',
-  done: '끝남',
-  failed: '실패',
-  escalated: '사람 결정 필요',
-  cancelled: '취소'
-}
-
-type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
-
-const STATUS_TONE: Record<string, Tone> = {
-  queued: 'neutral',
-  running: 'accent',
-  'waiting-gate': 'warning',
-  merged: 'success',
-  done: 'neutral',
-  failed: 'danger',
-  escalated: 'warning',
-  cancelled: 'neutral'
-}
 
 const DECISION_LABEL: Record<GateDecision, string> = { approve: '승인', reject: '거절' }
 
@@ -273,15 +258,6 @@ function OrderRow({ order }: { order: OrderView }) {
   )
 }
 
-function groupOrders(orders: readonly OrderView[]): [string, OrderView[]][] {
-  const known: readonly string[] = ORDER_STATUSES
-  const groups = new Map<string, OrderView[]>()
-  for (const o of orders) groups.set(o.status, [...(groups.get(o.status) ?? []), o])
-  // 모르는 status도 버리지 않고 뒤에 붙인다. CLI가 앞서 나가도 주문이 사라져 보이지 않게
-  const order = [...known, ...[...groups.keys()].filter((s) => !known.includes(s))]
-  return order.filter((s) => groups.has(s)).map((s) => [s, groups.get(s)!])
-}
-
 function BypassList({ items }: { items: readonly Bypass[] }) {
   return (
     <Stack gap="xs">
@@ -320,58 +296,6 @@ function Bypasses({ title, orders, unassigned = [] }: { title: string; orders: r
   )
 }
 
-type RepoSummary = {
-  repo: string
-  orders: OrderView[]
-  gates: GateView[]
-  active: number
-  needsPerson: number
-  lastAt: number
-}
-
-const NO_REPO = '(레포 없음)'
-
-function summarize(v: ConductorView): { repos: RepoSummary[]; orphanGates: GateView[] } {
-  const byRepo = new Map<string, RepoSummary>()
-  const repoOf = new Map<string, string>()
-  for (const o of v.orders) {
-    const repo = o.repo || NO_REPO
-    repoOf.set(o.id, repo)
-    const s = byRepo.get(repo) ?? { repo, orders: [], gates: [], active: 0, needsPerson: 0, lastAt: 0 }
-    s.orders.push(o)
-    if (!TERMINAL_ORDER_STATUSES.includes(o.status)) s.active++
-    if (o.status === 'escalated') s.needsPerson++
-    s.lastAt = Math.max(s.lastAt, ms(o.updatedAt) ?? 0)
-    byRepo.set(repo, s)
-  }
-  const orphanGates: GateView[] = []
-  for (const g of v.gates) {
-    const s = g.orderId ? byRepo.get(repoOf.get(g.orderId) ?? '') : undefined
-    if (s) {
-      s.gates.push(g)
-      s.needsPerson++
-    } else orphanGates.push(g)
-  }
-  // 사람 손이 필요한 레포, 굴러가는 레포, 최근에 움직인 레포 순으로 앞에 둔다
-  const repos = [...byRepo.values()].sort(
-    (a, b) =>
-      b.needsPerson - a.needsPerson ||
-      Number(b.active > 0) - Number(a.active > 0) ||
-      b.lastAt - a.lastAt ||
-      a.repo.localeCompare(b.repo)
-  )
-  return { repos, orphanGates }
-}
-
-function splitRepo(repo: string): { name: string; owner: string | null } {
-  const i = repo.lastIndexOf('/')
-  return i < 0 ? { name: repo, owner: null } : { name: repo.slice(i + 1), owner: repo.slice(0, i) }
-}
-
-function countByStatus(orders: readonly OrderView[]): [string, number][] {
-  return groupOrders(orders).map(([status, list]) => [status, list.length])
-}
-
 function RepoTile({ s }: { s: RepoSummary }) {
   const { name, owner } = splitRepo(s.repo)
   const border: boolean | Tone = s.needsPerson > 0 ? 'warning' : s.active > 0 ? 'accent' : true
@@ -388,6 +312,7 @@ function RepoTile({ s }: { s: RepoSummary }) {
         ) : null}
         <Row gap="xs" wrap>
           {s.gates.length > 0 ? <Badge tone="warning">{`확인 대기 ${s.gates.length}`}</Badge> : null}
+          {s.nested > 0 ? <Badge>{`하위 ${s.nested}`}</Badge> : null}
           {countByStatus(s.orders)
             // 게이트 배지와 waiting-gate 상태 배지가 둘 다 "확인 대기"라 겹치면 하나만 남긴다
             .filter(([status]) => !(status === 'waiting-gate' && s.gates.length > 0))
@@ -402,7 +327,7 @@ function RepoTile({ s }: { s: RepoSummary }) {
 
 function RepoMap({ v }: { v: ConductorView }) {
   const { repos, orphanGates } = summarize(v)
-  const active = v.orders.filter((o) => !TERMINAL_ORDER_STATUSES.includes(o.status)).length
+  const active = v.orders.filter((o) => !isTerminal(o.status)).length
   return (
     <Stack gap="md">
       <Row gap="xs" wrap>
@@ -430,6 +355,56 @@ function RepoMap({ v }: { v: ConductorView }) {
         </Grid>
       )}
       <Bypasses title="주문 없는 bypass" orders={[]} unassigned={v.unassignedBypasses} />
+    </Stack>
+  )
+}
+
+function treeItems(nodes: readonly HierarchyNode[]): TreeItem[] {
+  return nodes.map((n): TreeItem => {
+    const children = n.children.length > 0 ? { children: treeItems(n.children) } : {}
+    if (n.kind === 'worktree')
+      return {
+        key: n.key,
+        label: n.label,
+        description: n.branch ? `부모 워크트리, ${n.branch}` : '부모 워크트리',
+        icon: 'folder',
+        ...children
+      }
+    const o = n.order
+    return {
+      key: n.key,
+      label: o.title || o.id,
+      description: `${STATUS_LABEL[o.status] ?? o.status}, ${o.id}${o.branch ? `, ${o.branch}` : ''}`,
+      icon: o.workspaceId ? 'branch' : 'layers',
+      ...children
+    }
+  })
+}
+
+function allKeys(nodes: readonly HierarchyNode[]): string[] {
+  return nodes.flatMap((n) => (n.children.length > 0 ? [n.key, ...allKeys(n.children)] : []))
+}
+
+function Hierarchy({ orders }: { orders: readonly OrderView[] }) {
+  const roots = buildHierarchy(orders)
+  if (!hasNesting(roots)) return null
+  const opener = new Map(orders.filter((o) => o.workspaceId).map((o) => [`order:${o.id}`, o.id]))
+  return (
+    <Stack gap="xs">
+      <Heading level={3}>위계</Heading>
+      <Text size="xs" muted>
+        하위 주문은 상위 주문 밑에, 하위 워크트리는 부모 워크트리 밑에 그려요. Enter로 워크트리를 열어요.
+      </Text>
+      <Tree
+        label="주문 위계"
+        items={treeItems(roots)}
+        defaultExpanded={allKeys(roots)}
+        maxHeight="md"
+        onAction={(item) => {
+          const id = opener.get(item.key)
+          if (id) void openWorker(id)
+        }}
+      />
     </Stack>
   )
 }
@@ -462,11 +437,12 @@ function RepoDetail({ s }: { s: RepoSummary }) {
           ))}
         </Stack>
       ) : null}
+      <Hierarchy orders={s.orders} />
       {groupOrders(s.orders).map(([status, orders]) => (
         <Collapsible
           key={status}
           title={`${STATUS_LABEL[status] ?? status} ${orders.length}`}
-          defaultOpen={!TERMINAL_ORDER_STATUSES.includes(status)}
+          defaultOpen={!isTerminal(status)}
         >
           <Stack gap="xs">
             {orders.map((o) => (
