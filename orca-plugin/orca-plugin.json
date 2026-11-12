@@ -20,6 +20,22 @@
         "ui": "components"
       }
     ],
+    "customEditors": [
+      {
+        "id": "board",
+        "title": "컨덕터 보드",
+        "extensions": [".conductor-board"],
+        "entry": "src/board.ts",
+        "frame": "isolated"
+      }
+    ],
+    "newFiles": [
+      {
+        "id": "board",
+        "title": "컨덕터 보드",
+        "extension": ".conductor-board"
+      }
+    ],
     "commands": [
       {
         "id": "conductor.refresh",

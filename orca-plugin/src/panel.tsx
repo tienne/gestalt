@@ -355,6 +355,9 @@ function RepoMap({ v }: { v: ConductorView }) {
         </Grid>
       )}
       <Bypasses title="주문 없는 bypass" orders={[]} unassigned={v.unassignedBypasses} />
+      <Text size="xs" muted>
+        탭 바의 + 메뉴에서 "컨덕터 보드"를 고르면 위계까지 넓게 볼 수 있어요.
+      </Text>
     </Stack>
   )
 }
