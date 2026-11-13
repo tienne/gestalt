@@ -63,7 +63,7 @@ async function runRename(
   cwd?: string,
 ): Promise<string | undefined> {
   let r: CommandResult;
-  // 주입한 러너가 동기로 던져도 Promise.all이 무너지지 않게 await 안에서 잡는다
+  // 주입한 러너가 동기로 던져도 Promise.all 전체가 거부되지 않게 await 안에서 잡는다
   try {
     r = await runner(orcaCommand, args, {
       ...(cwd ? { cwd } : {}),
