@@ -79,6 +79,12 @@ describe('nameConductorTab', () => {
     expect(await nameConductorTab({ env, orcaCommand: '/orca', runner: throws })).toContain(
       'ENOENT',
     );
+    const throwsSync: CommandRunner = () => {
+      throw new Error('spawn EACCES');
+    };
+    expect(await nameConductorTab({ env, orcaCommand: '/orca', runner: throwsSync })).toContain(
+      'EACCES',
+    );
   });
 });
 
@@ -159,6 +165,21 @@ describe('renameHandoffTabs', () => {
     });
     expect(errors).toHaveLength(2);
     expect(errors[0]).toContain('spawn ENOENT');
+  });
+
+  it('러너가 동기로 던져도 탭마다 실패 메시지로 바꿔 모은다', async () => {
+    const throwsSync: CommandRunner = () => {
+      throw new Error('spawn EACCES');
+    };
+    const errors = await renameHandoffTabs({
+      env: { ORCA_STRUCTURED_SESSION: '1' },
+      orcaCommand: '/orca',
+      launched: { kind: 'chat', sessionId: 'claude_new' },
+      now,
+      runner: throwsSync,
+    });
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toContain('spawn EACCES');
   });
 });
 

@@ -1,4 +1,4 @@
-import { execRunner, type CommandRunner } from './launcher.js';
+import { execRunner, type CommandResult, type CommandRunner } from './launcher.js';
 
 /**
  * 컨덕터 세션의 오르카 탭 이름.
@@ -62,10 +62,16 @@ async function runRename(
   runner: CommandRunner = execRunner,
   cwd?: string,
 ): Promise<string | undefined> {
-  const r = await runner(orcaCommand, args, {
-    ...(cwd ? { cwd } : {}),
-    timeoutMs: RENAME_TIMEOUT_MS,
-  }).catch((err: unknown) => ({ code: 1, stdout: '', stderr: (err as Error).message }));
+  let r: CommandResult;
+  // 주입한 러너가 동기로 던져도 Promise.all이 무너지지 않게 await 안에서 잡는다
+  try {
+    r = await runner(orcaCommand, args, {
+      ...(cwd ? { cwd } : {}),
+      timeoutMs: RENAME_TIMEOUT_MS,
+    });
+  } catch (err) {
+    r = { code: 1, stdout: '', stderr: (err as Error).message };
+  }
   if (r.code !== 0) {
     const head = (r.stderr || r.stdout).trim().split('\n').slice(0, 2).join(' ');
     return `오르카 ${args[0]} rename 실패(${r.code}): ${head}`;
