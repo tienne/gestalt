@@ -157,6 +157,8 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
 
 새 세션은 인계 파일을 읽고 규칙을 이어 지킨다. 기다리던 질문은 사람에게 다시 묻고 tick을 한 번 돌린 뒤 원문 그대로 반복을 건다. 새 세션은 세션 id가 달라서 컴팩트 횟수를 0부터 센다.
 
+반복은 새 세션 안의 크론이나 `ScheduleWakeup`이라 그 세션 프로세스와 함께 사라진다. 탭을 닫으면 반복도 끊기고 이전 세션의 tick은 거절된 채로 남는다. 그래서 새 세션은 첫 보고에 이 탭을 닫지 말아 달라고 알리고 질문은 대화창 도구 말고 일반 텍스트로 묻는다. 대화창이 열려 있는 동안에는 차례가 끝나지 않아 반복이 돌지 못한다. 끊긴 걸 알아채는 장치는 tick 경고다. 앞 tick과 이번 tick 사이가 `staleAfterSec`(기본 1800초)보다 길면 tick이 공백 길이를 `warnings`에 남기고 `gestalt conductor status`도 마지막 tick이 그보다 오래됐으면 같은 경고를 붙인다. 이전 세션에서 이어 돌리려면 `handoff.json`을 지우고 반복을 다시 건다.
+
 이 흐름은 Claude Code 전용이다. 세션 id와 컴팩트 훅이 없는 호스트에서는 `handoff`가 출력에 안 실린다. `--state-dir`로 다른 저장소를 쓰면 훅이 그 자리를 몰라 횟수를 못 센다. 훅은 `GESTALT_CONDUCTOR_STATE_DIR`, `~/.gestalt/conductor.json`의 `stateDir`(절대 경로만), 기본값 순서로 저장소를 찾는다.
 
 ### 사람이 답할 자리
