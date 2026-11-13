@@ -528,6 +528,7 @@ async function spawnFromReport(
  *
  * `defer`는 hostActions를 실행할 수 없는 호출자(오르카 플러그인)가 켠다. 그때 런처가 직접 못 전하고
  * hostAction으로 돌려준 결정은 게이트에 전달 대기로 남기고 다음 tick이 컨덕터 세션의 hostActions로 내보낸다.
+ * 호출자 쪽에 그 워커의 런처가 없거나 send가 던졌을 때도 대기로 남겨 다음 tick이 다시 전한다.
  */
 export async function deliverGateDecision(
   store: ConductorStore,
@@ -546,16 +547,32 @@ export async function deliverGateDecision(
   if (!worker || (worker.status !== 'running' && worker.status !== 'starting')) return out;
   const text = decisionMessage(gate);
   const fake = emptyReport(store.timestamp());
-  // 런처가 없으면 다시 해도 같으니 send가 던졌을 때만 다시 해 볼 만하다
-  const retry = (await sendTo(deps, fake, worker, text)) === 'failed';
-  if (opts.defer && fake.hostActions.length > 0) {
-    store.append({ type: 'gate-delivery', at: store.timestamp(), gateId: gate.id, pending: true });
-    return { hostActions: [], errors: fake.errors, deferred: true, retry: false };
+  const result = await sendTo(deps, fake, worker, text);
+  if (opts.defer && (fake.hostActions.length > 0 || result !== 'sent')) {
+    // 플러그인 프로세스에 런처가 없는 건 컨덕터 세션에서는 다를 수 있어 오류로 안 돌려준다
+    const errors = result === 'no-launcher' ? [] : fake.errors;
+    store.append({
+      type: 'gate-delivery',
+      at: store.timestamp(),
+      gateId: gate.id,
+      pending: true,
+      ...(result === 'failed' ? { attempts: 1 } : {}),
+    });
+    return { hostActions: [], errors, deferred: true, retry: false };
   }
-  return { hostActions: fake.hostActions, errors: fake.errors, deferred: false, retry };
+  // 런처가 없으면 다시 해도 같으니 send가 던졌을 때만 다시 해 볼 만하다
+  return {
+    hostActions: fake.hostActions,
+    errors: fake.errors,
+    deferred: false,
+    retry: result === 'failed',
+  };
 }
 
-/** 시간 초과로 실패했는데 실제로는 닿은 경우 다시 보내면 같은 결정이 두 번 가서 횟수를 막는다 */
+/**
+ * 시간 초과로 실패했어도 실제로는 닿았을 수 있다.
+ * 계속 다시 보내면 같은 결정이 여러 번 갈 수 있으므로 재시도 횟수에 상한을 둔다
+ */
 const MAX_DELIVERY_ATTEMPTS = 3;
 
 /**

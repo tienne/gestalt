@@ -685,6 +685,47 @@ describe('컨덕터 tick', () => {
     expect(store.snapshot.gates[gateId]).not.toHaveProperty('deliveryAttempts');
   });
 
+  it('미뤄 달라고 한 첫 전달에서 send가 던지면 대기와 시도 1회를 남기고 다음 tick이 다시 전한다', async () => {
+    const { store, deps: d, git, wid, gateId } = await waitingOnGate();
+    git.launcher.send = async () => {
+      throw new Error('시간 초과');
+    };
+    const r = await deliverGateDecision(store, resolveGate(store, gateId, 'approved'), d, {
+      defer: true,
+    });
+    expect(r.deferred).toBe(true);
+    expect(r.retry).toBe(false);
+    expect(r.errors.some((e) => e.includes('시간 초과'))).toBe(true);
+    expect(store.snapshot.gates[gateId]).toMatchObject({
+      deliveryPending: true,
+      deliveryAttempts: 1,
+    });
+
+    git.launcher.send = async (w, message) => ({ type: 'send', workerId: w.id, message });
+    const next = await tick(store, d, { force: true });
+    expect(next.hostActions).toContainEqual(
+      expect.objectContaining({ type: 'send', workerId: wid }),
+    );
+    expect(store.snapshot.gates[gateId]).not.toHaveProperty('deliveryPending');
+  });
+
+  it('미뤄 달라고 한 쪽에 그 워커의 런처가 없으면 오류 없이 대기로 남기고 tick이 전한다', async () => {
+    const { store, deps: d, git, wid, gateId } = await waitingOnGate();
+    const r = await deliverGateDecision(
+      store,
+      resolveGate(store, gateId, 'approved'),
+      { launchers: {} },
+      { defer: true },
+    );
+    expect(r).toEqual({ hostActions: [], errors: [], deferred: true, retry: false });
+    expect(store.snapshot.gates[gateId]!.deliveryPending).toBe(true);
+    expect(store.snapshot.gates[gateId]).not.toHaveProperty('deliveryAttempts');
+
+    await tick(store, d, { force: true });
+    expect(git.sent.at(-1)!.workerId).toBe(wid);
+    expect(store.snapshot.gates[gateId]).not.toHaveProperty('deliveryPending');
+  });
+
   const lockOf = (pid: number, startedAt: number) => `${pid}:${startedAt}:${hostname()}:x`;
 
   it('살아 있는 프로세스의 잠금은 한 시간이 지나도 걷어내지 않는다', async () => {
