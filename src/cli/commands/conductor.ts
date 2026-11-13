@@ -20,6 +20,7 @@ import {
   deliverGateDecision,
   inboxDirOf,
   tick,
+  staleTickWarning,
   writeReport,
   type EngineDeps,
   type RateLimitedEntry,
@@ -350,7 +351,7 @@ export interface ConductorStatusOptions extends ConductorCommonOptions {
 
 export function conductorStatusCommand(opts: ConductorStatusOptions): void {
   run(() => {
-    const { store } = open(opts);
+    const { store, config } = open(opts);
     const orders = store.orders().filter((o) => opts.all || o.status !== 'done');
     const gates = store.openGates();
     const limited = new Map(rateLimitEntries(store).map((e) => [e.orderId, e]));
@@ -389,6 +390,12 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
       });
     }
     console.log(`마지막 tick: ${store.snapshot.lastTickAt ?? '없음'}`);
+    const staleWarning = staleTickWarning(
+      store.snapshot.lastTickAt,
+      new Date().toISOString(),
+      config.staleAfterSec * 1000,
+    );
+    if (staleWarning) console.log(`경고: ${staleWarning}`);
     for (const o of orders) {
       const summary =
         opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
@@ -508,7 +515,7 @@ function assertNotHandedOff(ctx: Ctx, sessionId: string): void {
   if (!prev) return;
   const record = handoffRecordPath(ctx.store.dir, sessionId);
   throw new Error(
-    `이 세션은 ${prev.at}에 새 세션으로 인계했어요(${prev.file}). 반복을 멈추고 새 세션에서 돌려 주세요. 이 세션에서 계속 돌리려면 ${record}를 지워 주세요`,
+    `이 세션은 ${prev.at}에 새 세션으로 인계했어요(${prev.file}). 반복을 멈추고 새 세션에서 돌려 주세요. 새 세션이 닫혀 반복이 끊겼을 때만 이 세션에서 이어 돌릴 수 있어요. 새 탭이 닫혔는지 사람에게 확인한 뒤에만 ${record}를 지워 주세요. status의 마지막 tick이 staleAfterSec(기본 30분)보다 오래됐는지는 참고로만 봐요. 간격이 긴 반복에서도 오래돼 보여요`,
   );
 }
 
