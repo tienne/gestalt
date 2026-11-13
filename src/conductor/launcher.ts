@@ -3,14 +3,16 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, isAbsolute, join, relative, sep } from 'node:path';
 import { isAccountName } from './account-name.js';
 import { handleNeed, openOrReuse } from './gates.js';
-import { oneLine } from './intake.js';
+import { ISSUE_KEY_RE, oneLine } from './intake.js';
 import { RESUME_MARKER } from './metrics.js';
 import { real, worktreeField } from './parent-worktree.js';
+import { normalizePrRef } from './pr-ref.js';
 import type { WorkerPeek, WorkerProbe } from './resume.js';
 import type { ConductorStore } from './store.js';
 import {
   ACTIVE_WORKER_STATUSES,
   type Checkpoint,
+  type IssueType,
   type JiraStatus,
   type Order,
   type Worker,
@@ -98,10 +100,14 @@ export interface LaunchSpec {
   prompt: string;
   /** 재개할 때 앞 워커의 handle. git 워크트리는 앞 워커의 워크트리 경로를 다시 쓴다 */
   previousHandle?: string;
+  /** 재개할 때 앞 워커가 쓰던 브랜치. 지라 주문은 새 워크트리에서도 이 브랜치를 이어받는다 */
+  previousBranch?: string;
 }
 
 export interface LaunchResult {
   handle: string;
+  /** 워커 워크트리에 쓴 브랜치. 워커 이벤트에 남겨 재개 때 다시 찾는다 */
+  branch?: string;
   hostAction?: HostAction;
   /** 띄우긴 했지만 주문대로 다 못 맞춘 자리. tick 보고에 경고로 싣는다 */
   warnings?: string[];
@@ -349,6 +355,109 @@ function tidyBlock(text: string): string {
   return out.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/** 버그 주문은 fix, 나머지는 이슈 타입이 없을 때까지 포함해 feat 브랜치로 띄운다 */
+export function branchPrefixFor(issueType: IssueType | undefined): 'fix' | 'feat' {
+  return issueType === 'bug' || issueType === 'sub-bug' ? 'fix' : 'feat';
+}
+
+/**
+ * 지라 주문이 새로 만들 브랜치 이름. 지라 키가 없으면 undefined라 런처 기본 이름을 쓴다.
+ * PR이 붙은 주문은 그 PR 브랜치에서 일하므로 새 브랜치를 만들지 않는다
+ */
+export function issueBranchName(
+  order: Pick<Order, 'issueKey' | 'issueType' | 'prRef'>,
+): string | undefined {
+  if (!order.issueKey || order.prRef || !ISSUE_KEY_RE.test(order.issueKey)) return undefined;
+  return `${branchPrefixFor(order.issueType)}/${order.issueKey}`;
+}
+
+/** 오르카 워크트리에 붙일 참조. 지라 키가 있을 때만 붙이고 PR이 있으면 PR 주소도 같이 붙인다 */
+export function worktreeReferences(order: Pick<Order, 'issueKey' | 'prRef'>): string[] {
+  if (!order.issueKey) return [];
+  const pr = order.prRef ? prUrlOf(order.prRef) : undefined;
+  return [order.issueKey, ...(pr ? [pr] : [])];
+}
+
+/** `owner/name#번호`를 GitHub PR 주소로 바꾼다 */
+export function prUrlOf(prRef: string): string | undefined {
+  const n = normalizePrRef(prRef);
+  if (!n) return undefined;
+  const at = n.indexOf('#');
+  return `https://github.com/${n.slice(0, at)}/pull/${n.slice(at + 1)}`;
+}
+
+const MAX_BRANCH_SUFFIX = 20;
+const LS_REMOTE_TIMEOUT_MS = 30_000;
+
+/**
+ * 처음 띄울 때 쓸 브랜치 이름을 고른다. 로컬이나 origin에 이미 있으면 `-2`, `-3`을 붙여 빈 이름을 찾는다.
+ * 사람이 손으로 만든 브랜치나 예전 주문이 남긴 브랜치 위에 얹지 않으려는 것이다.
+ * origin을 못 읽으면 로컬만 보고 고른 뒤 경고를 남긴다
+ */
+export async function pickFreeBranch(
+  runner: CommandRunner,
+  gitDir: string,
+  base: string,
+): Promise<{ branch: string; warnings: string[] }> {
+  const warnings: string[] = [];
+  for (let n = 1; n <= MAX_BRANCH_SUFFIX; n++) {
+    const branch = n === 1 ? base : `${base}-${n}`;
+    const local = await runner('git', [
+      '-C',
+      gitDir,
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      `refs/heads/${branch}`,
+    ]);
+    if (local.code === 0) continue;
+    const remote = await runner(
+      'git',
+      ['-C', gitDir, 'ls-remote', '--exit-code', '--heads', 'origin', `refs/heads/${branch}`],
+      { env: { GIT_TERMINAL_PROMPT: '0' }, timeoutMs: LS_REMOTE_TIMEOUT_MS },
+    );
+    if (remote.code === 0) continue;
+    // --exit-code는 못 찾으면 2로 끝난다. 그 밖의 실패는 원격을 못 읽은 것이다
+    if (remote.code !== 2) {
+      warnings.push(
+        `origin을 못 읽어 ${branch}가 원격에 있는지 확인 못 하고 띄웠어요: ${outputHead(remote)}`,
+      );
+    }
+    return { branch, warnings };
+  }
+  throw new Error(
+    `${base}부터 ${base}-${MAX_BRANCH_SUFFIX}까지 브랜치가 다 있어요. 남은 브랜치를 정리해 주세요`,
+  );
+}
+
+/** `git worktree list --porcelain`에서 그 브랜치를 체크아웃한 워크트리 경로를 찾는다 */
+function worktreeHolding(porcelain: string, branch: string): string | undefined {
+  for (const block of porcelain.split(/\n\s*\n/)) {
+    const lines = block.split('\n');
+    const path = lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length);
+    if (path && lines.includes(`branch refs/heads/${branch}`)) return path;
+  }
+  return undefined;
+}
+
+/** 바깥 출처가 고른 기준 브랜치의 셋업 스크립트를 이 호스트에서 돌리지 않는다 */
+function setupFlags(order: Order): string[] {
+  return order.baseBranch && order.source !== 'spoken' ? ['--setup', 'skip'] : [];
+}
+
+interface BranchPlan {
+  name: string;
+  /** 앞 워커 브랜치를 이어받는지. 아니면 새로 만든다 */
+  resume: boolean;
+}
+
+interface CreatedWorktree {
+  selector: string;
+  path?: string;
+  /** 오르카가 만든 브랜치 */
+  branch?: string;
+}
+
 function writePrompt(promptDir: string, workerId: string, prompt: string): string {
   mkdirSync(promptDir, { recursive: true });
   const file = join(promptDir, `${workerId}.md`);
@@ -375,9 +484,30 @@ export class OrcaLauncher implements Launcher {
     const name = orcaWorktreeName(spec.worker);
     const displayName = oneLine(spec.order.title, 60);
     const agent = spec.worker.agent ?? 'claude';
-    return spec.order.parentWorktree
-      ? this.startInChild(spec.order, file, name, displayName, agent)
-      : this.startTopLevel(spec.order, file, name, displayName, agent);
+    const planned = issueBranchName(spec.order);
+    const refs = worktreeReferences(spec.order);
+    // 지라 주문이 아니면 한 번에 띄우던 길을 그대로 둔다. PR 감시 주문도 여기로 온다
+    if (!spec.order.parentWorktree && !planned && refs.length === 0)
+      return this.startTopLevel(spec.order, file, name, displayName, agent);
+    const warnings: string[] = [];
+    const branch = planned ? await this.planBranch(spec, planned, warnings) : undefined;
+    const created = await this.createWorktree(spec.order, name, displayName, branch);
+    const leftover = `남은 워크트리는 \`orca worktree rm --worktree ${created.selector} --delete-branch\`로 지워 주세요`;
+    let used = created.branch ?? branch?.name;
+    if (branch?.resume) {
+      await this.adoptBranch(created, branch.name, leftover);
+      used = branch.name;
+    }
+    for (const ref of refs) {
+      const warning = await this.attachReference(spec.order, created.selector, ref);
+      if (warning) warnings.push(warning);
+    }
+    const handle = await this.startInWorktree(created.selector, file, agent, leftover);
+    return {
+      handle,
+      ...(used ? { branch: used } : {}),
+      ...(warnings.length ? { warnings } : {}),
+    };
   }
 
   private async startTopLevel(
@@ -387,10 +517,6 @@ export class OrcaLauncher implements Launcher {
     displayName: string,
     agent: string,
   ): Promise<LaunchResult> {
-    const path = this.opts.repoPaths?.[order.repo];
-    const repo = path ? `path:${path}` : `name:${order.repo.split('/')[1]!}`;
-    // 바깥 출처가 고른 기준 브랜치의 셋업 스크립트를 이 호스트에서 돌리지 않는다
-    const setup = order.baseBranch && order.source !== 'spoken' ? ['--setup', 'skip'] : [];
     const out = await mustRun(
       this.runner,
       this.opts.orcaCommand,
@@ -404,9 +530,9 @@ export class OrcaLauncher implements Launcher {
         '--agent',
         agent,
         '--repo',
-        repo,
+        this.repoSelector(order),
         ...(order.baseBranch ? ['--base-branch', order.baseBranch] : []),
-        ...setup,
+        ...setupFlags(order),
         '--name',
         name,
         '--display-name',
@@ -418,20 +544,60 @@ export class OrcaLauncher implements Launcher {
     return { handle: parseDispatchId(out) };
   }
 
+  private repoSelector(order: Order): string {
+    const path = this.opts.repoPaths?.[order.repo];
+    return path ? `path:${path}` : `name:${order.repo.split('/')[1]!}`;
+  }
+
   /**
-   * 하위 워크트리를 만들고 거기에 워커를 띄운다.
+   * 지라 주문의 브랜치를 정한다. 재개면 앞 워커가 쓰던 브랜치를 이어받는다. 처음이면 로컬과
+   * origin에서 비어 있는 이름을 고른다
+   */
+  private async planBranch(
+    spec: LaunchSpec,
+    planned: string,
+    warnings: string[],
+  ): Promise<BranchPlan> {
+    if (spec.previousBranch) return { name: spec.previousBranch, resume: true };
+    const gitDir = await this.gitDirOf(spec.order);
+    const picked = await pickFreeBranch(this.runner, gitDir, planned);
+    warnings.push(...picked.warnings.map((w) => `${spec.order.id}: ${w}`));
+    return { name: picked.branch, resume: false };
+  }
+
+  /** 브랜치가 겹치는지 볼 로컬 git 디렉토리. 부모 워크트리나 repoPaths, 오르카에 등록된 레포 경로 순으로 본다 */
+  private async gitDirOf(order: Order): Promise<string> {
+    if (order.parentWorktree) return order.parentWorktree;
+    const path = this.opts.repoPaths?.[order.repo];
+    if (path) return path;
+    const out = await mustRun(
+      this.runner,
+      this.opts.orcaCommand,
+      ['repo', 'show', '--repo', this.repoSelector(order), '--json'],
+      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+    );
+    const repo = resultOf(out)?.['repo'];
+    const found =
+      typeof repo === 'object' && repo !== null
+        ? stringField(repo as Record<string, unknown>, 'path')
+        : undefined;
+    if (!found)
+      throw new Error(`오르카에서 ${order.repo}의 로컬 경로를 못 찾아 브랜치 이름을 못 골랐어요`);
+    return found;
+  }
+
+  /**
+   * 만든 워크트리에 워커를 띄운다.
    *
    * 띄우기가 실패하면 워커가 저장되지 않아 회차가 안 오르고 다음 시도가 같은 이름으로 다시 만든다.
    * 그래서 워커가 확실히 안 떴을 때만 만든 워크트리를 지운다. 떴는지 모르면 지우지 않고 남은 자리를 알린다
    */
-  private async startInChild(
-    order: Order,
+  private async startInWorktree(
+    worktree: string,
     file: string,
-    name: string,
-    displayName: string,
     agent: string,
-  ): Promise<LaunchResult> {
-    const worktree = await this.createChild(order, name, displayName);
+    leftover: string,
+  ): Promise<string> {
     const r = await this.runner(
       this.opts.orcaCommand,
       [
@@ -447,10 +613,9 @@ export class OrcaLauncher implements Launcher {
       ],
       { timeoutMs: ORCA_TIMEOUT_MS },
     );
-    const leftover = `남은 워크트리는 \`orca worktree rm --worktree ${worktree} --delete-branch\`로 지워 주세요`;
     if (r.code === 0) {
       try {
-        return { handle: parseDispatchId(r.stdout) };
+        return parseDispatchId(r.stdout);
       } catch (err) {
         throw new Error(
           `${(err as Error).message}. 워커가 떴을 수 있어 워크트리를 그대로 뒀어요. ${leftover}`,
@@ -472,23 +637,31 @@ export class OrcaLauncher implements Launcher {
   }
 
   /**
-   * 부모 워크트리 아래 하위 워크트리를 만들고 오르카 워크트리 선택자를 돌려준다.
+   * 워커 워크트리를 만들고 오르카 워크트리 선택자를 돌려준다.
    *
-   * worker-start의 new-child는 호출한 쪽(컨덕터) 워크스페이스 아래에 붙어 임의 부모를 못 고른다.
-   * 그래서 `worktree create --parent-worktree`로 먼저 만들고 worker-start는 그 워크트리를 고른다.
-   * 레포는 부모 워크트리에서 읽는다. `path:` 레포 선택자는 메인 체크아웃만 받아서다
+   * 부모가 있으면 그 아래 하위 워크트리로 만든다. worker-start의 new-child는 호출한 쪽(컨덕터)
+   * 워크스페이스 아래에 붙어 임의 부모를 못 고른다. 그래서 `worktree create --parent-worktree`로 먼저
+   * 만들고 worker-start는 그 워크트리를 고른다. 레포는 부모 워크트리에서 읽는다. `path:` 레포 선택자는
+   * 메인 체크아웃만 받아서다.
+   *
+   * 부모가 없으면 `--no-parent`를 붙인다. 안 붙이면 오르카가 컨덕터 워크트리를 부모로 잡는다
    */
-  private async createChild(order: Order, name: string, displayName: string): Promise<string> {
-    const parent = `path:${order.parentWorktree!}`;
-    const shown = await mustRun(
-      this.runner,
-      this.opts.orcaCommand,
-      ['worktree', 'show', '--worktree', parent, '--json'],
-      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
-    );
-    const repoId = worktreeField(shown, 'repoId');
-    if (!repoId) throw new Error(`오르카에서 부모 워크트리 ${order.parentWorktree}를 못 찾았어요`);
-    const leftover = `${order.parentWorktree} 아래 ${name} 워크트리가 생겼을 수 있어요. \`orca worktree show --worktree name:${name}\`로 확인하고 있으면 \`orca worktree rm --worktree name:${name} --delete-branch\`로 지워 주세요`;
+  private async createWorktree(
+    order: Order,
+    name: string,
+    displayName: string,
+    branch: BranchPlan | undefined,
+  ): Promise<CreatedWorktree> {
+    const placement = order.parentWorktree
+      ? await this.childPlacement(order)
+      : ['--repo', this.repoSelector(order), '--no-parent'];
+    // 부모 없는 워크트리의 셋업 정책은 한 번에 띄우던 길과 같게 둔다. worker-start의 새 워크트리 기본값이 run이다
+    const skip = order.parentWorktree ? [] : setupFlags(order);
+    const setup = skip.length ? skip : ['--setup', 'run'];
+    const where = order.parentWorktree ? `${order.parentWorktree} 아래 ` : '';
+    const leftover = `${where}${name} 워크트리가 생겼을 수 있어요. \`orca worktree show --worktree name:${name}\`로 확인하고 있으면 \`orca worktree rm --worktree name:${name} --delete-branch\`로 지워 주세요`;
+    // 재개는 앞 브랜치에서 갈라 만든 뒤 그 브랜치로 바꾼다. --branch는 이미 있는 이름이면 숫자를 붙여 새로 만든다
+    const base = branch?.resume ? branch.name : order.baseBranch;
     const created = await mustRun(
       this.runner,
       this.opts.orcaCommand,
@@ -497,13 +670,10 @@ export class OrcaLauncher implements Launcher {
         'create',
         '--name',
         name,
-        '--repo',
-        `id:${repoId}`,
-        '--parent-worktree',
-        parent,
-        ...(order.baseBranch ? ['--base-branch', order.baseBranch] : []),
-        '--setup',
-        'run',
+        ...placement,
+        ...(base ? ['--base-branch', base] : []),
+        ...(branch && !branch.resume ? ['--branch', branch.name] : []),
+        ...setup,
         '--json',
       ],
       { timeoutMs: ORCA_TIMEOUT_MS },
@@ -513,16 +683,92 @@ export class OrcaLauncher implements Launcher {
     });
     const id = worktreeField(created, 'id');
     const path = worktreeField(created, 'path');
-    const worktree = id ? `id:${id}` : path ? `path:${path}` : undefined;
-    if (!worktree)
+    const selector = id ? `id:${id}` : path ? `path:${path}` : undefined;
+    if (!selector)
       throw new Error(`오르카 worktree create 응답에 워크트리 id와 경로가 없어요. ${leftover}`);
+    const createdBranch = worktreeField(created, 'branch')?.replace(/^refs\/heads\//, '');
     // 표시 이름은 보기 좋으라고 붙이는 것이라 실패해도 워커는 띄운다
     await this.runner(
       this.opts.orcaCommand,
-      ['worktree', 'set', '--worktree', worktree, '--display-name', displayName, '--json'],
+      ['worktree', 'set', '--worktree', selector, '--display-name', displayName, '--json'],
       { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
     ).catch(() => undefined);
-    return worktree;
+    return {
+      selector,
+      ...(path ? { path } : {}),
+      ...(createdBranch ? { branch: createdBranch } : {}),
+    };
+  }
+
+  private async childPlacement(order: Order): Promise<string[]> {
+    const parent = `path:${order.parentWorktree!}`;
+    const shown = await mustRun(
+      this.runner,
+      this.opts.orcaCommand,
+      ['worktree', 'show', '--worktree', parent, '--json'],
+      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+    );
+    const repoId = worktreeField(shown, 'repoId');
+    if (!repoId) throw new Error(`오르카에서 부모 워크트리 ${order.parentWorktree}를 못 찾았어요`);
+    return ['--repo', `id:${repoId}`, '--parent-worktree', parent];
+  }
+
+  /**
+   * 재개로 만든 워크트리를 앞 워커의 브랜치로 바꾼다.
+   *
+   * 앞 워크트리는 재개해도 지우지 않아 그 브랜치를 쥐고 있다. git은 한 브랜치를 두 워크트리에
+   * 체크아웃하지 못하게 막으니 앞 워크트리를 그 자리 커밋에서 detach해 브랜치를 풀어 준다. detach는
+   * 커밋 안 한 변경을 그대로 두고 커밋은 브랜치에 남는다. 새 워크트리는 그 브랜치에서 갈라 만들어
+   * 같은 커밋이라 바로 바꿀 수 있다. 오르카가 만든 임시 브랜치는 그 뒤에 지운다
+   */
+  private async adoptBranch(
+    created: CreatedWorktree,
+    branch: string,
+    leftover: string,
+  ): Promise<void> {
+    const fail = (why: string, cause?: unknown): Error =>
+      new Error(`앞 워커 브랜치 ${branch}를 새 워크트리에 못 붙였어요: ${why}. ${leftover}`, {
+        cause,
+      });
+    if (!created.path) throw fail('오르카 응답에 새 워크트리 경로가 없어요');
+    const path = created.path;
+    try {
+      // 디렉토리만 지워진 앞 워크트리가 등록된 채 남아 있으면 브랜치를 쥔 것으로 보인다
+      await mustRun(this.runner, 'git', ['-C', path, 'worktree', 'prune']);
+      const listed = await mustRun(this.runner, 'git', [
+        '-C',
+        path,
+        'worktree',
+        'list',
+        '--porcelain',
+      ]);
+      const holder = worktreeHolding(listed, branch);
+      if (holder && real(holder) !== real(path))
+        await mustRun(this.runner, 'git', ['-C', holder, 'switch', '--detach']);
+      await mustRun(this.runner, 'git', ['-C', path, 'switch', branch]);
+    } catch (err) {
+      throw fail((err as Error).message, err);
+    }
+    if (created.branch && created.branch !== branch)
+      await this.runner('git', ['-C', path, 'branch', '-d', created.branch]).catch(() => undefined);
+  }
+
+  /**
+   * 워크트리에 참조를 붙인다. 붙이기는 워커 띄우기와 별개라 실패해도 띄우고 경고만 돌려준다.
+   * `worktree create --reference`는 지라 키를 못 풀면 워크트리 만들기까지 실패하므로 만든 뒤 붙인다
+   */
+  private async attachReference(
+    order: Order,
+    worktree: string,
+    ref: string,
+  ): Promise<string | undefined> {
+    const r = await this.runner(
+      this.opts.orcaCommand,
+      ['reference', 'add', ref, '--worktree', worktree, '--json'],
+      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+    ).catch((err: unknown) => ({ code: 1, stdout: '', stderr: (err as Error).message }));
+    if (r.code === 0) return undefined;
+    return `${order.id}: 워크트리에 참조 ${oneLine(ref, 120)}를 못 붙였어요: ${outputHead(r)}`;
   }
 
   async send(worker: Worker, message: string): Promise<undefined> {
@@ -910,18 +1156,20 @@ export class GitWorktreeLauncher implements Launcher {
       spec.previousHandle && existsSync(spec.previousHandle)
         ? spec.previousHandle
         : join(this.opts.worktreeRoot, spec.order.id);
-    if (!existsSync(cwd))
-      await this.addWorktree(repoPath, `conductor/${spec.order.id}`, cwd, spec.order.baseBranch);
+    const warnings: string[] = [];
+    const branch = await this.branchFor(spec, repoPath, warnings);
+    // 앞 워크트리를 다시 쓰면 앞 워커 브랜치에 그대로 있다
+    if (!existsSync(cwd)) await this.addWorktree(repoPath, branch, cwd, spec.order.baseBranch);
     const promptFile = writePrompt(this.opts.promptDir, spec.worker.id, spec.prompt);
     // git 워크트리에는 부모 자식 관계가 없다. 주문은 그대로 띄우고 부모를 못 따랐다고 알린다
-    const warnings = spec.order.parentWorktree
-      ? [
-          `${spec.order.id}: git 워크트리 워커라 부모 워크트리(${spec.order.parentWorktree})를 무시하고 ${cwd}에 띄웠어요`,
-        ]
-      : [];
+    if (spec.order.parentWorktree)
+      warnings.push(
+        `${spec.order.id}: git 워크트리 워커라 부모 워크트리(${spec.order.parentWorktree})를 무시하고 ${cwd}에 띄웠어요`,
+      );
     return {
       ...(warnings.length ? { warnings } : {}),
       handle: cwd,
+      branch,
       hostAction: {
         type: 'open-session',
         workerId: spec.worker.id,
@@ -930,6 +1178,19 @@ export class GitWorktreeLauncher implements Launcher {
         env: { [WORKER_ENV]: spec.worker.id },
       },
     };
+  }
+
+  /**
+   * 지라 주문은 재개면 앞 워커 브랜치를, 처음이면 비어 있는 `fix/`나 `feat/` 이름을 쓴다.
+   * 그 밖의 주문은 지금처럼 `conductor/<주문 id>`를 쓰고 남아 있으면 이어 붙인다
+   */
+  private async branchFor(spec: LaunchSpec, repoPath: string, warnings: string[]): Promise<string> {
+    const planned = issueBranchName(spec.order);
+    if (!planned) return `conductor/${spec.order.id}`;
+    if (spec.previousBranch) return spec.previousBranch;
+    const picked = await pickFreeBranch(this.runner, repoPath, planned);
+    warnings.push(...picked.warnings.map((w) => `${spec.order.id}: ${w}`));
+    return picked.branch;
   }
 
   /**
