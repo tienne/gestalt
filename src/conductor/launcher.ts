@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, isAbsolute, join, relative, sep } from 'node:path';
 import { isAccountName } from './account-name.js';
 import { handleNeed, openOrReuse } from './gates.js';
-import { ISSUE_KEY_RE, oneLine } from './intake.js';
+import { ISSUE_KEY_RE, isRefName, oneLine } from './intake.js';
 import { RESUME_MARKER } from './metrics.js';
 import { real, worktreeField } from './parent-worktree.js';
 import { normalizePrRef } from './pr-ref.js';
@@ -373,7 +373,7 @@ export function issueBranchName(
 
 /** 오르카 워크트리에 붙일 참조. 지라 키가 있을 때만 붙이고 PR이 있으면 PR 주소도 같이 붙인다 */
 export function worktreeReferences(order: Pick<Order, 'issueKey' | 'prRef'>): string[] {
-  if (!order.issueKey) return [];
+  if (!order.issueKey || !ISSUE_KEY_RE.test(order.issueKey)) return [];
   const pr = order.prRef ? prUrlOf(order.prRef) : undefined;
   return [order.issueKey, ...(pr ? [pr] : [])];
 }
@@ -448,6 +448,22 @@ async function remoteHeads(
   }
   cache?.set(gitDir, names);
   return { names };
+}
+
+/**
+ * 워커 기록에서 온 앞 브랜치를 git과 오르카 인자로 넘기기 전에 이름 꼴을 본다. 꼴이 틀리면 새 브랜치로
+ * 넘어가지 않고 멈춘다. 새로 갈라 띄우면 앞 워커 커밋을 말없이 두고 가게 된다
+ */
+function assertResumableBranch(branch: string): void {
+  if (!isRefName(branch))
+    throw new Error(`앞 워커 브랜치 이름 꼴이 아니라 이어받지 못했어요: ${oneLine(branch, 120)}`);
+}
+
+/** 워크트리가 체크아웃한 브랜치. detach됐거나 못 읽으면 undefined */
+async function currentBranch(runner: CommandRunner, path: string): Promise<string | undefined> {
+  const r = await runner('git', ['-C', path, 'branch', '--show-current']).catch(() => undefined);
+  const name = r?.code === 0 ? r.stdout.trim() : '';
+  return name && isRefName(name) ? name : undefined;
 }
 
 /** 로컬에 그 이름의 브랜치가 정확히 있는지 본다 */
@@ -627,7 +643,10 @@ export class OrcaLauncher implements Launcher {
     planned: string,
     warnings: string[],
   ): Promise<BranchPlan> {
-    if (spec.previousBranch) return { name: spec.previousBranch, resume: true };
+    if (spec.previousBranch !== undefined) {
+      assertResumableBranch(spec.previousBranch);
+      return { name: spec.previousBranch, resume: true };
+    }
     const gitDir = await this.gitDirOf(spec.order);
     const picked = await pickFreeBranch(this.runner, gitDir, planned, this.remoteHeads);
     warnings.push(...picked.warnings.map((w) => `${spec.order.id}: ${w}`));
@@ -767,7 +786,14 @@ export class OrcaLauncher implements Launcher {
     const selector = id ? `id:${id}` : path ? `path:${path}` : undefined;
     if (!selector)
       throw new Error(`오르카 worktree create 응답에 워크트리 id와 경로가 없어요. ${leftover}`);
-    const createdBranch = worktreeField(created, 'branch')?.replace(/^refs\/heads\//, '');
+    // 응답에 브랜치가 없으면 계획한 이름 대신 실제 체크아웃을 읽는다. --branch는 이름이 겹치면 숫자를 붙인다
+    const reported = worktreeField(created, 'branch')?.replace(/^refs\/heads\//, '');
+    const createdBranch =
+      reported && isRefName(reported)
+        ? reported
+        : path
+          ? await currentBranch(this.runner, path)
+          : undefined;
     // 표시 이름은 보기 좋으라고 붙이는 것이라 실패해도 워커는 띄운다
     await this.runner(
       this.opts.orcaCommand,
@@ -1234,6 +1260,7 @@ export class GitWorktreeLauncher implements Launcher {
       throw new Error(
         `${spec.order.repo}의 로컬 경로가 없어요. ~/.gestalt/conductor.json의 repoPaths에 적어 주세요`,
       );
+    if (spec.previousBranch !== undefined) assertResumableBranch(spec.previousBranch);
     const cwd =
       spec.previousHandle && existsSync(spec.previousHandle)
         ? spec.previousHandle

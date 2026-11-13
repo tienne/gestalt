@@ -448,6 +448,54 @@ describe('오르카 런처의 지라 주문', () => {
   });
 });
 
+describe('이름 꼴 확인', () => {
+  it('지라 키 꼴이 아니면 참조를 안 붙인다', () => {
+    expect(worktreeReferences({ issueKey: '-x', prRef: 'acme/app#3' })).toEqual([]);
+  });
+
+  it.each(['-x', 'a..b'])(
+    '앞 브랜치가 %s면 git과 오르카를 하나도 안 부르고 멈춘다',
+    async (bad) => {
+      const f = fake();
+      await expect(
+        orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start({
+          order: jiraOrder(),
+          worker: worker('ord-1', { attempt: 2 }),
+          prompt: 'p',
+          previousBranch: bad,
+        }),
+      ).rejects.toThrow('앞 워커 브랜치 이름 꼴이 아니라');
+      expect(f.calls).toHaveLength(0);
+      const root = tempStateDir();
+      const g = fake();
+      await expect(
+        new GitWorktreeLauncher({
+          worktreeRoot: join(root, 'wt'),
+          promptDir: join(root, 'prompts'),
+          repoPaths: { 'acme/app': '/repos/app' },
+          runner: g.runner,
+        }).start({
+          order: jiraOrder(),
+          worker: worker('ord-1', { attempt: 2 }),
+          prompt: 'p',
+          previousBranch: bad,
+        }),
+      ).rejects.toThrow('앞 워커 브랜치 이름 꼴이 아니라');
+      expect(g.calls).toHaveLength(0);
+    },
+  );
+
+  it('create 응답에 브랜치가 없으면 계획한 이름 대신 실제 체크아웃을 기록한다', async () => {
+    const f = fake({ createdBranch: null, currentBranch: 'feat/PROJ-1-2' });
+    const r = await orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start({
+      order: jiraOrder(),
+      worker: worker('ord-1'),
+      prompt: 'p',
+    });
+    expect(r.branch).toBe('feat/PROJ-1-2');
+  });
+});
+
 describe('git 런처의 지라 주문', () => {
   function gitLauncher(runner: CommandRunner) {
     const root = tempStateDir();
