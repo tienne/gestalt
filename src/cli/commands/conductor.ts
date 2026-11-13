@@ -677,6 +677,7 @@ export interface ConductorGateResolveOptions extends ConductorCommonOptions {
   approve?: boolean;
   reject?: boolean;
   answer?: string;
+  deferDelivery?: boolean;
 }
 
 export async function conductorGateResolveCommand(
@@ -696,9 +697,12 @@ export async function conductorGateResolveCommand(
       opts.approve ? 'approved' : 'rejected',
       opts.answer,
     );
-    const delivered = await deliverGateDecision(ctx.store, closed, launchersFor(ctx, process.env));
-    if (opts.json) return print({ gate: closed, ...delivered });
+    const delivered = await deliverGateDecision(ctx.store, closed, launchersFor(ctx, process.env), {
+      defer: opts.deferDelivery === true,
+    });
+    if (opts.json) return print({ gate: ctx.store.snapshot.gates[gateId] ?? closed, ...delivered });
     console.log(`${gateId}를 ${closed.decision === 'approved' ? '승인' : '거절'}했어요`);
+    if (delivered.deferred) console.log('결정은 다음 tick이 워커에 전해요');
     for (const a of delivered.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
     for (const e of delivered.errors) console.log(`오류: ${e}`);
   } catch (e) {

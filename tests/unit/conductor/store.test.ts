@@ -94,6 +94,27 @@ describe('ConductorStore', () => {
     ).toThrow(/이미 종료된/);
   });
 
+  it('결정 전달 대기는 종료한 게이트에 붙었다 걷히고 다시 열어도 같다', () => {
+    const dir = tempStateDir();
+    const a = ConductorStore.open(dir);
+    expect(() =>
+      a.append({ type: 'gate-delivery', at: a.timestamp(), gateId: 'gate-x', pending: true }),
+    ).toThrow(/모르는 게이트/);
+    a.openGate({
+      id: 'gate-1',
+      type: 'merge',
+      status: 'open',
+      reason: '',
+      refs: [],
+      openedAt: a.timestamp(),
+    });
+    a.append({ type: 'gate-resolved', at: a.timestamp(), gateId: 'gate-1', decision: 'approved' });
+    a.append({ type: 'gate-delivery', at: a.timestamp(), gateId: 'gate-1', pending: true });
+    expect(ConductorStore.open(dir).snapshot.gates['gate-1']!.deliveryPending).toBe(true);
+    a.append({ type: 'gate-delivery', at: a.timestamp(), gateId: 'gate-1', pending: false });
+    expect(ConductorStore.open(dir).snapshot.gates['gate-1']).not.toHaveProperty('deliveryPending');
+  });
+
   it('append 도중 끊겨 반쯤 쓴 마지막 줄은 버리고 복원한다', () => {
     const dir = tempStateDir();
     const s = ConductorStore.open(dir);

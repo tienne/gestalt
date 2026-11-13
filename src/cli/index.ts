@@ -1186,6 +1186,10 @@ export function createCli(): Command {
     .option('--approve', '승인')
     .option('--reject', '거절')
     .option('--answer <text>', 'interview 게이트의 답')
+    .option(
+      '--defer-delivery',
+      '직접 못 전하는 결정은 다음 tick에 넘긴다 (hostActions를 못 돌리는 호출자용)',
+    )
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action(async (id, o) => {

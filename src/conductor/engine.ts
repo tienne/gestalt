@@ -210,6 +210,7 @@ async function runTick(
       if (d.kind === 'escalate') report.escalated.push(d.gate.id);
     }
   });
+  await step(report, () => deliverPendingDecisions(store, deps, report));
   await step(report, () => launchQueued(store, deps, report));
   await step(report, () => settleMerged(store, deps, report));
   if (deps.slack) {
@@ -524,20 +525,43 @@ async function spawnFromReport(
 /**
  * 사람이 종료한 게이트의 결정을 살아 있는 워커에 전한다. `gestalt conductor gate resolve`가 부른다.
  * 워커가 없거나 끝났으면 전할 곳이 없으니 아무것도 안 한다. 주문은 resolveGate가 이미 옮겨 뒀다.
+ *
+ * `defer`는 hostActions를 실행할 수 없는 호출자(오르카 플러그인)가 켠다. 그때 런처가 직접 못 전하고
+ * hostAction으로 돌려준 결정은 게이트에 전달 대기로 남기고 다음 tick이 컨덕터 세션의 hostActions로 내보낸다.
  */
 export async function deliverGateDecision(
   store: ConductorStore,
   gate: Gate,
   deps: Pick<EngineDeps, 'launchers'>,
-): Promise<{ hostActions: HostAction[]; errors: string[] }> {
-  const out = { hostActions: [] as HostAction[], errors: [] as string[] };
+  opts: { defer?: boolean } = {},
+): Promise<{ hostActions: HostAction[]; errors: string[]; deferred: boolean }> {
+  const out = { hostActions: [] as HostAction[], errors: [] as string[], deferred: false };
   const order = gate.orderId ? store.order(gate.orderId) : undefined;
   const worker = order?.workerId ? store.worker(order.workerId) : undefined;
   if (!worker || (worker.status !== 'running' && worker.status !== 'starting')) return out;
   const text = decisionMessage(gate);
   const fake = emptyReport(store.timestamp());
   await sendTo(deps, fake, worker, text);
-  return { hostActions: fake.hostActions, errors: fake.errors };
+  if (opts.defer && fake.hostActions.length > 0) {
+    store.append({ type: 'gate-delivery', at: store.timestamp(), gateId: gate.id, pending: true });
+    return { hostActions: [], errors: fake.errors, deferred: true };
+  }
+  return { hostActions: fake.hostActions, errors: fake.errors, deferred: false };
+}
+
+/** 플러그인이 종료하고 못 전한 결정을 이번 tick의 hostActions로 내보낸다. 워커가 끝났으면 버린다 */
+async function deliverPendingDecisions(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+): Promise<void> {
+  for (const gate of Object.values(store.snapshot.gates)) {
+    if (!gate.deliveryPending) continue;
+    const r = await deliverGateDecision(store, gate, deps);
+    report.hostActions.push(...r.hostActions);
+    report.errors.push(...r.errors);
+    store.append({ type: 'gate-delivery', at: store.timestamp(), gateId: gate.id, pending: false });
+  }
 }
 
 function decisionMessage(gate: Gate): string {

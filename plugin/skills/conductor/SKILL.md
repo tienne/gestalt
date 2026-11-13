@@ -127,7 +127,7 @@ gestalt conductor gate resolve <gateId> --approve --answer "보존 기간은 30�
 gestalt conductor gate resolve <gateId> --reject --json
 ```
 
-종료하면 결정이 그 워커에 바로 전달된다. 응답에 `hostActions`가 있으면 3번처럼 실행한다.
+종료하면 결정이 그 워커에 바로 전달된다. 응답에 `hostActions`가 있으면 3번처럼 실행한다. 오르카 플러그인이 종료한 확인 자리는 `--defer-delivery`로 불려 전달을 미뤄 두므로 다음 tick의 `hostActions`에 그 결정의 `send`가 나온다. 3번처럼 실행하면 된다.
 
 그 밖의 요청(단순 승인, 수동 검증, 정리, 인증, 계정 전환)은 tick이 bypass로 넘기고 기록만 남긴다. 사람에게 묻지 않는다.
 

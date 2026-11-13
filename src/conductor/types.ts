@@ -174,6 +174,8 @@ export interface Gate {
   decision?: 'approved' | 'rejected';
   /** interview 게이트에 사람이 적은 답 */
   answer?: string;
+  /** 종료한 쪽이 hostActions를 못 돌려 결정을 아직 워커에 못 전했다. 다음 tick이 전한다 */
+  deliveryPending?: boolean;
 }
 
 export const NEED_KINDS = [
@@ -248,6 +250,8 @@ export type ConductorEvent =
       decision: 'approved' | 'rejected';
       answer?: string;
     }
+  /** pending이 true면 결정 전달을 tick에 넘겼고 false면 tick이 그 일을 마쳤다 */
+  | { type: 'gate-delivery'; at: string; gateId: string; pending: boolean }
   | { type: 'bypass'; at: string; record: BypassRecord }
   | { type: 'jira-transition'; at: string; record: JiraTransitionRecord }
   | { type: 'slack-posted'; at: string; gateId: string; ref: string }

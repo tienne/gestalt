@@ -587,6 +587,61 @@ describe('컨덕터 tick', () => {
     expect(git.started).toHaveLength(1);
   });
 
+  async function waitingOnGate() {
+    const { store, advance } = clockedStore();
+    store.addOrder(order({ id: 'ord-1', scope: 'approval' }));
+    const made = deps();
+    await tick(store, made.deps, { force: true });
+    const wid = store.order('ord-1')!.workerId!;
+    report(store, made.deps, {
+      workerId: wid,
+      status: 'needs',
+      need: { kind: 'merge-approval', detail: '머지해도 될까요' },
+    });
+    await tick(store, made.deps, { force: true });
+    return { store, advance, wid, ...made, gateId: store.openGates('ord-1')[0]!.id };
+  }
+
+  it('hostActions를 못 돌리는 쪽이 닫은 게이트의 결정은 다음 tick이 한 번만 내보낸다', async () => {
+    const { store, deps: d, git, wid, gateId } = await waitingOnGate();
+    git.launcher.send = async (w, message) => ({ type: 'send', workerId: w.id, message });
+
+    const closed = resolveGate(store, gateId, 'approved');
+    const r = await deliverGateDecision(store, closed, d, { defer: true });
+    expect(r).toEqual({ hostActions: [], errors: [], deferred: true });
+    expect(store.snapshot.gates[gateId]!.deliveryPending).toBe(true);
+
+    const next = await tick(store, d, { force: true });
+    expect(next.hostActions).toContainEqual(
+      expect.objectContaining({ type: 'send', workerId: wid }),
+    );
+    expect(store.snapshot.gates[gateId]!.deliveryPending).toBeUndefined();
+
+    const after = await tick(store, d, { force: true });
+    expect(after.hostActions.filter((a) => a.type === 'send')).toEqual([]);
+  });
+
+  it('직접 전하는 런처면 미루라고 해도 그 자리에서 전하고 대기로 남기지 않는다', async () => {
+    const { store, deps: d, git, wid, gateId } = await waitingOnGate();
+    const closed = resolveGate(store, gateId, 'rejected');
+    const r = await deliverGateDecision(store, closed, d, { defer: true });
+    expect(r.deferred).toBe(false);
+    expect(git.sent.at(-1)!.workerId).toBe(wid);
+    expect(store.snapshot.gates[gateId]!.deliveryPending).toBeUndefined();
+  });
+
+  it('전달을 기다리던 워커가 그새 끝났으면 tick은 결정을 버리고 대기만 걷는다', async () => {
+    const { store, deps: d, git, wid, gateId } = await waitingOnGate();
+    git.launcher.send = async (w, message) => ({ type: 'send', workerId: w.id, message });
+    const closed = resolveGate(store, gateId, 'approved');
+    await deliverGateDecision(store, closed, d, { defer: true });
+    report(store, d, { workerId: wid, status: 'failed', summary: '중단했어요' });
+
+    const next = await tick(store, d, { force: true });
+    expect(next.hostActions.filter((a) => a.type === 'send' && a.workerId === wid)).toEqual([]);
+    expect(store.snapshot.gates[gateId]!.deliveryPending).toBeUndefined();
+  });
+
   const lockOf = (pid: number, startedAt: number) => `${pid}:${startedAt}:${hostname()}:x`;
 
   it('살아 있는 프로세스의 잠금은 한 시간이 지나도 걷어내지 않는다', async () => {

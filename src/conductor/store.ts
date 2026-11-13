@@ -109,6 +109,15 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     case 'jira-transition':
       s.jiraTransitions.push(e.record);
       return;
+    case 'gate-delivery': {
+      const g = s.gates[e.gateId];
+      if (!g) return;
+      const next: Gate = { ...g };
+      if (e.pending) next.deliveryPending = true;
+      else delete next.deliveryPending;
+      s.gates[e.gateId] = next;
+      return;
+    }
     case 'slack-posted':
       s.slackPosted[e.gateId] = e.ref;
       return;
@@ -366,7 +375,7 @@ function validate(event: ConductorEvent, s: ConductorSnapshot): void {
   if (event.type === 'worker-updated' && !s.workers[event.workerId]) {
     throw new Error(`모르는 워커예요: ${event.workerId}`);
   }
-  if (event.type === 'gate-updated' && !s.gates[event.gateId]) {
+  if ((event.type === 'gate-updated' || event.type === 'gate-delivery') && !s.gates[event.gateId]) {
     throw new Error(`모르는 게이트예요: ${event.gateId}`);
   }
   if (event.type === 'gate-resolved') {
