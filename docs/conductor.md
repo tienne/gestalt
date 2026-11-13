@@ -112,8 +112,12 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
 스킬은 사람이 멈추라고 하거나 [세션 인계](#세션-인계)를 마칠 때까지 tick → hostActions → 확인 자리 점검을 반복한다. Claude Code에서는 스킬을 처음 부르면 첫 tick을 돌린 뒤 세션이 loop 스킬을 직접 불러 아래와 같은 반복을 간격 없이 건다. 간격을 비우면 세션이 간격을 스스로 정한다.
 
 ```text
-/loop /gestalt:conductor tick 돌리고 hostActions 처리
+/loop 컨덕터 tick: 맥락에 있는 gestalt:conductor 스킬 7절 절차대로 gestalt conductor tick --json 돌리고 hostActions 처리
 ```
+
+반복 문장에 슬래시 명령을 쓰지 않는 건 컨텍스트 때문이다. `/loop /gestalt:conductor …`로 걸면 깨어날 때마다 스킬을 다시 불러 SKILL.md 본문(약 12k자)이 tick마다 한 벌씩 더 쌓인다. 2026-11-13 컨덕터 세션에서 tick 한 번에 약 10.4k 토큰이 늘었고 tick 출력과 응답은 그중 1k도 안 됐다. 그래서 컨텍스트가 금방 차서 할 일이 없어도 1시간마다 인계했다. 본문은 첫 호출 때 맥락에 들어오고 컴팩트 때도 Claude Code가 불렀던 스킬 본문을 요약 뒤에 다시 붙인다([스킬 문서의 Skill content lifecycle](https://code.claude.com/docs/en/skills)). 그래서 반복 문장은 그 절차를 따르라는 일반 문장이면 된다.
+
+할 일이 없으면 간격을 늘린다. tick JSON의 `idleTicks`는 상태가 안 바뀐 tick이 연달아 몇 번 왔는지 센다. 새 주문과 띄운 워커, 올린 확인 자리, 호스트 할 일이 없고 앞 tick 뒤로 상태 저장소에 이벤트가 하나도 안 쌓였어야 하나 오른다. 하나라도 있으면 0으로 돌아간다. 세션은 `idleTicks`가 2 이상이면 다음 깨우기를 20~30분 뒤로 잡고 상태가 바뀌거나 사람이 답하면 다시 짧은 간격으로 돌아온다. 텍스트 출력에는 `변화 없는 tick N번째` 줄로 찍힌다.
 
 반복이 두 겹으로 걸리지 않게 아래 경우에는 다시 걸지 않는다.
 
@@ -142,11 +146,11 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
    - 사람에게 물어 두고 답을 기다리는 질문
    - 워커 reply id처럼 대화에만 있는 값
 
-   세션이 이걸 마크다운 파일로 쓰고 아래 명령을 부른다. `--loop-prompt`는 `/gestalt:conductor`로 시작하는 한 줄(앞에 `5m ` 같은 간격 하나는 붙어도 된다, 500자 이하)만 받는다. 새 세션이 그 원문 그대로 반복을 걸기 때문이다. 꼴이 다르면 인계 파일을 쓰기 전에 거절하니 `--loop-prompt`를 빼고 다시 넘기고 사용자에게 알린다.
+   세션이 이걸 마크다운 파일로 쓰고 아래 명령을 부른다. `--loop-prompt`는 `컨덕터 tick: `으로 시작하는 한 줄(앞에 `5m ` 같은 간격 하나는 붙어도 된다, 500자 이하)만 받는다. 이미 떠 있는 세션이 옛 꼴로 반복을 걸었을 수 있어 `/gestalt:conductor`로 시작하는 한 줄도 받는다. 이어받은 세션은 옛 꼴을 새 문장으로 바꿔 건다. 새 세션이 그 원문 그대로 반복을 걸기 때문이다. 꼴이 다르면 인계 파일을 쓰기 전에 거절하니 `--loop-prompt`를 빼고 다시 넘기고 사용자에게 알린다.
 
    ```bash
    gestalt conductor handoff --notes-file "$tmp/handoff-notes.md" \
-     --loop-prompt "/gestalt:conductor tick 돌리고 hostActions 처리" --json
+     --loop-prompt "컨덕터 tick: 맥락에 있는 gestalt:conductor 스킬 7절 절차대로 gestalt conductor tick --json 돌리고 hostActions 처리" --json
    ```
 
    명령은 상태 저장소의 `handoffs/`에 인계 파일을 쓴다. 파일은 이어받은 세션이 할 일, 반복 프롬프트 원문, 메모 순서이고 메모는 펜스로 감싸 앞의 고정 절과 섞이지 않게 한다. 그다음 띄우기 전에 거절 기록(`handoff.json`)을 남기고 오르카가 있으면 `orca agent launch --agent claude --worktree path:<지금 작업 디렉토리> --prompt "/gestalt:conductor … 인계 파일: <경로>"`로 같은 워크스페이스에 새 세션을 띄운다. 오르카가 없거나 띄우기가 실패하면 파일만 남기고 `launched: false`와 사람에게 전할 문장을 돌려준다. 세션은 그 문장을 사람에게 전한다. 띄운 뒤 결과를 `handoff.json`에 못 덮어쓰면 stderr에 `인계 기록 갱신 실패` 한 줄을 내고 결과에 `recordError`를 싣는다. 이때 기록에는 "띄우는 중"이 남지만 tick 거절은 그대로 걸린다.
