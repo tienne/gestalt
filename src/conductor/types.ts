@@ -130,6 +130,10 @@ export interface Worker {
   startedAt: string;
   lastSeenAt: string;
   stopReason?: StopReason;
+  /** 컨덕터가 오르카 터미널에서 한도 표시를 처음 본 시각. 오래 안 풀리면 사람에게 올리는 기준이다 */
+  rateLimitedAt?: string;
+  /** 오르카가 알려 준 한도가 풀리는 시각 */
+  rateLimitResetsAt?: string;
 }
 
 export interface Checkpoint {

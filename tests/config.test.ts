@@ -265,6 +265,10 @@ describe('loadConfig — conductor', () => {
     expect(loadConfig({}, opts).conductor.staleAfterSec).toBe(1800);
   });
 
+  it('세션 리밋에 걸린 오르카 워커를 사람에게 올리는 기본 상한은 6시간이다', () => {
+    expect(loadConfig({}, opts).conductor.rateLimitEscalateAfterSec).toBe(21600);
+  });
+
   function inTempRepo(fn: (dir: string, home: string) => void): string {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const dir = mkdtempSync(join(tmpdir(), 'gestalt-config-'));
