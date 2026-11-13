@@ -57,7 +57,7 @@ gestalt conductor order add --repo acme/app --title "배너 문구 고치기" --
 
 넣은 뒤에는 그 주문 얘기를 대화 기억으로 이어 가지 않는다. 진행은 `gestalt conductor status`와 워커 보고로만 본다.
 
-지라 티켓은 호스트가 Atlassian MCP로 읽어 같은 명령에 `--source jira --source-ref jira:<KEY> --issue-key <KEY> --issue-type <type>`을 붙여 넣는다. `--source-ref`가 같으면 두 번 받지 않는다. 사용자가 지라 상태를 정해 줬으면 `--jira-status`로 넘긴다. 기본 규칙보다 먼저다.
+지라 티켓은 호스트가 Atlassian MCP로 읽어 같은 명령에 `--source jira --source-ref jira:<KEY> --issue-key <KEY> --issue-type <type>`을 붙여 넣는다. `--source-ref`가 같으면 두 번 받지 않는다. 같은 `--source-ref`의 주문을 지운 적이 있으면 `order add`가 `created: false`와 `removedAt`을 돌려주고 다시 받지 않는다. 되살리는 명령은 없으니 사용자에게 "이 티켓의 주문은 <removedAt>에 지워서 다시 받지 않아요"라고 전한다. 사용자가 지라 상태를 정해 줬으면 `--jira-status`로 넘긴다. 기본 규칙보다 먼저다.
 
 외부 큐는 tick이 상태 저장소의 `queue/`에서 직접 읽는다. 다른 시스템이 넣는 자리라 이 세션이 대신 넣을 일은 없다. 사용자가 큐 파일을 넣어 달라고 하면 `gestalt conductor queue add --body-file <파일>`을 쓴다. 꼴이 틀린 메시지는 확인 자리로 올라오고 못 읽은 파일은 tick 보고의 `errors`에 뜬다.
 
@@ -127,7 +127,7 @@ gestalt conductor gate resolve <gateId> --approve --answer "보존 기간은 30�
 gestalt conductor gate resolve <gateId> --reject --json
 ```
 
-종료하면 결정이 그 워커에 바로 전달된다. 응답에 `hostActions`가 있으면 3번처럼 실행한다. 오르카 플러그인이 종료한 확인 자리는 `--defer-delivery`로 불려 전달을 미뤄 두므로 다음 tick의 `hostActions`에 그 결정의 `send`가 나온다. 3번처럼 실행하면 된다. 그사이 워커가 끝났으면 결정은 버려지고 `send`도 안 나온다.
+종료하면 결정이 그 워커에 바로 전달된다. 응답에 `hostActions`가 있으면 3번처럼 실행한다. 오르카 플러그인이 종료한 확인 자리는 `--defer-delivery`로 불린다. git-worktree와 subagent 워커에는 전달을 미뤄 두므로 다음 tick의 `hostActions`에 그 결정의 `send`가 나온다. 3번처럼 실행하면 된다. 오르카 워커에는 플러그인이 그 자리에서 전하고 `send`가 안 나온다. 플러그인이 못 전했으면 다음 tick이 `hostActions` 없이 직접 다시 전한다. 세 번 못 전하면 `errors`에 직접 전해 달라는 줄이 남으니 그때 사용자에게 알린다. 그사이 워커가 끝났으면 결정은 버려지고 `send`도 안 나온다.
 
 그 밖의 요청(단순 승인, 수동 검증, 정리, 인증, 계정 전환)은 tick이 bypass로 넘기고 기록만 남긴다. 사람에게 묻지 않는다.
 
@@ -207,6 +207,8 @@ loop 스킬이 없는 호스트(Codex, Grok 등)에서는 반복을 걸지 않�
 진행을 보고할 때는 `gestalt conductor status`의 숫자와 바뀐 주문만 짧게 말한다. 그 사이 tick이 낸 `warnings`와 `errors`가 있으면 함께 적는다. bypass로 넘긴 일은 모아서 사후 보고한다. 주문마다 붙은 bypass 내역이 `gestalt conductor status --json`에 실리고 끝난 주문까지 보려면 `--all`을 붙인다.
 
 끝난 주문의 결과나 이전 보고를 물으면 `gestalt conductor order show <id> --json`으로 읽는다. 보고 이력의 요약과 refs, PR, gate, bypass를 근거로 답하고 대화 기억으로 복원하지 않는다. `status --all`의 텍스트 출력은 마지막 요약을 100자까지만 보여 주고 이전 진행 보고는 `order show`에만 있으므로 자세한 결과는 `order show`를 쓴다. 옛 로그에서 보고 이력이 비어 있으면 저장된 보고가 없다고 밝힌다.
+
+끝난 주문은 오르카 플러그인이나 `gestalt conductor order remove <주문 id...> --json`으로 지운다. 이 세션은 사용자가 지워 달라고 한 주문만 지운다. 지운 주문은 `order show`로 결과를 못 읽고 같은 출처로 다시 받지 않는다.
 
 ## 8. 효과 재기
 
