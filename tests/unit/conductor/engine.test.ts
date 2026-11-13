@@ -29,6 +29,7 @@ import {
   type HostAction,
   type Launcher,
   type LaunchSpec,
+  type ReleaseOptions,
 } from '../../../src/conductor/launcher.js';
 import type { ConductorConfig } from '../../../src/conductor/scheduler.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
@@ -471,6 +472,149 @@ describe('컨덕터 tick', () => {
     expect(r.created).toEqual([]);
     expect(store.orders()).toHaveLength(1);
     expect(store.order('ord-1')!.prRef).toBe('acme/app#5');
+  });
+
+  describe('머지된 주문의 오르카 워크트리 정리', () => {
+    function orcaRelease(fail?: (w: Worker) => boolean) {
+      const calls: { id: string; opts?: ReleaseOptions }[] = [];
+      const launcher: Launcher = {
+        kind: 'orca-worktree',
+        start: async (spec) => ({ handle: `h-${spec.worker.id}` }),
+        send: async () => undefined,
+        release: async (w, opts) => {
+          if (fail?.(w)) throw new Error('커밋 안 한 변경이 있어요');
+          calls.push({ id: w.id, ...(opts ? { opts } : {}) });
+        },
+      };
+      return { launcher, calls };
+    }
+
+    function addWorker(store: ConductorStore, over: Partial<Worker>) {
+      store.startWorker({
+        ...worker(over.orderId ?? 'ord-1'),
+        kind: 'orca-worktree',
+        handle: 'ctx',
+        ...over,
+      });
+    }
+
+    it('옵션을 켜면 머지된 주문의 모든 회차 워크트리를 지우고 부모 워크트리를 넘긴다', async () => {
+      const { store } = clockedStore();
+      store.addOrder(
+        order({
+          id: 'ord-1',
+          status: 'done',
+          mergedAt: '2026-01-01T00:00:00.000Z',
+          parentWorktree: '/ws/feat',
+          workerId: 'wrk-2',
+        }),
+      );
+      addWorker(store, { id: 'wrk-1', attempt: 1, status: 'stopped', stopReason: 'disconnected' });
+      addWorker(store, { id: 'wrk-2', attempt: 2, status: 'finished' });
+      const orca = orcaRelease();
+      const { deps: d } = deps({
+        config: { ...config, removeMergedOrcaWorktrees: true },
+        launchers: { 'orca-worktree': orca.launcher },
+      });
+      await tick(store, d, { force: true });
+      expect(orca.calls.map((c) => c.id).sort()).toEqual(['wrk-1', 'wrk-2']);
+      for (const c of orca.calls)
+        expect(c.opts).toEqual({ removeWorktree: true, parentWorktree: '/ws/feat' });
+      expect(store.worker('wrk-1')!.status).toBe('released');
+      expect(store.worker('wrk-2')!.status).toBe('released');
+    });
+
+    it('옵션이 꺼져 있으면 지금처럼 터미널만 거두고 멈춘 앞 회차는 그대로 둔다', async () => {
+      const { store } = clockedStore();
+      store.addOrder(order({ id: 'ord-1', status: 'done', mergedAt: '2026-01-01T00:00:00.000Z' }));
+      addWorker(store, { id: 'wrk-1', attempt: 1, status: 'stopped' });
+      addWorker(store, { id: 'wrk-2', attempt: 2, status: 'finished' });
+      const orca = orcaRelease();
+      const { deps: d } = deps({ launchers: { 'orca-worktree': orca.launcher } });
+      await tick(store, d, { force: true });
+      expect(orca.calls).toEqual([{ id: 'wrk-2', opts: {} }]);
+      expect(store.worker('wrk-1')!.status).toBe('stopped');
+    });
+
+    it('머지 안 된 주문은 옵션을 켜도 워크트리를 남긴다', async () => {
+      const { store } = clockedStore();
+      store.addOrder(order({ id: 'ord-1', status: 'failed' }));
+      store.addOrder(order({ id: 'ord-2', status: 'cancelled' }));
+      addWorker(store, { id: 'wrk-1', orderId: 'ord-1', status: 'failed' });
+      addWorker(store, { id: 'wrk-2', orderId: 'ord-2', status: 'stopped' });
+      const orca = orcaRelease();
+      const { deps: d } = deps({
+        config: { ...config, removeMergedOrcaWorktrees: true },
+        launchers: { 'orca-worktree': orca.launcher },
+      });
+      await tick(store, d, { force: true });
+      expect(orca.calls).toEqual([{ id: 'wrk-1', opts: {} }]);
+      expect(store.worker('wrk-2')!.status).toBe('stopped');
+    });
+
+    it('같은 레포의 워크트리 삭제는 차례로, 다른 레포끼리는 함께 돌린다', async () => {
+      const { store } = clockedStore();
+      const merged = '2026-01-01T00:00:00.000Z';
+      store.addOrder(order({ id: 'ord-a', repo: 'acme/a', status: 'done', mergedAt: merged }));
+      store.addOrder(order({ id: 'ord-b', repo: 'acme/b', status: 'done', mergedAt: merged }));
+      addWorker(store, { id: 'wrk-a1', orderId: 'ord-a', attempt: 1, status: 'stopped' });
+      addWorker(store, { id: 'wrk-a2', orderId: 'ord-a', attempt: 2, status: 'finished' });
+      addWorker(store, { id: 'wrk-b1', orderId: 'ord-b', attempt: 1, status: 'finished' });
+      const active = new Map<string, number>();
+      const peak = new Map<string, number>();
+      let overall = 0;
+      let overallPeak = 0;
+      const launcher: Launcher = {
+        kind: 'orca-worktree',
+        start: async (spec) => ({ handle: `h-${spec.worker.id}` }),
+        send: async () => undefined,
+        release: async (w) => {
+          const repo = store.order(w.orderId)!.repo;
+          active.set(repo, (active.get(repo) ?? 0) + 1);
+          peak.set(repo, Math.max(peak.get(repo) ?? 0, active.get(repo)!));
+          overallPeak = Math.max(overallPeak, ++overall);
+          await new Promise((r) => setTimeout(r, 5));
+          active.set(repo, active.get(repo)! - 1);
+          overall--;
+        },
+      };
+      const { deps: d } = deps({
+        config: { ...config, removeMergedOrcaWorktrees: true },
+        launchers: { 'orca-worktree': launcher },
+      });
+      await tick(store, d, { force: true });
+      expect(peak.get('acme/a')).toBe(1);
+      expect(overallPeak).toBe(2);
+      for (const id of ['wrk-a1', 'wrk-a2', 'wrk-b1'])
+        expect(store.worker(id)!.status).toBe('released');
+    });
+
+    it('지우기가 실패하면 정리 실패 게이트를 타고 승인되면 released로 둔다', async () => {
+      const { store } = clockedStore();
+      store.addOrder(order({ id: 'ord-1', status: 'done', mergedAt: '2026-01-01T00:00:00.000Z' }));
+      addWorker(store, { id: 'wrk-1', status: 'finished' });
+      let dirty = true;
+      const orca = orcaRelease(() => dirty);
+      const { deps: d } = deps({
+        config: { ...config, removeMergedOrcaWorktrees: true },
+        launchers: { 'orca-worktree': orca.launcher },
+      });
+      const r = await tick(store, d, { force: true });
+      expect(r.escalated).toHaveLength(1);
+      const gate = store.snapshot.gates[r.escalated[0]!]!;
+      expect(gate.payload).toMatchObject({ kind: 'cleanup-failed', workerId: 'wrk-1' });
+      expect(gate.reason).toContain('커밋 안 한 변경');
+      expect(store.worker('wrk-1')!.status).toBe('finished');
+
+      // 게이트가 열린 동안은 다시 지우지 않는다
+      dirty = false;
+      await tick(store, d, { force: true });
+      expect(orca.calls).toEqual([]);
+      resolveGate(store, gate.id, 'rejected');
+      await tick(store, d, { force: true });
+      expect(orca.calls.map((c) => c.id)).toEqual(['wrk-1']);
+      expect(store.worker('wrk-1')!.status).toBe('released');
+    });
   });
 
   it('워커 정리가 실패하면 주문에 안 묶인 게이트를 열고 주문은 그대로 정산한다', async () => {

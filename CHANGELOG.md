@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.134.0] - 2026-11-13
+
+> **기본은 꺼져 있어요.** 머지된 주문의 오르카 워크트리까지 지우려면 `~/.gestalt/conductor.json`에 아래처럼 켜 주세요. 레포 `gestalt.json`에 적은 값은 버려요.
+>
+> ```json
+> { "removeMergedOrcaWorktrees": true }
+> ```
+
+### Added
+
+- **컨덕터가 머지된 주문의 오르카 워커 워크트리를 지울 수 있어요(#127).** 지금까지 정리 단계는 `orca orchestration worker-release`로 워커 터미널만 닫고 워크트리는 남겨서 끝난 주문의 워크트리가 계속 쌓였어요. 사람이 `orca worktree rm`으로 하나씩 지워야 했고요.
+  - `removeMergedOrcaWorktrees`(기본 `false`)를 켜면 `mergedAt`이 있는 주문의 오르카 워커는 터미널을 거둔 뒤 워크트리까지 지워요. 끄면 지금 동작 그대로예요.
+  - 레포 `gestalt.json`은 이 값을 못 켜요. 남의 레포가 내 워크트리를 지우게 만들면 안 되니까요.
+  - 재개로 갈려 `stopped`로 남은 앞 회차 워커도 주문이 머지되면 같이 거둬요. 그래서 `<주문 id>-<회차>` 워크트리가 빠짐없이 지워져요.
+  - 머지 안 된 주문(실패, 취소)의 워크트리는 켜도 남겨요.
+  - `worker-show`로 워크스페이스를 읽고 `orca worktree show`로 한 번 더 확인한 뒤 `orca worktree rm --delete-branch`를 불러요. `--force`는 안 붙여서 커밋 안 한 변경이 있으면 오르카가 거절해요.
+  - 경로 마지막 조각이 `<주문 id>-<회차>`가 아니거나 부모 워크트리(또는 그 위)이거나 메인 워크트리면 지우지 않고 에러를 던져요. `repoId`나 `parentWorktreeId`가 안 맞을 때도 마찬가지예요. dispatch id가 없어 워크트리를 못 찾을 때도 조용히 넘기지 않아요.
+  - 같은 레포의 워크트리 삭제는 git 잠금이 겹치지 않게 차례로 돌려요. 다른 레포끼리와 터미널만 거두는 정리는 그대로 함께 돌아요.
+  - 실패하면 기존 `cleanup-failed` 게이트를 그대로 타요. 이미 없는 워크트리는 지운 것으로 봐요.
+
+### 남긴 것
+
+- `git-worktree` 워커의 브랜치 삭제는 이번 범위에 안 넣었어요.
+- 이미 쌓여 있는 옛 워크트리를 한꺼번에 지우는 기능은 없어요.
+- `--delete-branch`는 오르카가 머지됐다고 확인한 브랜치만 지워요. 스쿼시 머지처럼 확인 못 하는 브랜치는 남아요.
+
+## [0.133.0] - 2026-11-13
+
+> **인계 훅은 플러그인 훅이에요.** 플러그인을 업데이트한 뒤에는 돌고 있던 컨덕터 세션을 닫고 새로 띄워야 컴팩트 횟수를 세기 시작해요. 이미 떠 있던 세션에는 새 훅이 안 걸려요.
+
+### Added
+
+- **컨덕터 세션이 컨텍스트를 거의 다 쓰면 새 세션에 일을 넘겨요(#126).** 컨덕터는 대화 하나로 오래 돌아서 컴팩트를 몇 번 거치면 대화에만 있던 값(기다리던 질문, 사람이 정해 준 규칙)이 흐려졌어요.
+  - `SessionStart(compact)`에 걸리는 bash 훅을 더했어요. tick이 등록한 컨덕터 세션만 상태 저장소의 `sessions/<세션 id>/compactions`에 횟수와 트랜스크립트 경로를 적고 나머지 세션은 Node를 띄우지 않고 바로 끝나요.
+  - tick이 `CLAUDE_CODE_SESSION_ID`로 세션을 등록하고 출력에 `handoff`를 실어요. 한 번 컴팩트한 뒤 트랜스크립트의 컨텍스트 사용량이 `handoffContextPercent`(기본 70%) 이상이거나 두 번째 컴팩트가 오면 `due: true`가 돼요.
+  - `due`를 본 세션은 그 tick의 hostActions와 확인 자리 점검까지 마친 다음 `gestalt conductor handoff`로 넘겨요. 명령은 `handoffs/`에 인계 파일을 쓰고 오르카가 있으면 `agent launch`로 같은 워크스페이스에 새 세션을 띄워요. 오르카가 없거나 띄우기가 실패하면 파일만 남기고 사람에게 전할 문장을 돌려줘요.
+  - 띄우기 전에 `handoff.json`을 먼저 남겨서 넘긴 세션의 tick은 거절돼요. 띄운 뒤 기록을 못 덮어쓰면 stderr에 한 줄을 내고 결과에 `recordError`를 실어요.
+  - `--loop-prompt`는 `/gestalt:conductor`로 시작하는 한 줄(앞에 간격 하나는 붙어도 되고 500자 이하)만 받아요. 새 세션이 그 원문 그대로 반복을 걸어서요. 인계 파일의 메모는 펜스로 감싸 앞의 고정 절과 안 섞이게 했어요.
+  - 사용량을 못 읽으면 `due: false`와 이유를 싣고 텍스트 출력에 `인계 판정 못 함: <이유>` 줄을 찍어요.
+
+### 남긴 것
+
+- 이 흐름은 Claude Code 전용이에요. 세션 id와 컴팩트 훅이 없는 호스트에서는 `handoff`가 출력에 안 실려요.
+- `--state-dir`로 다른 저장소를 쓰면 훅이 그 자리를 몰라 횟수를 못 세요. 훅은 `GESTALT_CONDUCTOR_STATE_DIR`와 `~/.gestalt/conductor.json`의 `stateDir`(절대 경로만), 기본값 순서로 저장소를 찾아요.
+
 ## [0.132.0] - 2026-11-13
 
 > **업데이트하면 컨덕터 PR 감시가 꺼져요.** 감시를 다시 켜려면 `~/.gestalt/conductor.json`의 `prWatchRepos`에 레포를 적어 주세요.

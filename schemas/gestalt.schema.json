@@ -274,6 +274,11 @@
           "additionalProperties": { "type": "string" },
           "description": "Local checkout path per repo (owner/name). Used to create git worktrees or point Orca at the repo. Read only from ~/.gestalt/conductor.json; a repo gestalt.json value is ignored",
           "default": {}
+        },
+        "removeMergedOrcaWorktrees": {
+          "type": "boolean",
+          "description": "Also remove the Orca worktrees of a merged order's workers during cleanup (no --force; branches go only when Orca can prove them merged). Off keeps the worktrees. Read only from ~/.gestalt/conductor.json; a repo gestalt.json value is ignored",
+          "default": false
         }
       },
       "additionalProperties": false
