@@ -278,7 +278,7 @@ export type ConductorEvent =
   | { type: 'slack-posted'; at: string; gateId: string; ref: string }
   /**
    * clearedReports는 이번 tick이 inbox에서 지운 보고 파일이다. 적용 기록에서 뺀다.
-   * idle은 앞 tick 뒤로 이 tick까지 tick 말고는 이벤트가 없고 tick이 한 일도 없었다는 뜻이다
+   * idle은 앞 tick 뒤로 이 tick까지 tick 말고는 이벤트가 없고 tick이 한 일도 오류도 없었다는 뜻이다
    */
   | { type: 'tick'; at: string; clearedReports?: string[]; idle?: boolean }
   /** inbox의 보고 파일 하나를 적용했다. 지우기에 실패해 다음 tick에 다시 보여도 또 적용하지 않는다 */

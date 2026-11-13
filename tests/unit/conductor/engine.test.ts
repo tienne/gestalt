@@ -156,6 +156,50 @@ describe('컨덕터 tick', () => {
     expect(r.idleTicks).toBe(0);
   });
 
+  it('보고를 적용한 tick은 idle이 아니고 다시 열어도 같은 값이다', async () => {
+    const { store, dir } = clockedStore();
+    store.addOrder(order({ id: 'ord-0' }));
+    const { deps: d } = deps();
+    await tick(store, d, { force: true });
+    await tick(store, d, { force: true });
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(2);
+
+    report(store, d, { workerId: store.order('ord-0')!.workerId!, status: 'progress' });
+    const applied = await tick(store, d, { force: true });
+    expect(applied.idleTicks).toBe(0);
+    expect(ConductorStore.open(dir).snapshot.idleTicks).toBe(0);
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(1);
+    expect(ConductorStore.open(dir).snapshot.idleTicks).toBe(1);
+  });
+
+  it('오류만 반복되는 tick은 idle로 세지 않는다', async () => {
+    const { store } = clockedStore();
+    const { deps: d } = deps({
+      queue: {
+        receive: async () => {
+          throw new Error('큐에 못 붙어요');
+        },
+        ack: async () => {},
+      },
+    });
+    for (let i = 0; i < 3; i++) {
+      const r = await tick(store, d, { force: true });
+      expect(r.errors).toContain('큐에 못 붙어요');
+      expect(r.idleTicks).toBe(0);
+    }
+  });
+
+  it('잠금에 막혀 건너뛴 tick도 마지막 idleTicks를 싣는다', async () => {
+    const { store, dir } = clockedStore();
+    const { deps: d } = deps();
+    await tick(store, d, { force: true });
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(1);
+    writeFileSync(join(dir, 'tick.lock'), `${process.pid}:${Date.now()}:${hostname()}:x`);
+    const r = await tick(store, d, { force: true });
+    expect(r.skipped).toBe(true);
+    expect(r.idleTicks).toBe(1);
+  });
+
   it('런처가 남긴 경고를 tick 보고에 싣는다', async () => {
     const { store } = clockedStore();
     store.addOrder(order({ id: 'ord-0', parentWorktree: '/w/feat' }));
