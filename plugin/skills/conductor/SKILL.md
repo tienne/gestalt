@@ -41,7 +41,7 @@ routing:
 - **주문을 넣은 뒤에는 그 대화 원문에 기대지 않는다.** 주문 하나에 필요한 맥락은 전부 description에 옮긴다. 세션을 새로 띄워도 잃는 게 없어야 한다.
 - **여러 주문에 걸친 맥락은 레포 공통 맥락 파일에 둔다.** 대화에만 남기지 않는다. 자세한 건 1-1이다.
 - **워커 생성은 컨덕터만 한다.** 워커가 하위 워커를 원하면 보고의 `spawnRequest`로 올라오고 다음 tick이 새 주문으로 받는다. 주문 하나에 하위 주문은 세 개까지고 하위 주문의 워커는 더 못 늘린다. 넘치면 만들지 않고 그 워커에 이유를 보낸다.
-- **이 스킬 자신은 워커 안에서 돌지 않는다.** `tick`과 `gate resolve`, `order add`, `queue add`, `deploy report`는 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이면 거절한다. 서브에이전트 워커는 컨덕터와 같은 자리에서 돌아서 이 검사에 안 걸리므로 지시서 규칙에만 기댄다.
+- **이 스킬 자신은 워커 안에서 돌지 않는다.** `tick`과 `gate resolve`, `order add`, `order remove`, `queue add`, `deploy report`는 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이면 거절한다. 서브에이전트 워커는 컨덕터와 같은 자리에서 돌아서 이 검사에 안 걸리므로 지시서 규칙에만 기댄다.
 - **워커는 자기 id로만 보고한다.** `worker report`와 `checkpoint save`는 `GESTALT_CONDUCTOR_WORKER_ID`와 `--worker`가 다르면 거절한다. 이 환경 변수는 git 워크트리 워커에만 있어서 오르카와 서브에이전트 워커가 남의 id를 적는 건 못 막는다.
 
 ## 1. 주문 넣기

@@ -132,7 +132,7 @@ function launchersFor(
 }
 
 /**
- * 컨덕터 전용 명령(tick, gate resolve, order add, deploy report, queue add)을 워커 안에서 부르면 거절한다.
+ * 컨덕터 전용 명령(tick, gate resolve, order add, order remove, deploy report, queue add)을 워커 안에서 부르면 거절한다.
  *
  * 환경 변수는 호스트가 git 워크트리 세션을 열 때 넣어 준 경우에만 있다. 오르카 워커는 환경이
  * 컨덕터와 같아서 작업 디렉토리가 살아 있는 워커의 워크트리 안인지로 가른다. 서브에이전트는
