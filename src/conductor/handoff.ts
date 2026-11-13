@@ -370,8 +370,13 @@ export async function launchHandoff(
     const head = (r.stderr || r.stdout).trim().split('\n').slice(0, 3).join(' ');
     return { launched: false, detail: `오르카 agent launch 실패(${r.code}): ${head}. ${manual}` };
   }
-  const tab = launchedTab(r.stdout);
-  const shown = tab ? (tab.kind === 'chat' ? tab.sessionId : tab.handle) : legacyHandle(r.stdout);
+  const parsed = parseResult(r.stdout);
+  const tab = parsed && launchedTab(parsed);
+  const shown = tab
+    ? tab.kind === 'chat'
+      ? tab.sessionId
+      : tab.handle
+    : parsed && legacyHandle(parsed);
   return {
     launched: true,
     detail: `오르카로 ${opts.cwd}에 새 세션을 띄웠어요${shown ? ` (${shown})` : ''}`,
@@ -396,22 +401,24 @@ function asRecord(v: unknown): Record<string, unknown> | undefined {
  * `agent launch --json`의 `launch.outcome`에서 띄운 탭을 읽는다. 채팅(`structured`)은 `sessionId`,
  * 터미널은 `handle`이 그 탭을 가리킨다. 이 칸이 없는 옛 오르카면 터미널 핸들을 `agentTerminalHandle`에서 읽는다.
  */
-function launchedTab(stdout: string): LaunchedTab | undefined {
-  const r = parseResult(stdout);
-  if (!r) return undefined;
+function launchedTab(r: Record<string, unknown>): LaunchedTab | undefined {
   const outcome = asRecord(asRecord(r['launch'])?.['outcome']) ?? asRecord(r['outcome']);
-  if (outcome?.['kind'] === 'structured' && typeof outcome['sessionId'] === 'string')
-    return { kind: 'chat', sessionId: outcome['sessionId'] };
-  if (outcome?.['kind'] === 'terminal' && typeof outcome['handle'] === 'string')
-    return { kind: 'terminal', handle: outcome['handle'] };
+  if (outcome) {
+    // outcome이 있으면 새 오르카다. 칸이 비었다고 옛 칸으로 내려가면 엉뚱한 탭을 바꿀 수 있다
+    if (outcome['kind'] === 'structured' && typeof outcome['sessionId'] === 'string')
+      return { kind: 'chat', sessionId: outcome['sessionId'] };
+    if (outcome['kind'] === 'terminal' && typeof outcome['handle'] === 'string')
+      return { kind: 'terminal', handle: outcome['handle'] };
+    return undefined;
+  }
   const legacy = r['agentTerminalHandle'];
   return typeof legacy === 'string' ? { kind: 'terminal', handle: legacy } : undefined;
 }
 
-// 응답 꼴이 버전마다 달라 아는 칸만 짧게 보여 준다. 못 읽어도 띄우기는 성공으로 본다
-function legacyHandle(stdout: string): string | undefined {
-  const r = parseResult(stdout);
-  const id = r?.['sessionId'] ?? r?.['terminalHandle'] ?? r?.['handle'];
+// 응답 꼴이 버전마다 달라 아는 칸만 짧게 보여 준다. 못 읽어도 띄우기는 성공으로 본다.
+// 표시 전용이라 아는 칸을 넓게 읽는다. rename 대상은 launch.outcome과 옛 호스트의 agentTerminalHandle만 쓴다
+function legacyHandle(r: Record<string, unknown>): string | undefined {
+  const id = r['sessionId'] ?? r['terminalHandle'] ?? r['handle'];
   return typeof id === 'string' ? id : undefined;
 }
 
