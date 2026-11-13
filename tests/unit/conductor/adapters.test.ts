@@ -7,6 +7,7 @@ import {
   FAILED_QUEUE_DIR,
   GhAccounts,
   GhAccountSwitcher,
+  GhPrStateSource,
   GhPrWatchSource,
   hostJiraClient,
   PR_LIST_LIMIT,
@@ -305,5 +306,58 @@ describe('gh 읽기', () => {
     expect(await sw.current('acme/web')).toBe('team');
     expect(await sw.current('acme/app')).toBe('me');
     expect(calls.some((c) => c.args[0] === 'auth' && c.args[1] === 'switch')).toBe(false);
+  });
+});
+
+describe('GhPrStateSource', () => {
+  function stateRunner(stdout: string, code = 0) {
+    const calls: string[][] = [];
+    const runner: CommandRunner = async (cmd, args) => {
+      calls.push([cmd, ...args]);
+      return { code, stdout, stderr: code === 0 ? '' : 'not found' };
+    };
+    return { runner, calls };
+  }
+
+  it('PR 상태와 머지 시각을 읽는다', async () => {
+    const { runner, calls } = stateRunner(
+      JSON.stringify({ state: 'MERGED', mergedAt: '2026-11-02T00:00:00Z' }),
+    );
+    const src = new GhPrStateSource({ runner, accounts: new GhAccounts({}, { runner }) });
+    expect(await src.state('acme/app#7')).toEqual({
+      state: 'MERGED',
+      mergedAt: '2026-11-02T00:00:00Z',
+    });
+    expect(calls[0]).toEqual([
+      'gh',
+      'pr',
+      'view',
+      '7',
+      '--repo',
+      'acme/app',
+      '--json',
+      'state,mergedAt',
+    ]);
+  });
+
+  it('열린 PR은 머지 시각 없이 돌려준다', async () => {
+    const { runner } = stateRunner(JSON.stringify({ state: 'OPEN', mergedAt: null }));
+    const src = new GhPrStateSource({ runner, accounts: new GhAccounts({}, { runner }) });
+    expect(await src.state('acme/app#7')).toEqual({ state: 'OPEN' });
+  });
+
+  it('모르는 상태나 gh 실패는 던진다', async () => {
+    const bad = stateRunner(JSON.stringify({ state: 'DRAFT' }));
+    await expect(
+      new GhPrStateSource({ runner: bad.runner, accounts: new GhAccounts({}, bad) }).state(
+        'acme/app#7',
+      ),
+    ).rejects.toThrow('DRAFT');
+    const fail = stateRunner('', 1);
+    await expect(
+      new GhPrStateSource({ runner: fail.runner, accounts: new GhAccounts({}, fail) }).state(
+        'acme/app#7',
+      ),
+    ).rejects.toThrow('not found');
   });
 });

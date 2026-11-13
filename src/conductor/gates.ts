@@ -164,7 +164,8 @@ export function openOrReuse(
     order &&
     !TERMINAL_ORDER_STATUSES.has(order.status) &&
     order.status !== 'waiting-gate' &&
-    order.status !== 'escalated'
+    order.status !== 'escalated' &&
+    order.status !== 'human-owned'
   ) {
     store.updateOrder(order.id, { status: 'waiting-gate' });
   }

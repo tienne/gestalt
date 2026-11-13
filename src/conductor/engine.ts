@@ -35,6 +35,7 @@ import {
   type LauncherSet,
   type ReleaseOptions,
 } from './launcher.js';
+import { watchHumanOwned, type HumanOwnedChange, type PrStateSource } from './ownership.js';
 import { repoOfPrRef } from './pr-ref.js';
 import { pollPrs, type PrWatchSource } from './pr-watch.js';
 import { parseWorkerReport } from './result.js';
@@ -83,6 +84,8 @@ export interface EngineDeps {
   jiraSource?: JiraIntakeSource;
   queue?: ExternalQueue;
   prSource?: PrWatchSource;
+  /** 사람이 넘겨받은 주문의 PR 머지를 확인한다. 없으면 머지 확인 없이 parked로 내리기만 한다 */
+  prState?: PrStateSource;
   jira?: JiraClient;
   deploy?: DeploySource;
   slack?: SlackClient;
@@ -107,6 +110,8 @@ export interface TickReport {
   warnings: string[];
   /** 세션 한도에 걸려 재개하지 않고 기다리는 오르카 워커. 풀리기 전까지 tick마다 싣는다 */
   rateLimited: RateLimitedEntry[];
+  /** 사람이 넘겨받은 주문 중 이번 tick에 상태가 바뀐 것. 바뀐 게 없으면 비어 있다 */
+  humanOwned: HumanOwnedChange[];
   counts: {
     queued: number;
     running: number;
@@ -249,6 +254,7 @@ async function runTick(
     }
   });
   await step(report, () => launchQueued(store, deps, report));
+  await step(report, () => watchHumanPrs(store, deps, report));
   await step(report, () => settleMerged(store, deps, report));
   if (deps.slack) {
     const slack = deps.slack;
@@ -462,6 +468,9 @@ async function applyReport(
   // 취소된 주문의 보고는 워커 종류와 상관없이 안 받는다. 한도 게이트를 거절한 오르카 워커는 터미널이 남아 한도가 풀리면 다시 보고한다
   if (order.status === 'cancelled')
     throw new Error(`${worker.id}는 취소된 주문의 워커라 결과를 무시해요`);
+  // 넘겨받은 뒤 늦게 도착한 보고가 주문을 running이나 done으로 되돌리지 않게 막는다
+  if (order.status === 'human-owned' || order.status === 'parked')
+    throw new Error(`${worker.id}는 사람이 넘겨받은 주문의 워커라 결과를 무시해요`);
   // 상태를 하나라도 바꾸기 전에 거른다. 반쯤 적용된 채 failed로 옮겨지면 되살릴 때 앞부분이 겹친다
   if (r.status === 'needs' && !r.need) throw new Error('status needs인데 need가 없어요');
 
@@ -754,6 +763,38 @@ async function retirePrevious(
   }
 }
 
+/** 사람이 넘겨받은 주문의 PR을 본다. 머지됐으면 지라를 옮겨 이어지는 정산이 마무리하게 한다 */
+async function watchHumanPrs(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+): Promise<void> {
+  const r = await watchHumanOwned(store, {
+    now: new Date(report.at),
+    pollMs: deps.config.humanOwnedPollSec * 1000,
+    parkAfterMs: deps.config.humanOwnedParkAfterSec * 1000,
+    ...(deps.prState ? { source: deps.prState } : {}),
+  });
+  report.humanOwned.push(...r.changes);
+  report.errors.push(...r.errors);
+  for (const c of r.changes)
+    if (c.to === 'merged') await moveJira(store, deps, report, c.orderId, 'merged');
+}
+
+/**
+ * 사람이 머지했다고 알린 주문의 머지 뒤 처리를 시작한다. 지라는 여기서 옮기고 배포 대기와 정리는
+ * 다음 tick의 정산이 이어 받는다. `gestalt conductor order mark-merged`가 부른다
+ */
+export async function afterHumanMerge(
+  store: ConductorStore,
+  orderId: string,
+  deps: Pick<EngineDeps, 'jira'>,
+): Promise<Pick<TickReport, 'jira' | 'errors'>> {
+  const out = emptyReport(store.timestamp());
+  await moveJira(store, deps, out, orderId, 'merged');
+  return { jira: out.jira, errors: out.errors };
+}
+
 /**
  * 머지된 주문을 끝낸다. bug, task, sub-bug는 배포 파이프라인이 성공해야 In-QA로 옮기고 끝낸다.
  * 배포가 실패하면 그 주문만 사람에게 올린다.
@@ -899,8 +940,8 @@ async function cleanupWorkers(
 
 async function moveJira(
   store: ConductorStore,
-  deps: EngineDeps,
-  report: TickReport,
+  deps: Pick<EngineDeps, 'jira'>,
+  report: Pick<TickReport, 'jira' | 'errors'>,
   orderId: string,
   stage: OrderStage,
   signal?: Parameters<typeof syncJira>[4],
@@ -926,6 +967,7 @@ function emptyReport(at: string): TickReport {
     errors: [],
     warnings: [],
     rateLimited: [],
+    humanOwned: [],
     counts: {
       queued: 0,
       running: 0,
