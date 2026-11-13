@@ -57,6 +57,18 @@ export function emptySnapshot(): ConductorSnapshot {
   };
 }
 
+/** 손으로 고친 이벤트 줄이 지워도 워커가 깨지지 않게 꼭 있어야 하는 칸은 안 지운다 */
+const REQUIRED_WORKER_KEYS = new Set([
+  'id',
+  'orderId',
+  'kind',
+  'attempt',
+  'status',
+  'startedAt',
+  'lastSeenAt',
+  'spawnedBy',
+]);
+
 /** 이벤트 하나를 스냅샷에 반영한다. 재생과 실시간 반영이 같은 함수를 지나야 복원 결과가 같다 */
 export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
   s.eventCount += 1;
@@ -74,7 +86,10 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       return;
     case 'worker-updated': {
       const w = s.workers[e.workerId];
-      if (w) s.workers[e.workerId] = { ...w, ...e.patch };
+      if (!w) return;
+      const next: Record<string, unknown> = { ...w, ...e.patch };
+      for (const k of e.unset ?? []) if (!REQUIRED_WORKER_KEYS.has(k)) delete next[k];
+      s.workers[e.workerId] = next as unknown as Worker;
       return;
     }
     case 'checkpoint-saved':
@@ -210,7 +225,14 @@ export class ConductorStore {
   }
 
   updateWorker(workerId: string, patch: Partial<Omit<Worker, 'id' | 'spawnedBy'>>): void {
-    this.append({ type: 'worker-updated', at: this.timestamp(), workerId, patch });
+    const unset = Object.keys(patch).filter((k) => patch[k as keyof typeof patch] === undefined);
+    this.append({
+      type: 'worker-updated',
+      at: this.timestamp(),
+      workerId,
+      patch,
+      ...(unset.length > 0 ? { unset } : {}),
+    });
   }
 
   saveCheckpoint(checkpoint: Checkpoint): void {

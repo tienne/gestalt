@@ -134,6 +134,8 @@ export interface Worker {
   rateLimitedAt?: string;
   /** 오르카가 알려 준 한도가 풀리는 시각 */
   rateLimitResetsAt?: string;
+  /** 한도를 오르카 표식(failure)으로 알았는지 출력 문구(text)로 알았는지 */
+  rateLimitSource?: 'failure' | 'text';
 }
 
 export interface Checkpoint {
@@ -241,6 +243,8 @@ export type ConductorEvent =
       at: string;
       workerId: string;
       patch: Partial<Omit<Worker, 'id' | 'spawnedBy'>>;
+      /** 지운 칸. JSON 한 줄로 쌓으면 undefined 칸이 사라져 재생할 때 앞 값이 되살아나서 따로 적는다 */
+      unset?: string[];
     }
   | { type: 'checkpoint-saved'; at: string; checkpoint: Checkpoint }
   | { type: 'gate-opened'; at: string; gate: Gate }
