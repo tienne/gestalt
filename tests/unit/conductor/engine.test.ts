@@ -16,7 +16,7 @@ import {
   inboxDirOf,
   MAX_SPAWN_PER_ORDER,
   resolveWorkerAgent,
-  formatGap,
+  staleTickWarning,
   tick,
   tickGapWarning,
   UNRECORDED_REPORTS_DIR,
@@ -870,8 +870,26 @@ describe('컨덕터 tick', () => {
     expect(tickGapWarning(undefined, at, 1_800_000)).toBeUndefined();
     expect(tickGapWarning('2026-11-13T10:30:00.000Z', at, 1_800_000)).toBeUndefined();
     expect(tickGapWarning('2026-11-13T04:55:26.428Z', at, 1_800_000)).toContain('5시간 55분');
-    expect(formatGap(26 * 60 * 1000)).toBe('26분');
-    expect(formatGap(2 * 60 * 60 * 1000)).toBe('2시간');
+    expect(tickGapWarning('2026-11-13T10:24:00.000Z', at, 60_000)).toContain('26분 동안');
+    expect(tickGapWarning('2026-11-13T08:50:00.000Z', at, 1_800_000)).toContain('2시간 동안');
+  });
+
+  it('공백 경고는 기준과 같은 간격까지는 붙지 않고 거꾸로 간 시계와 못 읽는 시각은 넘긴다', () => {
+    const last = '2026-11-13T10:00:00.000Z';
+    const threshold = 1_800_000;
+    const at = (ms: number) => new Date(Date.parse(last) + ms).toISOString();
+    expect(tickGapWarning(last, at(threshold), threshold)).toBeUndefined();
+    expect(tickGapWarning(last, at(threshold + 1), threshold)).toContain('30분 동안');
+    expect(tickGapWarning(last, at(-60_000), threshold)).toBeUndefined();
+    expect(tickGapWarning('garbage', at(threshold * 10), threshold)).toBeUndefined();
+  });
+
+  it('status 경고는 tick 사이 공백이 아니라 마지막 tick 뒤로 지난 시간으로 말한다', () => {
+    const at = '2026-11-13T10:50:00.000Z';
+    expect(staleTickWarning('2026-11-13T10:30:00.000Z', at, 1_800_000)).toBeUndefined();
+    const stale = staleTickWarning('2026-11-13T04:55:26.428Z', at, 1_800_000);
+    expect(stale).toContain('5시간 55분 지났어요');
+    expect(stale).not.toContain('동안 tick이 없었어요');
   });
 
   it('간격 안의 tick과 겹친 tick은 건너뛴다', async () => {

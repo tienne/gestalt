@@ -202,13 +202,37 @@ export function tickGapWarning(
   now: string,
   thresholdMs: number,
 ): string | undefined {
+  const gap = gapOverThreshold(lastTickAt, now, thresholdMs);
+  if (gap === undefined) return undefined;
+  return `앞 tick(${lastTickAt}) 뒤로 ${formatGap(gap)} 동안 tick이 없었어요. 반복을 걸어 둔 컨덕터 세션이 닫혔거나 반복이 끊겼을 수 있어요`;
+}
+
+/**
+ * status용. tick 사이 공백이 아니라 마지막 tick 뒤로 지금까지 지난 시간을 본다.
+ * 아직 다음 tick이 안 돌았을 뿐일 수 있어 tickGapWarning과 문장을 나눈다.
+ */
+export function staleTickWarning(
+  lastTickAt: string | undefined,
+  now: string,
+  thresholdMs: number,
+): string | undefined {
+  const gap = gapOverThreshold(lastTickAt, now, thresholdMs);
+  if (gap === undefined) return undefined;
+  return `마지막 tick(${lastTickAt}) 뒤로 ${formatGap(gap)} 지났어요. 반복을 걸어 둔 컨덕터 세션이 닫혔거나 반복이 끊겼을 수 있어요`;
+}
+
+function gapOverThreshold(
+  lastTickAt: string | undefined,
+  now: string,
+  thresholdMs: number,
+): number | undefined {
   if (!lastTickAt) return undefined;
   const gapMs = Date.parse(now) - Date.parse(lastTickAt);
   if (!Number.isFinite(gapMs) || gapMs <= thresholdMs) return undefined;
-  return `앞 tick(${lastTickAt}) 뒤로 ${formatGap(gapMs)} 동안 tick이 없었어요. 반복을 걸어 둔 컨덕터 세션이 닫혔거나 반복이 끊겼을 수 있어요`;
+  return gapMs;
 }
 
-export function formatGap(ms: number): string {
+function formatGap(ms: number): string {
   const minutes = Math.round(ms / 60_000);
   if (minutes < 60) return `${minutes}분`;
   const hours = Math.floor(minutes / 60);
