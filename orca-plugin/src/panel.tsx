@@ -248,7 +248,7 @@ function GateCard({ gate }: { gate: GateView }) {
           <Callout tone={asking === 'approve' ? 'warning' : 'danger'} title={`정말 ${DECISION_LABEL[asking]}할까요?`}>
             <Stack gap="xs">
               <Text size="xs">
-                {gate.id}를 {DECISION_LABEL[asking]}하면 컨덕터가 바로 워커에 전해요. 되돌릴 수 없어요.
+                {gate.id}를 {DECISION_LABEL[asking]}하면 오르카 워커에는 바로 전하고 다른 워커에는 컨덕터 세션이 다음 tick에 전해요. 되돌릴 수 없어요.
               </Text>
               <Row gap="xs">
                 <Button
@@ -291,7 +291,9 @@ function ResultCallout({ result }: { result: GateResolveResult }) {
   return (
     <Stack gap="xs">
       {result.ok ? (
-        <Callout tone="success" title={`${label} 완료`} icon="check" />
+        <Callout tone="success" title={`${label} 완료`} icon="check">
+          {result.deferred ? <Text size="xs">이 워커에는 컨덕터 세션이 다음 tick에 결정을 전해요.</Text> : null}
+        </Callout>
       ) : (
         <Callout tone="danger" title={`${label} 실패`} icon="error">
           <Text size="xs">{result.error ?? '이유를 못 받았어요'}</Text>
@@ -312,7 +314,7 @@ function ResultCallout({ result }: { result: GateResolveResult }) {
         <Callout tone="accent" title="컨덕터 세션에서 처리할 일" icon="info">
           <Stack gap="xs">
             <Text size="xs" muted>
-              플러그인은 실행하지 않아요. 컨덕터 세션이 다음 tick에 처리해요.
+              이 gestalt는 결정을 tick에 넘기지 못하는 버전이에요. 플러그인은 실행하지 않으니 컨덕터 세션에서 직접 처리해 주세요.
             </Text>
             <CodeView code={JSON.stringify(result.hostActions, null, 2)} language="json" label="hostActions" wrap />
           </Stack>

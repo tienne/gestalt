@@ -278,7 +278,7 @@ class Conductor {
     if (answer && answer.length > MAX_ANSWER)
       return { ...base, ok: false, error: `답은 ${MAX_ANSWER}자까지예요` }
     const cfg = await this.config()
-    const args = [
+    const args = (defer: boolean) => [
       'conductor',
       'gate',
       'resolve',
@@ -286,19 +286,31 @@ class Conductor {
       input.decision === 'approve' ? '--approve' : '--reject',
       // `=`로 붙여야 '-'로 시작하는 답이 다른 옵션으로 읽히지 않는다
       ...(answer ? [`--answer=${answer}`] : []),
+      // 플러그인은 hostActions를 못 돌리니 직접 못 전하는 결정은 컨덕터 세션의 tick에 넘긴다
+      ...(defer ? ['--defer-delivery'] : []),
       '--json',
       ...this.dirArgs(cfg)
     ]
-    try {
-      const out = await runGestalt(cfg.command, args, {
+    const run = (defer: boolean) =>
+      runGestalt(cfg.command, args(defer), {
         cwd: this.cwd(cfg.stateDir || this.view?.stateDir || null),
         timeoutMs: RESOLVE_TIMEOUT_MS
       })
-      const parsed = parseJsonOutput(out) as { hostActions?: unknown; errors?: unknown }
+    try {
+      let out: string
+      try {
+        out = await run(true)
+      } catch (e) {
+        // 옛 CLI는 모르는 옵션을 게이트를 닫기 전에 거절하니 플래그 없이 한 번 더 불러도 두 번 닫히지 않는다
+        if (!/unknown option.*--defer-delivery/.test(message(e))) throw e
+        out = await run(false)
+      }
+      const parsed = parseJsonOutput(out) as { hostActions?: unknown; errors?: unknown; deferred?: unknown }
       return {
         ...base,
         ok: true,
         hostActions: Array.isArray(parsed.hostActions) ? parsed.hostActions : [],
+        deferred: parsed.deferred === true,
         errors: Array.isArray(parsed.errors) ? parsed.errors.map((e) => String(e)) : []
       }
     } catch (e) {

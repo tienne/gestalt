@@ -168,6 +168,7 @@ test('gate.resolve는 결정과 답을 CLI 인자로 넘기고 hostActions와 er
     gateId: 'gate-1',
     decision: 'approve',
     hostActions,
+    deferred: false,
     errors: ['jira 전이 실패']
   })
   const resolve = s.calls().find((c) => c.args[1] === 'gate')!
@@ -178,9 +179,41 @@ test('gate.resolve는 결정과 답을 CLI 인자로 넘기고 hostActions와 er
     'gate-1',
     '--approve',
     '--answer=--reject',
+    '--defer-delivery',
     '--json',
     `--state-dir=${s.dir}`
   ])
+  })
+})
+
+test('gate.resolve는 CLI가 전달을 tick에 넘겼다고 하면 deferred를 돌려준다', async () => {
+  const s = store(STATUS)
+  writeFileSync(
+    join(s.dir, 'fake-resolve.json'),
+    JSON.stringify({ gate: { id: 'gate-1', deliveryPending: true }, hostActions: [], errors: [], deferred: true })
+  )
+  await run(s, host(s.dir), async (worker) => {
+    const out = await worker.request('gate.resolve', { gateId: 'gate-1', decision: 'reject' })
+    assert.equal(out.ok, true)
+    assert.equal(out.deferred, true)
+    assert.deepEqual(out.hostActions, [])
+  })
+})
+
+test('gate.resolve는 옛 CLI가 전달 미루기 플래그를 모르면 플래그 없이 한 번만 다시 부른다', async () => {
+  const s = store(STATUS)
+  const hostActions = [{ type: 'send', workerId: 'wkr-1', message: '거절됨' }]
+  writeFileSync(join(s.dir, 'fake-no-defer'), '')
+  writeFileSync(join(s.dir, 'fake-resolve.json'), JSON.stringify({ gate: { id: 'gate-1' }, hostActions, errors: [] }))
+  await run(s, host(s.dir), async (worker) => {
+    const out = await worker.request('gate.resolve', { gateId: 'gate-1', decision: 'reject' })
+    assert.equal(out.ok, true)
+    assert.equal(out.deferred, false)
+    assert.deepEqual(out.hostActions, hostActions, '옛 CLI에서는 hostActions를 그대로 보여 준다')
+    const calls = s.calls().filter((c) => c.args[1] === 'gate')
+    assert.equal(calls.length, 2)
+    assert.equal(calls[0]!.args.includes('--defer-delivery'), true)
+    assert.equal(calls[1]!.args.includes('--defer-delivery'), false)
   })
 })
 

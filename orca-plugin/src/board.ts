@@ -396,7 +396,7 @@ function gateCard(g: GateView): HTMLElement {
           'div',
           { class: `confirm tone-${asking === 'approve' ? 'warning' : 'danger'}`, role: 'group', 'aria-labelledby': `confirm-gate-${g.id}` },
           el('strong', { id: `confirm-gate-${g.id}` }, `정말 ${DECISION_LABEL[asking]}할까요?`),
-          el('div', { class: 'small' }, `${g.id}를 ${DECISION_LABEL[asking]}하면 컨덕터가 바로 워커에 전해요. 되돌릴 수 없어요.`),
+          el('div', { class: 'small' }, `${g.id}를 ${DECISION_LABEL[asking]}하면 오르카 워커에는 바로 전하고 다른 워커에는 컨덕터 세션이 다음 tick에 전해요. 되돌릴 수 없어요.`),
           el(
             'div',
             { class: 'row' },
@@ -462,13 +462,14 @@ function resultBlock(r: GateResolveResult): HTMLElement {
     { class: `result tone-${r.ok ? 'success' : 'danger'}` },
     el('strong', null, r.ok ? `${label} 완료` : `${label} 실패`),
     r.ok ? null : el('div', { class: 'small' }, r.error ?? '이유를 못 받았어요'),
+    r.ok && r.deferred ? el('div', { class: 'small' }, '이 워커에는 컨덕터 세션이 다음 tick에 결정을 전해요.') : null,
     r.errors.length > 0 ? el('div', { class: 'small' }, el('b', null, '컨덕터가 남긴 오류'), lines(r.errors)) : null,
     r.hostActions.length > 0
       ? el(
           'div',
           { class: 'small' },
           el('b', null, '컨덕터 세션에서 처리할 일'),
-          el('div', { class: 'muted' }, '플러그인은 실행하지 않아요. 컨덕터 세션이 다음 tick에 처리해요.'),
+          el('div', { class: 'muted' }, '이 gestalt는 결정을 tick에 넘기지 못하는 버전이에요. 플러그인은 실행하지 않으니 컨덕터 세션에서 직접 처리해 주세요.'),
           el('pre', null, JSON.stringify(r.hostActions, null, 2))
         )
       : null,

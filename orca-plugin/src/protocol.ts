@@ -72,8 +72,10 @@ export type GateResolveResult = {
   ok: boolean
   gateId: string
   decision: GateDecision
-  /** 컨덕터 세션이 처리할 일. 플러그인은 실행하지 않고 보여 주기만 한다 */
+  /** 컨덕터 세션이 처리할 일. 플러그인은 실행하지 않고 보여 주기만 한다. 전달을 tick에 넘기지 못하는 옛 CLI에서만 찬다 */
   hostActions: unknown[]
+  /** 이 워커에는 결정을 바로 못 전해서 컨덕터 세션의 다음 tick에 넘겼다 */
+  deferred?: boolean
   errors: string[]
   error?: string
 }

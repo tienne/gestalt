@@ -12,6 +12,11 @@ if (!dir) {
 }
 const log = join(dir, 'fake-calls.jsonl')
 if (existsSync(log)) appendFileSync(log, JSON.stringify({ args, cwd: process.cwd() }) + '\n')
+if (existsSync(join(dir, 'fake-no-defer')) && args.includes('--defer-delivery')) {
+  // 결정 전달을 tick에 넘기는 플래그가 없는 옛 CLI. commander는 모르는 옵션을 action 전에 거절한다
+  process.stderr.write("error: unknown option '--defer-delivery'\n")
+  process.exit(1)
+}
 if (existsSync(join(dir, 'fake-fail'))) {
   // --json 명령은 실패해도 stdout에 결과를 남길 수 있다. 그 경우를 흉내 낸다
   if (existsSync(join(dir, 'fake-fail-stdout.json'))) process.stdout.write(readFileSync(join(dir, 'fake-fail-stdout.json'), 'utf8'))
