@@ -686,6 +686,14 @@ async function launchQueued(
         prompt,
         ...(resume?.previousHandle ? { previousHandle: resume.previousHandle } : {}),
         ...(resume?.previous.branch ? { previousBranch: resume.previous.branch } : {}),
+        ...(resume
+          ? {
+              previousWorker: {
+                orderId: resume.previous.orderId,
+                attempt: resume.previous.attempt,
+              },
+            }
+          : {}),
       });
       store.startWorker({
         ...worker,

@@ -245,7 +245,8 @@ describe('런처', () => {
       prompt: 'p',
       previousHandle: prev,
     });
-    expect(calls).toHaveLength(before);
+    // 남은 워크트리는 새로 안 만들고 체크아웃한 브랜치만 읽는다
+    expect(calls.slice(before)).toEqual([['-C', prev, 'branch', '--show-current']]);
   });
 
   it('재개 때 워크트리 디렉토리만 사라졌으면 남은 브랜치를 -b 없이 다시 붙인다', async () => {

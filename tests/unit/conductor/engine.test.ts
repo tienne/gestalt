@@ -234,12 +234,17 @@ describe('컨덕터 tick', () => {
     const first = store.order('ord-1')!.workerId!;
     expect(store.worker(first)!.branch).toBe('feat/PROJ-1-2');
     expect(g.started[0]!.previousBranch).toBeUndefined();
+    expect(g.started[0]!.previousWorker).toBeUndefined();
 
     advance(16 * 60 * 1000);
     await tick(store, d, { force: true });
     const second = store.order('ord-1')!.workerId!;
     expect(second).not.toBe(first);
     expect(g.started.at(-1)!.previousBranch).toBe('feat/PROJ-1-2');
+    expect(g.started.at(-1)!.previousWorker).toEqual({
+      orderId: g.started[0]!.worker.orderId,
+      attempt: 1,
+    });
     expect(store.worker(second)!.branch).toBe('feat/PROJ-1-2');
     // 로그를 처음부터 재생해도 같은 브랜치가 나온다
     expect(replay(join(store.dir, EVENTS_FILE)).workers[second]!.branch).toBe('feat/PROJ-1-2');
