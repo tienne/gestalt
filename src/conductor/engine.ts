@@ -459,7 +459,7 @@ async function applyReport(
   if (!order) throw new Error(`모르는 주문이에요: ${worker.orderId}`);
   if (order.workerId !== worker.id)
     throw new Error(`${worker.id}는 이미 다른 워커로 바뀐 주문의 앞 워커라 결과를 무시해요`);
-  // 한도 게이트를 거절해 취소한 주문은 앞 터미널이 남아 있어 한도가 풀리면 다시 보고할 수 있다
+  // 취소된 주문의 보고는 워커 종류와 상관없이 안 받는다. 한도 게이트를 거절한 오르카 워커는 터미널이 남아 한도가 풀리면 다시 보고한다
   if (order.status === 'cancelled')
     throw new Error(`${worker.id}는 취소된 주문의 워커라 결과를 무시해요`);
   // 상태를 하나라도 바꾸기 전에 거른다. 반쯤 적용된 채 failed로 옮겨지면 되살릴 때 앞부분이 겹친다

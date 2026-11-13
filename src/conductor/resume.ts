@@ -5,7 +5,7 @@ import {
   type CheckReport,
 } from '../ship/checkpoint.js';
 import { openOrReuse } from './gates.js';
-import type { ResumeContext } from './launcher.js';
+import { stopCommandFor, type ResumeContext } from './launcher.js';
 import type { ConductorStore } from './store.js';
 import { isWorkerId, type Checkpoint, type Gate, type Order, type Worker } from './types.js';
 
@@ -144,7 +144,11 @@ export async function detectStale(store: ConductorStore, opts: StaleOptions): Pr
     if (Number.isNaN(seen) || opts.now.getTime() - seen < opts.staleAfterMs) continue;
 
     const probed = canProbe(w) && opts.probe ? await probeOrWarn(w, opts.probe, result) : undefined;
-    if (probed?.state === 'working') continue;
+    if (probed?.state === 'working') {
+      // 다음 tick에 다시 끊김 후보가 되어 probe를 또 돌리지 않게 본 시각을 남긴다
+      store.updateWorker(w.id, { lastSeenAt: opts.now.toISOString() });
+      continue;
+    }
     if (probed?.state === 'rate-limit') {
       store.updateWorker(w.id, {
         status: 'stopped',
@@ -199,7 +203,7 @@ async function recheckRateLimited(
       type: 'no-procedure',
       reason: [
         `워커 ${w.id}가 세션 한도에 걸린 채 ${hours}시간째 안 풀렸어요.`,
-        `승인 전에 \`orca orchestration worker-stop --dispatch ${w.handle}\`로 앞 워커를 멈춰 주세요.`,
+        `${stopCommandFor(w)} 승인해 주세요.`,
         '승인하면 체크포인트부터 다시 띄워요.',
         '거절하면 주문을 취소하고 앞 터미널은 그대로 남아요.',
       ].join(' '),

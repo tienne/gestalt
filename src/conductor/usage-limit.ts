@@ -86,7 +86,10 @@ function textIn(message: unknown): UsageLimitHit | undefined {
 }
 
 /** 터미널 출력처럼 메시지 꼴이 아닌 응답은 끝부분 글만 본다 */
-export function usageLimitInText(text: string, tailChars = 2000): UsageLimitHit | undefined {
+export function usageLimitInText(
+  text: string,
+  tailChars = TEXT_TAIL_CHARS,
+): UsageLimitHit | undefined {
   return textHit([text.slice(-tailChars)]);
 }
 
@@ -103,15 +106,42 @@ function textHit(texts: readonly string[]): UsageLimitHit | undefined {
 
 /** 사람이 보는 자리에 그대로 실리므로 제어 문자를 걷고 한 줄로 줄인다 */
 function oneLineText(s: string): string {
-  return s
+  const flat = s
     .replace(/\p{Cc}+/gu, ' ')
+    // 방향 바꿈 문자(U+202E 같은)는 보이지 않게 앞뒤 글자 순서를 뒤집어 보인다
+    .replace(/\p{Cf}+/gu, '')
     .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 200);
+    .trim();
+  // 코드 단위로 자르면 서로게이트 쌍이 갈라져 깨진 글자가 남는다
+  return Array.from(flat).slice(0, 200).join('');
+}
+
+/** 터미널 출력에서 한도 문구를 찾을 끝부분 길이 */
+export const TEXT_TAIL_CHARS = 2000;
+
+/**
+ * 꼴이 정해지지 않은 응답에서 끝쪽 글자 칸만 모아 줄바꿈으로 잇는다.
+ * 긴 세션은 응답 전체를 모으면 버릴 앞부분까지 다 이어 붙이게 되어 끝에서부터 maxChars만큼만 모은다
+ */
+export function tailOfStrings(v: unknown, maxChars: number): string {
+  const picked: string[] = [];
+  let size = 0;
+  const walk = (x: unknown): boolean => {
+    if (typeof x === 'string') {
+      picked.push(x);
+      size += x.length + 1;
+      return size >= maxChars;
+    }
+    const items = Array.isArray(x) ? x : Object.values(record(x) ?? {});
+    for (let i = items.length - 1; i >= 0; i--) if (walk(items[i])) return true;
+    return false;
+  };
+  walk(v);
+  return picked.reverse().join('\n');
 }
 
 /** 꼴이 정해지지 않은 응답에서 글자 칸만 모은다 */
-export function stringsIn(v: unknown): string[] {
+function stringsIn(v: unknown): string[] {
   if (typeof v === 'string') return [v];
   if (Array.isArray(v)) return v.flatMap(stringsIn);
   const r = record(v);

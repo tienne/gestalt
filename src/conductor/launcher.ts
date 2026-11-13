@@ -16,7 +16,13 @@ import {
   type Worker,
   type WorkerKind,
 } from './types.js';
-import { stringsIn, usageLimitIn, usageLimitInText, type UsageLimitHit } from './usage-limit.js';
+import {
+  TEXT_TAIL_CHARS,
+  tailOfStrings,
+  usageLimitIn,
+  usageLimitInText,
+  type UsageLimitHit,
+} from './usage-limit.js';
 
 /**
  * 워커 배치 런처.
@@ -558,7 +564,7 @@ export class OrcaLauncher implements Launcher {
     const out = await mustRun(
       this.runner,
       this.opts.orcaCommand,
-      ['orchestration', 'worker-release', '--dispatch', worker.handle, '--json'],
+      ['orchestration', 'worker-release', `--dispatch=${worker.handle}`, '--json'],
       { timeoutMs: ORCA_TIMEOUT_MS },
     );
     if (opts.requireClosed) await this.assertClosed(worker, out);
@@ -575,7 +581,7 @@ export class OrcaLauncher implements Launcher {
     const shown = await this.show(worker);
     if (shown.liveness && GONE_LIVENESS.has(shown.liveness)) return;
     throw new Error(
-      `${worker.id}의 오르카 터미널을 못 거뒀어요(release ${state ?? '응답 없음'}, liveness ${shown.liveness ?? '모름'}). 앞 워커가 살아 있을 수 있어 새 워커를 안 띄웠어요. \`orca orchestration worker-stop --dispatch ${worker.handle}\`로 멈춘 뒤 승인해 주세요`,
+      `${worker.id}의 오르카 터미널을 못 거뒀어요(release ${state ?? '응답 없음'}, liveness ${shown.liveness ?? '모름'}). 앞 워커가 살아 있을 수 있어 새 워커를 안 띄웠어요. ${stopCommandFor(worker)} 승인해 주세요`,
     );
   }
 
@@ -611,7 +617,7 @@ export class OrcaLauncher implements Launcher {
     const out = await mustRun(
       this.runner,
       this.opts.orcaCommand,
-      ['orchestration', 'worker-show', '--dispatch', worker.handle!, '--json'],
+      ['orchestration', 'worker-show', `--dispatch=${worker.handle!}`, '--json'],
       { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
     );
     const r = resultOf(out);
@@ -627,7 +633,8 @@ export class OrcaLauncher implements Launcher {
   /**
    * worker-read를 끝까지 넘겨 마지막 메시지들에서 한도 표시를 찾는다.
    * worker-read는 처음부터 앞으로만 읽어서 끝을 보려면 끝까지 넘겨야 한다.
-   * 쪽마다 시간 상한을 걸면 tick 하나가 몇 시간을 붙잡을 수 있어 전체 상한을 따로 둔다
+   * 쪽마다 시간 상한만 걸면 tick 하나가 몇 시간을 붙잡을 수 있어 워커마다 전체 상한을 따로 둔다.
+   * probe는 워커마다 차례로 돌아서 워커 N개면 tick이 최대 N×READ_DEADLINE_MS 걸린다
    */
   private async readLimit(dispatch: string): Promise<UsageLimitHit | undefined> {
     let cursor: string | undefined;
@@ -643,12 +650,11 @@ export class OrcaLauncher implements Launcher {
         [
           'orchestration',
           'worker-read',
-          '--dispatch',
-          dispatch,
+          `--dispatch=${dispatch}`,
           '--json',
           '--limit',
           String(READ_PAGE_LIMIT),
-          // 커서가 -로 시작하면 오르카가 플래그로 읽어서 값을 붙여 넘긴다
+          // 값이 --로 시작하면 오르카가 플래그로 읽어서 dispatch처럼 붙여 넘긴다
           ...(cursor ? [`--cursor=${cursor}`] : []),
         ],
         { timeoutMs: Math.min(DEFAULT_COMMAND_TIMEOUT_MS, left) },
@@ -658,7 +664,7 @@ export class OrcaLauncher implements Launcher {
       const transcript = r['transcript'];
       if (typeof transcript !== 'object' || transcript === null) {
         // 터미널 출력으로 돌아온 워커다. 꼴이 정해져 있지 않아 글자만 모아 끝을 본다
-        return usageLimitInText(stringsIn(r).join('\n'));
+        return usageLimitInText(tailOfStrings(r, TEXT_TAIL_CHARS));
       }
       const t = transcript as { messages?: unknown; nextCursor?: unknown };
       const messages = Array.isArray(t.messages) ? t.messages : [];
@@ -675,7 +681,7 @@ export class OrcaLauncher implements Launcher {
     const out = await mustRun(
       this.runner,
       this.opts.orcaCommand,
-      ['orchestration', 'worker-show', '--dispatch', worker.handle!, '--json'],
+      ['orchestration', 'worker-show', `--dispatch=${worker.handle!}`, '--json'],
       { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
     );
     const workspace = workspaceField(out);
@@ -741,7 +747,10 @@ const TAIL_MESSAGES = 3;
 const READ_PAGE_LIMIT = 500;
 /** 쪽마다 바이트 상한이 따로 있어 메시지 수보다 쪽 수가 많아진다. 긴 세션도 닿게 넉넉히 잡는다 */
 const MAX_READ_PAGES = 60;
-/** 끝까지 넘기는 데 쓰는 전체 시간. tick 주기를 넘기지 않게 잡는다 */
+/**
+ * 워커 하나가 끝까지 넘기는 데 쓰는 전체 시간. 워커 하나가 tick을 끝없이 붙잡지 않게 막는 상한이다.
+ * tick 주기보다 짧다는 보장은 없고 probe가 직렬이라 워커 N개면 최대 N×180초가 걸린다
+ */
 const READ_DEADLINE_MS = 180_000;
 
 function resultOf(stdout: string): Record<string, unknown> | undefined {
@@ -847,6 +856,19 @@ function surelyNotStarted(stdout: string): boolean {
   const status = body['outcome'] ?? body['status'] ?? body['state'];
   const residual = body['residualResources'];
   return status === 'failed' && Array.isArray(residual) && residual.length === 0;
+}
+
+/** dispatch id로 받아들이는 꼴. 오르카가 주는 id는 `ctx_<16진수>`라 이 안에 든다 */
+const SAFE_HANDLE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+/**
+ * 사람에게 앞 워커를 멈추라고 안내할 문장을 짓는다. dispatch id는 오르카 응답에서 읽은 값이라
+ * 꼴이 이상하면 복사해 붙일 명령으로 싣지 않고 워커 id로만 가리킨다
+ */
+export function stopCommandFor(worker: Pick<Worker, 'id' | 'handle'>): string {
+  return worker.handle && SAFE_HANDLE.test(worker.handle)
+    ? `\`orca orchestration worker-stop --dispatch=${worker.handle}\`로 앞 워커를 멈춘 뒤`
+    : `오르카에서 워커 ${worker.id}의 터미널을 멈춘 뒤`;
 }
 
 /** worker-start --json 응답에서 dispatch id를 꺼낸다. 버전마다 자리가 달라 몇 곳을 본다 */
