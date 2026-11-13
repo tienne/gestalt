@@ -580,7 +580,7 @@ export class OrcaLauncher implements Launcher {
     const resume = branch?.resume === true;
     let used = created.branch ?? branch?.name;
     if (resume) {
-      // 여기서 실패하면 새 워크트리는 아직 오르카 임시 브랜치에 있어 브랜치째 지워도 된다
+      // 여기서 실패하면 새 워크트리는 아직 오르카 임시 브랜치를 체크아웃한 상태라 브랜치째 지워도 된다
       const warning = await this.adoptBranch(spec, created, branch.name);
       if (warning) warnings.push(warning);
       used = branch.name;
@@ -836,7 +836,7 @@ export class OrcaLauncher implements Launcher {
    *
    * 브랜치를 체크아웃한 곳이 앞 워커 워크트리가 아니면(사람이 쓰는 메인 체크아웃 등) detach하지 않고 멈춘다.
    * 바꾸다 실패하면 detach한 앞 워크트리를 다시 그 브랜치로 돌려 둔다. 오르카가 만든 임시 브랜치는
-   * 그 뒤에 지우고, 못 지우면 경고만 돌려준다
+   * 그 뒤에 지운다. 못 지우면 경고만 돌려준다
    */
   private async adoptBranch(
     spec: LaunchSpec,
