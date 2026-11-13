@@ -151,7 +151,7 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
 
    명령은 상태 저장소의 `handoffs/`에 인계 파일을 쓴다. 파일은 이어받은 세션이 할 일, 반복 프롬프트 원문, 메모 순서이고 메모는 펜스로 감싸 앞의 고정 절과 섞이지 않게 한다. 그다음 띄우기 전에 거절 기록(`handoff.json`)을 남기고 오르카가 있으면 `orca agent launch --agent claude --worktree path:<지금 작업 디렉토리> --prompt "/gestalt:conductor … 인계 파일: <경로>"`로 같은 워크스페이스에 새 세션을 띄운다. 오르카가 없거나 띄우기가 실패하면 파일만 남기고 `launched: false`와 사람에게 전할 문장을 돌려준다. 세션은 그 문장을 사람에게 전한다. 띄운 뒤 결과를 `handoff.json`에 못 덮어쓰면 stderr에 `인계 기록 갱신 실패` 한 줄을 내고 결과에 `recordError`를 싣는다. 이때 기록에는 "띄우는 중"이 남지만 tick 거절은 그대로 걸린다.
 
-   오르카로 띄웠으면(`launched: true`) 명령이 두 탭 이름도 바꾼다. 넘긴 세션 탭은 `지휘자 세션 (인계 완료, MM/DD)`, 새로 띄운 탭은 `🤴 지휘자 세션 🤴`이 돼서 어느 탭이 지금 도는 컨덕터인지 바로 보인다. 새 탭은 `agent launch` 응답의 채팅 세션 id(`chat rename --session`)나 터미널 핸들(`terminal rename`)로 가리킨다. 이름 바꾸기가 실패해도 인계는 성공으로 두고 결과의 `renameErrors`와 stderr로만 알린다. 오르카로 띄우지 않았으면 탭 이름을 건드리지 않는다.
+   오르카로 띄웠으면(`launched: true`) 명령이 두 탭 이름도 바꾼다. 넘긴 세션 탭은 `지휘자 세션 (인계 완료, MM/DD)`, 새로 띄운 탭은 `🤴 지휘자 세션 🤴`이 돼서 어느 탭이 지금 도는 컨덕터인지 바로 보인다. 새 탭은 `agent launch` 응답의 채팅 세션 id(`chat rename --session`)나 터미널 핸들(`terminal rename`)로 가리킨다. 응답에서 새 탭을 못 읽었으면 넘긴 탭만 바꾸고 `renameErrors`에 한 줄 남긴다. 새 탭은 첫 tick에서 이름이 붙는다. 이름 바꾸기가 실패해도 인계는 성공으로 두고 결과의 `renameErrors`와 stderr로 알린다. `--json`이어도 stderr에 남긴다. 오르카로 띄우지 않았으면 탭 이름을 건드리지 않는다.
 
 5. **기존 세션 멈추기.** 넘긴 세션은 `ScheduleWakeup`을 `stop: true`로 부르고 컨덕터 크론도 지운다. 그래도 반복이 남아 tick이 다시 돌면 `sessions/<세션 id>/handoff.json`이 있어서 거절한다. 그 세션에서 계속 돌리려면 이 파일을 지운다.
 
