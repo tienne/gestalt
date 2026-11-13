@@ -608,7 +608,7 @@ describe('컨덕터 tick', () => {
 
     const closed = resolveGate(store, gateId, 'approved');
     const r = await deliverGateDecision(store, closed, d, { defer: true });
-    expect(r).toEqual({ hostActions: [], errors: [], deferred: true });
+    expect(r).toEqual({ hostActions: [], errors: [], deferred: true, retry: false });
     expect(store.snapshot.gates[gateId]!.deliveryPending).toBe(true);
 
     const next = await tick(store, d, { force: true });
@@ -640,6 +640,49 @@ describe('컨덕터 tick', () => {
     const next = await tick(store, d, { force: true });
     expect(next.hostActions.filter((a) => a.type === 'send' && a.workerId === wid)).toEqual([]);
     expect(store.snapshot.gates[gateId]!.deliveryPending).toBeUndefined();
+  });
+
+  it('대기 중인 결정을 보내다 send가 던지면 대기를 남기고 다음 tick에 다시 전한다', async () => {
+    const { store, deps: d, git, wid, gateId } = await waitingOnGate();
+    git.launcher.send = async (w, message) => ({ type: 'send', workerId: w.id, message });
+    await deliverGateDecision(store, resolveGate(store, gateId, 'approved'), d, { defer: true });
+
+    git.launcher.send = async () => {
+      throw new Error('시간 초과');
+    };
+    const failed = await tick(store, d, { force: true });
+    expect(failed.errors.some((e) => e.includes('시간 초과'))).toBe(true);
+    expect(store.snapshot.gates[gateId]).toMatchObject({
+      deliveryPending: true,
+      deliveryAttempts: 1,
+    });
+
+    git.launcher.send = async (w, message) => ({ type: 'send', workerId: w.id, message });
+    const next = await tick(store, d, { force: true });
+    expect(next.hostActions).toContainEqual(
+      expect.objectContaining({ type: 'send', workerId: wid }),
+    );
+    expect(store.snapshot.gates[gateId]).not.toHaveProperty('deliveryPending');
+    expect(store.snapshot.gates[gateId]).not.toHaveProperty('deliveryAttempts');
+  });
+
+  it('send가 세 번 연속 던지면 대기를 걷고 직접 전해 달라고 남긴다', async () => {
+    const { store, deps: d, git, gateId } = await waitingOnGate();
+    git.launcher.send = async (w, message) => ({ type: 'send', workerId: w.id, message });
+    await deliverGateDecision(store, resolveGate(store, gateId, 'approved'), d, { defer: true });
+    git.launcher.send = async () => {
+      throw new Error('시간 초과');
+    };
+
+    await tick(store, d, { force: true });
+    await tick(store, d, { force: true });
+    expect(store.snapshot.gates[gateId]!.deliveryAttempts).toBe(2);
+    const last = await tick(store, d, { force: true });
+    expect(last.errors).toContain(
+      `${gateId} 결정을 3번 못 전해서 그만뒀어요. 워커에 직접 전해 주세요`,
+    );
+    expect(store.snapshot.gates[gateId]).not.toHaveProperty('deliveryPending');
+    expect(store.snapshot.gates[gateId]).not.toHaveProperty('deliveryAttempts');
   });
 
   const lockOf = (pid: number, startedAt: number) => `${pid}:${startedAt}:${hostname()}:x`;

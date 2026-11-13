@@ -534,22 +534,34 @@ export async function deliverGateDecision(
   gate: Gate,
   deps: Pick<EngineDeps, 'launchers'>,
   opts: { defer?: boolean } = {},
-): Promise<{ hostActions: HostAction[]; errors: string[]; deferred: boolean }> {
-  const out = { hostActions: [] as HostAction[], errors: [] as string[], deferred: false };
+): Promise<{ hostActions: HostAction[]; errors: string[]; deferred: boolean; retry: boolean }> {
+  const out = {
+    hostActions: [] as HostAction[],
+    errors: [] as string[],
+    deferred: false,
+    retry: false,
+  };
   const order = gate.orderId ? store.order(gate.orderId) : undefined;
   const worker = order?.workerId ? store.worker(order.workerId) : undefined;
   if (!worker || (worker.status !== 'running' && worker.status !== 'starting')) return out;
   const text = decisionMessage(gate);
   const fake = emptyReport(store.timestamp());
-  await sendTo(deps, fake, worker, text);
+  // 런처가 없으면 다시 해도 같으니 send가 던졌을 때만 다시 해 볼 만하다
+  const retry = (await sendTo(deps, fake, worker, text)) === 'failed';
   if (opts.defer && fake.hostActions.length > 0) {
     store.append({ type: 'gate-delivery', at: store.timestamp(), gateId: gate.id, pending: true });
-    return { hostActions: [], errors: fake.errors, deferred: true };
+    return { hostActions: [], errors: fake.errors, deferred: true, retry: false };
   }
-  return { hostActions: fake.hostActions, errors: fake.errors, deferred: false };
+  return { hostActions: fake.hostActions, errors: fake.errors, deferred: false, retry };
 }
 
-/** 플러그인이 종료하고 못 전한 결정을 이번 tick의 hostActions로 내보낸다. 워커가 끝났으면 버린다 */
+/** 시간 초과로 실패했는데 실제로는 닿은 경우 다시 보내면 같은 결정이 두 번 가서 횟수를 막는다 */
+const MAX_DELIVERY_ATTEMPTS = 3;
+
+/**
+ * 플러그인이 종료하고 못 전한 결정을 이번 tick의 hostActions로 내보낸다. 워커가 끝났으면 버린다.
+ * send가 던지면 대기를 남겨 다음 tick에 다시 하고 MAX_DELIVERY_ATTEMPTS번 실패하면 그만둔다
+ */
 async function deliverPendingDecisions(
   store: ConductorStore,
   deps: EngineDeps,
@@ -560,6 +572,22 @@ async function deliverPendingDecisions(
     const r = await deliverGateDecision(store, gate, deps);
     report.hostActions.push(...r.hostActions);
     report.errors.push(...r.errors);
+    if (r.retry) {
+      const attempts = (gate.deliveryAttempts ?? 0) + 1;
+      if (attempts < MAX_DELIVERY_ATTEMPTS) {
+        store.append({
+          type: 'gate-delivery',
+          at: store.timestamp(),
+          gateId: gate.id,
+          pending: true,
+          attempts,
+        });
+        continue;
+      }
+      report.errors.push(
+        `${gate.id} 결정을 ${MAX_DELIVERY_ATTEMPTS}번 못 전해서 그만뒀어요. 워커에 직접 전해 주세요`,
+      );
+    }
     store.append({ type: 'gate-delivery', at: store.timestamp(), gateId: gate.id, pending: false });
   }
 }
@@ -586,17 +614,19 @@ async function sendTo(
   report: Pick<TickReport, 'hostActions' | 'errors'>,
   worker: Worker,
   text: string,
-): Promise<void> {
+): Promise<'sent' | 'no-launcher' | 'failed'> {
   const launcher = deps.launchers[worker.kind];
   if (!launcher) {
     report.errors.push(`${worker.kind} 런처가 없어 ${worker.id}에 못 전했어요`);
-    return;
+    return 'no-launcher';
   }
   try {
     const action = await launcher.send(worker, text);
     if (action) report.hostActions.push(action);
+    return 'sent';
   } catch (err) {
     report.errors.push(`${worker.id}에 전하기 실패: ${message(err)}`);
+    return 'failed';
   }
 }
 

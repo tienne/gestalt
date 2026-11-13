@@ -113,8 +113,13 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       const g = s.gates[e.gateId];
       if (!g) return;
       const next: Gate = { ...g };
-      if (e.pending) next.deliveryPending = true;
-      else delete next.deliveryPending;
+      if (e.pending) {
+        next.deliveryPending = true;
+        if (e.attempts !== undefined) next.deliveryAttempts = e.attempts;
+      } else {
+        delete next.deliveryPending;
+        delete next.deliveryAttempts;
+      }
       s.gates[e.gateId] = next;
       return;
     }
