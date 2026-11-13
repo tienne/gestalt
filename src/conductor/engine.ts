@@ -192,6 +192,30 @@ function policyBypass(deps: EngineDeps): BypassHandlers {
   };
 }
 
+/**
+ * 앞 tick과 이번 tick 사이가 끊긴 워커를 보는 기준(staleAfterSec)보다 길면 경고 문장을 돌려준다.
+ * 반복은 세션 안의 크론이나 ScheduleWakeup이라 탭이 닫히면 같이 사라지고 아무도 알리지 않는다.
+ * 다시 돈 첫 tick에서라도 공백을 드러내 사람이 언제부터 감시가 멈췄는지 알게 한다.
+ */
+export function tickGapWarning(
+  lastTickAt: string | undefined,
+  now: string,
+  thresholdMs: number,
+): string | undefined {
+  if (!lastTickAt) return undefined;
+  const gapMs = Date.parse(now) - Date.parse(lastTickAt);
+  if (!Number.isFinite(gapMs) || gapMs <= thresholdMs) return undefined;
+  return `앞 tick(${lastTickAt}) 뒤로 ${formatGap(gapMs)} 동안 tick이 없었어요. 반복을 걸어 둔 컨덕터 세션이 닫혔거나 반복이 끊겼을 수 있어요`;
+}
+
+export function formatGap(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `${minutes}분`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}시간` : `${hours}시간 ${rest}분`;
+}
+
 export async function tick(
   store: ConductorStore,
   deps: EngineDeps,
@@ -215,6 +239,8 @@ export async function tick(
     if (!opts.force && last && Date.parse(report.at) - Date.parse(last) < interval) {
       return { ...report, skipped: true, counts: counts(store, 0) };
     }
+    const gap = tickGapWarning(last, report.at, deps.config.staleAfterSec * 1000);
+    if (gap) report.warnings.push(gap);
     return await store.deferSnapshot(() => runTick(store, deps, report));
   } finally {
     lock.release();

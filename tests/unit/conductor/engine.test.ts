@@ -16,7 +16,9 @@ import {
   inboxDirOf,
   MAX_SPAWN_PER_ORDER,
   resolveWorkerAgent,
+  formatGap,
   tick,
+  tickGapWarning,
   UNRECORDED_REPORTS_DIR,
   writeReport,
   type EngineDeps,
@@ -850,6 +852,26 @@ describe('컨덕터 tick', () => {
     await tick(other, d, { force: true });
     expect(git.started).toHaveLength(1);
     expect(other.order('ord-1')!.workerId).toBe(store.order('ord-1')!.workerId);
+  });
+
+  it('앞 tick과 끊김 기준보다 멀리 떨어진 tick은 공백을 경고에 남긴다', async () => {
+    const { store, advance } = clockedStore();
+    const { deps: d } = deps();
+    await tick(store, d);
+    advance(10 * 60 * 1000);
+    expect((await tick(store, d)).warnings.some((w) => w.includes('tick이 없었어요'))).toBe(false);
+    advance(6 * 60 * 60 * 1000);
+    const gapped = await tick(store, d, { force: true });
+    expect(gapped.warnings).toContainEqual(expect.stringContaining('6시간 동안 tick이 없었어요'));
+  });
+
+  it('공백 경고는 첫 tick과 기준 안의 간격에는 붙지 않는다', () => {
+    const at = '2026-11-13T10:50:00.000Z';
+    expect(tickGapWarning(undefined, at, 1_800_000)).toBeUndefined();
+    expect(tickGapWarning('2026-11-13T10:30:00.000Z', at, 1_800_000)).toBeUndefined();
+    expect(tickGapWarning('2026-11-13T04:55:26.428Z', at, 1_800_000)).toContain('5시간 55분');
+    expect(formatGap(26 * 60 * 1000)).toBe('26분');
+    expect(formatGap(2 * 60 * 60 * 1000)).toBe('2시간');
   });
 
   it('간격 안의 tick과 겹친 tick은 건너뛴다', async () => {
