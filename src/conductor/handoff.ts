@@ -252,12 +252,15 @@ export function handoffNotice(status: HandoffStatus | undefined): string | undef
 }
 
 /**
+ * 컨덕터 반복에 거는 문장. SKILL.md와 docs/conductor.md에 같은 문장이 있고 테스트가 둘이 같은지 본다
+ */
+export const CONDUCTOR_LOOP_PROMPT =
+  '컨덕터 tick: 맥락에 있는 gestalt:conductor 스킬의 깨어날 때마다 절차대로 gestalt conductor tick --json 돌리고 hostActions 처리, 반복은 다시 걸지 않음';
+/**
  * `/loop` 뒤 원문 꼴. 간격(있으면 하나) 뒤에 `컨덕터 tick:`으로 여는 문장만 받는다.
  * 스킬을 tick마다 다시 불러 본문이 쌓이던 옛 꼴 `/gestalt:conductor`도 이미 떠 있는 세션의 인계를 위해 받는다
  */
-export const CONDUCTOR_LOOP_PROMPT =
-  '컨덕터 tick: 맥락에 있는 gestalt:conductor 스킬 7절 절차대로 gestalt conductor tick --json 돌리고 hostActions 처리';
-const LOOP_PROMPT_RE = /^(?:\d+[smhd]\s+)?(?:\/gestalt:conductor(?:\s|$)|컨덕터 tick:\s)/;
+const LOOP_PROMPT_RE = /^(\d+[smhd]\s+)?(?:\/gestalt:conductor(?:\s|$)|컨덕터 tick:\s)/;
 const LOOP_PROMPT_MAX = 500;
 export const LOOP_PROMPT_REJECTED =
   '반복 프롬프트가 컨덕터 꼴이 아니에요. --loop-prompt를 빼고 다시 넘겨 주세요';
@@ -265,6 +268,15 @@ export const LOOP_PROMPT_REJECTED =
 /** 새 세션이 그대로 loop를 거는 값이라 컨덕터 반복 프롬프트 꼴만 받는다 */
 export function isConductorLoopPrompt(value: string): boolean {
   return value.length <= LOOP_PROMPT_MAX && !/[\r\n]/.test(value) && LOOP_PROMPT_RE.test(value);
+}
+
+/**
+ * 인계 파일에 실을 반복 프롬프트. 새 세션이 이 값을 그대로 loop에 걸므로
+ * 받은 값에서는 간격 접두만 남기고 본문은 늘 현재 문장으로 바꾼다
+ */
+export function normalizeLoopPrompt(value: string): string {
+  const interval = LOOP_PROMPT_RE.exec(value)?.[1] ?? '';
+  return `${interval}${CONDUCTOR_LOOP_PROMPT}`;
 }
 
 /** 인계 파일을 쓰고 경로를 돌려준다. 진행 상태는 저장소에 있으니 여기 다시 쓰지 않는다 */
@@ -283,7 +295,9 @@ export function writeHandoffFile(
   const stamp = now.toISOString().replace(/[:.]/g, '-');
   const file = join(dir, `${stamp}-${sessionId}.md`);
   const usage = status?.usage ? `, 컨텍스트 ${status.usage.percent}%` : '';
-  const loopFence = fenceFor(input.loopPrompt ?? '');
+  const loopPrompt =
+    input.loopPrompt === undefined ? undefined : normalizeLoopPrompt(input.loopPrompt);
+  const loopFence = fenceFor(loopPrompt ?? '');
   const notes = input.notes.trim();
   const notesFence = fenceFor(notes);
   const body = [
@@ -296,15 +310,13 @@ export function writeHandoffFile(
     '1. 아래 메모의 규칙을 이 세션에서도 그대로 지켜요.',
     '2. 답을 기다리던 질문은 사람에게 다시 물어요. 확인 자리(gate)는 `gestalt conductor gate list`로 다시 보여요.',
     '3. `gestalt conductor tick --force --json`으로 한 번 돌리고 hostActions를 처리해요.',
-    '4. 반복 프롬프트 원문이 있으면 그 원문 그대로 loop를 걸어요. 옛 꼴(`/gestalt:conductor`로 시작)이면 컨덕터 스킬 7번 3의 문장으로 바꿔 걸어요. 없으면 걸지 않아요. 반복은 이 세션 안에만 있어서 탭이 닫히면 같이 사라져요. 3번 tick에 공백 경고가 붙어도 경고만 전하고 반복은 원문으로 한 번만 걸어요.',
+    '4. 반복 프롬프트 원문이 있으면 그 원문 그대로 loop를 걸어요. 이전 세션이 옛 꼴로 걸었어도 이 파일에는 지금 문장으로 바꿔 실었어요. 없으면 걸지 않아요. 반복은 이 세션 안에만 있어서 탭이 닫히면 같이 사라져요. 3번 tick에 공백 경고가 붙어도 경고만 전하고 반복은 원문으로 한 번만 걸어요.',
     '5. 사람에게 물을 때는 AskUserQuestion 같은 대화창 말고 일반 텍스트로 물어요. 대화창이 열려 있는 동안에는 반복이 돌지 않아요. 2번에서 다시 묻는 질문도 같아요.',
     '6. 첫 보고에 이 탭이 반복을 돌리고 있으니 닫지 말아 달라는 말을 한 줄 붙여요.',
     '',
     '## 반복 프롬프트 원문',
     '',
-    input.loopPrompt
-      ? `${loopFence}text\n${input.loopPrompt}\n${loopFence}`
-      : '(반복이 걸려 있지 않았어요)',
+    loopPrompt ? `${loopFence}text\n${loopPrompt}\n${loopFence}` : '(반복이 걸려 있지 않았어요)',
     '',
     '## 대화에서 정한 규칙, 기다리는 질문, 대화에만 있는 값',
     '',
