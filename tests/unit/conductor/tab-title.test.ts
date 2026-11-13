@@ -1,5 +1,6 @@
 /**
- * 컨덕터 세션 오르카 탭 이름 — 탭 종류 판정, 실패해도 안 던지는 것, tick이 처음 등록할 때만 바꾸는 것.
+ * 컨덕터 세션이 오르카 탭 이름을 바꾸는 동작을 검증한다. 탭 종류를 가르는 것, 실패해도 안 던지는 것,
+ * tick이 세션을 처음 등록할 때만 바꾸는 것, 워커 세션의 tick은 거절돼 안 바꾸는 것을 본다.
  */
 import { randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
@@ -33,8 +34,7 @@ describe('tabRenameArgs', () => {
     expect(tabRenameArgs({ ORCA_TERMINAL_HANDLE: 'term_abc' })).toEqual([
       'terminal',
       'rename',
-      '--terminal',
-      'term_abc',
+      '--terminal=term_abc',
       '--title',
       '🤴 지휘자 세션 🤴',
       '--json',
@@ -55,26 +55,28 @@ describe('tabRenameArgs', () => {
 describe('nameConductorTab', () => {
   it('오르카 밖이거나 CLI가 없으면 부르지 않는다', async () => {
     const runner = vi.fn<CommandRunner>();
-    expect(await nameConductorTab({ env: {}, orcaCommand: '/orca', runner })).toMatchObject({
-      renamed: false,
-    });
-    expect(await nameConductorTab({ env: { ORCA_TERMINAL_HANDLE: 't' }, runner })).toMatchObject({
-      renamed: false,
-    });
+    expect(await nameConductorTab({ env: {}, orcaCommand: '/orca', runner })).toBeUndefined();
+    expect(await nameConductorTab({ env: { ORCA_TERMINAL_HANDLE: 't' }, runner })).toBeUndefined();
     expect(runner).not.toHaveBeenCalled();
   });
 
-  it('실패해도 던지지 않고 failed로 알린다', async () => {
+  it('바꾸면 실패 메시지 없이 끝난다', async () => {
+    const ok = vi.fn<CommandRunner>(async () => ({ code: 0, stdout: '', stderr: '' }));
+    const env = { ORCA_TERMINAL_HANDLE: 't' };
+    expect(await nameConductorTab({ env, orcaCommand: '/orca', runner: ok })).toBeUndefined();
+    expect(ok).toHaveBeenCalledOnce();
+  });
+
+  it('실패해도 던지지 않고 실패 메시지를 돌려준다', async () => {
     const env = { ORCA_TERMINAL_HANDLE: 't' };
     const exit1: CommandRunner = async () => ({ code: 1, stdout: '', stderr: 'no such terminal' });
-    expect(await nameConductorTab({ env, orcaCommand: '/orca', runner: exit1 })).toMatchObject({
-      renamed: false,
-      failed: true,
-    });
+    expect(await nameConductorTab({ env, orcaCommand: '/orca', runner: exit1 })).toContain(
+      'rename 실패(1)',
+    );
     const throws: CommandRunner = () => Promise.reject(new Error('spawn ENOENT'));
-    const r = await nameConductorTab({ env, orcaCommand: '/orca', runner: throws });
-    expect(r.failed).toBe(true);
-    expect(r.detail).toContain('ENOENT');
+    expect(await nameConductorTab({ env, orcaCommand: '/orca', runner: throws })).toContain(
+      'ENOENT',
+    );
   });
 });
 
@@ -109,7 +111,7 @@ describe('tick의 탭 이름', () => {
     await tick(stateDir);
     const calls = readFileSync(log, 'utf-8').trim().split('\n');
     expect(calls).toEqual([
-      `terminal rename --terminal term_conductor --title ${CONDUCTOR_TAB_TITLE} --json`,
+      `terminal rename --terminal=term_conductor --title ${CONDUCTOR_TAB_TITLE} --json`,
     ]);
   });
 
@@ -126,5 +128,21 @@ describe('tick의 탭 이름', () => {
     expect(JSON.parse(out.at(-1)!)).toHaveProperty('handoff');
     expect(existsSync(join(resolve(stateDir), 'sessions', sid, 'session.json'))).toBe(true);
     expect(err.some((l) => l.includes('rename 실패(3)'))).toBe(true);
+  });
+
+  it('워커 세션의 tick은 거절돼 탭 이름도 세션 등록도 안 남긴다', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(process, 'exit').mockImplementation(((code: number) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+    const { bin, log } = fakeOrca(0);
+    const sid = stubSession(bin);
+    vi.stubEnv('GESTALT_CONDUCTOR_WORKER_ID', 'wrk-1');
+    const stateDir = tempStateDir();
+
+    await expect(tick(stateDir)).rejects.toThrow('exit 1');
+    expect(existsSync(log)).toBe(false);
+    expect(existsSync(join(resolve(stateDir), 'sessions', sid, 'session.json'))).toBe(false);
   });
 });

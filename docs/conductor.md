@@ -41,12 +41,12 @@ hostActions ──► 컨덕터 호스트 세션이 실행 (서브에이전트, 
 
 tick이 세션을 상태 저장소에 처음 등록하는 자리([세션 인계](#세션-인계)의 1번)에서 한 번만 탭 이름을 바꾼다. 스킬로 연 세션도, `handoff`가 오르카로 띄운 새 세션도 첫 tick을 돌므로 둘 다 이름이 붙는다. 이미 등록된 세션의 tick은 다시 안 바꿔서 사람이 나중에 바꾼 이름을 덮지 않는다.
 
-- 터미널 탭이면 `orca terminal rename --terminal "$ORCA_TERMINAL_HANDLE" --title "🤴 지휘자 세션 🤴"`를 부른다.
+- 터미널 탭이면 `orca terminal rename --terminal="$ORCA_TERMINAL_HANDLE" --title "🤴 지휘자 세션 🤴"`를 부른다.
 - 채팅 탭(`ORCA_STRUCTURED_SESSION=1`)이면 `orca chat rename --name "🤴 지휘자 세션 🤴"`를 부른다. 지금 채팅이 기본 대상이다.
 - 둘 다 아니면 오르카 밖이라 아무것도 안 한다. 오르카 CLI는 `ORCA_CLI_COMMAND`, PATH 순서로 찾는다.
 - 부르다 실패하면 stderr에 한 줄만 남기고 tick은 그대로 돈다. 다음 tick에 다시 시도하지 않는다.
 
-tick은 워커 워크트리 안이나 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션에서 거절되니 워커 탭에는 안 붙는다. 세션 id가 필요해서 Claude Code에서만 돈다. 인계한 기존 세션의 탭 이름은 그대로 둔다.
+tick은 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이나 살아 있는 워커의 워크트리 안에서 거절되니 보통 워커 탭에는 안 붙는다. 오르카 워커는 환경 변수로 컨덕터와 구분이 안 돼 작업 디렉토리로만 가르므로 워커가 워크트리 밖에서 tick을 부르면 그 탭 이름도 바뀐다. 세션 id가 필요해서 Claude Code에서만 돈다. 인계한 기존 세션의 탭 이름은 그대로 둔다.
 
 ### 미리 할 설정
 

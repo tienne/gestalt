@@ -409,13 +409,14 @@ export interface ConductorTickOptions extends ConductorCommonOptions {
 
 // 세션을 처음 등록한 tick에서만 부른다. 실패는 stderr 한 줄로만 알리고 tick은 그대로 돈다
 async function nameTabOnce(): Promise<void> {
-  const orca = detectOrca(process.env);
-  const outcome = await nameConductorTab({
-    env: process.env,
+  const env = process.env;
+  const orca = detectOrca(env);
+  const failure = await nameConductorTab({
+    env,
     cwd: process.cwd(),
     ...(orca ? { orcaCommand: orca } : {}),
   });
-  if (outcome.failed) console.error(outcome.detail);
+  if (failure) console.error(failure);
 }
 
 export async function conductorTickCommand(opts: ConductorTickOptions): Promise<void> {
