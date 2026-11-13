@@ -398,6 +398,25 @@ describe('오르카 워커 끊김 감지', () => {
   });
 });
 
+describe('취소된 주문의 보고', () => {
+  it.each(['git-worktree', 'subagent'] as const)(
+    '%s 워커도 취소된 주문에 보고하면 무시한다',
+    async (kind) => {
+      const c = staleOrca({ kind, handle: '/wt/ord-1' });
+      c.store.updateOrder('ord-1', { status: 'cancelled' });
+      const d: EngineDeps = { config, launchers: {}, orcaAvailable: true, env: {} };
+      writeReport(
+        inboxDirOf(c.store, d),
+        { workerId: 'wrk-1', status: 'done', summary: '끝났어요', refs: [] },
+        config.resultMaxChars,
+      );
+      const r = await tick(c.store, d, { now: c.now(), force: true });
+      expect(r.errors).toEqual([expect.stringMatching(/취소된 주문/)]);
+      expect(c.store.order('ord-1')?.status).toBe('cancelled');
+    },
+  );
+});
+
 const config: ConductorConfig = {
   maxConcurrentWorkers: 2,
   pollIntervalSec: 60,
