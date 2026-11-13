@@ -91,7 +91,7 @@ gestalt conductor context path --repo acme/app
 gestalt conductor tick --json
 ```
 
-한 번에 워커 보고 반영, 접수, 끊긴 워커 재개, 빈 슬롯만큼 띄우기, 머지 뒤 지라와 배포 처리, 정리를 돈다. `pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝난다. 사람이 방금 확인 자리를 종료했거나 주문을 넣은 직후면 `--force`를 붙인다.
+한 번에 워커 보고 반영, 접수, 끊긴 워커 재개, 전달을 미뤄 둔 확인 자리 결정 내보내기, 빈 슬롯만큼 띄우기, 머지 뒤 지라와 배포 처리, 정리를 돈다. `pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝난다. 사람이 방금 확인 자리를 종료했거나 주문을 넣은 직후면 `--force`를 붙인다.
 
 응답은 짧은 숫자와 할 일만 담는다. 그대로 대화에 붙이지 말고 아래 `hostActions`를 처리한다. `warnings`와 `errors`가 비어 있지 않으면 그 줄만 사용자에게 그대로 전한다.
 
@@ -127,7 +127,7 @@ gestalt conductor gate resolve <gateId> --approve --answer "보존 기간은 30�
 gestalt conductor gate resolve <gateId> --reject --json
 ```
 
-종료하면 결정이 그 워커에 바로 전달된다. 응답에 `hostActions`가 있으면 3번처럼 실행한다. 오르카 플러그인이 종료한 확인 자리는 `--defer-delivery`로 불린다. git-worktree와 subagent 워커에는 전달을 미뤄 두므로 다음 tick의 `hostActions`에 그 결정의 `send`가 나온다. 3번처럼 실행하면 된다. 오르카 워커에는 플러그인이 그 자리에서 전하고 `send`가 안 나온다. 플러그인이 못 전했으면 다음 tick이 `hostActions` 없이 직접 다시 전한다. 세 번 못 전하면 `errors`에 직접 전해 달라는 줄이 남으니 그때 사용자에게 알린다. 그사이 워커가 끝났으면 결정은 버려지고 `send`도 안 나온다.
+종료하면 결정이 그 워커에 바로 전달된다. 응답에 `hostActions`가 있으면 3번처럼 실행한다. 오르카 플러그인이 종료한 확인 자리는 `--defer-delivery`로 불린다. git-worktree와 subagent 워커에는 전달을 미뤄 두므로 다음 tick의 `hostActions`에 그 결정의 `send`가 나온다. 3번처럼 실행하면 된다. 오르카 워커에는 플러그인이 그 자리에서 전하고 `send`가 안 나온다. 플러그인이 못 전했으면 다음 tick이 `hostActions` 없이 직접 다시 전한다. 세 번 못 전하면 `errors`에 직접 전해 달라는 줄이 남으니 그때 사용자에게 알린다. 컨덕터 세션에도 오르카 런처가 없으면 그 tick에서 대기를 걷고 `errors`에 런처가 없어 못 전했다는 줄만 남는다. 이때도 결정이 안 간 것이니 사용자에게 직접 전해 달라고 알린다. 그사이 워커가 끝났으면 결정은 버려지고 `send`도 안 나온다.
 
 그 밖의 요청(단순 승인, 수동 검증, 정리, 인증, 계정 전환)은 tick이 bypass로 넘기고 기록만 남긴다. 사람에게 묻지 않는다.
 
