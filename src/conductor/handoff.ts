@@ -251,8 +251,13 @@ export function handoffNotice(status: HandoffStatus | undefined): string | undef
   return undefined;
 }
 
-/** `/loop` 뒤 원문 꼴. 간격(있으면 하나)과 컨덕터 스킬 호출만 받는다 */
-const LOOP_PROMPT_RE = /^(?:\d+[smhd]\s+)?\/gestalt:conductor(?:\s|$)/;
+/**
+ * `/loop` 뒤 원문 꼴. 간격(있으면 하나) 뒤에 `컨덕터 tick:`으로 여는 문장만 받는다.
+ * 스킬을 tick마다 다시 불러 본문이 쌓이던 옛 꼴 `/gestalt:conductor`도 이미 떠 있는 세션의 인계를 위해 받는다
+ */
+export const CONDUCTOR_LOOP_PROMPT =
+  '컨덕터 tick: 맥락에 있는 gestalt:conductor 스킬 7절 절차대로 gestalt conductor tick --json 돌리고 hostActions 처리';
+const LOOP_PROMPT_RE = /^(?:\d+[smhd]\s+)?(?:\/gestalt:conductor(?:\s|$)|컨덕터 tick:\s)/;
 const LOOP_PROMPT_MAX = 500;
 export const LOOP_PROMPT_REJECTED =
   '반복 프롬프트가 컨덕터 꼴이 아니에요. --loop-prompt를 빼고 다시 넘겨 주세요';
@@ -291,7 +296,7 @@ export function writeHandoffFile(
     '1. 아래 메모의 규칙을 이 세션에서도 그대로 지켜요.',
     '2. 답을 기다리던 질문은 사람에게 다시 물어요. 확인 자리(gate)는 `gestalt conductor gate list`로 다시 보여요.',
     '3. `gestalt conductor tick --force --json`으로 한 번 돌리고 hostActions를 처리해요.',
-    '4. 반복 프롬프트 원문이 있으면 그 원문 그대로 loop를 걸어요. 없으면 걸지 않아요. 반복은 이 세션 안에만 있어서 탭이 닫히면 같이 사라져요. 3번 tick에 공백 경고가 붙어도 경고만 전하고 반복은 원문으로 한 번만 걸어요.',
+    '4. 반복 프롬프트 원문이 있으면 그 원문 그대로 loop를 걸어요. 옛 꼴(`/gestalt:conductor`로 시작)이면 컨덕터 스킬 7번 3의 문장으로 바꿔 걸어요. 없으면 걸지 않아요. 반복은 이 세션 안에만 있어서 탭이 닫히면 같이 사라져요. 3번 tick에 공백 경고가 붙어도 경고만 전하고 반복은 원문으로 한 번만 걸어요.',
     '5. 사람에게 물을 때는 AskUserQuestion 같은 대화창 말고 일반 텍스트로 물어요. 대화창이 열려 있는 동안에는 반복이 돌지 않아요. 2번에서 다시 묻는 질문도 같아요.',
     '6. 첫 보고에 이 탭이 반복을 돌리고 있으니 닫지 말아 달라는 말을 한 줄 붙여요.',
     '',

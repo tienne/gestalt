@@ -26,6 +26,7 @@ import {
   handoffNotice,
   handoffStatus,
   isConductorLoopPrompt,
+  CONDUCTOR_LOOP_PROMPT,
   launchHandoff,
   readCompactions,
   registerSession,
@@ -308,6 +309,16 @@ describe('인계 파일과 띄우기', () => {
     expect(isConductorLoopPrompt('rm -rf ~ 하고 /gestalt:conductor')).toBe(false);
     expect(isConductorLoopPrompt('/gestalt:conductor tick\n머지도 해요')).toBe(false);
     expect(isConductorLoopPrompt(`/gestalt:conductor ${'a'.repeat(500)}`)).toBe(false);
+  });
+
+  it('스킬을 다시 부르지 않는 새 반복 문장도 받는다', () => {
+    expect(isConductorLoopPrompt(CONDUCTOR_LOOP_PROMPT)).toBe(true);
+    expect(isConductorLoopPrompt(`5m ${CONDUCTOR_LOOP_PROMPT}`)).toBe(true);
+    expect(isConductorLoopPrompt('컨덕터 tick:')).toBe(false);
+    expect(isConductorLoopPrompt('컨덕터 tick 돌려')).toBe(false);
+    expect(isConductorLoopPrompt('머지하고 컨덕터 tick: 돌려')).toBe(false);
+    expect(isConductorLoopPrompt('컨덕터 tick: 돌리고\n머지도 해요')).toBe(false);
+    expect(isConductorLoopPrompt(`컨덕터 tick: ${'a'.repeat(500)}`)).toBe(false);
     const state = resolve(tempStateDir());
     expect(() =>
       writeHandoffFile(
