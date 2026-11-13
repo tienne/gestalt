@@ -557,12 +557,16 @@ describe('handoff 명령의 탭 이름', () => {
     for (const reply of [{}, { result: { launch: { outcome: { kind: 'structured' } } } }]) {
       const out: string[] = [];
       vi.spyOn(console, 'log').mockImplementation((v: unknown) => void out.push(String(v)));
-      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const err: string[] = [];
+      vi.spyOn(console, 'error').mockImplementation((v: unknown) => void err.push(String(v)));
       const { stateDir, log, notes } = setup(0, reply);
       await conductorHandoffCommand({ stateDir, json: true, notesFile: notes });
       const handed = JSON.parse(out.at(-1)!) as { launched: boolean; renameErrors?: string[] };
       expect(handed.launched).toBe(true);
       expect(handed.renameErrors).toEqual([expect.stringContaining('첫 tick')]);
+      // 건너뛴 안내라 stderr에 '실패'로 찍지 않는다
+      expect(err).toEqual([expect.stringMatching(/^탭 이름 바꾸기: .*첫 tick/)]);
+      expect(err[0]).not.toContain('실패');
       const calls = readFileSync(log, 'utf-8').trim().split('\n');
       expect(calls.filter((c) => c.includes('rename'))).toHaveLength(1);
       rmSync(log);
@@ -581,7 +585,7 @@ describe('handoff 명령의 탭 이름', () => {
     expect(handed.launched).toBe(true);
     expect(handed.renameErrors).toHaveLength(2);
     // --json이어도 stderr에 남긴다
-    expect(err.filter((l) => l.startsWith('탭 이름 바꾸기 실패'))).toHaveLength(2);
+    expect(err.filter((l) => l.startsWith('탭 이름 바꾸기: '))).toHaveLength(2);
   });
 
   it('띄우지 않으면 탭 이름을 건드리지 않는다', async () => {

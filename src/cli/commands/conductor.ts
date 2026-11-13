@@ -573,7 +573,7 @@ export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Pr
       ...(renameErrors.length > 0 ? { renameErrors } : {}),
     };
     // recordError처럼 --json이어도 stderr에 남긴다
-    for (const e of renameErrors) console.error(`탭 이름 바꾸기 실패: ${e}`);
+    for (const e of renameErrors) console.error(`탭 이름 바꾸기: ${e}`);
     if (opts.json) return print(result);
     console.log(`인계 파일: ${file}`);
     console.log(outcome.detail);
