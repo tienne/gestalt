@@ -30,8 +30,14 @@ interface FakeGit {
   referenceFails?: boolean;
   /** worker-start 응답 */
   workerStart?: CommandResult;
-  /** worktree create가 돌려줄 브랜치 */
-  createdBranch?: string;
+  /** worktree create가 돌려줄 브랜치. null이면 응답에 브랜치가 없다 */
+  createdBranch?: string | null;
+  /** origin 원격이 없다 */
+  noOrigin?: boolean;
+  /** for-each-ref가 실패한다 */
+  localFails?: boolean;
+  /** git branch --show-current 출력 */
+  currentBranch?: string;
 }
 
 const ok = (stdout = ''): CommandResult => ({ code: 0, stdout, stderr: '' });
@@ -46,21 +52,38 @@ function fake(opts: FakeGit = {}) {
       const last = args.at(-1)!.replace('refs/heads/', '');
       if (sub === 'rev-parse')
         return { code: opts.local?.includes(last) ? 0 : 1, stdout: '', stderr: '' };
+      if (sub === 'for-each-ref') {
+        if (opts.localFails)
+          return { code: 128, stdout: '', stderr: 'fatal: not a git repository' };
+        // 패턴은 앞부분만 맞춘다. 정확한 비교는 런처가 한다
+        const prefix = args[4]!.replace('refs/heads/', '');
+        const hits = (opts.local ?? []).filter((b) => b.startsWith(prefix));
+        return ok(hits.map((b) => `refs/heads/${b}`).join('\n'));
+      }
+      if (sub === 'remote') return ok(opts.noOrigin ? '' : 'origin\n');
       if (sub === 'ls-remote') {
         if (opts.remoteDown) return { code: 128, stdout: '', stderr: 'Could not read from remote' };
-        return { code: opts.remote?.includes(last) ? 0 : 2, stdout: '', stderr: '' };
+        return ok((opts.remote ?? []).map((b) => `abc\trefs/heads/${b}`).join('\n'));
       }
+      if (sub === 'branch' && args[3] === '--show-current')
+        return ok(`${opts.currentBranch ?? ''}\n`);
       if (sub === 'worktree' && args[3] === 'list') return ok(opts.worktrees ?? '');
       return ok();
     }
     const head = args.slice(0, 2).join(' ');
     if (head === 'repo show')
       return ok(JSON.stringify({ ok: true, result: { repo: { path: '/repos/app' } } }));
-    if (head === 'worktree show')
-      return ok(JSON.stringify({ ok: true, result: { worktree: { repoId: 'r1' } } }));
+    if (head === 'worktree show') {
+      const sel = args[args.indexOf('--worktree') + 1]!;
+      const path = sel.startsWith('name:') ? `/wt/${sel.slice('name:'.length)}` : undefined;
+      return ok(JSON.stringify({ ok: true, result: { worktree: { repoId: 'r1', path } } }));
+    }
     if (head === 'worktree create') {
       const name = args[args.indexOf('--name') + 1]!;
-      const branch = opts.createdBranch ?? args[args.indexOf('--branch') + 1] ?? `tienne/${name}`;
+      const branch =
+        opts.createdBranch === null
+          ? undefined
+          : (opts.createdBranch ?? args[args.indexOf('--branch') + 1] ?? `tienne/${name}`);
       return ok(
         JSON.stringify({
           ok: true,
@@ -68,7 +91,7 @@ function fake(opts: FakeGit = {}) {
             worktree: {
               id: `r1::/wt/${name}`,
               path: `/wt/${name}`,
-              branch: `refs/heads/${branch}`,
+              ...(branch ? { branch: `refs/heads/${branch}` } : {}),
             },
           },
         }),
@@ -154,6 +177,47 @@ describe('비어 있는 브랜치 고르기', () => {
       branch: 'feat/PROJ-1',
       warnings: [],
     });
+  });
+
+  it('패턴에 같이 걸린 비슷한 이름은 겹치는 걸로 안 본다', async () => {
+    const f = fake({ local: ['feat/PROJ-12', 'feat/PROJ-1-x'] });
+    expect((await pickFreeBranch(f.runner, '/repos/app', 'feat/PROJ-1')).branch).toBe(
+      'feat/PROJ-1',
+    );
+  });
+
+  it('로컬과 origin을 한 번씩만 읽고 origin 결과는 캐시로 다시 쓴다', async () => {
+    const f = fake({ local: ['feat/PROJ-1'], remote: ['feat/PROJ-1-2'] });
+    const cache = new Map<string, Set<string>>();
+    await pickFreeBranch(f.runner, '/repos/app', 'feat/PROJ-1', cache);
+    await pickFreeBranch(f.runner, '/repos/app', 'feat/PROJ-2', cache);
+    const subs = f.gitCalls().map((a) => a[2]);
+    expect(subs.filter((x) => x === 'for-each-ref')).toHaveLength(2);
+    expect(subs.filter((x) => x === 'ls-remote')).toHaveLength(1);
+  });
+
+  it('origin이 없는 레포는 ls-remote를 안 부르고 경고도 없다', async () => {
+    const f = fake({ noOrigin: true });
+    expect(await pickFreeBranch(f.runner, '/repos/app', 'feat/PROJ-1')).toEqual({
+      branch: 'feat/PROJ-1',
+      warnings: [],
+    });
+    expect(f.gitCalls().some((a) => a[2] === 'ls-remote')).toBe(false);
+  });
+
+  it('로컬 브랜치를 못 읽으면 없는 걸로 치지 않고 멈춘다', async () => {
+    const f = fake({ localFails: true });
+    await expect(pickFreeBranch(f.runner, '/repos/app', 'feat/PROJ-1')).rejects.toThrow(
+      '로컬 브랜치를 못 읽었어요',
+    );
+  });
+
+  it('-20까지 다 차 있으면 멈춘다', async () => {
+    const local = ['feat/PROJ-1', ...Array.from({ length: 19 }, (_, i) => `feat/PROJ-1-${i + 2}`)];
+    const f = fake({ local });
+    await expect(pickFreeBranch(f.runner, '/repos/app', 'feat/PROJ-1')).rejects.toThrow(
+      'feat/PROJ-1-20까지 브랜치가 다 있어요',
+    );
   });
 
   it('origin을 못 읽으면 로컬만 보고 고른 뒤 경고를 남긴다', async () => {

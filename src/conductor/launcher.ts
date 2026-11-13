@@ -389,6 +389,76 @@ export function prUrlOf(prRef: string): string | undefined {
 const MAX_BRANCH_SUFFIX = 20;
 const LS_REMOTE_TIMEOUT_MS = 30_000;
 
+/** gitDir별 origin 브랜치 목록. 런처는 tick마다 새로 만들어지므로 한 tick 안에서만 쓰인다 */
+export type RemoteHeadsCache = Map<string, Set<string>>;
+
+/** `refs/heads/<이름>` 줄을 브랜치 이름 집합으로 읽는다. ls-remote 줄은 앞의 커밋 해시를 버린다 */
+function headsOf(out: string): Set<string> {
+  const names = new Set<string>();
+  for (const line of out.split('\n')) {
+    const ref = line.trim().split(/\s+/).at(-1) ?? '';
+    if (ref.startsWith('refs/heads/')) names.add(ref.slice('refs/heads/'.length));
+  }
+  return names;
+}
+
+/**
+ * base와 base-N 꼴의 로컬 브랜치를 한 번에 읽는다. 패턴은 base 뒤에 다른 글자가 붙은 이름도 걸리므로
+ * 쓰는 쪽에서 이름을 정확히 비교한다
+ */
+async function localHeads(
+  runner: CommandRunner,
+  gitDir: string,
+  base: string,
+): Promise<Set<string>> {
+  const r = await runner('git', [
+    '-C',
+    gitDir,
+    'for-each-ref',
+    '--format=%(refname)',
+    `refs/heads/${base}`,
+    `refs/heads/${base}-*`,
+  ]);
+  if (r.code !== 0) throw new Error(`${gitDir}의 로컬 브랜치를 못 읽었어요: ${outputHead(r)}`);
+  return headsOf(r.stdout);
+}
+
+/**
+ * origin의 브랜치 목록. origin이 없는 레포는 빈 목록이고 경고도 없다. 원격을 못 읽으면 경고를 돌려주고
+ * 캐시에 안 담아 다음 주문이 다시 묻는다
+ */
+async function remoteHeads(
+  runner: CommandRunner,
+  gitDir: string,
+  cache: RemoteHeadsCache | undefined,
+): Promise<{ names: Set<string>; warning?: string }> {
+  const hit = cache?.get(gitDir);
+  if (hit) return { names: hit };
+  const remotes = await runner('git', ['-C', gitDir, 'remote']);
+  if (remotes.code !== 0)
+    throw new Error(`${gitDir}의 원격 목록을 못 읽었어요: ${outputHead(remotes)}`);
+  let names = new Set<string>();
+  if (remotes.stdout.split('\n').some((l) => l.trim() === 'origin')) {
+    const r = await runner('git', ['-C', gitDir, 'ls-remote', '--heads', 'origin'], {
+      env: { GIT_TERMINAL_PROMPT: '0' },
+      timeoutMs: LS_REMOTE_TIMEOUT_MS,
+    });
+    if (r.code !== 0) return { names, warning: outputHead(r) };
+    names = headsOf(r.stdout);
+  }
+  cache?.set(gitDir, names);
+  return { names };
+}
+
+/** 로컬에 그 이름의 브랜치가 정확히 있는지 본다 */
+export async function hasLocalBranch(
+  runner: CommandRunner,
+  gitDir: string,
+  branch: string,
+): Promise<boolean> {
+  return (await localHeads(runner, gitDir, branch)).has(branch);
+}
+
 /**
  * 처음 띄울 때 쓸 브랜치 이름을 고른다. 로컬이나 origin에 이미 있으면 `-2`, `-3`을 붙여 빈 이름을 찾는다.
  * 사람이 손으로 만든 브랜치나 예전 주문이 남긴 브랜치 위에 얹지 않으려는 것이다.
@@ -398,31 +468,16 @@ export async function pickFreeBranch(
   runner: CommandRunner,
   gitDir: string,
   base: string,
+  cache?: RemoteHeadsCache,
 ): Promise<{ branch: string; warnings: string[] }> {
-  const warnings: string[] = [];
+  const local = await localHeads(runner, gitDir, base);
+  const remote = await remoteHeads(runner, gitDir, cache);
   for (let n = 1; n <= MAX_BRANCH_SUFFIX; n++) {
     const branch = n === 1 ? base : `${base}-${n}`;
-    const local = await runner('git', [
-      '-C',
-      gitDir,
-      'rev-parse',
-      '--verify',
-      '--quiet',
-      `refs/heads/${branch}`,
-    ]);
-    if (local.code === 0) continue;
-    const remote = await runner(
-      'git',
-      ['-C', gitDir, 'ls-remote', '--exit-code', '--heads', 'origin', `refs/heads/${branch}`],
-      { env: { GIT_TERMINAL_PROMPT: '0' }, timeoutMs: LS_REMOTE_TIMEOUT_MS },
-    );
-    if (remote.code === 0) continue;
-    // --exit-code는 못 찾으면 2로 끝난다. 그 밖의 실패는 원격을 못 읽은 것이다
-    if (remote.code !== 2) {
-      warnings.push(
-        `origin을 못 읽어 ${branch}가 원격에 있는지 확인 못 하고 띄웠어요: ${outputHead(remote)}`,
-      );
-    }
+    if (local.has(branch) || remote.names.has(branch)) continue;
+    const warnings = remote.warning
+      ? [`origin을 못 읽어 ${branch}가 원격에 있는지 확인 못 하고 띄웠어요: ${remote.warning}`]
+      : [];
     return { branch, warnings };
   }
   throw new Error(
@@ -484,6 +539,9 @@ export interface OrcaLauncherOptions {
 export class OrcaLauncher implements Launcher {
   readonly kind = 'orca-worktree' as const;
   private readonly runner: CommandRunner;
+  private readonly remoteHeads: RemoteHeadsCache = new Map();
+  /** 레포 선택자별 로컬 경로. `orca repo show`를 주문마다 다시 묻지 않는다 */
+  private readonly repoDirs = new Map<string, string>();
   constructor(private readonly opts: OrcaLauncherOptions) {
     this.runner = opts.runner ?? execRunner;
   }
@@ -571,7 +629,7 @@ export class OrcaLauncher implements Launcher {
   ): Promise<BranchPlan> {
     if (spec.previousBranch) return { name: spec.previousBranch, resume: true };
     const gitDir = await this.gitDirOf(spec.order);
-    const picked = await pickFreeBranch(this.runner, gitDir, planned);
+    const picked = await pickFreeBranch(this.runner, gitDir, planned, this.remoteHeads);
     warnings.push(...picked.warnings.map((w) => `${spec.order.id}: ${w}`));
     return { name: picked.branch, resume: false };
   }
@@ -581,10 +639,13 @@ export class OrcaLauncher implements Launcher {
     if (order.parentWorktree) return order.parentWorktree;
     const path = this.opts.repoPaths?.[order.repo];
     if (path) return path;
+    const selector = this.repoSelector(order);
+    const cached = this.repoDirs.get(selector);
+    if (cached) return cached;
     const out = await mustRun(
       this.runner,
       this.opts.orcaCommand,
-      ['repo', 'show', '--repo', this.repoSelector(order), '--json'],
+      ['repo', 'show', '--repo', selector, '--json'],
       { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
     );
     const repo = resultOf(out)?.['repo'];
@@ -594,6 +655,7 @@ export class OrcaLauncher implements Launcher {
         : undefined;
     if (!found)
       throw new Error(`오르카에서 ${order.repo}의 로컬 경로를 못 찾아 브랜치 이름을 못 골랐어요`);
+    this.repoDirs.set(selector, found);
     return found;
   }
 
@@ -1161,6 +1223,7 @@ export interface GitWorktreeLauncherOptions {
 export class GitWorktreeLauncher implements Launcher {
   readonly kind = 'git-worktree' as const;
   private readonly runner: CommandRunner;
+  private readonly remoteHeads: RemoteHeadsCache = new Map();
   constructor(private readonly opts: GitWorktreeLauncherOptions) {
     this.runner = opts.runner ?? execRunner;
   }
@@ -1207,7 +1270,7 @@ export class GitWorktreeLauncher implements Launcher {
     const planned = issueBranchName(spec.order);
     if (!planned) return `conductor/${spec.order.id}`;
     if (spec.previousBranch) return spec.previousBranch;
-    const picked = await pickFreeBranch(this.runner, repoPath, planned);
+    const picked = await pickFreeBranch(this.runner, repoPath, planned, this.remoteHeads);
     warnings.push(...picked.warnings.map((w) => `${spec.order.id}: ${w}`));
     return picked.branch;
   }
