@@ -384,6 +384,11 @@ const conductorConfigSchema = z.object({
   /** 워커 소식(보고나 체크포인트)이 이 시간(초) 넘게 없으면 끊긴 것으로 보고 재개한다 */
   staleAfterSec: z.number().int().min(60).max(86400).default(1800),
   /**
+   * 오르카 워커가 세션 한도에 걸린 채 이 시간(초) 넘게 안 풀리면 사람에게 올린다.
+   * 5시간 창 한도는 이 안에 풀린다. 주간 한도처럼 더 오래 걸리면 사람이 계정을 바꾸거나 재개를 고른다
+   */
+  rateLimitEscalateAfterSec: z.number().int().min(600).max(604800).default(21600),
+  /**
    * 주문에 범위를 안 적었을 때. 머지 전에 사람 승인을 받는 쪽이 기본이다.
    * 레포의 gestalt.json이 바꿀 수 있는 칸은 REPO_CONDUCTOR_KEYS가 정한다. 이 칸은 못 바꾼다
    */
@@ -428,6 +433,7 @@ const REPO_CONDUCTOR_KEYS: ReadonlySet<string> = new Set([
   'pollIntervalSec',
   'maxResumeAttempts',
   'staleAfterSec',
+  'rateLimitEscalateAfterSec',
   'resultMaxChars',
   'handoffContextPercent',
   'contextWindowTokens',

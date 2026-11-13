@@ -16,11 +16,13 @@ import {
   writeQueueMessage,
 } from '../../conductor/adapters.js';
 import {
+  rateLimitEntries,
   deliverGateDecision,
   inboxDirOf,
   tick,
   writeReport,
   type EngineDeps,
+  type RateLimitedEntry,
 } from '../../conductor/engine.js';
 import { existingRepoContext, repoContextPath } from '../../conductor/context.js';
 import {
@@ -351,6 +353,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
     const { store } = open(opts);
     const orders = store.orders().filter((o) => opts.all || o.status !== 'done');
     const gates = store.openGates();
+    const limited = new Map(rateLimitEntries(store).map((e) => [e.orderId, e]));
     const bypassesOf = new Map<string, { need: string; action: string; at: string }[]>();
     for (const b of store.snapshot.bypasses) {
       const key = b.orderId ?? '';
@@ -370,6 +373,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
           ...(o.workerId ? { worker: o.workerId } : {}),
           ...(o.prRef ? { pr: o.prRef } : {}),
           ...(o.issueKey ? { issue: o.issueKey } : {}),
+          ...(limited.has(o.id) ? { rateLimit: limited.get(o.id) } : {}),
           ...(opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
             ? { lastSummary: store.snapshot.reports[o.id]?.at(-1)?.summary ?? null }
             : {}),
@@ -393,12 +397,19 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
       console.log(
         `${o.id}  ${o.status}  ${o.scope}  ${o.repo}  ${o.title}${summary ? `  ${oneLine(summary, 100)}` : ''}`,
       );
+      const limit = limited.get(o.id);
+      if (limit) console.log(`  ${rateLimitLine(limit)}`);
       for (const b of bypassesOf.get(o.id) ?? [])
         console.log(`  bypass ${b.at}  ${b.need}  ${b.action}`);
     }
     for (const b of bypassesOf.get('') ?? []) console.log(`bypass ${b.at}  ${b.need}  ${b.action}`);
     for (const g of gates) console.log(`게이트 ${g.id}  ${g.type}  ${g.reason}`);
   });
+}
+
+function rateLimitLine(e: RateLimitedEntry): string {
+  const via = e.source === 'text' ? ', 출력 문구로 판단' : '';
+  return `한도 대기: ${e.workerId} ${e.since}부터${e.resetsAt ? `, 풀리는 시각 ${e.resetsAt}` : ''}${via}`;
 }
 
 export interface ConductorTickOptions extends ConductorCommonOptions {
@@ -473,6 +484,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
       `대기 ${c.queued}, 진행 ${c.running}, 게이트 ${c.openGates}, 새 주문 ${report.created.length}, 띄움 ${report.launched.length}`,
     );
     for (const a of report.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
+    for (const l of report.rateLimited) console.log(`${l.orderId} ${rateLimitLine(l)}`);
     for (const w of report.warnings) console.log(`경고: ${w}`);
     for (const e of report.errors) console.log(`오류: ${e}`);
     if (handoffLine) console.log(handoffLine);

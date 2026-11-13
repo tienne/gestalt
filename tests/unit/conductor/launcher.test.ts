@@ -11,6 +11,7 @@ import {
   NestedSpawnRefused,
   OrcaLauncher,
   parseDispatchId,
+  stopCommandFor,
   SubagentLauncher,
   workerAt,
   type CommandRunner,
@@ -429,7 +430,17 @@ describe('오르카 런처 release', () => {
   it('옵션 없이는 워커 터미널만 거둔다', async () => {
     const { calls, l } = scripted();
     await l.release(w());
-    expect(calls).toEqual([['orchestration', 'worker-release', '--dispatch', 'ctx_9', '--json']]);
+    expect(calls).toEqual([['orchestration', 'worker-release', '--dispatch=ctx_9', '--json']]);
+  });
+
+  it('멈춤 안내는 꼴이 맞는 dispatch id만 명령으로 싣는다', () => {
+    expect(stopCommandFor(w())).toMatch(/`orca orchestration worker-stop --dispatch=ctx_9`/);
+    for (const handle of ['--all', 'ctx_1`; rm -rf ~', 'ctx 1', 'a'.repeat(129)]) {
+      const text = stopCommandFor({ id: 'wrk-1', handle });
+      expect(text).not.toMatch(/worker-stop/);
+      expect(text).toMatch(/워커 wrk-1의 터미널/);
+    }
+    expect(stopCommandFor({ id: 'wrk-1' })).toMatch(/워커 wrk-1의 터미널/);
   });
 
   it('removeWorktree면 worker-show로 워크스페이스를 찾아 강제 없이 지우고 브랜치는 오르카 판단에 맡긴다', async () => {

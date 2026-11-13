@@ -6,6 +6,7 @@ import { handleNeed, openOrReuse } from './gates.js';
 import { oneLine } from './intake.js';
 import { RESUME_MARKER } from './metrics.js';
 import { real, worktreeField } from './parent-worktree.js';
+import type { WorkerPeek, WorkerProbe } from './resume.js';
 import type { ConductorStore } from './store.js';
 import {
   ACTIVE_WORKER_STATUSES,
@@ -15,6 +16,13 @@ import {
   type Worker,
   type WorkerKind,
 } from './types.js';
+import {
+  TEXT_TAIL_CHARS,
+  tailOfStrings,
+  usageLimitIn,
+  usageLimitInText,
+  type UsageLimitHit,
+} from './usage-limit.js';
 
 /**
  * 워커 배치 런처.
@@ -106,6 +114,10 @@ export interface Launcher {
   send(worker: Worker, message: string): Promise<HostAction | undefined>;
   /** 끝난 워커의 자원을 정리한다 */
   release(worker: Worker, opts?: ReleaseOptions): Promise<void>;
+  /** 소식이 끊긴 워커의 터미널을 들여다본다. 들여다볼 터미널이 없는 런처는 두지 않는다 */
+  probe?(worker: Worker): Promise<WorkerProbe>;
+  /** 터미널이 살아 있는지와 출력 중인지만 본다. 출력을 넘겨 읽지 않아 probe보다 싸다 */
+  peek?(worker: Worker): Promise<WorkerPeek>;
 }
 
 export interface ReleaseOptions {
@@ -113,6 +125,11 @@ export interface ReleaseOptions {
   removeWorktree?: boolean;
   /** 주문의 부모 워크트리. 이 워크트리와 그 위 경로는 지우지 않는다 */
   parentWorktree?: string;
+  /**
+   * 터미널이 실제로 닫혔거나 프로세스가 끝났는지까지 확인한다. 아니면 던진다.
+   * 재개로 새 워커를 띄우기 전에 켠다. 앞 워커가 살아 있는 채 새 워커가 뜨면 둘이 같은 주문을 진행한다
+   */
+  requireClosed?: boolean;
 }
 
 export interface CommandResult {
@@ -544,13 +561,119 @@ export class OrcaLauncher implements Launcher {
     }
     // 터미널을 거둔 뒤에도 worker-show는 되지만 순서에 기대지 않으려고 먼저 읽는다
     const workspace = opts.removeWorktree ? await this.workspaceOf(worker) : undefined;
-    await mustRun(
+    const out = await mustRun(
       this.runner,
       this.opts.orcaCommand,
-      ['orchestration', 'worker-release', '--dispatch', worker.handle, '--json'],
+      ['orchestration', 'worker-release', `--dispatch=${worker.handle}`, '--json'],
       { timeoutMs: ORCA_TIMEOUT_MS },
     );
+    if (opts.requireClosed) await this.assertClosed(worker, out);
     if (workspace) await this.removeWorktree(worker, workspace, opts.parentWorktree);
+  }
+
+  /**
+   * worker-release가 터미널을 닫았는지 본다. 끝나지 않은 워커의 터미널은 오르카가 안 닫고
+   * retained로 돌려준다. 그때는 프로세스가 이미 끝났을 때만 받아들인다
+   */
+  private async assertClosed(worker: Worker, releaseOut: string): Promise<void> {
+    const state = stringField(resultOf(releaseOut), 'state');
+    if (state && CLOSED_RELEASE_STATES.has(state)) return;
+    const shown = await this.show(worker);
+    if (shown.liveness && GONE_LIVENESS.has(shown.liveness)) return;
+    throw new Error(
+      `${worker.id}의 오르카 터미널을 못 거뒀어요(release ${state ?? '응답 없음'}, liveness ${shown.liveness ?? '모름'}). 앞 워커가 살아 있을 수 있어 새 워커를 안 띄웠어요. ${stopCommandFor(worker)} 승인해 주세요`,
+    );
+  }
+
+  /**
+   * 소식이 끊긴 워커의 터미널을 본다.
+   *
+   * 출력 중인지는 worker-show의 activity로 먼저 가른다. 출력 중인 세션은 worker-read를 넘기는
+   * 사이 출력 출처가 바뀌어 읽기가 깨진다. 그다음 worker-read로 끝 메시지만 보고 한도 표시를 찾는다
+   */
+  async probe(worker: Worker): Promise<WorkerProbe> {
+    const peeked = await this.peek(worker);
+    if (peeked !== 'live') return { state: peeked };
+    const hit = await this.readLimit(worker.handle!);
+    if (hit) return { state: 'rate-limit', ...hit };
+    return { state: 'idle' };
+  }
+
+  async peek(worker: Worker): Promise<WorkerPeek> {
+    if (!worker.handle) throw new Error('dispatch id가 없어요');
+    const shown = await this.show(worker);
+    if ((shown.liveness && GONE_LIVENESS.has(shown.liveness)) || shown.terminalState === 'released')
+      return 'gone';
+    if (shown.liveness !== 'live')
+      throw new Error(`오르카가 liveness를 ${shown.liveness ?? '안 알려'} 줘서 확인 못 했어요`);
+    return shown.activity === 'working' ? 'working' : 'live';
+  }
+
+  private async show(worker: Worker): Promise<{
+    liveness?: string;
+    activity?: string;
+    terminalState?: string;
+  }> {
+    const out = await mustRun(
+      this.runner,
+      this.opts.orcaCommand,
+      ['orchestration', 'worker-show', `--dispatch=${worker.handle!}`, '--json'],
+      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+    );
+    const r = resultOf(out);
+    if (!r) throw new Error(`worker-show 응답을 못 읽었어요: ${oneLine(out, 200)}`);
+    const pick = (k: string) => stringField(r, k);
+    return {
+      ...(pick('liveness') ? { liveness: pick('liveness')! } : {}),
+      ...(pick('activity') ? { activity: pick('activity')! } : {}),
+      ...(pick('terminalState') ? { terminalState: pick('terminalState')! } : {}),
+    };
+  }
+
+  /**
+   * worker-read를 끝까지 넘겨 마지막 메시지들에서 한도 표시를 찾는다.
+   * worker-read는 처음부터 앞으로만 읽어서 끝을 보려면 끝까지 넘겨야 한다.
+   * 쪽마다 시간 상한만 걸면 tick 하나가 몇 시간을 붙잡을 수 있어 워커마다 전체 상한을 따로 둔다.
+   * probe는 워커마다 차례로 돌아서 워커 N개면 tick이 최대 N×READ_DEADLINE_MS 걸린다
+   */
+  private async readLimit(dispatch: string): Promise<UsageLimitHit | undefined> {
+    let cursor: string | undefined;
+    let tail: unknown[] = [];
+    const deadline = Date.now() + READ_DEADLINE_MS;
+    for (let page = 0; page < MAX_READ_PAGES; page++) {
+      const left = deadline - Date.now();
+      if (left <= 0)
+        throw new Error(`worker-read를 ${READ_DEADLINE_MS / 1000}초 안에 끝까지 못 넘겼어요`);
+      const out = await mustRun(
+        this.runner,
+        this.opts.orcaCommand,
+        [
+          'orchestration',
+          'worker-read',
+          `--dispatch=${dispatch}`,
+          '--json',
+          '--limit',
+          String(READ_PAGE_LIMIT),
+          // 값이 --로 시작하면 오르카가 플래그로 읽어서 dispatch처럼 붙여 넘긴다
+          ...(cursor ? [`--cursor=${cursor}`] : []),
+        ],
+        { timeoutMs: Math.min(DEFAULT_COMMAND_TIMEOUT_MS, left) },
+      );
+      const r = resultOf(out);
+      if (!r) throw new Error(`worker-read 응답을 못 읽었어요: ${oneLine(out, 200)}`);
+      const transcript = r['transcript'];
+      if (typeof transcript !== 'object' || transcript === null) {
+        // 터미널 출력으로 돌아온 워커다. 꼴이 정해져 있지 않아 글자만 모아 끝을 본다
+        return usageLimitInText(tailOfStrings(r, TEXT_TAIL_CHARS));
+      }
+      const t = transcript as { messages?: unknown; nextCursor?: unknown };
+      const messages = Array.isArray(t.messages) ? t.messages : [];
+      if (messages.length > 0) tail = [...tail, ...messages].slice(-TAIL_MESSAGES);
+      if (messages.length === 0 || typeof t.nextCursor !== 'string' || !t.nextCursor)
+        return usageLimitIn(tail);
+      cursor = t.nextCursor;
+    }
+    throw new Error(`worker-read를 ${MAX_READ_PAGES}쪽 넘겨도 끝에 못 닿았어요`);
   }
 
   /** worker-show가 돌려주는 워크스페이스(`<레포 id>::<경로>`)를 읽는다 */
@@ -558,7 +681,7 @@ export class OrcaLauncher implements Launcher {
     const out = await mustRun(
       this.runner,
       this.opts.orcaCommand,
-      ['orchestration', 'worker-show', '--dispatch', worker.handle!, '--json'],
+      ['orchestration', 'worker-show', `--dispatch=${worker.handle!}`, '--json'],
       { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
     );
     const workspace = workspaceField(out);
@@ -610,6 +733,40 @@ export class OrcaLauncher implements Launcher {
       `${this.opts.orcaCommand} worktree rm 실패(${r.code}): ${outputHead(r)}. 커밋 안 한 변경이 있는지 확인하고 \`orca worktree rm --worktree ${workspace.selector} --delete-branch\`로 지워 주세요`,
     );
   }
+}
+
+/**
+ * worker-release가 터미널을 닫았다고 답한 상태. release_pending은 아직 안 닫힌 것이라
+ * 프로세스가 끝났는지를 worker-show로 다시 본다
+ */
+const CLOSED_RELEASE_STATES = new Set(['released', 'already_released']);
+/** 오르카가 프로세스가 끝났다고 본 liveness */
+const GONE_LIVENESS = new Set(['exited', 'gone']);
+/** 한도 표시는 세션 마지막 메시지에 붙는다. 그 뒤에 메시지가 몇 개 더 붙어도 놓치지 않게 여유를 둔다 */
+const TAIL_MESSAGES = 3;
+const READ_PAGE_LIMIT = 500;
+/** 쪽마다 바이트 상한이 따로 있어 메시지 수보다 쪽 수가 많아진다. 긴 세션도 닿게 넉넉히 잡는다 */
+const MAX_READ_PAGES = 60;
+/**
+ * 워커 하나가 끝까지 넘기는 데 쓰는 전체 시간. 워커 하나가 tick을 끝없이 붙잡지 않게 막는 상한이다.
+ * tick 주기보다 짧다는 보장은 없고 probe가 직렬이라 워커 N개면 최대 N×180초가 걸린다
+ */
+const READ_DEADLINE_MS = 180_000;
+
+function resultOf(stdout: string): Record<string, unknown> | undefined {
+  try {
+    const d = JSON.parse(stdout) as { result?: unknown };
+    return typeof d.result === 'object' && d.result !== null
+      ? (d.result as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function stringField(r: Record<string, unknown> | undefined, key: string): string | undefined {
+  const v = r?.[key];
+  return typeof v === 'string' && v ? v : undefined;
 }
 
 /** dir이 target이거나 target의 상위 경로면 참이다 */
@@ -699,6 +856,19 @@ function surelyNotStarted(stdout: string): boolean {
   const status = body['outcome'] ?? body['status'] ?? body['state'];
   const residual = body['residualResources'];
   return status === 'failed' && Array.isArray(residual) && residual.length === 0;
+}
+
+/** dispatch id로 받아들이는 꼴. 오르카가 주는 id는 `ctx_<16진수>`라 이 안에 든다 */
+const SAFE_HANDLE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+/**
+ * 사람에게 앞 워커를 멈추라고 안내할 문장을 짓는다. dispatch id는 오르카 응답에서 읽은 값이라
+ * 꼴이 이상하면 복사해 붙일 명령으로 싣지 않고 워커 id로만 가리킨다
+ */
+export function stopCommandFor(worker: Pick<Worker, 'id' | 'handle'>): string {
+  return worker.handle && SAFE_HANDLE.test(worker.handle)
+    ? `\`orca orchestration worker-stop --dispatch=${worker.handle}\`로 앞 워커를 멈춘 뒤`
+    : `오르카에서 워커 ${worker.id}의 터미널을 멈춘 뒤`;
 }
 
 /** worker-start --json 응답에서 dispatch id를 꺼낸다. 버전마다 자리가 달라 몇 곳을 본다 */
