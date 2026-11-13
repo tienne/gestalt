@@ -10,7 +10,9 @@ import { conductorTickCommand } from '../../../src/cli/commands/conductor.js';
 import type { CommandRunner } from '../../../src/conductor/launcher.js';
 import {
   CONDUCTOR_TAB_TITLE,
+  handedOffTabTitle,
   nameConductorTab,
+  renameHandoffTabs,
   tabRenameArgs,
 } from '../../../src/conductor/tab-title.js';
 import { cleanupStateDirs, tempStateDir } from './fixtures.js';
@@ -77,6 +79,72 @@ describe('nameConductorTab', () => {
     expect(await nameConductorTab({ env, orcaCommand: '/orca', runner: throws })).toContain(
       'ENOENT',
     );
+  });
+});
+
+describe('renameHandoffTabs', () => {
+  const now = new Date(2026, 10, 3, 9, 0);
+
+  function recorder(code = 0): { calls: string[][]; runner: CommandRunner } {
+    const calls: string[][] = [];
+    const runner: CommandRunner = async (_cmd, args) => {
+      calls.push(args);
+      return { code, stdout: '', stderr: code === 0 ? '' : 'nope' };
+    };
+    return { calls, runner };
+  }
+
+  it('넘긴 탭에는 인계 완료와 날짜를, 새 채팅 탭에는 컨덕터 이름을 붙인다', async () => {
+    expect(handedOffTabTitle(now)).toBe('지휘자 세션 (인계 완료, 11/03)');
+    const { calls, runner } = recorder();
+    const errors = await renameHandoffTabs({
+      env: { ORCA_STRUCTURED_SESSION: '1' },
+      orcaCommand: '/orca',
+      launched: { kind: 'chat', sessionId: 'claude_new' },
+      now,
+      runner,
+    });
+    expect(errors).toEqual([]);
+    expect(calls).toEqual([
+      ['chat', 'rename', '--name', '지휘자 세션 (인계 완료, 11/03)', '--json'],
+      ['chat', 'rename', '--session=claude_new', '--name', CONDUCTOR_TAB_TITLE, '--json'],
+    ]);
+  });
+
+  it('새 탭이 터미널이면 핸들로 바꾸고 응답에서 탭을 못 읽었으면 넘긴 탭만 바꾼다', async () => {
+    const term = recorder();
+    await renameHandoffTabs({
+      env: { ORCA_TERMINAL_HANDLE: 'term_old' },
+      orcaCommand: '/orca',
+      launched: { kind: 'terminal', handle: 'term_new' },
+      now,
+      runner: term.runner,
+    });
+    expect(term.calls).toEqual([
+      ['terminal', 'rename', '--terminal=term_old', '--title', handedOffTabTitle(now), '--json'],
+      ['terminal', 'rename', '--terminal=term_new', '--title', CONDUCTOR_TAB_TITLE, '--json'],
+    ]);
+    const unknown = recorder();
+    await renameHandoffTabs({
+      env: { ORCA_STRUCTURED_SESSION: '1' },
+      orcaCommand: '/orca',
+      now,
+      runner: unknown.runner,
+    });
+    expect(unknown.calls).toHaveLength(1);
+  });
+
+  it('실패해도 던지지 않고 탭마다 실패 메시지를 모은다', async () => {
+    const { runner } = recorder(2);
+    const errors = await renameHandoffTabs({
+      env: { ORCA_STRUCTURED_SESSION: '1' },
+      orcaCommand: '/orca',
+      launched: { kind: 'chat', sessionId: 'claude_new' },
+      now,
+      runner,
+    });
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toContain('rename 실패(2)');
   });
 });
 

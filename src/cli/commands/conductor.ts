@@ -59,7 +59,7 @@ import { measure } from '../../conductor/metrics.js';
 import { resolveParentWorktree } from '../../conductor/parent-worktree.js';
 import { normalizePrRef } from '../../conductor/pr-ref.js';
 import { saveSkillCheckpoint } from '../../conductor/resume.js';
-import { nameConductorTab } from '../../conductor/tab-title.js';
+import { nameConductorTab, renameHandoffTabs } from '../../conductor/tab-title.js';
 import type { ConductorConfig } from '../../conductor/scheduler.js';
 import { draftSlack } from '../../conductor/slack.js';
 import { ConductorStore } from '../../conductor/store.js';
@@ -512,6 +512,7 @@ export interface ConductorHandoffOptions extends ConductorCommonOptions {
  * 오르카가 없거나 띄우기가 실패하면 파일만 남기고 사람에게 전할 문장을 돌려준다.
  * 띄우기 전에 이 세션을 인계한 것으로 적어 두고 이후 tick을 거절한다. 띄운 뒤 결과를 못 덮어써도
  * 거절은 이미 걸려 있어 컨덕터가 둘 돌지 않는다. 그때는 stderr 한 줄과 결과의 recordError로 알린다.
+ * 오르카로 띄웠으면 두 탭 이름도 바꾼다. 실패해도 인계는 성공으로 두고 renameErrors로만 알린다.
  */
 export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Promise<void> {
   try {
@@ -554,10 +555,27 @@ export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Pr
       recordError = (e as Error).message;
       console.error(`인계 기록 갱신 실패: ${recordError}`);
     }
-    const result = { sessionId, file, ...outcome, ...(recordError ? { recordError } : {}) };
+    const renameErrors =
+      outcome.launched && orca
+        ? await renameHandoffTabs({
+            env: process.env,
+            orcaCommand: orca,
+            now,
+            cwd: process.cwd(),
+            ...(outcome.tab ? { launched: outcome.tab } : {}),
+          })
+        : [];
+    const result = {
+      sessionId,
+      file,
+      ...outcome,
+      ...(recordError ? { recordError } : {}),
+      ...(renameErrors.length > 0 ? { renameErrors } : {}),
+    };
     if (opts.json) return print(result);
     console.log(`인계 파일: ${file}`);
     console.log(outcome.detail);
+    for (const e of renameErrors) console.error(`탭 이름 바꾸기 실패: ${e}`);
   } catch (e) {
     exitWithError(e);
   }

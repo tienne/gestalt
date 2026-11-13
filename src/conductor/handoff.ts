@@ -11,6 +11,7 @@ import {
 import { join } from 'node:path';
 import { writeJsonAtomic } from '../core/json-file.js';
 import { execRunner, type CommandRunner } from './launcher.js';
+import type { LaunchedTab } from './tab-title.js';
 
 /**
  * 컨덕터 세션 인계.
@@ -334,6 +335,8 @@ export interface LaunchHandoffOptions {
 export interface LaunchOutcome {
   launched: boolean;
   detail: string;
+  /** 띄운 탭을 응답에서 읽었을 때만 있다. 탭 이름을 바꿀 때 쓴다 */
+  tab?: LaunchedTab;
 }
 
 /**
@@ -367,25 +370,49 @@ export async function launchHandoff(
     const head = (r.stderr || r.stdout).trim().split('\n').slice(0, 3).join(' ');
     return { launched: false, detail: `오르카 agent launch 실패(${r.code}): ${head}. ${manual}` };
   }
+  const tab = launchedTab(r.stdout);
+  const shown = tab ? (tab.kind === 'chat' ? tab.sessionId : tab.handle) : legacyHandle(r.stdout);
   return {
     launched: true,
-    detail: `오르카로 ${opts.cwd}에 새 세션을 띄웠어요${launchHandle(r.stdout)}`,
+    detail: `오르카로 ${opts.cwd}에 새 세션을 띄웠어요${shown ? ` (${shown})` : ''}`,
+    ...(tab ? { tab } : {}),
   };
 }
 
-// 응답 꼴이 버전마다 달라 아는 칸만 짧게 보여 준다. 못 읽어도 띄우기는 성공으로 본다
-function launchHandle(stdout: string): string {
+function parseResult(stdout: string): Record<string, unknown> | undefined {
   try {
     const d = JSON.parse(stdout) as Record<string, unknown>;
-    const r = (typeof d['result'] === 'object' && d['result'] ? d['result'] : d) as Record<
-      string,
-      unknown
-    >;
-    const id = r['sessionId'] ?? r['terminalHandle'] ?? r['handle'];
-    return typeof id === 'string' ? ` (${id})` : '';
+    return asRecord(d['result']) ?? d;
   } catch {
-    return '';
+    return undefined;
   }
+}
+
+function asRecord(v: unknown): Record<string, unknown> | undefined {
+  return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : undefined;
+}
+
+/**
+ * `agent launch --json`의 `launch.outcome`에서 띄운 탭을 읽는다. 채팅(`structured`)은 `sessionId`,
+ * 터미널은 `handle`이 그 탭을 가리킨다. 이 칸이 없는 옛 오르카면 터미널 핸들을 `agentTerminalHandle`에서 읽는다.
+ */
+function launchedTab(stdout: string): LaunchedTab | undefined {
+  const r = parseResult(stdout);
+  if (!r) return undefined;
+  const outcome = asRecord(asRecord(r['launch'])?.['outcome']) ?? asRecord(r['outcome']);
+  if (outcome?.['kind'] === 'structured' && typeof outcome['sessionId'] === 'string')
+    return { kind: 'chat', sessionId: outcome['sessionId'] };
+  if (outcome?.['kind'] === 'terminal' && typeof outcome['handle'] === 'string')
+    return { kind: 'terminal', handle: outcome['handle'] };
+  const legacy = r['agentTerminalHandle'];
+  return typeof legacy === 'string' ? { kind: 'terminal', handle: legacy } : undefined;
+}
+
+// 응답 꼴이 버전마다 달라 아는 칸만 짧게 보여 준다. 못 읽어도 띄우기는 성공으로 본다
+function legacyHandle(stdout: string): string | undefined {
+  const r = parseResult(stdout);
+  const id = r?.['sessionId'] ?? r?.['terminalHandle'] ?? r?.['handle'];
+  return typeof id === 'string' ? id : undefined;
 }
 
 export function recordHandoff(stateDir: string, sessionId: string, record: HandoffRecord): void {

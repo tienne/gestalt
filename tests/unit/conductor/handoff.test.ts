@@ -348,6 +348,42 @@ describe('인계 파일과 띄우기', () => {
     ]);
   });
 
+  it('launch 응답의 outcome에서 띄운 탭을 읽는다', async () => {
+    const reply =
+      (body: unknown): CommandRunner =>
+      async () => ({
+        code: 0,
+        stdout: JSON.stringify(body),
+        stderr: '',
+      });
+    const chat = await launchHandoff('/f.md', {
+      cwd: '/work',
+      orcaCommand: '/bin/orca',
+      runner: reply({
+        result: {
+          launch: { outcome: { kind: 'structured', handle: 'h1', sessionId: 'claude_abc' } },
+        },
+      }),
+    });
+    expect(chat).toMatchObject({
+      launched: true,
+      tab: { kind: 'chat', sessionId: 'claude_abc' },
+      detail: expect.stringContaining('claude_abc'),
+    });
+    const term = await launchHandoff('/f.md', {
+      cwd: '/work',
+      orcaCommand: '/bin/orca',
+      runner: reply({ result: { launch: { outcome: { kind: 'terminal', handle: 'term_9' } } } }),
+    });
+    expect(term.tab).toEqual({ kind: 'terminal', handle: 'term_9' });
+    const legacy = await launchHandoff('/f.md', {
+      cwd: '/work',
+      orcaCommand: '/bin/orca',
+      runner: reply({ result: { agentTerminalHandle: 'term_old' } }),
+    });
+    expect(legacy.tab).toEqual({ kind: 'terminal', handle: 'term_old' });
+  });
+
   it('오르카가 없거나 실패하면 사람에게 새 세션을 열라고 알린다', async () => {
     const none = await launchHandoff('/f.md', { cwd: '/work' });
     expect(none.launched).toBe(false);
@@ -438,6 +474,69 @@ describe('tick과 handoff 명령', () => {
     } finally {
       chmodSync(dir, 0o755);
     }
+  });
+});
+
+describe('handoff 명령의 탭 이름', () => {
+  function setup(renameExit: number): { stateDir: string; log: string; notes: string } {
+    const stateDir = tempStateDir();
+    vi.stubEnv('CLAUDE_CODE_SESSION_ID', randomUUID());
+    vi.stubEnv('GESTALT_CONDUCTOR_WORKER_ID', '');
+    const log = join(base, 'orca-calls');
+    const bin = join(base, 'orca');
+    // launch는 채팅 탭 응답을 돌려주고 rename은 renameExit로 끝낸다
+    writeFileSync(
+      bin,
+      [
+        '#!/bin/sh',
+        `echo "$@" >> '${log}'`,
+        'if [ "$1" = agent ]; then',
+        `  echo '{"result":{"launch":{"outcome":{"kind":"structured","handle":"h","sessionId":"claude_new"}}}}'`,
+        '  exit 0',
+        'fi',
+        `exit ${renameExit}`,
+        '',
+      ].join('\n'),
+    );
+    chmodSync(bin, 0o755);
+    vi.stubEnv('ORCA_CLI_COMMAND', bin);
+    vi.stubEnv('ORCA_STRUCTURED_SESSION', '1');
+    const notes = join(base, 'notes.md');
+    writeFileSync(notes, '- 규칙');
+    return { stateDir, log, notes };
+  }
+
+  it('오르카로 띄우면 넘긴 탭과 새 탭 이름을 바꾼다', async () => {
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((v: unknown) => void out.push(String(v)));
+    const { stateDir, log, notes } = setup(0);
+    await conductorHandoffCommand({ stateDir, json: true, notesFile: notes });
+    const handed = JSON.parse(out.at(-1)!) as Record<string, unknown>;
+    expect(handed).toMatchObject({ launched: true });
+    expect(handed).not.toHaveProperty('renameErrors');
+    const calls = readFileSync(log, 'utf-8').trim().split('\n');
+    expect(calls.slice(1)).toEqual([
+      expect.stringMatching(/^chat rename --name 지휘자 세션 \(인계 완료, \d\d\/\d\d\) --json$/),
+      'chat rename --session=claude_new --name 🤴 지휘자 세션 🤴 --json',
+    ]);
+  });
+
+  it('이름 바꾸기가 실패해도 인계는 성공이고 renameErrors로 남긴다', async () => {
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((v: unknown) => void out.push(String(v)));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { stateDir, notes } = setup(4);
+    await conductorHandoffCommand({ stateDir, json: true, notesFile: notes });
+    const handed = JSON.parse(out.at(-1)!) as { launched: boolean; renameErrors?: string[] };
+    expect(handed.launched).toBe(true);
+    expect(handed.renameErrors).toHaveLength(2);
+  });
+
+  it('띄우지 않으면 탭 이름을 건드리지 않는다', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { stateDir, log, notes } = setup(0);
+    await conductorHandoffCommand({ stateDir, json: true, notesFile: notes, launch: false });
+    expect(existsSync(log)).toBe(false);
   });
 });
 
