@@ -38,7 +38,16 @@ import {
 import { repoOfPrRef } from './pr-ref.js';
 import { pollPrs, type PrWatchSource } from './pr-watch.js';
 import { parseWorkerReport } from './result.js';
-import { detectStale, prepareResumes, resumeLaunchFor, type ShipReader } from './resume.js';
+import {
+  detectStale,
+  escalateResume,
+  prepareResumes,
+  rateLimitedWorkers,
+  resumeLaunchFor,
+  wakeFromRateLimit,
+  type ResumeLaunch,
+  type ShipReader,
+} from './resume.js';
 import type { ConductorConfig } from './scheduler.js';
 import { planSlots } from './scheduler.js';
 import { publishApprovedSlack, type SlackClient } from './slack.js';
@@ -96,6 +105,8 @@ export interface TickReport {
   errors: string[];
   /** 멈출 일은 아니지만 사람이 알아야 할 자리. 런처가 주문 옵션을 다 못 따른 경우 같은 것 */
   warnings: string[];
+  /** 세션 리밋에 걸려 재개하지 않고 기다리는 오르카 워커. 풀리기 전까지 tick마다 싣는다 */
+  rateLimited: RateLimitedEntry[];
   counts: {
     queued: number;
     running: number;
@@ -104,6 +115,23 @@ export interface TickReport {
     openGates: number;
     unansweredThreads: number;
   };
+}
+
+export interface RateLimitedEntry {
+  orderId: string;
+  workerId: string;
+  /** 컨덕터가 한도 표시를 처음 본 시각 */
+  since: string;
+  resetsAt?: string;
+}
+
+export function rateLimitEntries(store: ConductorStore): RateLimitedEntry[] {
+  return rateLimitedWorkers(store).map((w) => ({
+    orderId: w.orderId,
+    workerId: w.id,
+    since: w.rateLimitedAt ?? w.lastSeenAt,
+    ...(w.rateLimitResetsAt ? { resetsAt: w.rateLimitResetsAt } : {}),
+  }));
 }
 
 export function inboxDirOf(store: ConductorStore, deps: Pick<EngineDeps, 'inboxDir'>): string {
@@ -200,10 +228,15 @@ async function runTick(
   await step(report, () => ingestReports(store, deps, report).then((c) => (cleared = c)));
   await step(report, () => intake(store, deps, report).then((n) => (unanswered = n)));
   await step(report, async () => {
-    detectStale(store, {
+    const orca = deps.launchers['orca-worktree'];
+    const stale = await detectStale(store, {
       now: new Date(report.at),
       staleAfterMs: deps.config.staleAfterSec * 1000,
+      rateLimitEscalateAfterMs: deps.config.rateLimitEscalateAfterSec * 1000,
+      ...(orca?.probe ? { probe: (w: Worker) => orca.probe!(w) } : {}),
     });
+    report.warnings.push(...stale.warnings);
+    report.escalated.push(...stale.escalated.map((g) => g.id));
     for (const d of prepareResumes(store, {
       maxResumeAttempts: deps.config.maxResumeAttempts,
       ...(deps.readShip ? { readShip: deps.readShip } : {}),
@@ -222,6 +255,7 @@ async function runTick(
     });
   }
   await step(report, () => cleanupWorkers(store, deps, report));
+  report.rateLimited = rateLimitEntries(store);
   store.append({
     type: 'tick',
     at: report.at,
@@ -427,6 +461,7 @@ async function applyReport(
   store.updateWorker(worker.id, {
     lastSeenAt: report.at,
     ...(worker.status === 'starting' ? { status: 'running' } : {}),
+    ...wakeFromRateLimit(worker),
   });
   if (r.prRef && order.prRef !== r.prRef) store.updateOrder(order.id, { prRef: r.prRef });
 
@@ -616,6 +651,7 @@ async function launchQueued(
     }
 
     const resume = resumeLaunchFor(store, order, deps.readShip);
+    if (resume && !(await retirePrevious(store, deps, report, order, resume))) continue;
     const worker: Worker = {
       id: newId('wrk'),
       orderId: order.id,
@@ -666,6 +702,39 @@ async function launchQueued(
       });
       report.escalated.push(gate.id);
     }
+  }
+}
+
+/**
+ * 재개로 새 오르카 워커를 띄우기 전에 앞 워커 터미널을 거둔다. 워크트리는 지우지 않는다.
+ *
+ * 앞 터미널을 남긴 채 띄우면 리밋이 풀리거나 계정이 바뀐 앞 워커가 다시 움직여 한 주문을 둘이
+ * 진행한다. 그래서 거두기가 실패하면 새 워커를 안 띄우고 재개 게이트로 사람에게 올린다.
+ * git 워크트리와 서브에이전트 워커는 지금처럼 앞 워커를 건드리지 않는다.
+ */
+async function retirePrevious(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+  order: Order,
+  resume: ResumeLaunch,
+): Promise<boolean> {
+  const { previous } = resume;
+  if (previous.kind !== 'orca-worktree') return true;
+  const launcher = deps.launchers['orca-worktree'];
+  try {
+    if (!launcher) throw new Error('오르카 런처가 없어 앞 워커 터미널을 못 거둬요');
+    await launcher.release(previous, { requireClosed: true });
+    return true;
+  } catch (err) {
+    const gate = escalateResume(
+      store,
+      order,
+      previous,
+      `앞 워커 터미널을 못 거뒀어요: ${message(err)}`,
+    );
+    report.escalated.push(gate.id);
+    return false;
   }
 }
 
@@ -840,6 +909,7 @@ function emptyReport(at: string): TickReport {
     jira: [],
     errors: [],
     warnings: [],
+    rateLimited: [],
     counts: {
       queued: 0,
       running: 0,
