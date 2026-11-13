@@ -59,6 +59,7 @@ import { measure } from '../../conductor/metrics.js';
 import { resolveParentWorktree } from '../../conductor/parent-worktree.js';
 import { normalizePrRef } from '../../conductor/pr-ref.js';
 import { saveSkillCheckpoint } from '../../conductor/resume.js';
+import { nameConductorTab } from '../../conductor/tab-title.js';
 import type { ConductorConfig } from '../../conductor/scheduler.js';
 import { draftSlack } from '../../conductor/slack.js';
 import { ConductorStore } from '../../conductor/store.js';
@@ -406,6 +407,18 @@ export interface ConductorTickOptions extends ConductorCommonOptions {
   queue?: boolean;
 }
 
+// 세션을 처음 등록한 tick에서만 부른다. 실패는 stderr 한 줄로만 알리고 tick은 그대로 돈다
+async function nameTabOnce(): Promise<void> {
+  const env = process.env;
+  const orca = detectOrca(env);
+  const failure = await nameConductorTab({
+    env,
+    cwd: process.cwd(),
+    ...(orca ? { orcaCommand: orca } : {}),
+  });
+  if (failure) console.error(failure);
+}
+
 export async function conductorTickCommand(opts: ConductorTickOptions): Promise<void> {
   try {
     const ctx = open(opts);
@@ -413,7 +426,9 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     const sessionId = currentSessionId();
     if (sessionId) {
       assertNotHandedOff(ctx, sessionId);
-      registerSession(ctx.store.dir, sessionId, process.cwd(), new Date());
+      if (registerSession(ctx.store.dir, sessionId, process.cwd(), new Date())) {
+        await nameTabOnce();
+      }
     }
     const deferred: HostAction[] = [];
     const watch =
