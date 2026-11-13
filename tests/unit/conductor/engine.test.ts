@@ -890,6 +890,8 @@ describe('컨덕터 tick', () => {
     const stale = staleTickWarning('2026-11-13T04:55:26.428Z', at, 1_800_000);
     expect(stale).toContain('5시간 55분 지났어요');
     expect(stale).not.toContain('동안 tick이 없었어요');
+    expect(staleTickWarning('2026-11-13T10:20:00.000Z', at, 1_800_000)).toBeUndefined();
+    expect(staleTickWarning('garbage', at, 1_800_000)).toBeUndefined();
   });
 
   it('간격 안의 tick과 겹친 tick은 건너뛴다', async () => {
