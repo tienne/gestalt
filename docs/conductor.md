@@ -63,7 +63,7 @@ tick은 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이나 살아 있는 워�
 
 오르카 안에서 열면 코드를 고치는 주문이 `orca-worktree` 워커로 뜬다. 진행은 오르카 화면에서 본다. 오르카 밖에서 열면 같은 주문이 `git-worktree` 워커로 뜬다. 이때는 `repoPaths`에 그 레포의 로컬 경로가 있어야 한다. 경로가 없는 레포의 주문은 띄우지 못하고 `repoPaths`에 적어 달라고 알린다. 읽기만 하는 주문은 어느 쪽이든 서브에이전트로 돈다([워커 종류 고르기](#워커-종류-고르기)).
 
-상태 저장소는 레포 안이 아니라 `~/.gestalt/conductor`(`stateDir`로 바꿀 수 있다)에 있다. 그래서 어느 디렉토리에서 세션을 열어도 같은 상태를 본다. 다만 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 잡힌 세션에서는 `tick`, `order add`, `queue add`, `gate resolve`, `deploy report`가 거절된다. 컨덕터 세션은 워커 밖에서 연다.
+상태 저장소는 레포 안이 아니라 `~/.gestalt/conductor`(`stateDir`로 바꿀 수 있다)에 있다. 그래서 어느 디렉토리에서 세션을 열어도 같은 상태를 본다. 다만 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 잡힌 세션에서는 `tick`, `order add`, `order take-over`, `order cancel`, `order mark-merged`, `queue add`, `gate resolve`, `deploy report`가 거절된다. 컨덕터 세션은 워커 밖에서 연다.
 
 ### 주문 넣기
 
@@ -170,9 +170,32 @@ gestalt conductor gate list
 gestalt conductor gate resolve <gateId> --approve
 gestalt conductor gate resolve <gateId> --approve --answer "보존 기간은 30일"
 gestalt conductor gate resolve <gateId> --reject
+gestalt conductor gate resolve <gateId> --take-over --answer "머지는 내가 할게"
 ```
 
 `gate resolve` 응답에 `hostActions`가 실리면 컨덕터 세션이 그걸 실행해야 결정이 워커에 닿는다. 그래서 대화에서 답하는 쪽이 기본이다.
+
+답은 셋 중 하나다. `--answer`는 어느 답에나 붙일 수 있고 워커에는 고정 문구보다 먼저 따르라는 말과 함께 전해진다.
+
+| 답            | 워커가 받는 지시                                                                                                           | 주문                                               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `--approve`   | 머지 확인 자리면 머지하고 보고한다. 답이 있으면 답이 먼저다                                                                | `running`으로 돌아간다                             |
+| `--reject`    | 머지하지 않는다. 답이 있으면 답대로 처리하고 없으면 PR을 그대로 둔다. 어느 쪽이든 기다리지 말고 `--status done`으로 끝낸다 | `running`으로 돌아갔다가 워커 보고로 `done`이 된다 |
+| `--take-over` | 사람이 넘겨받았으니 아무것도 하지 말고 종료한다                                                                            | `human-owned`가 되고 tick이 PR 머지를 지켜본다     |
+
+머지를 직접 하겠다면 `--reject`가 아니라 `--take-over`를 쓴다. 거절은 워커가 할 일을 정리하고 끝내는 답이라 주문이 `done`으로 닫히고 사람이 나중에 머지해도 컨덕터가 모른다. 넘겨받기는 주문을 열어 둔 채 머지를 기다리므로 머지 뒤 지라 전환과 배포 처리가 그대로 이어진다.
+
+확인 자리가 없는 주문도 넘겨받거나 취소할 수 있다.
+
+```bash
+gestalt conductor order take-over <orderId>
+gestalt conductor order cancel <orderId> --reason "요구사항 바뀜"
+gestalt conductor order mark-merged <orderId>
+```
+
+- `order take-over`는 `gate resolve --take-over`와 같다. 열린 확인 자리를 같이 종료하고 워커에 종료를 전한 뒤 거둔다. 오르카 터미널은 정리하지만 워크트리와 브랜치는 남겨 사람이 그 자리에서 이어 손볼 수 있다.
+- `order cancel`은 주문을 `cancelled`로 바꾼다. 살아 있는 워커에 멈추라고 전하고 거두며 정리는 [워커 정리](#워커-정리) 규칙을 따른다. 열린 확인 자리도 같이 종료한다. 머지된 주문은 머지 뒤 처리가 남아 있어 취소하지 않는다.
+- `order mark-merged`는 `human-owned`나 `parked` 주문만 받는다. gh로 PR을 한 번 확인해 MERGED일 때만 `merged`로 넘기고 머지 뒤 처리를 태운다. 아니면 이유를 출력하고 거절한다.
 
 ### 진행 보기와 재개
 
@@ -234,9 +257,10 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 2. **접수**: 지라 소스와 외부 큐, PR 감시에서 새 주문을 받는다. 출처 키(`sourceRef`)가 같으면 한 번만 받는다. 결과 반영보다 뒤에 도는 건 PR 감시가 워커가 방금 보고한 PR 주소를 알아야 같은 PR에 주문을 또 만들지 않기 때문이다.
 3. **재개**: `staleAfterSec`(기본 1800초) 동안 보고도 체크포인트도 없는 워커와 `stopped`로 보고한 워커를 마지막 체크포인트부터 다시 띄운다. 사람 결정을 기다리는 `waiting-gate` 주문의 워커는 오래 조용해도 끊긴 것으로 보지 않는다. 오르카 워커는 끊김으로 바꾸기 전에 터미널부터 확인하고 세션 한도에 걸린 워커는 재개하지 않는다. 규칙은 [오르카 워커의 세션 한도](#오르카-워커의-세션-한도)에 있다.
 4. **띄우기**: 빈 슬롯만큼 큐의 주문을 띄운다. 띄우기 전에 그 레포의 계정을 맞춘다.
-5. **머지 뒤 처리**: 지라 상태를 옮기고 배포 결과를 확인한다.
-6. **슬랙**: 승인된 초안을 `slack-post`로 넘긴다.
-7. **정리**: 끝난 워커를 거둔다. git 워커는 워크트리를 지우고 오르카 워커는 터미널만 거둔다. `removeMergedOrcaWorktrees`를 켜면 머지된 주문의 오르카 워크트리까지 지운다. 규칙은 [워커 정리](#워커-정리)에 있다.
+5. **사람이 넘겨받은 PR**: `human-owned` 주문의 PR을 주문마다 `humanOwnedPollSec` 간격으로 gh로 본다. 규칙은 [주문 상태](#주문-상태)에 있다.
+6. **머지 뒤 처리**: 지라 상태를 옮기고 배포 결과를 확인한다.
+7. **슬랙**: 승인된 초안을 `slack-post`로 넘긴다.
+8. **정리**: 끝난 워커를 거둔다. git 워커는 워크트리를 지우고 오르카 워커는 터미널만 거둔다. `removeMergedOrcaWorktrees`를 켜면 머지된 주문의 오르카 워크트리까지 지운다. 규칙은 [워커 정리](#워커-정리)에 있다.
 
 `pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝나서 상태를 자주 물어도 토큰이 늘지 않는다. 응답에는 숫자와 할 일만 담는다.
 
@@ -365,6 +389,40 @@ ship에는 밖으로 나가는 자리마다 사람 승인을 받는 단계가 �
 - 범위가 `merge-through`면 워커가 바로 머지한다.
 - 그 밖의 범위면 워커가 `need merge-approval`로 올리고 컨덕터 결정을 기다린다. `merge` 확인 자리에서 승인이 나면 머지한다.
 - 머지한 워커는 `--merged`로 보고해 주문을 `merged`로 옮긴다.
+- 사람이 직접 머지하려면 확인 자리에 `--take-over`로 답한다. 주문은 `human-owned`가 되고 tick이 머지를 확인하면 `merged`로 옮긴다.
+
+## 주문 상태
+
+| 상태           | 뜻                                                | 끝 상태 | 슬롯 차지 |
+| -------------- | ------------------------------------------------- | ------- | --------- |
+| `queued`       | 띄울 차례를 기다린다                              | 아니다  | 아니다    |
+| `running`      | 워커가 돌고 있다                                  | 아니다  | 차지한다  |
+| `waiting-gate` | 사람 확인을 기다린다. 워커는 살아 있다            | 아니다  | 차지한다  |
+| `escalated`    | 사람 결정을 기다리며 슬롯만 비웠다                | 아니다  | 아니다    |
+| `human-owned`  | 사람이 넘겨받았다. 워커는 거뒀고 tick이 PR만 본다 | 아니다  | 아니다    |
+| `merged`       | 머지됐다. 지라 전환과 배포 확인이 남았다          | 아니다  | 아니다    |
+| `parked`       | 넘겨받은 뒤 오래 안 움직여 tick이 더 안 본다      | 그렇다  | 아니다    |
+| `done`         | 끝났다                                            | 그렇다  | 아니다    |
+| `failed`       | 실패로 끝났다                                     | 그렇다  | 아니다    |
+| `cancelled`    | 취소됐다                                          | 그렇다  | 아니다    |
+
+사람이 넘겨받은 뒤의 전이는 아래와 같다.
+
+```
+queued, running, waiting-gate, escalated
+  ── gate resolve --take-over / order take-over ──▶ human-owned
+human-owned ── PR MERGED ──▶ merged ──▶ done
+human-owned ── PR CLOSED(머지 없음) ──▶ cancelled
+human-owned ── humanOwnedParkAfterSec 경과 ──▶ parked
+human-owned, parked ── order mark-merged(gh MERGED 확인) ──▶ merged
+끝나지 않은 주문, human-owned, parked ── order cancel ──▶ cancelled
+```
+
+- tick은 `human-owned` 주문의 PR을 주문마다 `humanOwnedPollSec`(기본 900초) 간격으로 `gh pr view`로 본다. 계정은 PR 감시와 같은 `accounts` 설정으로 고른다. OPEN이면 아무것도 바꾸지 않고 tick 출력에도 안 싣는다. 상태가 바뀐 주문만 한 줄씩 싣는다.
+- 넘겨받은 지 `humanOwnedParkAfterSec`(기본 86400초)가 지나도 머지나 닫힘이 없으면 `parked`로 내린다. `parked`는 끝 상태라 gh 확인을 멈춘다. 나중에 머지했으면 `order mark-merged`로 알린다.
+- `human-owned` 주문의 워커는 거둔 워커라 끊김 판정과 재개에서 빠진다. 거둔 뒤 늦게 도착한 워커 보고는 무시한다.
+- PR이 없는 주문을 넘겨받으면 머지를 지켜볼 수 없다고 경고하고 기한이 지나면 `parked`로 내린다.
+- `status` 기본 목록은 `done`만 숨기므로 `parked` 주문이 계속 보인다.
 
 ## 체크포인트와 재개
 
@@ -440,7 +498,7 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 - **내가 올린 PR**: 내가 마지막으로 답한 뒤에 다른 사람 코멘트가 있으면 `review-reply` 주문을 만든다.
 - **내가 리뷰한 PR**: 내가 리뷰한 뒤 head가 바뀌었으면 `review-loop` 주문을 만든다. 코드는 그대로인데 답만 달렸으면 `review-manual-switch` 확인 자리로 사람에게 묻고 승인되면 재리뷰 주문을 만든다.
 
-워커는 PR을 다루면 결과 보고에 `--pr owner/name#번호`를 싣는다. PR 감시는 끝나지 않은 주문에 붙은 이 값으로 이미 처리 중인 PR을 건너뛰므로 빠지면 같은 PR에 주문이 또 생긴다. ship이 draft PR을 만들면 Copilot 리뷰를 요청하기 전에 `--status progress --skill ship --summary "<한 줄 요약>"`으로 바로 보고한다. 끝 보고까지 미루면 그 사이 Copilot 코멘트가 달린 PR을 감시가 새 PR로 보고 `review-reply` 주문을 만든다.
+워커는 PR을 다루면 결과 보고에 `--pr owner/name#번호`를 싣는다. PR 감시는 끝나지 않은 주문과 사람이 넘겨받은 주문(`human-owned`, `parked`)에 붙은 이 값으로 이미 처리 중인 PR을 건너뛰므로 빠지면 같은 PR에 주문이 또 생긴다. ship이 draft PR을 만들면 Copilot 리뷰를 요청하기 전에 `--status progress --skill ship --summary "<한 줄 요약>"`으로 바로 보고한다. 끝 보고까지 미루면 그 사이 Copilot 코멘트가 달린 PR을 감시가 새 PR로 보고 `review-reply` 주문을 만든다.
 
 ## 외부 큐
 
