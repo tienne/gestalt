@@ -61,9 +61,21 @@ export function registerSession(
 ): boolean {
   const dir = sessionDir(stateDir, sessionId);
   const file = join(dir, SESSION_FILE);
-  if (existsSync(file)) return false;
   mkdirSync(dir, { recursive: true });
-  writeJsonAtomic(file, { sessionId, cwd, registeredAt: now.toISOString() });
+  // 동시에 도는 tick 둘이 다 처음 등록했다고 여기지 않게 만들기와 존재 확인을 한 번에 한다
+  try {
+    writeFileSync(
+      file,
+      JSON.stringify({ sessionId, cwd, registeredAt: now.toISOString() }, null, 2),
+      {
+        encoding: 'utf-8',
+        flag: 'wx',
+      },
+    );
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw err;
+  }
   return true;
 }
 
