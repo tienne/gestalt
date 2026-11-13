@@ -88,6 +88,16 @@ describe('한도 표시 판별', () => {
     expect(text.length).toBe(200);
   });
 
+  it('표식 안내 문구는 방향 바꿈 문자를 걷고 서로게이트 쌍을 가르지 않는다', () => {
+    const tricky = structuredClone(LIMIT_MESSAGE);
+    tricky.blocks[0]!.failure.detail.text = `limit \u202Ereached\u200B ${'a'.repeat(185)}${'😀'.repeat(20)}`;
+    const text = usageLimitIn([tricky])!.text;
+    expect(text).not.toMatch(/\p{Cf}/u);
+    expect(Array.from(text)).toHaveLength(200);
+    expect(text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(text.endsWith('😀')).toBe(true);
+  });
+
   it('블록 없는 메시지는 본문 칸만 본다', () => {
     const toolEcho = { role: 'tool', text: '검색 결과 없음', input: 'grep "usage limit" src' };
     expect(usageLimitIn([toolEcho])).toBeUndefined();
@@ -175,6 +185,8 @@ describe('오르카 워커 끊김 감지', () => {
     });
     expect(out).toMatchObject({ stopped: [], rateLimited: [], warnings: [] });
     expect(c.store.worker('wrk-1')?.status).toBe('running');
+    // 본 시각을 남겨야 다음 tick에 probe를 또 안 돌린다
+    expect(c.store.worker('wrk-1')?.lastSeenAt).toBe(c.now().toISOString());
   });
 
   it.each(['gone', 'idle'] as const)('터미널이 %s면 끊김으로 보고 재개한다', async (state) => {
@@ -251,6 +263,17 @@ describe('오르카 워커 끊김 감지', () => {
     expect(reopened.rateLimitSource).toBeUndefined();
   });
 
+  it('필수 칸에 undefined를 넘겨도 실시간과 재생 모두 그 칸을 지키고 나머지만 지운다', async () => {
+    const c = staleOrca();
+    await detectStale(c.store, { now: c.now(), staleAfterMs: STALE_MS, probe: probeAs(LIMITED) });
+    c.store.updateWorker('wrk-1', { status: undefined, stopReason: undefined });
+    for (const w of [c.store.worker('wrk-1')!, ConductorStore.open(c.dir).worker('wrk-1')!]) {
+      expect(w.status).toBe('stopped');
+      expect(w.stopReason).toBeUndefined();
+      expect('stopReason' in w).toBe(false);
+    }
+  });
+
   it('한도에 걸린 워커가 보고를 남겨도 running으로 돌아온다', async () => {
     const c = staleOrca();
     await detectStale(c.store, { now: c.now(), staleAfterMs: STALE_MS, probe: probeAs(LIMITED) });
@@ -315,9 +338,22 @@ describe('오르카 워커 끊김 감지', () => {
     const out = await detectStale(c.store, opts());
     expect(out.escalated).toHaveLength(1);
     expect(out.escalated[0]?.reason).toMatch(/1시간째/);
-    expect(out.escalated[0]?.reason).toMatch(/worker-stop --dispatch ctx_1/);
+    expect(out.escalated[0]?.reason).toMatch(/worker-stop --dispatch=ctx_1/);
     expect(c.store.order('ord-1')?.status).toBe('waiting-gate');
     expect(c.store.openGates('ord-1')).toHaveLength(1);
+
+    // 게이트가 열린 동안에는 터미널을 다시 보지 않는다
+    let peeked = 0;
+    c.advance(3_600_000);
+    await detectStale(c.store, {
+      ...opts(),
+      peek: async () => {
+        peeked += 1;
+        return 'working';
+      },
+    });
+    expect(peeked).toBe(0);
+    expect(c.store.worker('wrk-1')?.stopReason).toBe('rate-limit');
 
     resolveGate(c.store, out.escalated[0]!.id, 'approved');
     expect(c.store.order('ord-1')?.status).toBe('queued');
