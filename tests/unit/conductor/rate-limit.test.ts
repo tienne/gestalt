@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { tick, type EngineDeps } from '../../../src/conductor/engine.js';
+import { inboxDirOf, tick, writeReport, type EngineDeps } from '../../../src/conductor/engine.js';
 import { resolveGate } from '../../../src/conductor/gates.js';
 import {
   OrcaLauncher,
@@ -11,9 +11,12 @@ import {
   detectStale,
   prepareResumes,
   saveSkillCheckpoint,
+  type PeekWorker,
   type ProbeWorker,
+  type WorkerPeek,
   type WorkerProbe,
 } from '../../../src/conductor/resume.js';
+import { ConductorStore } from '../../../src/conductor/store.js';
 import type { ConductorConfig } from '../../../src/conductor/scheduler.js';
 import {
   isUsageLimitText,
@@ -27,7 +30,7 @@ afterEach(cleanupStateDirs);
 
 const STALE_MS = 300_000;
 
-// 2026-11-13 리밋에 걸린 오르카 워커의 마지막 시스템 메시지 꼴
+// 한도에 걸린 오르카 워커의 마지막 시스템 메시지 꼴
 const LIMIT_MESSAGE = {
   role: 'system',
   text: 'Claude hit its session limit.',
@@ -67,7 +70,30 @@ describe('한도 표시 판별', () => {
     expect(hit).toEqual({
       text: "You've hit your 5-hour limit · resets 9:40am (Asia/Seoul)",
       resetsAt: '2026-11-13T00:40:00.000Z',
+      source: 'failure',
     });
+  });
+
+  it('끝부분에 문구와 표식이 같이 있으면 표식을 고른다', () => {
+    const said = { role: 'assistant', blocks: [{ type: 'text', text: 'Weekly limit reached' }] };
+    expect(usageLimitIn([LIMIT_MESSAGE, said])?.source).toBe('failure');
+    expect(usageLimitIn([said])?.source).toBe('text');
+  });
+
+  it('표식 안내 문구는 제어 문자를 걷고 한 줄로 줄인다', () => {
+    const noisy = structuredClone(LIMIT_MESSAGE);
+    noisy.blocks[0]!.failure.detail.text = `limit\n\u001b[31mreached${'x'.repeat(300)}`;
+    const text = usageLimitIn([noisy])!.text;
+    expect(text).not.toMatch(/\p{Cc}/u);
+    expect(text.length).toBe(200);
+  });
+
+  it('블록 없는 메시지는 본문 칸만 본다', () => {
+    const toolEcho = { role: 'tool', text: '검색 결과 없음', input: 'grep "usage limit" src' };
+    expect(usageLimitIn([toolEcho])).toBeUndefined();
+    expect(usageLimitIn([{ role: 'system', text: 'Weekly limit reached' }])?.text).toBe(
+      'Weekly limit reached',
+    );
   });
 
   it('도구 호출 블록에 한도 문구가 있어도 한도로 안 본다', () => {
@@ -108,6 +134,13 @@ const probeAs =
   async () =>
     p;
 
+const peekAs =
+  (p: WorkerPeek): PeekWorker =>
+  async () =>
+    p;
+
+const LIMITED: WorkerProbe = { state: 'rate-limit', text: 'limit reached', source: 'failure' };
+
 describe('오르카 워커 끊김 감지', () => {
   it('한도 표시가 보이면 rate-limit으로 남기고 재개하지 않는다', async () => {
     const c = staleOrca();
@@ -118,6 +151,7 @@ describe('오르카 워커 끊김 감지', () => {
         state: 'rate-limit',
         text: '5-hour limit',
         resetsAt: '2026-11-01T05:00:00Z',
+        source: 'text',
       }),
     });
     expect(out.stopped).toEqual([]);
@@ -126,6 +160,7 @@ describe('오르카 워커 끊김 감지', () => {
       status: 'stopped',
       stopReason: 'rate-limit',
       rateLimitResetsAt: '2026-11-01T05:00:00Z',
+      rateLimitSource: 'text',
     });
     expect(prepareResumes(c.store, { maxResumeAttempts: 3 })).toEqual([]);
     expect(c.store.order('ord-1')?.status).toBe('running');
@@ -169,6 +204,13 @@ describe('오르카 워커 끊김 감지', () => {
     expect(out.warnings).toEqual([expect.stringMatching(/wrk-1.*orca 응답 없음/)]);
   });
 
+  it('probe가 없는 런처면 오르카 워커도 바로 끊김으로 본다', async () => {
+    const c = staleOrca();
+    const out = await detectStale(c.store, { now: c.now(), staleAfterMs: STALE_MS });
+    expect(out.stopped.map((w) => w.id)).toEqual(['wrk-1']);
+    expect(out.warnings).toEqual([]);
+  });
+
   it('git 워크트리 워커는 터미널을 안 본다', async () => {
     const c = staleOrca({ kind: 'git-worktree', handle: '/wt/ord-1' });
     let called = 0;
@@ -184,12 +226,12 @@ describe('오르카 워커 끊김 감지', () => {
     expect(out.stopped.map((w) => w.id)).toEqual(['wrk-1']);
   });
 
-  it('리밋에 걸린 워커가 체크포인트를 남기면 running으로 돌아온다', async () => {
+  it('한도에 걸린 워커가 체크포인트를 남기면 running으로 돌아온다', async () => {
     const c = staleOrca();
     await detectStale(c.store, {
       now: c.now(),
       staleAfterMs: STALE_MS,
-      probe: probeAs({ state: 'rate-limit', text: 'limit reached' }),
+      probe: probeAs(LIMITED),
     });
     saveSkillCheckpoint(c.store, { workerId: 'wrk-1', skill: 'solve', next: '테스트' });
     const w = c.store.worker('wrk-1')!;
@@ -198,43 +240,125 @@ describe('오르카 워커 끊김 감지', () => {
     expect(w.rateLimitedAt).toBeUndefined();
   });
 
-  it('리밋 뒤 터미널이 사라지면 그때 끊김으로 바꿔 재개한다', async () => {
+  it('깨어난 워커는 저장소를 다시 열어도 running이다', async () => {
+    const c = staleOrca();
+    await detectStale(c.store, { now: c.now(), staleAfterMs: STALE_MS, probe: probeAs(LIMITED) });
+    saveSkillCheckpoint(c.store, { workerId: 'wrk-1', skill: 'solve', next: '테스트' });
+    const reopened = ConductorStore.open(c.dir).worker('wrk-1')!;
+    expect(reopened.status).toBe('running');
+    expect(reopened.stopReason).toBeUndefined();
+    expect(reopened.rateLimitedAt).toBeUndefined();
+    expect(reopened.rateLimitSource).toBeUndefined();
+  });
+
+  it('한도에 걸린 워커가 보고를 남겨도 running으로 돌아온다', async () => {
+    const c = staleOrca();
+    await detectStale(c.store, { now: c.now(), staleAfterMs: STALE_MS, probe: probeAs(LIMITED) });
+    const d: EngineDeps = { config, launchers: {}, orcaAvailable: true, env: {} };
+    writeReport(
+      inboxDirOf(c.store, d),
+      { workerId: 'wrk-1', status: 'progress', summary: '이어서 해요', refs: [] },
+      config.resultMaxChars,
+    );
+    await tick(c.store, d, { now: c.now(), force: true });
+    expect(c.store.worker('wrk-1')).toMatchObject({ status: 'running' });
+    expect(c.store.worker('wrk-1')?.stopReason).toBeUndefined();
+  });
+
+  it('다시 출력 중이면 한도가 풀린 것으로 보고 running으로 돌린다', async () => {
+    const c = staleOrca();
+    await detectStale(c.store, { now: c.now(), staleAfterMs: STALE_MS, probe: probeAs(LIMITED) });
+    c.advance(7_200_000);
+    const out = await detectStale(c.store, {
+      now: c.now(),
+      staleAfterMs: STALE_MS,
+      peek: peekAs('working'),
+      rateLimitEscalateAfterMs: 3_600_000,
+    });
+    expect(out.escalated).toEqual([]);
+    expect(c.store.worker('wrk-1')).toMatchObject({
+      status: 'running',
+      lastSeenAt: c.now().toISOString(),
+    });
+  });
+
+  it('한도 뒤 터미널이 사라지면 그때 끊김으로 바꿔 재개한다', async () => {
     const c = staleOrca();
     await detectStale(c.store, {
       now: c.now(),
       staleAfterMs: STALE_MS,
-      probe: probeAs({ state: 'rate-limit', text: 'limit reached' }),
+      probe: probeAs(LIMITED),
     });
     c.advance(60_000);
     const out = await detectStale(c.store, {
       now: c.now(),
       staleAfterMs: STALE_MS,
-      probe: probeAs({ state: 'gone' }),
+      peek: peekAs('gone'),
     });
     expect(out.stopped.map((w) => w.id)).toEqual(['wrk-1']);
     expect(c.store.worker('wrk-1')?.stopReason).toBe('disconnected');
   });
 
-  it('리밋이 상한보다 오래 가면 게이트를 한 번 연다', async () => {
+  it('한도가 상한보다 오래 가면 게이트를 한 번 연다', async () => {
     const c = staleOrca();
-    const opts = (probe: ProbeWorker) => ({
+    const opts = () => ({
       now: c.now(),
       staleAfterMs: STALE_MS,
-      probe,
+      probe: probeAs(LIMITED),
+      peek: peekAs('live'),
       rateLimitEscalateAfterMs: 3_600_000,
     });
-    await detectStale(c.store, opts(probeAs({ state: 'rate-limit', text: 'limit reached' })));
+    await detectStale(c.store, opts());
     c.advance(1_800_000);
-    expect((await detectStale(c.store, opts(probeAs({ state: 'idle' })))).escalated).toEqual([]);
+    expect((await detectStale(c.store, opts())).escalated).toEqual([]);
     c.advance(1_800_000);
-    const out = await detectStale(c.store, opts(probeAs({ state: 'idle' })));
+    const out = await detectStale(c.store, opts());
     expect(out.escalated).toHaveLength(1);
     expect(out.escalated[0]?.reason).toMatch(/1시간째/);
+    expect(out.escalated[0]?.reason).toMatch(/worker-stop --dispatch ctx_1/);
     expect(c.store.order('ord-1')?.status).toBe('waiting-gate');
     expect(c.store.openGates('ord-1')).toHaveLength(1);
 
     resolveGate(c.store, out.escalated[0]!.id, 'approved');
     expect(c.store.order('ord-1')?.status).toBe('queued');
+  });
+
+  it('다시 확인이 실패해도 상한은 따진다', async () => {
+    const c = staleOrca();
+    await detectStale(c.store, { now: c.now(), staleAfterMs: STALE_MS, probe: probeAs(LIMITED) });
+    c.advance(3_600_000);
+    const out = await detectStale(c.store, {
+      now: c.now(),
+      staleAfterMs: STALE_MS,
+      peek: async () => {
+        throw new Error('orca 응답 없음');
+      },
+      rateLimitEscalateAfterMs: 3_600_000,
+    });
+    expect(out.warnings).toEqual([expect.stringMatching(/wrk-1.*orca 응답 없음/)]);
+    expect(out.escalated).toHaveLength(1);
+  });
+
+  it('한도 게이트를 거절해 취소한 주문에 앞 워커가 보고해도 무시한다', async () => {
+    const c = staleOrca();
+    await detectStale(c.store, { now: c.now(), staleAfterMs: STALE_MS, probe: probeAs(LIMITED) });
+    c.advance(3_600_000);
+    const out = await detectStale(c.store, {
+      now: c.now(),
+      staleAfterMs: STALE_MS,
+      rateLimitEscalateAfterMs: 3_600_000,
+    });
+    resolveGate(c.store, out.escalated[0]!.id, 'rejected');
+    expect(c.store.order('ord-1')?.status).toBe('cancelled');
+    const d: EngineDeps = { config, launchers: {}, orcaAvailable: true, env: {} };
+    writeReport(
+      inboxDirOf(c.store, d),
+      { workerId: 'wrk-1', status: 'done', summary: '끝났어요', refs: [] },
+      config.resultMaxChars,
+    );
+    const r = await tick(c.store, d, { now: c.now(), force: true });
+    expect(r.errors).toEqual([expect.stringMatching(/취소된 주문/)]);
+    expect(c.store.order('ord-1')?.status).toBe('cancelled');
   });
 });
 
@@ -318,7 +442,7 @@ describe('오르카 워커 재개', () => {
     expect(c.store.openGates('ord-1')[0]?.reason).toMatch(/앞 워커 터미널을 못 거뒀어요: retained/);
   });
 
-  it('리밋에 걸린 워커는 tick 보고에 보인다', async () => {
+  it('한도에 걸린 워커는 tick 보고에 보인다', async () => {
     const c = staleOrca();
     c.advance(config.staleAfterSec * 1000);
     const orca = orcaLauncher();
@@ -327,7 +451,7 @@ describe('오르카 워커 재개', () => {
       launchers: {
         'orca-worktree': {
           ...orca.launcher,
-          probe: async () => ({ state: 'rate-limit', text: 'limit reached' }),
+          probe: async () => LIMITED,
         },
       },
       orcaAvailable: true,
@@ -337,8 +461,31 @@ describe('오르카 워커 재개', () => {
     expect(r.launched).toEqual([]);
     expect(orca.calls).toEqual([]);
     expect(r.rateLimited).toEqual([
-      expect.objectContaining({ orderId: 'ord-1', workerId: 'wrk-1' }),
+      expect.objectContaining({ orderId: 'ord-1', workerId: 'wrk-1', source: 'failure' }),
     ]);
+  });
+
+  it('터미널 확인이 실패해도 재개 전에 앞 터미널부터 거둔다', async () => {
+    const c = staleOrca();
+    c.advance(config.staleAfterSec * 1000);
+    const orca = orcaLauncher();
+    const d: EngineDeps = {
+      config,
+      launchers: {
+        'orca-worktree': {
+          ...orca.launcher,
+          probe: async () => {
+            throw new Error('orca 응답 없음');
+          },
+        },
+      },
+      orcaAvailable: true,
+      env: {},
+    };
+    const r = await tick(c.store, d, { now: c.now(), force: true });
+    expect(r.warnings).toEqual([expect.stringMatching(/orca 응답 없음/)]);
+    expect(orca.calls[0]).toBe('release:wrk-1:closed');
+    expect(orca.calls[1]).toMatch(/^start:/);
   });
 });
 
@@ -382,9 +529,22 @@ describe('오르카 런처 터미널 확인', () => {
     expect(probed).toMatchObject({ state: 'rate-limit', resetsAt: '2026-11-13T00:40:00.000Z' });
     expect(calls.filter((a) => a[1] === 'worker-read').map((a) => a.at(-1))).toEqual([
       '500',
-      'c2',
-      'c3',
+      '--cursor=c2',
+      '--cursor=c3',
     ]);
+  });
+
+  it('메시지 꼴이 아닌 응답은 칸마다 줄을 나눠 끝부분을 본다', async () => {
+    const { runner } = scripted({
+      'worker-show': [{ liveness: 'live', activity: 'idle' }],
+      'worker-read': [{ output: 'building...\nWeekly limit reached', source: 'terminal' }],
+    });
+    const l = new OrcaLauncher({ orcaCommand: 'orca', promptDir: tempStateDir(), runner });
+    expect(await l.probe(w())).toEqual({
+      state: 'rate-limit',
+      text: 'Weekly limit reached',
+      source: 'text',
+    });
   });
 
   it('프로세스가 끝났으면 gone, liveness를 모르면 확인 실패로 던진다', async () => {
@@ -432,6 +592,30 @@ describe('오르카 런처 터미널 확인', () => {
       orcaCommand: 'orca',
       promptDir: tempStateDir(),
       runner: exited.runner,
+    });
+    await l2.release(w(), { requireClosed: true });
+  });
+
+  it('release_pending이면 프로세스가 끝났는지 다시 본다', async () => {
+    const live = scripted({
+      'worker-release': [{ state: 'release_pending' }],
+      'worker-show': [{ liveness: 'live' }],
+    });
+    const l1 = new OrcaLauncher({
+      orcaCommand: 'orca',
+      promptDir: tempStateDir(),
+      runner: live.runner,
+    });
+    await expect(l1.release(w(), { requireClosed: true })).rejects.toThrow(/worker-stop/);
+
+    const gone = scripted({
+      'worker-release': [{ state: 'release_pending' }],
+      'worker-show': [{ liveness: 'exited' }],
+    });
+    const l2 = new OrcaLauncher({
+      orcaCommand: 'orca',
+      promptDir: tempStateDir(),
+      runner: gone.runner,
     });
     await l2.release(w(), { requireClosed: true });
   });
