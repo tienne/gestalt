@@ -125,13 +125,14 @@ describe('renameHandoffTabs', () => {
       ['terminal', 'rename', '--terminal=term_new', '--title', CONDUCTOR_TAB_TITLE, '--json'],
     ]);
     const unknown = recorder();
-    await renameHandoffTabs({
+    const errors = await renameHandoffTabs({
       env: { ORCA_STRUCTURED_SESSION: '1' },
       orcaCommand: '/orca',
       now,
       runner: unknown.runner,
     });
     expect(unknown.calls).toHaveLength(1);
+    expect(errors).toEqual([expect.stringContaining('첫 tick')]);
   });
 
   it('실패해도 던지지 않고 탭마다 실패 메시지를 모은다', async () => {
@@ -145,6 +146,19 @@ describe('renameHandoffTabs', () => {
     });
     expect(errors).toHaveLength(2);
     expect(errors[0]).toContain('rename 실패(2)');
+  });
+
+  it('러너가 던져도 탭마다 실패 메시지로 바꿔 모은다', async () => {
+    const throws: CommandRunner = () => Promise.reject(new Error('spawn ENOENT'));
+    const errors = await renameHandoffTabs({
+      env: { ORCA_STRUCTURED_SESSION: '1' },
+      orcaCommand: '/orca',
+      launched: { kind: 'chat', sessionId: 'claude_new' },
+      now,
+      runner: throws,
+    });
+    expect(errors).toHaveLength(2);
+    expect(errors[0]).toContain('spawn ENOENT');
   });
 });
 
