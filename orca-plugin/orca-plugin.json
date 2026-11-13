@@ -62,7 +62,7 @@
         "key": "stateDir",
         "type": "string",
         "title": "컨덕터 저장소 폴더",
-        "description": "비워 두면 gestalt CLI의 기본 위치를 써요. conductor.json에 stateDir을 따로 정했다면 여기에도 같은 경로를 적어 주세요.",
+        "description": "비워 두면 상태 응답이 알려 준 저장소를 써요. 상태 응답에 저장소 위치를 안 싣는 옛 CLI를 쓰면서 저장소를 기본 위치 밖에 뒀을 때만 적어 주세요.",
         "placeholder": "~/.gestalt/conductor"
       },
       {

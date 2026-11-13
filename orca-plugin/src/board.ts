@@ -237,7 +237,7 @@ function orderRow(o: OrderView, gates: number): HTMLElement {
       {
         class: 'node-open',
         'data-focus': `open:${o.id}`,
-        title: '워커의 오르카 워크트리와 터미널로 이동',
+        title: '워커의 오르카 워크트리로 이동',
         'aria-label': `${o.title || o.id} 워크트리로 이동`,
         onClick: () => void openWorker(o.id)
       },
@@ -521,7 +521,7 @@ function orderDetail(o: OrderView, v: ConductorView): HTMLElement {
           { class: 'row' },
           o.workspaceId ? el('button', { class: 'btn', 'data-focus': `open-detail:${o.id}`, onClick: () => void openWorker(o.id) }, '워크트리로 이동') : null,
           isTerminal(o.status)
-            ? el('button', { class: 'btn danger-outline', 'data-focus': `remove:${orderKey(o.id)}`, disabled: state.removeBusy, onClick: () => askRemove(orderKey(o.id), [o.id]) }, '기록 지우기')
+            ? el('button', { class: 'btn danger-outline', 'data-focus': `remove:${orderKey(o.id)}`, disabled: state.removeBusy, onClick: () => askRemove(orderKey(o.id), [o.id]) }, '주문 지우기')
             : null
         )
       : null,

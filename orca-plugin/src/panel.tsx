@@ -343,7 +343,7 @@ function OrderRow({ order }: { order: OrderView }) {
               <IconButton
                 icon="open-external"
                 label="워크트리 열기"
-                tooltip="워커의 오르카 워크트리와 터미널로 이동"
+                tooltip="워커의 오르카 워크트리로 이동"
                 size="xs"
                 variant="ghost"
                 onPress={() => openWorker(order.id)}

@@ -7,7 +7,7 @@ import type { ConductorView } from './protocol'
 
 export const FRAGMENT_HEADER = 'x-conductor-fragment'
 
-// 인라인 스크립트는 해시로만 허용한다. 이스케이프가 한 자리 빠져도 주입된 스크립트는 안 돈다
+// 인라인 스크립트는 SCRIPT 해시 하나만 허용한다. 이스케이프가 빠져 다른 스크립트가 섞여도 실행을 막는 건 브라우저 CSP가 맡는다
 const SCRIPT_HASH = createHash('sha256').update(SCRIPT).digest('base64')
 
 const SECURITY_HEADERS = {

@@ -1,4 +1,5 @@
 import { assert, test } from 'orca/testing'
+import { createHash } from 'node:crypto'
 import { request } from 'node:http'
 import { mobileFragment, mobilePage, shortPr } from './mobile'
 import { allowedHost, MobileServer } from './mobile-server'
@@ -157,6 +158,10 @@ test('서버는 GET만 받고 낯선 Host는 막고 헤더에 따라 본문만 �
     has(csp, "default-src 'none'")
     has(csp, "script-src 'sha256-")
     lacks(csp, "script-src 'unsafe-inline'")
+    const scripts = [...page.body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]!)
+    assert.equal(scripts.length, 1, '페이지의 인라인 스크립트는 하나뿐이다')
+    const hash = createHash('sha256').update(scripts[0]!).digest('base64')
+    has(csp, `script-src 'sha256-${hash}'`)
     assert.equal(page.headers['cache-control'], 'no-store')
 
     const fragment = await hit(port, { headers: { 'x-conductor-fragment': '1' } })
