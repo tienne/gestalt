@@ -133,7 +133,7 @@ test('워커가 다시 떠도 이미 알린 게이트는 다시 알리지 않는
   await run(s, h, async (worker) => {
     await worker.request('conductor.refresh')
     assert.equal(h.callsOf('notifications.show').length, 0)
-    assert.deepEqual(h.data().storage['notifiedGates'], ['gate-1'], '닫힌 게이트 id는 지운다')
+    assert.deepEqual(h.data().storage['notifiedGates'], ['gate-1'], '종료된 게이트 id는 지운다')
   })
 })
 

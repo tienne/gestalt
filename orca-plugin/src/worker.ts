@@ -301,7 +301,7 @@ class Conductor {
       try {
         out = await run(true)
       } catch (e) {
-        // 옛 CLI는 모르는 옵션을 게이트를 닫기 전에 거절하니 플래그 없이 한 번 더 불러도 두 번 닫히지 않는다
+        // 옛 CLI는 모르는 옵션을 게이트를 종료하기 전에 거절하니 플래그 없이 한 번 더 불러도 두 번 종료되지 않는다
         if (!/unknown option.*--defer-delivery/.test(message(e))) throw e
         out = await run(false)
       }

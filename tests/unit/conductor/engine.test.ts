@@ -602,7 +602,7 @@ describe('컨덕터 tick', () => {
     return { store, advance, wid, ...made, gateId: store.openGates('ord-1')[0]!.id };
   }
 
-  it('hostActions를 못 돌리는 쪽이 닫은 게이트의 결정은 다음 tick이 한 번만 내보낸다', async () => {
+  it('hostActions를 못 돌리는 쪽이 종료한 게이트의 결정은 다음 tick이 한 번만 내보낸다', async () => {
     const { store, deps: d, git, wid, gateId } = await waitingOnGate();
     git.launcher.send = async (w, message) => ({ type: 'send', workerId: w.id, message });
 
