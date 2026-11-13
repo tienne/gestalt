@@ -6,7 +6,7 @@ import { handleNeed, openOrReuse } from './gates.js';
 import { oneLine } from './intake.js';
 import { RESUME_MARKER } from './metrics.js';
 import { real, worktreeField } from './parent-worktree.js';
-import type { WorkerProbe } from './resume.js';
+import type { WorkerPeek, WorkerProbe } from './resume.js';
 import type { ConductorStore } from './store.js';
 import {
   ACTIVE_WORKER_STATUSES,
@@ -16,7 +16,7 @@ import {
   type Worker,
   type WorkerKind,
 } from './types.js';
-import { usageLimitIn, usageLimitInText } from './usage-limit.js';
+import { stringsIn, usageLimitIn, usageLimitInText, type UsageLimitHit } from './usage-limit.js';
 
 /**
  * 워커 배치 런처.
@@ -110,6 +110,8 @@ export interface Launcher {
   release(worker: Worker, opts?: ReleaseOptions): Promise<void>;
   /** 소식이 끊긴 워커의 터미널을 들여다본다. 들여다볼 터미널이 없는 런처는 두지 않는다 */
   probe?(worker: Worker): Promise<WorkerProbe>;
+  /** 터미널이 살아 있는지와 출력 중인지만 본다. 출력을 넘겨 읽지 않아 probe보다 싸다 */
+  peek?(worker: Worker): Promise<WorkerPeek>;
 }
 
 export interface ReleaseOptions {
@@ -584,16 +586,21 @@ export class OrcaLauncher implements Launcher {
    * 사이 출력 출처가 바뀌어 읽기가 깨진다. 그다음 worker-read로 끝 메시지만 보고 한도 표시를 찾는다
    */
   async probe(worker: Worker): Promise<WorkerProbe> {
+    const peeked = await this.peek(worker);
+    if (peeked !== 'live') return { state: peeked };
+    const hit = await this.readLimit(worker.handle!);
+    if (hit) return { state: 'rate-limit', ...hit };
+    return { state: 'idle' };
+  }
+
+  async peek(worker: Worker): Promise<WorkerPeek> {
     if (!worker.handle) throw new Error('dispatch id가 없어요');
     const shown = await this.show(worker);
     if ((shown.liveness && GONE_LIVENESS.has(shown.liveness)) || shown.terminalState === 'released')
-      return { state: 'gone' };
+      return 'gone';
     if (shown.liveness !== 'live')
       throw new Error(`오르카가 liveness를 ${shown.liveness ?? '안 알려'} 줘서 확인 못 했어요`);
-    if (shown.activity === 'working') return { state: 'working' };
-    const hit = await this.readLimit(worker.handle);
-    if (hit) return { state: 'rate-limit', ...hit };
-    return { state: 'idle' };
+    return shown.activity === 'working' ? 'working' : 'live';
   }
 
   private async show(worker: Worker): Promise<{
@@ -619,14 +626,17 @@ export class OrcaLauncher implements Launcher {
 
   /**
    * worker-read를 끝까지 넘겨 마지막 메시지들에서 한도 표시를 찾는다.
-   * worker-read는 처음부터 앞으로만 읽어서 끝을 보려면 끝까지 넘겨야 한다
+   * worker-read는 처음부터 앞으로만 읽어서 끝을 보려면 끝까지 넘겨야 한다.
+   * 쪽마다 시간 상한을 걸면 tick 하나가 몇 시간을 붙잡을 수 있어 전체 상한을 따로 둔다
    */
-  private async readLimit(
-    dispatch: string,
-  ): Promise<{ text: string; resetsAt?: string } | undefined> {
+  private async readLimit(dispatch: string): Promise<UsageLimitHit | undefined> {
     let cursor: string | undefined;
     let tail: unknown[] = [];
+    const deadline = Date.now() + READ_DEADLINE_MS;
     for (let page = 0; page < MAX_READ_PAGES; page++) {
+      const left = deadline - Date.now();
+      if (left <= 0)
+        throw new Error(`worker-read를 ${READ_DEADLINE_MS / 1000}초 안에 끝까지 못 넘겼어요`);
       const out = await mustRun(
         this.runner,
         this.opts.orcaCommand,
@@ -638,16 +648,17 @@ export class OrcaLauncher implements Launcher {
           '--json',
           '--limit',
           String(READ_PAGE_LIMIT),
-          ...(cursor ? ['--cursor', cursor] : []),
+          // 커서가 -로 시작하면 오르카가 플래그로 읽어서 값을 붙여 넘긴다
+          ...(cursor ? [`--cursor=${cursor}`] : []),
         ],
-        { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+        { timeoutMs: Math.min(DEFAULT_COMMAND_TIMEOUT_MS, left) },
       );
       const r = resultOf(out);
       if (!r) throw new Error(`worker-read 응답을 못 읽었어요: ${oneLine(out, 200)}`);
       const transcript = r['transcript'];
       if (typeof transcript !== 'object' || transcript === null) {
         // 터미널 출력으로 돌아온 워커다. 꼴이 정해져 있지 않아 글자만 모아 끝을 본다
-        return usageLimitInText(JSON.stringify(r));
+        return usageLimitInText(stringsIn(r).join('\n'));
       }
       const t = transcript as { messages?: unknown; nextCursor?: unknown };
       const messages = Array.isArray(t.messages) ? t.messages : [];
@@ -718,8 +729,11 @@ export class OrcaLauncher implements Launcher {
   }
 }
 
-/** worker-release가 터미널을 닫았거나 닫는 중이라고 답한 상태 */
-const CLOSED_RELEASE_STATES = new Set(['released', 'already_released', 'release_pending']);
+/**
+ * worker-release가 터미널을 닫았다고 답한 상태. release_pending은 아직 안 닫힌 것이라
+ * 프로세스가 끝났는지를 worker-show로 다시 본다
+ */
+const CLOSED_RELEASE_STATES = new Set(['released', 'already_released']);
 /** 오르카가 프로세스가 끝났다고 본 liveness */
 const GONE_LIVENESS = new Set(['exited', 'gone']);
 /** 한도 표시는 세션 마지막 메시지에 붙는다. 그 뒤에 메시지가 몇 개 더 붙어도 놓치지 않게 여유를 둔다 */
@@ -727,6 +741,8 @@ const TAIL_MESSAGES = 3;
 const READ_PAGE_LIMIT = 500;
 /** 쪽마다 바이트 상한이 따로 있어 메시지 수보다 쪽 수가 많아진다. 긴 세션도 닿게 넉넉히 잡는다 */
 const MAX_READ_PAGES = 60;
+/** 끝까지 넘기는 데 쓰는 전체 시간. tick 주기를 넘기지 않게 잡는다 */
+const READ_DEADLINE_MS = 180_000;
 
 function resultOf(stdout: string): Record<string, unknown> | undefined {
   try {

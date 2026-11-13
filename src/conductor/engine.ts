@@ -105,7 +105,7 @@ export interface TickReport {
   errors: string[];
   /** 멈출 일은 아니지만 사람이 알아야 할 자리. 런처가 주문 옵션을 다 못 따른 경우 같은 것 */
   warnings: string[];
-  /** 세션 리밋에 걸려 재개하지 않고 기다리는 오르카 워커. 풀리기 전까지 tick마다 싣는다 */
+  /** 세션 한도에 걸려 재개하지 않고 기다리는 오르카 워커. 풀리기 전까지 tick마다 싣는다 */
   rateLimited: RateLimitedEntry[];
   counts: {
     queued: number;
@@ -123,6 +123,8 @@ export interface RateLimitedEntry {
   /** 컨덕터가 한도 표시를 처음 본 시각 */
   since: string;
   resetsAt?: string;
+  /** failure는 오르카 표식, text는 출력 문구로 알았다는 뜻이다. 문구로 알았으면 잘못 걸렸을 수 있다 */
+  source?: 'failure' | 'text';
 }
 
 export function rateLimitEntries(store: ConductorStore): RateLimitedEntry[] {
@@ -131,6 +133,7 @@ export function rateLimitEntries(store: ConductorStore): RateLimitedEntry[] {
     workerId: w.id,
     since: w.rateLimitedAt ?? w.lastSeenAt,
     ...(w.rateLimitResetsAt ? { resetsAt: w.rateLimitResetsAt } : {}),
+    ...(w.rateLimitSource ? { source: w.rateLimitSource } : {}),
   }));
 }
 
@@ -234,6 +237,7 @@ async function runTick(
       staleAfterMs: deps.config.staleAfterSec * 1000,
       rateLimitEscalateAfterMs: deps.config.rateLimitEscalateAfterSec * 1000,
       ...(orca?.probe ? { probe: (w: Worker) => orca.probe!(w) } : {}),
+      ...(orca?.peek ? { peek: (w: Worker) => orca.peek!(w) } : {}),
     });
     report.warnings.push(...stale.warnings);
     report.escalated.push(...stale.escalated.map((g) => g.id));
@@ -455,6 +459,9 @@ async function applyReport(
   if (!order) throw new Error(`모르는 주문이에요: ${worker.orderId}`);
   if (order.workerId !== worker.id)
     throw new Error(`${worker.id}는 이미 다른 워커로 바뀐 주문의 앞 워커라 결과를 무시해요`);
+  // 한도 게이트를 거절해 취소한 주문은 앞 터미널이 남아 있어 한도가 풀리면 다시 보고할 수 있다
+  if (order.status === 'cancelled')
+    throw new Error(`${worker.id}는 취소된 주문의 워커라 결과를 무시해요`);
   // 상태를 하나라도 바꾸기 전에 거른다. 반쯤 적용된 채 failed로 옮겨지면 되살릴 때 앞부분이 겹친다
   if (r.status === 'needs' && !r.need) throw new Error('status needs인데 need가 없어요');
 
@@ -708,7 +715,7 @@ async function launchQueued(
 /**
  * 재개로 새 오르카 워커를 띄우기 전에 앞 워커 터미널을 거둔다. 워크트리는 지우지 않는다.
  *
- * 앞 터미널을 남긴 채 띄우면 리밋이 풀리거나 계정이 바뀐 앞 워커가 다시 움직여 한 주문을 둘이
+ * 앞 터미널을 남긴 채 띄우면 한도가 풀리거나 계정이 바뀐 앞 워커가 다시 움직여 한 주문을 둘이
  * 진행한다. 그래서 거두기가 실패하면 새 워커를 안 띄우고 재개 게이트로 사람에게 올린다.
  * git 워크트리와 서브에이전트 워커는 지금처럼 앞 워커를 건드리지 않는다.
  */

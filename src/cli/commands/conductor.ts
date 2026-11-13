@@ -408,7 +408,8 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
 }
 
 function rateLimitLine(e: RateLimitedEntry): string {
-  return `리밋 대기: ${e.workerId} ${e.since}부터${e.resetsAt ? `, 풀리는 시각 ${e.resetsAt}` : ''}`;
+  const via = e.source === 'text' ? ', 출력 문구로 판단' : '';
+  return `한도 대기: ${e.workerId} ${e.since}부터${e.resetsAt ? `, 풀리는 시각 ${e.resetsAt}` : ''}${via}`;
 }
 
 export interface ConductorTickOptions extends ConductorCommonOptions {

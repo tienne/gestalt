@@ -1,9 +1,8 @@
 /**
- * 워커 출력 끝에 세션 리밋이나 사용량 한도 표시가 있는지 판별한다.
+ * 워커 출력 끝에 세션 한도나 사용량 한도 표시가 있는지 판별한다.
  *
  * 오르카는 구조화 세션 워커가 한도에 걸리면 시스템 메시지에 `failure.kind: "usageLimitReached"`를
- * 남긴다(2026-11-13 ord-41ac4a18 앞 워커 기록에서 확인). 그 표식을 먼저 보고 터미널 워커처럼
- * 표식이 없는 출력은 문구로 가른다.
+ * 남긴다. 그 표식을 먼저 보고 터미널 워커처럼 표식이 없는 출력은 문구로 가른다.
  */
 
 export interface UsageLimitHit {
@@ -11,6 +10,11 @@ export interface UsageLimitHit {
   text: string;
   /** 오르카가 알려 준 한도가 풀리는 시각(ISO). 모르면 없다 */
   resetsAt?: string;
+  /**
+   * 무엇으로 알았는지. failure는 오르카 표식이고 text는 출력 문구다.
+   * 문구는 워커가 다루는 글에 섞여 들 수 있어 사람이 보고 가를 수 있게 남긴다
+   */
+  source: 'failure' | 'text';
 }
 
 // 평소 출력에 "limit"만 나와도 걸리지 않게 한도에 걸렸다는 꼴만 받는다
@@ -24,23 +28,31 @@ const USAGE_LIMIT_PATTERNS: readonly RegExp[] = [
   /\bAPI Error: 429\b/i,
 ];
 
-/** 문구가 세션 리밋이나 사용량 한도에 걸렸다는 뜻인지 */
+/** 문구가 세션 한도나 사용량 한도에 걸렸다는 뜻인지 */
 export function isUsageLimitText(text: string): boolean {
   return USAGE_LIMIT_PATTERNS.some((p) => p.test(text));
 }
 
-/** worker-read가 돌려준 마지막 메시지들에서 한도 표시를 찾는다. 없으면 undefined */
+/**
+ * worker-read가 돌려준 마지막 메시지들에서 한도 표시를 찾는다. 없으면 undefined.
+ * 문구보다 오르카 표식을 먼저 믿는다. 같은 끝부분에 둘 다 있으면 표식을 고른다
+ */
 export function usageLimitIn(messages: readonly unknown[]): UsageLimitHit | undefined {
-  for (const m of [...messages].reverse()) {
-    const hit = usageLimitInMessage(m);
+  const recent = [...messages].reverse();
+  for (const m of recent) {
+    const hit = failureIn(m);
+    if (hit) return hit;
+  }
+  for (const m of recent) {
+    const hit = textIn(m);
     if (hit) return hit;
   }
   return undefined;
 }
 
-function usageLimitInMessage(message: unknown): UsageLimitHit | undefined {
+function failureIn(message: unknown): UsageLimitHit | undefined {
   const blocks = record(message)?.['blocks'];
-  if (!Array.isArray(blocks)) return textHit(stringsIn(message));
+  if (!Array.isArray(blocks)) return undefined;
   for (const b of blocks) {
     const failure = record(record(b)?.['failure']);
     if (failure && /usage.?limit|rate.?limit/i.test(String(failure['kind'] ?? ''))) {
@@ -48,10 +60,22 @@ function usageLimitInMessage(message: unknown): UsageLimitHit | undefined {
       const resetsAt = record(failure['usageLimit'])?.['resetsAt'];
       const at = typeof resetsAt === 'number' ? new Date(resetsAt) : undefined;
       return {
-        text: typeof detail === 'string' && detail ? detail : String(failure['kind']),
+        text: oneLineText(typeof detail === 'string' && detail ? detail : String(failure['kind'])),
         ...(at && !Number.isNaN(at.getTime()) ? { resetsAt: at.toISOString() } : {}),
+        source: 'failure',
       };
     }
+  }
+  return undefined;
+}
+
+function textIn(message: unknown): UsageLimitHit | undefined {
+  const m = record(message);
+  const blocks = m?.['blocks'];
+  if (!Array.isArray(blocks)) {
+    // 본문 칸이 있으면 그것만 본다. 나머지 칸은 도구 입력처럼 워커가 다루는 글일 수 있다
+    const text = m?.['text'];
+    return textHit(typeof text === 'string' ? [text] : stringsIn(message));
   }
   // 도구 호출 입력과 결과는 워커가 다루는 코드나 문서라 한도 문구가 섞여도 한도에 걸린 게 아니다
   const texts = blocks
@@ -72,12 +96,22 @@ function textHit(texts: readonly string[]): UsageLimitHit | undefined {
       .split('\n')
       .reverse()
       .find((l) => isUsageLimitText(l));
-    if (line) return { text: line.trim().slice(0, 200) };
+    if (line) return { text: oneLineText(line), source: 'text' };
   }
   return undefined;
 }
 
-function stringsIn(v: unknown): string[] {
+/** 사람이 보는 자리에 그대로 실리므로 제어 문자를 걷고 한 줄로 줄인다 */
+function oneLineText(s: string): string {
+  return s
+    .replace(/\p{Cc}+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+}
+
+/** 꼴이 정해지지 않은 응답에서 글자 칸만 모은다 */
+export function stringsIn(v: unknown): string[] {
   if (typeof v === 'string') return [v];
   if (Array.isArray(v)) return v.flatMap(stringsIn);
   const r = record(v);
