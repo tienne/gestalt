@@ -62,7 +62,7 @@ export function registerSession(
   const dir = sessionDir(stateDir, sessionId);
   const file = join(dir, SESSION_FILE);
   mkdirSync(dir, { recursive: true });
-  // 동시에 도는 tick 둘이 다 처음 등록했다고 여기지 않게 만들기와 존재 확인을 한 번에 한다
+  // 동시에 도는 tick 둘이 둘 다 처음 등록했다고 여기지 않도록 파일 만들기와 존재 확인을 wx 플래그로 한 번에 한다
   try {
     writeFileSync(
       file,
