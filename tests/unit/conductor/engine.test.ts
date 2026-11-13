@@ -125,6 +125,37 @@ describe('컨덕터 tick', () => {
     expect(store.worker(store.order('ord-0')!.workerId!)!.status).toBe('released');
   });
 
+  it('상태가 안 바뀐 tick을 idleTicks로 이어 세고 변화가 생기면 0으로 돌린다', async () => {
+    const { store, dir } = clockedStore();
+    store.addOrder(order({ id: 'ord-0' }));
+    const { deps: d } = deps();
+
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(0);
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(1);
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(2);
+    expect((await tick(store, d)).skipped).toBe(true);
+    expect((await tick(store, d)).idleTicks).toBe(2);
+    expect(ConductorStore.open(dir).snapshot.idleTicks).toBe(2);
+
+    // tick 사이에 워커 보고 같은 이벤트가 쌓였으면 그 뒤 tick은 변화가 있었던 tick이다
+    store.saveCheckpoint({
+      orderId: 'ord-0',
+      workerId: store.order('ord-0')!.workerId!,
+      skill: 'solve',
+      next: '구현',
+      completedSkills: [],
+      refs: [],
+      savedAt: store.timestamp(),
+    });
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(0);
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(1);
+
+    store.addOrder(order({ id: 'ord-1' }));
+    const r = await tick(store, d, { force: true });
+    expect(r.launched.map((l) => l.orderId)).toEqual(['ord-1']);
+    expect(r.idleTicks).toBe(0);
+  });
+
   it('런처가 남긴 경고를 tick 보고에 싣는다', async () => {
     const { store } = clockedStore();
     store.addOrder(order({ id: 'ord-0', parentWorktree: '/w/feat' }));

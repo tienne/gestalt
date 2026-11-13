@@ -137,6 +137,8 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     case 'tick':
       s.ticks += 1;
       s.lastTickAt = e.at;
+      s.idleTicks = e.idle ? (s.idleTicks ?? 0) + 1 : 0;
+      s.lastTickEventCount = s.eventCount;
       for (const name of e.clearedReports ?? []) delete s.appliedReports[name];
       return;
     case 'tail-repaired':

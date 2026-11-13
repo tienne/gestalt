@@ -112,6 +112,11 @@ export interface TickReport {
   rateLimited: RateLimitedEntry[];
   /** 사람이 넘겨받은 주문 중 이번 tick에 상태가 바뀐 것. 바뀐 게 없으면 비어 있다 */
   humanOwned: HumanOwnedChange[];
+  /**
+   * 상태가 안 바뀐 tick이 이번까지 연달아 몇 번 왔는지. 새 주문, 띄운 워커, 올린 확인 자리, 호스트 할 일이
+   * 없고 앞 tick 뒤로 저장소에 쌓인 이벤트도 없어야 센다. 하나라도 있으면 0이다
+   */
+  idleTicks: number;
   counts: {
     queued: number;
     running: number;
@@ -266,7 +271,12 @@ export async function tick(
     const last = store.snapshot.lastTickAt;
     const interval = deps.config.pollIntervalSec * 1000;
     if (!opts.force && last && Date.parse(report.at) - Date.parse(last) < interval) {
-      return { ...report, skipped: true, counts: counts(store, 0) };
+      return {
+        ...report,
+        skipped: true,
+        idleTicks: store.snapshot.idleTicks ?? 0,
+        counts: counts(store, 0),
+      };
     }
     const gap = tickGapWarning(last, report.at, deps.config.staleAfterSec * 1000);
     if (gap) report.warnings.push(gap);
@@ -283,6 +293,8 @@ async function runTick(
 ): Promise<TickReport> {
   let unanswered = 0;
   let cleared: string[] = [];
+  const eventsBefore = store.snapshot.eventCount;
+  const quietSinceLastTick = store.snapshot.lastTickEventCount === eventsBefore;
   await step(report, () => ingestReports(store, deps, report).then((c) => (cleared = c)));
   await step(report, () => intake(store, deps, report).then((n) => (unanswered = n)));
   await step(report, async () => {
@@ -316,12 +328,24 @@ async function runTick(
   }
   await step(report, () => cleanupWorkers(store, deps, report));
   report.rateLimited = rateLimitEntries(store);
+  const idle =
+    quietSinceLastTick &&
+    store.snapshot.eventCount === eventsBefore &&
+    report.created.length === 0 &&
+    report.launched.length === 0 &&
+    report.escalated.length === 0 &&
+    report.hostActions.length === 0;
   store.append({
     type: 'tick',
     at: report.at,
     ...(cleared.length > 0 ? { clearedReports: cleared } : {}),
+    ...(idle ? { idle: true } : {}),
   });
-  return { ...report, counts: counts(store, unanswered) };
+  return {
+    ...report,
+    idleTicks: store.snapshot.idleTicks ?? 0,
+    counts: counts(store, unanswered),
+  };
 }
 
 async function intake(
@@ -1018,6 +1042,7 @@ function emptyReport(at: string): TickReport {
     warnings: [],
     rateLimited: [],
     humanOwned: [],
+    idleTicks: 0,
     counts: {
       queued: 0,
       running: 0,
