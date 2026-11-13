@@ -580,14 +580,23 @@ export async function deliverGateDecision(
   return { hostActions: fake.hostActions, errors: fake.errors };
 }
 
-function decisionMessage(gate: Gate): string {
+/**
+ * 게이트 결정을 워커에 전할 문장. 사람이 적은 답은 승인이든 거절이든 싣고 고정 문구보다 먼저라고 밝힌다.
+ * 머지 거절은 워커가 기다리지 않고 done으로 끝내게 한다. 기다리기만 하면 주문은 running이라
+ * 끊긴 워커로 보여 새 워커가 같은 승인을 다시 묻는다.
+ */
+export function decisionMessage(gate: Gate): string {
   const ok = gate.decision === 'approved';
   const note = gate.answer ? `: ${gate.answer}` : '';
+  const answer = gate.answer
+    ? `사람의 답: "${gate.answer}". 아래 기본 지시와 다르면 답을 먼저 따르세요. `
+    : '';
   switch (gate.type) {
     case 'merge':
-      return ok
-        ? '머지 승인됐어요. 머지하고 결과를 보고하세요'
-        : `머지 거절${note}. 머지하지 말고 다음 지시를 기다리세요`;
+      if (ok) return `머지 승인됐어요. ${answer}기본 지시: 머지하고 결과를 보고하세요`;
+      return gate.answer
+        ? `머지 거절됐어요. ${answer}머지하지 말고 답대로 처리한 뒤 --status done으로 보고하고 종료하세요`
+        : '머지 거절됐어요. 머지하지 말고 PR은 그대로 둔 채 --status done으로 보고하고 종료하세요. 기다리지 마세요';
     case 'interview':
       return `인터뷰 답${note || ': (빈 답)'}`;
     case 'review-manual-switch':

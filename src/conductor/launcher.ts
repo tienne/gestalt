@@ -306,7 +306,7 @@ export function buildWorkerPrompt(
     );
   } else {
     lines.push(
-      `- 체인이 PR을 남기고 끝나면 머지하지 않는다. \`${report} --status needs --summary "머지 승인 대기" --need merge-approval --need-detail "<한 줄>" --pr owner/name#번호\`로 올리고 컨덕터 결정을 기다린다. 승인되면 머지하고 \`${report} --status done --merged --pr owner/name#번호 --summary "머지 완료"\`로 보고한다. 거절되면 머지하지 않고 다음 지시를 기다린다.`,
+      `- 체인이 PR을 남기고 끝나면 머지하지 않는다. \`${report} --status needs --summary "머지 승인 대기" --need merge-approval --need-detail "<한 줄>" --pr owner/name#번호\`로 올리고 컨덕터 결정을 기다린다. 승인되면 머지하고 \`${report} --status done --merged --pr owner/name#번호 --summary "머지 완료"\`로 보고한다. 결정에 사람의 답이 붙어 오면 답을 먼저 따른다. 거절되면 머지하지 않고 전달된 지시대로 \`--status done\`으로 보고하고 끝낸다. 사람이 넘겨받았다는 지시가 오면 아무것도 하지 않고 종료한다.`,
     );
   }
   lines.push(
