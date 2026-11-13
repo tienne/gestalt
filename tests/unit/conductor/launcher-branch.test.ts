@@ -328,6 +328,44 @@ describe('오르카 런처의 지라 주문', () => {
     expect(r.branch).toBe('feat/PROJ-1');
   });
 
+  it('재개 뒤 워커가 확실히 안 떴으면 워크트리만 지우고 앞 브랜치는 남긴다', async () => {
+    const notStarted = {
+      code: 1,
+      stdout: JSON.stringify({ ok: false, result: { status: 'failed', residualResources: [] } }),
+      stderr: 'spawn failed',
+    };
+    const f = fake({ workerStart: notStarted, createdBranch: 'tienne/ord-1-2' });
+    const err = await orcaLauncher(f.runner, { 'acme/app': '/repos/app' })
+      .start({
+        order: jiraOrder(),
+        worker: worker('ord-1', { attempt: 2 }),
+        prompt: 'p',
+        previousBranch: 'feat/PROJ-1',
+      })
+      .catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    const rm = f.orcaCalls('worktree rm');
+    expect(rm).toHaveLength(1);
+    expect(rm[0]!.args).not.toContain('--delete-branch');
+  });
+
+  it('처음 띄운 워커가 확실히 안 떴으면 만든 브랜치까지 지운다', async () => {
+    const notStarted = {
+      code: 1,
+      stdout: JSON.stringify({ ok: false, result: { status: 'failed', residualResources: [] } }),
+      stderr: 'spawn failed',
+    };
+    const f = fake({ workerStart: notStarted });
+    await expect(
+      orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start({
+        order: jiraOrder(),
+        worker: worker('ord-1'),
+        prompt: 'p',
+      }),
+    ).rejects.toThrow('worker-start 실패');
+    expect(f.orcaCalls('worktree rm')[0]!.args).toContain('--delete-branch');
+  });
+
   it('재개 때 앞 브랜치로 못 바꾸면 워커를 안 띄우고 남은 워크트리를 알린다', async () => {
     const f = fake();
     const failing: CommandRunner = async (cmd, args, o) =>

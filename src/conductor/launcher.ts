@@ -440,6 +440,15 @@ function worktreeHolding(porcelain: string, branch: string): string | undefined 
   return undefined;
 }
 
+/** 남은 워크트리를 지울 명령. 앞 워커 브랜치에 있는 워크트리는 브랜치를 남겨야 해서 deleteBranch를 끈다 */
+function rmCommand(selector: string, deleteBranch: boolean): string {
+  return `\`orca worktree rm --worktree ${selector}${deleteBranch ? ' --delete-branch' : ''}\``;
+}
+
+function leftoverHint(selector: string, deleteBranch: boolean): string {
+  return `남은 워크트리는 ${rmCommand(selector, deleteBranch)}로 지워 주세요`;
+}
+
 /** 바깥 출처가 고른 기준 브랜치의 셋업 스크립트를 이 호스트에서 돌리지 않는다 */
 function setupFlags(order: Order): string[] {
   return order.baseBranch && order.source !== 'spoken' ? ['--setup', 'skip'] : [];
@@ -492,17 +501,19 @@ export class OrcaLauncher implements Launcher {
     const warnings: string[] = [];
     const branch = planned ? await this.planBranch(spec, planned, warnings) : undefined;
     const created = await this.createWorktree(spec.order, name, displayName, branch);
-    const leftover = `남은 워크트리는 \`orca worktree rm --worktree ${created.selector} --delete-branch\`로 지워 주세요`;
+    const resume = branch?.resume === true;
     let used = created.branch ?? branch?.name;
-    if (branch?.resume) {
-      await this.adoptBranch(created, branch.name, leftover);
+    if (resume) {
+      // 여기서 실패하면 새 워크트리는 아직 오르카 임시 브랜치에 있어 브랜치째 지워도 된다
+      await this.adoptBranch(created, branch.name, leftoverHint(created.selector, true));
       used = branch.name;
     }
     for (const ref of refs) {
       const warning = await this.attachReference(spec.order, created.selector, ref);
       if (warning) warnings.push(warning);
     }
-    const handle = await this.startInWorktree(created.selector, file, agent, leftover);
+    // 재개면 새 워크트리가 앞 브랜치에 있다. 브랜치째 지우면 앞 워커가 쌓은 커밋을 잃는다
+    const handle = await this.startInWorktree(created.selector, file, agent, !resume);
     return {
       handle,
       ...(used ? { branch: used } : {}),
@@ -596,8 +607,9 @@ export class OrcaLauncher implements Launcher {
     worktree: string,
     file: string,
     agent: string,
-    leftover: string,
+    deleteBranch: boolean,
   ): Promise<string> {
+    const leftover = leftoverHint(worktree, deleteBranch);
     const r = await this.runner(
       this.opts.orcaCommand,
       [
@@ -629,7 +641,14 @@ export class OrcaLauncher implements Launcher {
       throw new Error(`${failure}. 워커가 떴는지 몰라 워크트리를 그대로 뒀어요. ${leftover}`);
     const rm = await this.runner(
       this.opts.orcaCommand,
-      ['worktree', 'rm', '--worktree', worktree, '--delete-branch', '--json'],
+      [
+        'worktree',
+        'rm',
+        '--worktree',
+        worktree,
+        ...(deleteBranch ? ['--delete-branch'] : []),
+        '--json',
+      ],
       { timeoutMs: ORCA_TIMEOUT_MS },
     ).catch(() => undefined);
     if (rm?.code !== 0) throw new Error(`${failure}. 워크트리를 못 지웠어요. ${leftover}`);
@@ -659,7 +678,7 @@ export class OrcaLauncher implements Launcher {
     const skip = order.parentWorktree ? [] : setupFlags(order);
     const setup = skip.length ? skip : ['--setup', 'run'];
     const where = order.parentWorktree ? `${order.parentWorktree} 아래 ` : '';
-    const leftover = `${where}${name} 워크트리가 생겼을 수 있어요. \`orca worktree show --worktree name:${name}\`로 확인하고 있으면 \`orca worktree rm --worktree name:${name} --delete-branch\`로 지워 주세요`;
+    const leftover = `${where}${name} 워크트리가 생겼을 수 있어요. \`orca worktree show --worktree name:${name}\`로 확인하고 있으면 ${rmCommand(`name:${name}`, true)}로 지워 주세요`;
     // 재개는 앞 브랜치에서 갈라 만든 뒤 그 브랜치로 바꾼다. --branch는 이미 있는 이름이면 숫자를 붙여 새로 만든다
     const base = branch?.resume ? branch.name : order.baseBranch;
     const created = await mustRun(
