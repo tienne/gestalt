@@ -685,10 +685,12 @@ async function launchQueued(
         worker,
         prompt,
         ...(resume?.previousHandle ? { previousHandle: resume.previousHandle } : {}),
+        ...(resume?.previous.branch ? { previousBranch: resume.previous.branch } : {}),
       });
       store.startWorker({
         ...worker,
         handle: started.handle,
+        ...(started.branch ? { branch: started.branch } : {}),
         status: started.hostAction ? 'starting' : 'running',
       });
       store.updateOrder(order.id, { status: 'running', workerId: worker.id });

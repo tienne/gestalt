@@ -110,7 +110,10 @@ function orcaPath(selector: string, orcaCommand: string | undefined, exec: SyncE
 }
 
 /** 오르카 `worktree show`나 `worktree create`의 `--json` 응답에서 워크트리 칸 하나를 꺼낸다 */
-export function worktreeField(stdout: string, field: 'path' | 'id' | 'repoId'): string | undefined {
+export function worktreeField(
+  stdout: string,
+  field: 'path' | 'id' | 'repoId' | 'branch',
+): string | undefined {
   let data: unknown;
   try {
     data = JSON.parse(stdout);

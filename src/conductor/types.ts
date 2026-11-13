@@ -126,6 +126,11 @@ export interface Worker {
   status: WorkerStatus;
   /** 런처가 워커를 다시 찾는 식별자. 오르카 dispatch id, 워크트리 경로, 서브에이전트 이름 중 하나다 */
   handle?: string;
+  /**
+   * 런처가 워커 워크트리에 쓴 브랜치. 재개로 새 워크트리를 만들 때 이 브랜치를 이어받는다.
+   * 지라 주문의 오르카 워커와 git 워크트리 워커만 남는다
+   */
+  branch?: string;
   account?: string;
   startedAt: string;
   lastSeenAt: string;
