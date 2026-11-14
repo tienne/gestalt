@@ -7,6 +7,7 @@ import {
   chooseWorkerKind,
   detectOrca,
   ensureAccount,
+  failMessage,
   GitWorktreeLauncher,
   NestedSpawnRefused,
   OrcaLauncher,
@@ -249,6 +250,36 @@ describe('런처', () => {
     expect(calls.slice(before)).toEqual([['-C', prev, 'branch', '--show-current']]);
   });
 
+  it('맨 앞부터 옵션이면 첫 토큰의 = 앞까지만 싣는다', () => {
+    const r = { code: 1, stdout: '', stderr: 'boom' };
+    expect(failMessage('orca', ['--json'], r)).toBe('orca --json 실패(1): boom');
+    expect(failMessage('orca', ['--token=secret', 'x'], r)).toBe('orca --token 실패(1): boom');
+  });
+
+  it('git 실패 문구는 -C 경로를 빼고 하위 명령을 싣는다', async () => {
+    const runner: CommandRunner = async (_cmd, args) => {
+      if (args.includes('rev-parse')) return { code: 1, stdout: '', stderr: '' };
+      if (args.includes('add')) return { code: 1, stdout: '', stderr: 'fatal: 이미 있음' };
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    const root = tempStateDir();
+    const l = new GitWorktreeLauncher({
+      worktreeRoot: join(root, 'wt'),
+      promptDir: join(root, 'prompts'),
+      repoPaths: { 'acme/app': '/repos/app' },
+      runner,
+    });
+    const err = await l
+      .start({
+        order: order({ id: 'ord-1' }),
+        worker: worker('ord-1', { id: 'wrk-1' }),
+        prompt: 'p',
+      })
+      .catch((e: Error) => e);
+    expect((err as Error).message).toMatch(/^git worktree add 실패\(1\)/);
+    expect((err as Error).message).not.toContain('/repos/app');
+  });
+
   it('재개 때 워크트리 디렉토리만 사라졌으면 남은 브랜치를 -b 없이 다시 붙인다', async () => {
     const { calls, runner } = recorder('');
     const root = tempStateDir();
@@ -386,6 +417,15 @@ describe('오르카 에이전트 인자', () => {
 
 describe('오르카 런처 release', () => {
   const ws = 'repo-1::/ws/app/ord-1-2';
+  const STOPPED = JSON.stringify({
+    ok: true,
+    result: {
+      dispatchId: 'ctx_9',
+      state: 'stopped',
+      alreadySettled: false,
+      processAction: 'closed_agent_terminal',
+    },
+  });
 
   const shown = (over: Record<string, unknown> = {}) =>
     JSON.stringify({
@@ -406,11 +446,18 @@ describe('오르카 런처 release', () => {
       show?: string;
       wtShow?: { code: number; stdout: string };
       rm?: { code: number; stdout: string; stderr?: string };
+      release?: { code: number; stdout: string }[];
+      stop?: { code: number; stdout: string };
     } = {},
   ) {
     const calls: string[][] = [];
+    const releases = [...(over.release ?? [])];
     const runner: CommandRunner = async (_cmd, args) => {
       calls.push(args);
+      if (args[1] === 'worker-release' && releases.length > 0)
+        return { ...releases.shift()!, stderr: '' };
+      if (args[1] === 'worker-stop')
+        return { ...(over.stop ?? { code: 0, stdout: STOPPED }), stderr: '' };
       if (args[1] === 'worker-show')
         return {
           code: 0,
@@ -536,6 +583,111 @@ describe('오르카 런처 release', () => {
     expect(msg).not.toContain('\u001b');
     expect(msg).not.toContain('x'.repeat(300));
     expect(msg).toContain(`orca worktree rm --worktree id:${ws} --delete-branch`);
+  });
+
+  describe('worker_done 없이 끝난 워커', () => {
+    // 2026-11-14 ctx_14ef78b9cc27에서 받은 실제 응답 꼴이다. 그 dispatch는 stop 전후 모두 liveness가 exited였다
+    const inactive = {
+      code: 1,
+      stdout: JSON.stringify({
+        ok: false,
+        error: {
+          code: 'dispatch_inactive',
+          message:
+            'Dispatch ctx_9 is ready; only a settled worker can release. Use worker-stop to cancel an active worker.',
+        },
+      }),
+    };
+    const released = {
+      code: 0,
+      stdout: JSON.stringify({
+        ok: true,
+        result: { dispatchId: 'ctx_9', state: 'released', processAction: 'none' },
+      }),
+    };
+    const ready = (liveness: string) =>
+      JSON.stringify({
+        ok: true,
+        result: {
+          dispatchId: 'ctx_9',
+          state: 'ready',
+          stage: 'input_accepted',
+          liveness,
+          terminalState: 'retained',
+          workspace: ws,
+        },
+      });
+
+    it.each(['exited', 'gone'])(
+      'liveness %s면 worker-stop으로 stopped로 바꾸고 다시 release한다',
+      async (liveness) => {
+        const { calls, l } = scripted({ show: ready(liveness), release: [inactive, released] });
+        await l.release(w(), { requireClosed: true });
+        expect(calls.map((c) => c[1])).toEqual([
+          'worker-release',
+          'worker-show',
+          'worker-stop',
+          'worker-release',
+        ]);
+      },
+    );
+
+    it('removeWorktree도 stop 뒤에 강제 없이 워크트리를 지운다', async () => {
+      const { calls, l } = scripted({ show: ready('exited'), release: [inactive, released] });
+      await l.release(w(), { removeWorktree: true });
+      expect(calls.map((c) => c.slice(0, 2).join(' '))).toEqual([
+        'orchestration worker-show',
+        'orchestration worker-release',
+        'orchestration worker-show',
+        'orchestration worker-stop',
+        'orchestration worker-release',
+        'worktree show',
+        'worktree rm',
+      ]);
+      expect(calls.at(-1)).not.toContain('--force');
+    });
+
+    it('아직 live면 멈추지 않고 실패로 던진다', async () => {
+      const { calls, l } = scripted({ show: ready('live'), release: [inactive] });
+      await expect(l.release(w(), { removeWorktree: true })).rejects.toThrow(
+        /dispatch가 아직 안 끝나.*liveness live/,
+      );
+      expect(calls.some((c) => c[1] === 'worker-stop')).toBe(false);
+      expect(calls.some((c) => c[0] === 'worktree')).toBe(false);
+    });
+
+    it('show에 liveness가 없으면 멈추지 않고 실패로 던진다', async () => {
+      const show = JSON.stringify({ ok: true, result: { state: 'ready', workspace: ws } });
+      const { calls, l } = scripted({ show, release: [inactive] });
+      await expect(l.release(w())).rejects.toThrow(/liveness 모름/);
+      expect(calls.some((c) => c[1] === 'worker-stop')).toBe(false);
+    });
+
+    it('worker-stop이 실패하면 다시 release하지 않고 던진다', async () => {
+      const { calls, l } = scripted({
+        show: ready('exited'),
+        release: [inactive],
+        stop: { code: 1, stdout: '{"ok":false,"error":{"code":"internal"}}' },
+      });
+      await expect(l.release(w())).rejects.toThrow(/worker-stop 실패\(1\)/);
+      expect(calls.map((c) => c[1])).toEqual(['worker-release', 'worker-show', 'worker-stop']);
+    });
+
+    it('stop 뒤 release도 거절되면 그대로 던진다', async () => {
+      const { l } = scripted({
+        show: ready('exited'),
+        release: [inactive, { code: 1, stdout: '{"ok":false,"error":{"code":"internal"}}' }],
+      });
+      await expect(l.release(w())).rejects.toThrow(/worker-release 실패\(1\)/);
+    });
+
+    it('dispatch_inactive가 아닌 거절은 worker-show 없이 그대로 던진다', async () => {
+      const { calls, l } = scripted({
+        release: [{ code: 1, stdout: '{"ok":false,"error":{"code":"selector_not_found"}}' }],
+      });
+      await expect(l.release(w())).rejects.toThrow(/worker-release 실패\(1\)/);
+      expect(calls.map((c) => c[1])).toEqual(['worker-release']);
+    });
   });
 
   it('dispatch id 없이 워크트리 삭제를 요청하면 에러를 던진다', async () => {

@@ -199,10 +199,21 @@ async function mustRun(
   opts?: CommandOptions,
 ): Promise<string> {
   const r = await runner(cmd, args, opts);
-  if (r.code !== 0) {
-    throw new Error(`${cmd} ${args[0] ?? ''} 실패(${r.code}): ${outputHead(r)}`);
-  }
+  if (r.code !== 0) throw new Error(failMessage(cmd, args, r));
   return r.stdout;
+}
+
+// git -C <경로>는 경로를 건너뛰고 오르카는 orchestration 뒤 하위 명령까지 붙여야 어느 호출이 실패했는지 보인다.
+// 맨 앞부터 옵션인 호출도 문구가 `cmd 실패`로 비지 않게 첫 토큰의 = 앞까지는 싣는다
+export function failMessage(cmd: string, args: string[], r: CommandResult): string {
+  const rest = args[0] === '-C' ? args.slice(2) : args;
+  const head: string[] = [];
+  for (const a of rest.slice(0, 2)) {
+    if (a.startsWith('-')) break;
+    head.push(a);
+  }
+  if (head.length === 0 && rest[0]) head.push(rest[0].split('=')[0]!);
+  return `${[cmd, ...head].join(' ')} 실패(${r.code}): ${outputHead(r)}`;
 }
 
 /**
@@ -1239,14 +1250,37 @@ export class OrcaLauncher implements Launcher {
     }
     // 터미널을 거둔 뒤에도 worker-show는 되지만 순서에 기대지 않으려고 먼저 읽는다
     const workspace = opts.removeWorktree ? await this.workspaceOf(worker) : undefined;
-    const out = await mustRun(
-      this.runner,
-      this.opts.orcaCommand,
-      ['orchestration', 'worker-release', `--dispatch=${worker.handle}`, '--json'],
-      { timeoutMs: ORCA_TIMEOUT_MS },
-    );
+    const out = await this.releaseTerminal(worker);
     if (opts.requireClosed) await this.assertClosed(worker, out);
     if (workspace) await this.removeWorktree(worker, workspace, opts.parentWorktree);
+  }
+
+  /**
+   * worker-release를 부른다. 오르카는 settled 워커만 release를 받는데, 워커가 컨덕터에만 보고하고
+   * worker_done 없이 나가면 dispatch가 ready로 남아 dispatch_inactive로 거절된다.
+   * 그때 프로세스가 이미 끝났으면 worker-stop으로 dispatch를 stopped로 바꾼 뒤 다시 release한다.
+   * 끝나지 않았거나 liveness를 모르는 워커는 컨덕터가 임의로 멈추지 않고 실패로 올린다
+   */
+  private async releaseTerminal(worker: Worker): Promise<string> {
+    const args = ['orchestration', 'worker-release', `--dispatch=${worker.handle!}`, '--json'];
+    const r = await this.runner(this.opts.orcaCommand, args, { timeoutMs: ORCA_TIMEOUT_MS });
+    if (r.code === 0) return r.stdout;
+    if (errorCode(r.stdout) !== 'dispatch_inactive')
+      throw new Error(failMessage(this.opts.orcaCommand, args, r));
+    const shown = await this.show(worker);
+    if (!shown.liveness || !GONE_LIVENESS.has(shown.liveness))
+      throw new Error(
+        `${worker.id}의 오르카 dispatch가 아직 안 끝나 release를 거절당했어요(liveness ${shown.liveness ?? '모름'}). 살아 있는 워커는 멈추지 않았어요. ${stopCommandFor(worker)} 승인해 주세요`,
+      );
+    // exited나 gone이면 show와 stop 사이에 live로 돌아가지 않는다고 본다. 오르카 문서로 확인하지 못한 가정이다.
+    // stop은 dispatch를 stopped로 바꾸기만 하고 터미널은 retained로 남긴다. release까지 불러야 거둔다
+    await mustRun(
+      this.runner,
+      this.opts.orcaCommand,
+      ['orchestration', 'worker-stop', `--dispatch=${worker.handle!}`, '--json'],
+      { timeoutMs: ORCA_TIMEOUT_MS },
+    );
+    return mustRun(this.runner, this.opts.orcaCommand, args, { timeoutMs: ORCA_TIMEOUT_MS });
   }
 
   /**
