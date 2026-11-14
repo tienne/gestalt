@@ -187,6 +187,33 @@ describe('closeHandedOffTabs', () => {
     expect(calls).toEqual([]);
   });
 
+  it('닫는 사이 새 인계 기록이 들어오면 덮어쓰지 않는다', async () => {
+    const stateDir = tempStateDir();
+    const old = handedOff(stateDir);
+    const fresh = randomUUID();
+    registerSession(stateDir, fresh, '/w', at(30));
+    const newer = {
+      at: at(650).toISOString(),
+      file: '/h2.md',
+      launched: true,
+      detail: '다시 띄웠어요',
+    };
+    const runner: CommandRunner = () => {
+      recordHandoff(stateDir, old, newer);
+      return Promise.resolve({ code: 0, stdout: '', stderr: '' });
+    };
+    const [r] = await closeHandedOffTabs({
+      stateDir,
+      sessionId: fresh,
+      closeAfterSec: 600,
+      now: at(700),
+      orcaCommand: 'orca',
+      runner,
+    });
+    expect(r!.detail).toContain('새 인계 기록');
+    expect(readHandoffRecord(stateDir, old)).toEqual(newer);
+  });
+
   it('깨진 previousTab은 채팅 탭으로 읽지 않고 꼴이 틀렸다고 남긴다', async () => {
     const stateDir = tempStateDir();
     const old = handedOff(stateDir, {
@@ -420,6 +447,9 @@ describe('handoff 명령과 tick', () => {
     vi.stubEnv('GESTALT_CONDUCTOR_WORKER_ID', '');
     const old = randomUUID();
     vi.stubEnv('CLAUDE_CODE_SESSION_ID', old);
+    // 지난 인계가 남긴 close-claim이 있어도 이번 인계의 탭은 닫혀야 한다
+    registerSession(resolve(stateDir), old, '/w', new Date(Date.now() - 3_600_000));
+    writeFileSync(join(sessionDir(resolve(stateDir), old), 'close-claim'), '{}');
     const notes = join(base, 'notes.md');
     writeFileSync(notes, '- 규칙');
     await conductorHandoffCommand({ stateDir, json: true, notesFile: notes });

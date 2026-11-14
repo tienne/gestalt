@@ -87,6 +87,9 @@ export async function closeHandedOffTabs(
         };
     const close = { ...outcome, at: opts.now.toISOString() };
     try {
+      // 닫는 사이 같은 세션이 다시 인계했으면 새 기록을 옛 기록으로 덮지 않는다
+      if (readHandoffRecord(opts.stateDir, id)?.at !== record.at)
+        throw new Error('그사이 새 인계 기록이 들어왔어요');
       recordHandoff(opts.stateDir, id, { ...record, close });
     } catch (e) {
       // close-claim이 남아 다음 tick도 이 기록을 건너뛴다. 기록만 못 남긴 걸 알린다
