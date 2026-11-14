@@ -321,7 +321,15 @@ async function runTick(
     }
   });
   await step(report, () => launchQueued(store, deps, report));
-  await step(report, () => watchHumanPrs(store, deps, report));
+  // 사람이 넘겨받은 주문의 PR을 확인만 하고 바뀐 게 없으면 prCheckedAt 기록만 남는다. 이건 idle 판정에서 뺀다
+  let prCheckEvents = 0;
+  await step(report, async () => {
+    const before = store.snapshot.eventCount;
+    const changesBefore = report.humanOwned.length;
+    await watchHumanPrs(store, deps, report);
+    if (report.humanOwned.length === changesBefore)
+      prCheckEvents = store.snapshot.eventCount - before;
+  });
   await step(report, () => settleMerged(store, deps, report));
   if (deps.slack) {
     const slack = deps.slack;
@@ -333,7 +341,10 @@ async function runTick(
   }
   await step(report, () => cleanupWorkers(store, deps, report));
   report.rateLimited = rateLimitEntries(store);
-  const idle = isIdleTick(report, quietSinceLastTick && store.snapshot.eventCount === eventsBefore);
+  const idle = isIdleTick(
+    report,
+    quietSinceLastTick && store.snapshot.eventCount - prCheckEvents === eventsBefore,
+  );
   store.append({
     type: 'tick',
     at: report.at,
@@ -355,6 +366,7 @@ function isIdleTick(report: TickReport, storeQuiet: boolean): boolean {
   return (
     storeQuiet &&
     report.errors.length === 0 &&
+    report.humanOwned.length === 0 &&
     report.created.length === 0 &&
     report.launched.length === 0 &&
     report.escalated.length === 0 &&

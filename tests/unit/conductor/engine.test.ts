@@ -156,6 +156,27 @@ describe('컨덕터 tick', () => {
     expect(r.idleTicks).toBe(0);
   });
 
+  it('사람이 넘겨받은 주문의 PR을 확인만 하고 바뀐 게 없는 tick은 idle로 센다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-0', status: 'human-owned', prRef: 'acme/app#7' }));
+    store.updateOrder('ord-0', { humanOwnedAt: store.timestamp() });
+    let checks = 0;
+    const { deps: d } = deps({
+      config: { ...config, humanOwnedPollSec: 0 },
+      prState: {
+        state: async () => {
+          checks += 1;
+          return { state: 'OPEN' };
+        },
+      },
+    });
+
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(0);
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(1);
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(2);
+    expect(checks).toBe(3);
+  });
+
   it('보고를 적용한 tick은 idle이 아니고 다시 열어도 같은 값이다', async () => {
     const { store, dir } = clockedStore();
     store.addOrder(order({ id: 'ord-0' }));
