@@ -123,6 +123,28 @@ describe('컨덕터 에이전트 설정', () => {
     }
   });
 
+  it('이전 지휘자 탭 닫는 시간은 기본 600초이고 사용자 전역 파일로만 바꾼다', () => {
+    expect(loadConfig({}, isolated).conductor.handoffCloseAfterSec).toBe(600);
+    const root = resolve(tempStateDir());
+    const home = join(root, 'home');
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    vi.stubEnv('GESTALT_HOME', home);
+    const cwd = process.cwd();
+    try {
+      process.chdir(root);
+      writeFileSync('gestalt.json', JSON.stringify({ conductor: { handoffCloseAfterSec: 1 } }));
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect(loadConfig({}, { skipDotEnv: true }).conductor.handoffCloseAfterSec).toBe(600);
+      writeFileSync(
+        join(home, '.gestalt', 'conductor.json'),
+        JSON.stringify({ handoffCloseAfterSec: 0 }),
+      );
+      expect(loadConfig({}, { skipDotEnv: true }).conductor.handoffCloseAfterSec).toBe(0);
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
   it.each(['--help', 'opus 5', '-m', 'a'.repeat(101)])(
     '허용 꼴이 아닌 인계 모델은 설정 검증에서 그 값만 버린다: %j',
     (handoffModel) => {

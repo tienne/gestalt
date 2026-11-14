@@ -84,6 +84,18 @@ export type LaunchedTab =
   | { kind: 'chat'; sessionId: string }
   | { kind: 'terminal'; handle: string };
 
+/**
+ * 지금 세션이 앉은 오르카 탭. 인계할 때 handoff.json에 적어 두고 새 세션이 나중에 이 탭을 닫는다.
+ * 채팅 탭은 닫는 CLI가 없어 종류만 적는다. 판정 순서는 tabRenameArgs와 같다
+ */
+export type SessionTab = { kind: 'chat' } | { kind: 'terminal'; handle: string };
+
+export function currentSessionTab(env: NodeJS.ProcessEnv): SessionTab | undefined {
+  if (env['ORCA_STRUCTURED_SESSION'] === '1') return { kind: 'chat' };
+  const handle = env['ORCA_TERMINAL_HANDLE'];
+  return handle ? { kind: 'terminal', handle } : undefined;
+}
+
 /** 인계를 마친 세션 탭 이름. 지금 도는 컨덕터와 헷갈리지 않게 왕관을 떼고 날짜를 붙인다 */
 export function handedOffTabTitle(now: Date): string {
   const mm = String(now.getMonth() + 1).padStart(2, '0');

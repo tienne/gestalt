@@ -73,7 +73,16 @@ import {
 import { resolveParentWorktree } from '../../conductor/parent-worktree.js';
 import { normalizePrRef } from '../../conductor/pr-ref.js';
 import { saveSkillCheckpoint } from '../../conductor/resume.js';
-import { nameConductorTab, renameHandoffTabs } from '../../conductor/tab-title.js';
+import {
+  currentSessionTab,
+  nameConductorTab,
+  renameHandoffTabs,
+} from '../../conductor/tab-title.js';
+import {
+  closeHandedOffTabs,
+  handoffCloseLine,
+  type HandoffCloseResult,
+} from '../../conductor/handoff-close.js';
 import type { ConductorConfig } from '../../conductor/scheduler.js';
 import { draftSlack } from '../../conductor/slack.js';
 import { ConductorStore } from '../../conductor/store.js';
@@ -532,6 +541,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
         await nameTabOnce();
       }
     }
+    const handoffClose = sessionId ? await closePreviousTabs(ctx, sessionId) : [];
     const deferred: HostAction[] = [];
     const watch =
       opts.prWatch !== false
@@ -564,10 +574,16 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     for (const repo of prSource?.truncatedRepos ?? [])
       report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
     const handoff = sessionId ? sessionHandoff(ctx, sessionId) : undefined;
-    if (opts.json) return print(handoff ? { ...report, handoff } : report);
+    if (opts.json)
+      return print({
+        ...report,
+        ...(handoff ? { handoff } : {}),
+        ...(handoffClose.length > 0 ? { handoffClose } : {}),
+      });
     const handoffLine = handoffNotice(handoff);
     if (report.skipped) {
       console.log(`건너뛰었어요${report.errors[0] ? `: ${report.errors[0]}` : ' (감시 간격 안)'}`);
+      for (const r of handoffClose) console.log(handoffCloseLine(r));
       if (handoffLine) console.log(handoffLine);
       return;
     }
@@ -581,6 +597,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     for (const w of report.warnings) console.log(`경고: ${w}`);
     for (const e of report.errors) console.log(`오류: ${e}`);
     if (report.idleTicks > 0) console.log(`변화 없는 tick ${report.idleTicks}번째`);
+    for (const r of handoffClose) console.log(handoffCloseLine(r));
     if (handoffLine) console.log(handoffLine);
   } catch (e) {
     exitWithError(e);
@@ -595,6 +612,24 @@ const HUMAN_OWNED_TO: Record<HumanOwnedChange['to'], string> = {
 
 function humanOwnedLine(h: HumanOwnedChange): string {
   return `${h.orderId}${h.prRef ? ` (${h.prRef})` : ''}: ${HUMAN_OWNED_TO[h.to]}`;
+}
+
+// 닫기 실패는 tick을 멈추지 않는다. 결과는 tick 출력의 handoffClose로만 알린다
+async function closePreviousTabs(ctx: Ctx, sessionId: string): Promise<HandoffCloseResult[]> {
+  try {
+    const orca = detectOrca(process.env);
+    return await closeHandedOffTabs({
+      stateDir: ctx.store.dir,
+      sessionId,
+      closeAfterSec: ctx.config.handoffCloseAfterSec,
+      now: new Date(),
+      cwd: process.cwd(),
+      ...(orca ? { orcaCommand: orca } : {}),
+    });
+  } catch (e) {
+    console.error(`이전 지휘자 탭 닫기: ${(e as Error).message}`);
+    return [];
+  }
 }
 
 function sessionHandoff(ctx: Ctx, sessionId: string): HandoffStatus {
@@ -654,6 +689,7 @@ export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Pr
       detail: '띄우는 중',
     });
     const orca = opts.launch === false ? undefined : detectOrca(process.env);
+    const previousTab = currentSessionTab(process.env);
     const model = resolveHandoffModel(status, ctx.config.handoffModel);
     const outcome = await launchHandoff(file, {
       cwd: process.cwd(),
@@ -668,6 +704,7 @@ export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Pr
         file,
         launched: outcome.launched,
         detail: outcome.detail,
+        ...(outcome.launched && orca && previousTab ? { previousTab } : {}),
       });
     } catch (e) {
       // 거절은 위의 기록으로 이미 걸려 있다. handoff.json에 '띄우는 중'이 남는다는 것만 알리고 문장은 그대로 낸다
