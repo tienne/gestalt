@@ -34,6 +34,8 @@ import {
   isTerminal,
   matchRepo,
   ms,
+  OUTDATED_CLI_TEXT,
+  OUTDATED_CLI_TITLE,
   splitRepo,
   STATUS_LABEL,
   STATUS_TONE,
@@ -680,7 +682,13 @@ function Header({ v }: { v: ConductorView | null }) {
           </Text>
         ) : null}
       </Row>
-      <IconButton icon="refresh" label="새로고침" variant="ghost" size="sm" onPress={() => load('conductor.refresh')} />
+      <Row gap="xs">
+        {/* 늘 떠 있는 안내라 지도를 밀어내지 않게 아이콘으로만 두고 내용은 툴팁으로 보여 준다 */}
+        {v?.outdatedCli ? (
+          <IconButton icon="warning" tone="warning" label={OUTDATED_CLI_TITLE} tooltip={`${OUTDATED_CLI_TITLE}. ${OUTDATED_CLI_TEXT}`} variant="ghost" size="sm" />
+        ) : null}
+        <IconButton icon="refresh" label="새로고침" variant="ghost" size="sm" onPress={() => load('conductor.refresh')} />
+      </Row>
     </Row>
   )
 }

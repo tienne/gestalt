@@ -218,6 +218,7 @@ export function toView(
     gates: raw.gates,
     unassignedBypasses: raw.unassignedBypasses,
     projects: projectsOf(raw.orders, workspaces),
+    ...(raw.orders.some((o) => o.worker && !o.workerKind) ? { outdatedCli: true } : {}),
     refreshedAt: now
   }
 }

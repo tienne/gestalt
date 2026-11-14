@@ -153,3 +153,8 @@ export function matchRepo(s: RepoSummary, query: string): boolean {
   const words = searchWords(query)
   return words.length === 0 || hits(words, [s.repo, s.project]) || filterOrders(s, query).length > 0
 }
+
+/** 패널과 보드가 같이 쓰는 옛 CLI 안내. ConductorView.outdatedCli일 때 띄운다 */
+export const OUTDATED_CLI_TITLE = '주문을 눌러도 워커로 못 가요'
+export const OUTDATED_CLI_TEXT =
+  '설정한 gestalt가 주문의 워크트리 정보를 안 줘서 워커와 이을 수 없어요. gestalt를 새 버전으로 올리거나 플러그인 설정의 "gestalt 실행 파일"을 새 빌드로 바꿔 주세요.'

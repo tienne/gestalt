@@ -99,6 +99,20 @@ test('isSafeId는 옵션처럼 읽히는 값을 막는다', () => {
   assert.equal(isSafeId(''), false)
 })
 
+test('toView는 워커가 붙었는데 workerKind가 없는 주문이 있으면 옛 CLI로 표시한다', () => {
+  const old = parseStatus({ lastTickAt: null, orders: [{ id: 'a', status: 'running', worker: 'wrk-1' }], gates: [] })
+  assert.equal(toView(old, '/s', [], 0).outdatedCli, true)
+  const fresh = parseStatus({
+    lastTickAt: null,
+    orders: [
+      { id: 'a', status: 'running', worker: 'wrk-1', workerKind: 'orca-worktree', worktreeName: 'a-1' },
+      { id: 'b', status: 'queued' }
+    ],
+    gates: []
+  })
+  assert.equal(toView(fresh, '/s', [], 0).outdatedCli, undefined, '워커가 아직 없는 주문은 따지지 않는다')
+})
+
 test('toView는 위계 필드를 싣고 워커와 부모 워크트리의 오르카 경로와 브랜치를 붙인다', () => {
   const raw = parseStatus({
     lastTickAt: null,

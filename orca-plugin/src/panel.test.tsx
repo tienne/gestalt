@@ -169,6 +169,18 @@ test('지도에서 검색한 말이 레포 상세의 주문까지 이어진다',
   await view.unmount()
 })
 
+test('옛 CLI면 주문을 눌러도 워커로 못 간다고 알린다', async () => {
+  const { host } = setup({ ...base, outdatedCli: true })
+  const view = await mount(panel, { host })
+  const icon = view.find({ label: '주문을 눌러도 워커로 못 가요' })
+  assert.equal(icon?.type, 'IconButton', '지도를 밀어내지 않게 아이콘으로만 둔다')
+  assert.match(String(icon?.props.tooltip), /gestalt 실행 파일/)
+  await view.unmount()
+  const fresh = await mount(panel, { host: setup().host })
+  assert.equal(fresh.find({ label: '주문을 눌러도 워커로 못 가요' }), null)
+  await fresh.unmount()
+})
+
 test('타일을 누르면 그 레포의 주문만 보이고 지도로 돌아갈 수 있다', async () => {
   const { host, opened } = setup()
   const view = await mount(panel, { host })

@@ -6,7 +6,18 @@ import {
   pruneHierarchy,
   type HierarchyNode
 } from './hierarchy'
-import { ago, isTerminal, ms, splitRepo, STATUS_LABEL, STATUS_TONE, summarize, type RepoSummary } from './model'
+import {
+  ago,
+  isTerminal,
+  ms,
+  OUTDATED_CLI_TEXT,
+  OUTDATED_CLI_TITLE,
+  splitRepo,
+  STATUS_LABEL,
+  STATUS_TONE,
+  summarize,
+  type RepoSummary
+} from './model'
 import type {
   Bypass,
   ConductorView,
@@ -619,6 +630,8 @@ function draw(): void {
   // 인터뷰 답을 적는 중에 워커 알림이 오면 입력이 지워지지 않게 오른쪽은 다음 그리기로 미룬다
   if (side.contains(document.activeElement) && document.activeElement?.tagName === 'TEXTAREA') return
   renderSide(v)
+  if (v.outdatedCli)
+    side.prepend(el('div', { class: 'result tone-warning' }, el('strong', null, OUTDATED_CLI_TITLE), el('div', { class: 'small' }, OUTDATED_CLI_TEXT)))
   if (v.state === 'error') side.prepend(el('div', { class: 'result tone-danger' }, el('strong', null, 'gestalt CLI가 실패했어요'), el('div', { class: 'small' }, v.error ?? '')))
 }
 
