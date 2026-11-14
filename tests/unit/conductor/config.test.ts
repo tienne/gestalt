@@ -91,4 +91,34 @@ describe('컨덕터 에이전트 설정', () => {
       process.chdir(cwd);
     }
   });
+  it('인계 effort는 기본 high이고 모델과 함께 사용자 전역 파일로만 바꾼다', () => {
+    expect(loadConfig({}, isolated).conductor).toMatchObject({ handoffEffort: 'high' });
+    expect(loadConfig({}, isolated).conductor.handoffModel).toBeUndefined();
+    const root = resolve(tempStateDir());
+    const home = join(root, 'home');
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    vi.stubEnv('GESTALT_HOME', home);
+    const cwd = process.cwd();
+    try {
+      process.chdir(root);
+      writeFileSync(
+        'gestalt.json',
+        JSON.stringify({ conductor: { handoffEffort: 'low', handoffModel: 'haiku' } }),
+      );
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect(loadConfig({}, { skipDotEnv: true }).conductor).toMatchObject({
+        handoffEffort: 'high',
+      });
+      writeFileSync(
+        join(home, '.gestalt', 'conductor.json'),
+        JSON.stringify({ handoffEffort: 'xhigh', handoffModel: 'opus[1m]' }),
+      );
+      expect(loadConfig({}, { skipDotEnv: true }).conductor).toMatchObject({
+        handoffEffort: 'xhigh',
+        handoffModel: 'opus[1m]',
+      });
+    } finally {
+      process.chdir(cwd);
+    }
+  });
 });

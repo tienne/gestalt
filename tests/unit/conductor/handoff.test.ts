@@ -28,6 +28,7 @@ import {
   handoffStatus,
   isConductorLoopPrompt,
   CONDUCTOR_LOOP_PROMPT,
+  handoffModel,
   launchHandoff,
   readCompactions,
   registerSession,
@@ -218,7 +219,12 @@ describe('contextUsage', () => {
       assistantLine({ input_tokens: 190_000 }, { isSidechain: true }),
       JSON.stringify({ type: 'user', message: { content: 'hi' } }),
     ]);
-    expect(contextUsage(file)).toEqual({ usedTokens: 140_002, windowTokens: 200_000, percent: 70 });
+    expect(contextUsage(file)).toEqual({
+      usedTokens: 140_002,
+      windowTokens: 200_000,
+      percent: 70,
+      model: 'claude-opus-5-5',
+    });
     expect(contextUsage(file, 1_000_000)?.percent).toBe(14);
   });
 
@@ -454,6 +460,85 @@ describe('인계 파일과 띄우기', () => {
       runner: async () => ({ code: 2, stdout: '', stderr: 'boom' }),
     });
     expect(failed).toMatchObject({ launched: false, detail: expect.stringContaining('boom') });
+  });
+});
+
+describe('새 지휘자 세션의 모델과 effort', () => {
+  const ok: CommandRunner = async () => ({ code: 0, stdout: '{}', stderr: '' });
+
+  it('설정 모델이 먼저고 없으면 이전 세션 모델을 1M 창 표시까지 잇는다', () => {
+    const usage = (windowTokens: number, model?: string) => ({
+      sessionId: 's',
+      compactions: 1,
+      thresholdPercent: 70,
+      due: true,
+      usage: { usedTokens: 1, windowTokens, percent: 0, ...(model ? { model } : {}) },
+    });
+    expect(handoffModel(usage(200_000, 'claude-opus-5-5'), 'fable')).toBe('fable');
+    expect(handoffModel(usage(200_000, 'claude-opus-5-5'))).toBe('claude-opus-5-5');
+    expect(handoffModel(usage(1_000_000, 'claude-opus-5-5'))).toBe('claude-opus-5-5[1m]');
+    expect(handoffModel(usage(1_000_000, 'claude-opus-5-5[1m]'))).toBe('claude-opus-5-5[1m]');
+    expect(handoffModel(usage(200_000))).toBeUndefined();
+    expect(handoffModel(undefined)).toBeUndefined();
+  });
+
+  it('claude면 --model과 --effort를 함께 싣는다', async () => {
+    const calls: string[][] = [];
+    const r = await launchHandoff('/f.md', {
+      cwd: '/work',
+      orcaCommand: '/bin/orca',
+      model: 'claude-opus-5-5',
+      effort: 'high',
+      runner: async (_c, args) => {
+        calls.push(args);
+        return ok(_c, args, { cwd: '/work' });
+      },
+    });
+    expect(calls[0]).toEqual(
+      expect.arrayContaining(['--model', 'claude-opus-5-5', '--effort', 'high']),
+    );
+    const args = calls[0]!;
+    expect(args.indexOf('--effort')).toBe(args.indexOf('--model') + 2);
+    expect(r.detail).toContain('effort high');
+  });
+
+  it('모델을 모르면 effort를 빼고 띄운 뒤 직접 맞추라고 알린다', async () => {
+    const calls: string[][] = [];
+    const r = await launchHandoff('/f.md', {
+      cwd: '/work',
+      orcaCommand: '/bin/orca',
+      effort: 'high',
+      runner: async (_c, args) => {
+        calls.push(args);
+        return ok(_c, args, { cwd: '/work' });
+      },
+    });
+    expect(calls[0]).not.toContain('--effort');
+    expect(calls[0]).not.toContain('--model');
+    expect(r).toMatchObject({ launched: true, detail: expect.stringContaining('/effort high') });
+  });
+
+  it('claude가 아니면 모델과 effort를 싣지 않는다', async () => {
+    const calls: string[][] = [];
+    const r = await launchHandoff('/f.md', {
+      cwd: '/work',
+      orcaCommand: '/bin/orca',
+      agent: 'codex',
+      model: 'claude-opus-5-5',
+      effort: 'high',
+      runner: async (_c, args) => {
+        calls.push(args);
+        return ok(_c, args, { cwd: '/work' });
+      },
+    });
+    expect(calls[0]).not.toContain('--effort');
+    expect(calls[0]).not.toContain('--model');
+    expect(r.detail).not.toContain('effort');
+  });
+
+  it('오르카가 없으면 안내 문장에 /effort를 넣는다', async () => {
+    const r = await launchHandoff('/f.md', { cwd: '/work', effort: 'high' });
+    expect(r).toMatchObject({ launched: false, detail: expect.stringContaining('/effort high') });
   });
 });
 

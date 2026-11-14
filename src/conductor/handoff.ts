@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import type { HandoffEffort } from '../core/constants.js';
 import { writeJsonAtomic } from '../core/json-file.js';
 import { execRunner, type CommandRunner } from './launcher.js';
 import type { LaunchedTab } from './tab-title.js';
@@ -98,6 +99,8 @@ export interface ContextUsage {
   usedTokens: number;
   windowTokens: number;
   percent: number;
+  /** 그 응답을 낸 모델 id. 인계로 띄우는 새 세션이 같은 모델을 이어 쓸 때 읽는다 */
+  model?: string;
 }
 
 /**
@@ -146,7 +149,12 @@ export function contextUsage(
       (model.includes('[1m]') || used > DEFAULT_WINDOW_TOKENS
         ? LARGE_WINDOW_TOKENS
         : DEFAULT_WINDOW_TOKENS);
-    return { usedTokens: used, windowTokens: window, percent: Math.floor((used / window) * 100) };
+    return {
+      usedTokens: used,
+      windowTokens: window,
+      percent: Math.floor((used / window) * 100),
+      ...(model ? { model } : {}),
+    };
   }
   return undefined;
 }
@@ -344,11 +352,32 @@ export function handoffPrompt(file: string): string {
   return `/gestalt:conductor 컨덕터 세션 인계를 받아 이어서 돌려 주세요. 인계 파일: ${file}`;
 }
 
+/**
+ * 새 지휘자 세션에 실을 모델. 설정값이 먼저고 없으면 이전 세션 트랜스크립트의 모델을 잇는다.
+ * 트랜스크립트의 모델 id에는 1M 창 표시가 안 붙어서 사용량을 1M 창으로 셌으면 `[1m]`을 붙인다.
+ * 오르카는 `--effort`를 `--model` 없이 받지 않으므로 모델을 모르면 effort도 못 싣는다
+ */
+export function handoffModel(
+  status: HandoffStatus | undefined,
+  configured?: string,
+): string | undefined {
+  if (configured) return configured;
+  const usage = status?.usage;
+  if (!usage?.model) return undefined;
+  if (usage.windowTokens >= LARGE_WINDOW_TOKENS && !usage.model.includes('[1m]'))
+    return `${usage.model}[1m]`;
+  return usage.model;
+}
+
 export interface LaunchHandoffOptions {
   orcaCommand?: string;
   cwd: string;
   runner?: CommandRunner;
   agent?: string;
+  /** 새 세션의 모델. effort를 실으려면 있어야 한다 */
+  model?: string;
+  /** 새 세션의 추론 수준. claude일 때만 싣는다 */
+  effort?: HandoffEffort;
 }
 
 export interface LaunchOutcome {
@@ -367,7 +396,12 @@ export async function launchHandoff(
   opts: LaunchHandoffOptions,
 ): Promise<LaunchOutcome> {
   const prompt = handoffPrompt(file);
-  const manual = `새 Claude Code 세션을 ${opts.cwd}에서 열고 첫 지시로 이걸 넣어 주세요: ${prompt}`;
+  const agent = opts.agent ?? 'claude';
+  // 다른 에이전트는 effort 값과 모델 id 체계가 달라 claude일 때만 싣는다
+  const effort = agent === 'claude' ? opts.effort : undefined;
+  const preferences = effort && opts.model ? { model: opts.model, effort } : undefined;
+  const effortHint = effort ? ` \`/effort ${effort}\`로 추론 수준을 맞추고` : '';
+  const manual = `새 Claude Code 세션을 ${opts.cwd}에서 열고${effortHint} 첫 지시로 이걸 넣어 주세요: ${prompt}`;
   if (!opts.orcaCommand) return { launched: false, detail: `오르카가 없어요. ${manual}` };
   const runner = opts.runner ?? execRunner;
   const r = await runner(
@@ -376,9 +410,10 @@ export async function launchHandoff(
       'agent',
       'launch',
       '--agent',
-      opts.agent ?? 'claude',
+      agent,
       '--worktree',
       `path:${opts.cwd}`,
+      ...(preferences ? ['--model', preferences.model, '--effort', preferences.effort] : []),
       '--prompt',
       prompt,
       '--json',
@@ -396,9 +431,14 @@ export async function launchHandoff(
       ? tab.sessionId
       : tab.handle
     : parsed && legacyHandle(parsed);
+  const level = preferences ? ` ${preferences.model}, effort ${preferences.effort}로` : '';
+  const missed =
+    effort && !preferences
+      ? `. 모델을 몰라 effort ${effort}를 못 실었어요. 새 세션에서 \`/effort ${effort}\`로 맞춰 주세요`
+      : '';
   return {
     launched: true,
-    detail: `오르카로 ${opts.cwd}에 새 세션을 띄웠어요${shown ? ` (${shown})` : ''}`,
+    detail: `오르카로 ${opts.cwd}에${level} 새 세션을 띄웠어요${shown ? ` (${shown})` : ''}${missed}`,
     ...(tab ? { tab } : {}),
   };
 }

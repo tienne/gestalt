@@ -17,6 +17,7 @@ import {
   EVOLVE_GOAL_ALIGNMENT_THRESHOLD,
   ORDER_SCOPES,
   AGENT_ID_RE,
+  HANDOFF_EFFORTS,
 } from './constants.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -419,6 +420,19 @@ const conductorConfigSchema = z.object({
   handoffContextPercent: z.number().int().min(10).max(99).default(70),
   /** 사용량 비율을 낼 컨텍스트 창 크기(토큰). 비우면 모델 id와 사용량으로 200k나 1M을 고른다 */
   contextWindowTokens: z.number().int().min(10_000).max(10_000_000).optional(),
+  /**
+   * 인계로 띄우는 새 지휘자 세션의 추론 수준. 오르카가 `--model` 없이는 effort를 안 받으므로
+   * handoffModel이나 이전 세션 트랜스크립트의 모델과 함께 싣는다. claude가 받는 값만 허용한다
+   */
+  handoffEffort: z.enum(HANDOFF_EFFORTS).default('high'),
+  /**
+   * 인계로 띄우는 새 지휘자 세션의 모델(별칭이나 전체 id, `[1m]` 접미 허용).
+   * 비우면 이전 세션 트랜스크립트의 모델을 잇는다. 쓰는 모델이 비용을 정하므로 레포 gestalt.json으로는 못 바꾼다
+   */
+  handoffModel: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}(\[1m\])?$/)
+    .optional(),
   /**
    * 머지된 주문의 오르카 워커 워크트리를 정리 단계에서 지운다. 끄면 워커 터미널만 거두고 워크트리는 남긴다.
    * 레포 gestalt.json이 켜서 남의 워크트리를 지우게 하면 안 되므로 REPO_CONDUCTOR_KEYS에 넣지 않는다
