@@ -642,16 +642,11 @@ async function closePreviousTabs(ctx: Ctx, sessionId: string): Promise<HandoffCl
 }
 
 function sessionHandoff(ctx: Ctx, sessionId: string): HandoffStatus {
-  const autoCompact =
-    ctx.config.contextWindowTokens === undefined
-      ? readAutoCompactWindow({ cwd: process.cwd() })
-      : undefined;
   return handoffStatus(ctx.store.dir, sessionId, {
     thresholdPercent: ctx.config.handoffContextPercent,
     ...(ctx.config.contextWindowTokens !== undefined
       ? { contextWindowTokens: ctx.config.contextWindowTokens }
-      : {}),
-    ...(autoCompact !== undefined ? { autoCompactWindowTokens: autoCompact } : {}),
+      : { autoCompactWindowTokens: () => readAutoCompactWindow({ cwd: process.cwd() }) }),
   });
 }
 

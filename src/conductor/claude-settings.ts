@@ -14,6 +14,8 @@ export interface ClaudeSettingsLookup {
  * Claude Code가 설정을 겹쳐 읽는 파일. 앞에 있을수록 우선한다.
  * 관리 설정, 프로젝트 로컬, 프로젝트, 사용자 순이다. CLAUDE_CONFIG_DIR가 있으면 사용자 설정은
  * `~/.claude` 대신 그 아래 settings.json만 읽는다. Claude Code도 그 경우 `~/.claude`를 안 본다.
+ * 프로젝트 설정은 넘겨받은 cwd 바로 아래만 본다. 컨덕터 세션을 레포 하위 디렉토리에서 띄웠으면 못 찾는다.
+ * 관리 설정은 기본 파일 하나만 보고 드롭인 디렉토리(managed-settings.d)는 안 본다.
  */
 export function claudeSettingsFiles(o: ClaudeSettingsLookup): string[] {
   const env = o.env ?? process.env;

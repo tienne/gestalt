@@ -249,8 +249,11 @@ export interface HandoffThresholds {
   /** 1차 컴팩트 뒤 이 비율(%)을 넘으면 인계한다 */
   thresholdPercent: number;
   contextWindowTokens?: number;
-  /** Claude settings의 autoCompactWindow. Claude Code가 이 크기에서 컴팩트하므로 창을 여기까지로 본다 */
-  autoCompactWindowTokens?: number;
+  /**
+   * Claude settings의 autoCompactWindow. Claude Code가 이 크기에서 컴팩트하므로 창을 여기까지로 본다.
+   * 함수로 주면 컴팩트가 한 번 이상일 때만 부른다. tick마다 설정 파일을 읽지 않으려는 것이다
+   */
+  autoCompactWindowTokens?: number | (() => number | undefined);
 }
 
 /**
@@ -266,12 +269,14 @@ export function handoffStatus(
   const { count, transcriptPath } = readCompactions(stateDir, sessionId);
   const base = { sessionId, compactions: count, thresholdPercent: t.thresholdPercent };
   if (count === 0) return { ...base, due: false };
+  const autoCompact =
+    typeof t.autoCompactWindowTokens === 'function'
+      ? t.autoCompactWindowTokens()
+      : t.autoCompactWindowTokens;
   const usage = transcriptPath
     ? contextUsage(transcriptPath, {
         ...(t.contextWindowTokens !== undefined ? { windowTokens: t.contextWindowTokens } : {}),
-        ...(t.autoCompactWindowTokens !== undefined
-          ? { autoCompactWindowTokens: t.autoCompactWindowTokens }
-          : {}),
+        ...(autoCompact !== undefined ? { autoCompactWindowTokens: autoCompact } : {}),
       })
     : undefined;
   const withUsage = usage ? { ...base, usage } : base;

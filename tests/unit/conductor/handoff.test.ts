@@ -305,6 +305,25 @@ describe('handoffStatus', () => {
     ).toBe(true);
   });
 
+  it('컴팩트가 없으면 autoCompactWindow 설정을 읽지 않는다', () => {
+    const state = resolve(tempStateDir());
+    const sid = randomUUID();
+    registerSession(state, sid, '/work', new Date());
+    let reads = 0;
+    const lazy = () => {
+      reads += 1;
+      return 250_000;
+    };
+    handoffStatus(state, sid, { thresholdPercent: 70, autoCompactWindowTokens: lazy });
+    expect(reads).toBe(0);
+    const tp = transcript([assistantLine({ input_tokens: 220_000 })]);
+    writeFileSync(join(state, 'sessions', sid, 'compactions'), `1\n${tp}\n`);
+    expect(
+      handoffStatus(state, sid, { thresholdPercent: 70, autoCompactWindowTokens: lazy }).due,
+    ).toBe(true);
+    expect(reads).toBe(1);
+  });
+
   it('두 번째 컴팩트가 왔으면 사용량과 상관없이 넘긴다', () => {
     expect(withCompactions(2, 10_000)).toMatchObject({ due: true });
   });
