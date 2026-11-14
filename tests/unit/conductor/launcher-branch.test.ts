@@ -461,6 +461,7 @@ describe('오르카 런처의 지라 주문', () => {
     // 재개는 비어 있는 이름을 다시 고르지 않는다
     expect(f.calls.filter((c) => c.args[2] === 'ls-remote')).toHaveLength(0);
     expect(f.gitCalls()).toEqual([
+      ['-C', '/repos/app', 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
       ['-C', '/wt/ord-1-2', 'worktree', 'list', '--porcelain'],
       ['-C', '/wt/ord-1-1', 'switch', '--detach'],
       ['-C', '/wt/ord-1-2', 'switch', 'feat/PROJ-1'],
@@ -468,6 +469,36 @@ describe('오르카 런처의 지라 주문', () => {
     ]);
     expect(f.orcaCalls('reference add')).toHaveLength(1);
     expect(r.branch).toBe('feat/PROJ-1');
+  });
+
+  it('재개 워크트리는 기준 브랜치가 없어도 셋업을 건너뛴다', async () => {
+    const f = fake({ createdBranch: 'tienne/ord-1-2' });
+    await orcaLauncher(f.runner, { 'acme/app': '/repos/app' })
+      .start({
+        order: jiraOrder({ source: 'jira' }),
+        worker: worker('ord-1', { attempt: 2 }),
+        prompt: 'p',
+        previousBranch: 'feat/PROJ-1',
+      })
+      .catch(() => undefined);
+    const create = f.orcaCalls('worktree create')[0]!.args;
+    expect(flag(create, '--setup')).toBe('skip');
+  });
+
+  it.each([
+    ['레포 기본 브랜치', 'main', {}],
+    ['기준 브랜치', 'develop', { baseBranch: 'develop' }],
+  ])('기록된 앞 브랜치가 %s면 이어받지 않고 멈춘다', async (_label, previous, extra) => {
+    const f = fake();
+    await expect(
+      orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start({
+        order: jiraOrder(extra),
+        worker: worker('ord-1', { attempt: 2 }),
+        prompt: 'p',
+        previousBranch: previous,
+      }),
+    ).rejects.toThrow(`앞 워커가 기록한 브랜치 ${previous}가 기준 브랜치나 레포 기본 브랜치라`);
+    expect(f.orcaCalls('worktree create')).toHaveLength(0);
   });
 
   const notStarted = {
@@ -922,8 +953,42 @@ describe('git 런처의 지라 주문', () => {
       previousHandle: prev,
       previousBranch: 'feat/PROJ-1',
     });
-    expect(f.gitCalls()).toEqual([['-C', prev, 'branch', '--show-current']]);
+    expect(f.gitCalls()).toEqual([
+      ['-C', prev, 'branch', '--show-current'],
+      ['-C', prev, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
+    ]);
     expect(r).toMatchObject({ handle: prev, branch: 'feat/PROJ-1' });
+  });
+
+  it('남은 앞 워크트리가 기본 브랜치를 체크아웃하고 있으면 브랜치를 기록하지 않고 경고한다', async () => {
+    const f = fake({ currentBranch: 'trunk', originHead: 'origin/trunk' });
+    const { root, launcher } = gitLauncher(f.runner);
+    const prev = join(root, 'prev');
+    mkdirSync(prev);
+    const r = await launcher.start({
+      order: jiraOrder(),
+      worker: worker('ord-1', { attempt: 2 }),
+      prompt: 'p',
+      previousHandle: prev,
+    });
+    expect(r.branch).toBeUndefined();
+    expect(r.warnings).toEqual([
+      `ord-1: ${prev}가 기준 브랜치나 기본 브랜치 trunk를 체크아웃하고 있어 워커 브랜치로 기록하지 않았어요`,
+    ]);
+  });
+
+  it('기록된 앞 브랜치가 기준 브랜치면 git 워크트리를 만들지 않고 멈춘다', async () => {
+    const f = fake({ local: ['develop'] });
+    const { launcher } = gitLauncher(f.runner);
+    await expect(
+      launcher.start({
+        order: jiraOrder({ baseBranch: 'develop' }),
+        worker: worker('ord-1', { attempt: 2 }),
+        prompt: 'p',
+        previousBranch: 'develop',
+      }),
+    ).rejects.toThrow('기준 브랜치나 레포 기본 브랜치라 이어받지 않았어요');
+    expect(f.gitCalls().some((a) => a[2] === 'worktree')).toBe(false);
   });
 
   it('남은 앞 워크트리가 detach 상태면 브랜치를 기록하지 않고 경고한다', async () => {
