@@ -421,14 +421,18 @@ async function localHeads(
   gitDir: string,
   base: string,
 ): Promise<Set<string>> {
-  const r = await runner('git', [
-    '-C',
-    gitDir,
-    'for-each-ref',
-    '--format=%(refname)',
-    `refs/heads/${base}`,
-    `refs/heads/${base}-*`,
-  ]);
+  const r = await runner(
+    'git',
+    [
+      '-C',
+      gitDir,
+      'for-each-ref',
+      '--format=%(refname)',
+      `refs/heads/${base}`,
+      `refs/heads/${base}-*`,
+    ],
+    { timeoutMs: GIT_TIMEOUT_MS },
+  );
   if (r.code !== 0) throw new Error(`${gitDir}의 로컬 브랜치를 못 읽었어요: ${outputHead(r)}`);
   return headsOf(r.stdout);
 }
@@ -510,7 +514,9 @@ function assertResumableBranch(branch: string): void {
 
 /** 워크트리가 체크아웃한 브랜치. detach됐거나 못 읽으면 undefined */
 async function currentBranch(runner: CommandRunner, path: string): Promise<string | undefined> {
-  const r = await runner('git', ['-C', path, 'branch', '--show-current']).catch(() => undefined);
+  const r = await runner('git', ['-C', path, 'branch', '--show-current'], {
+    timeoutMs: GIT_TIMEOUT_MS,
+  }).catch(() => undefined);
   const name = r?.code === 0 ? r.stdout.trim() : '';
   return name && isRefName(name) ? name : undefined;
 }
@@ -572,6 +578,29 @@ async function defaultBranches(runner: CommandRunner, dir: string): Promise<stri
   ).catch(() => undefined);
   const ref = r?.code === 0 ? r.stdout.trim() : '';
   return ref.startsWith('origin/') ? [ref.slice('origin/'.length)] : ['main', 'master'];
+}
+
+/** 기준 브랜치나 레포 기본 브랜치인지 본다. 워커가 이런 브랜치를 이어받아 커밋하면 안 된다 */
+async function isProtectedBranch(
+  runner: CommandRunner,
+  dir: string,
+  branch: string,
+  order: Order,
+): Promise<boolean> {
+  return branch === order.baseBranch || (await defaultBranches(runner, dir)).includes(branch);
+}
+
+/** 기록된 앞 브랜치가 기준 브랜치나 기본 브랜치면 이어받지 않고 멈춘다 */
+async function assertNotProtected(
+  runner: CommandRunner,
+  dir: string,
+  branch: string,
+  order: Order,
+): Promise<void> {
+  if (await isProtectedBranch(runner, dir, branch, order))
+    throw new Error(
+      `앞 워커가 기록한 브랜치 ${branch}가 기준 브랜치나 레포 기본 브랜치라 이어받지 않았어요. 워커 기록을 확인해 주세요`,
+    );
 }
 
 /** 실패를 예외 대신 code 1 결과로 받는다. 실패해도 경고만 남기고 이어 가는 자리에서 쓴다 */
@@ -648,9 +677,12 @@ function leftoverHint(selector: string, deleteBranch: boolean): string {
   return `남은 워크트리는 ${rmCommand(selector, deleteBranch)}로 지워 주세요`;
 }
 
-/** 바깥 출처가 고른 기준 브랜치의 셋업 스크립트를 이 호스트에서 돌리지 않는다 */
-function setupFlags(order: Order): string[] {
-  return order.baseBranch && order.source !== 'spoken' ? ['--setup', 'skip'] : [];
+/**
+ * 바깥 출처가 고른 기준 브랜치의 셋업 스크립트를 이 호스트에서 돌리지 않는다. 재개는 앞 워커가 커밋한
+ * 브랜치에서 만들어서 기준 브랜치가 없어도 같은 이유로 건너뛴다
+ */
+function setupFlags(order: Order, resume = false): string[] {
+  return (order.baseBranch || resume) && order.source !== 'spoken' ? ['--setup', 'skip'] : [];
 }
 
 interface BranchPlan {
@@ -700,6 +732,7 @@ export class OrcaLauncher implements Launcher {
     const planned = issueBranchName(spec.order);
     const refs = worktreeReferences(spec.order);
     const warnings: string[] = [];
+    // PR이 붙은 주문은 PR 브랜치에서 일하므로 앞 브랜치를 이어받을 일이 없어 경고하지 않는다
     if (!planned && spec.previousBranch !== undefined && !spec.order.prRef)
       warnings.push(
         `${spec.order.id}: 지라 키가 없는 주문이라 앞 워커가 쓰던 브랜치 ${oneLine(spec.previousBranch, 120)}를 이어받지 않고 새 워크트리로 띄웠어요`,
@@ -797,6 +830,12 @@ export class OrcaLauncher implements Launcher {
   ): Promise<BranchPlan> {
     if (spec.previousBranch !== undefined) {
       assertResumableBranch(spec.previousBranch);
+      await assertNotProtected(
+        this.runner,
+        await this.gitDirOf(spec.order),
+        spec.previousBranch,
+        spec.order,
+      );
       return { name: spec.previousBranch, resume: true };
     }
     let local: Set<string> | undefined;
@@ -950,7 +989,7 @@ export class OrcaLauncher implements Launcher {
       ? await this.childPlacement(order)
       : ['--repo', this.repoSelector(order), '--no-parent'];
     // 부모 없는 워크트리의 셋업 정책은 한 번에 띄우던 길과 같게 둔다. worker-start의 새 워크트리 기본값이 run이다
-    const skip = order.parentWorktree ? [] : setupFlags(order);
+    const skip = order.parentWorktree ? [] : setupFlags(order, branch?.resume === true);
     const setup = skip.length ? skip : ['--setup', 'run'];
     const where = order.parentWorktree ? `${order.parentWorktree} 아래 ` : '';
     const leftover = `${where}${name} 워크트리가 생겼을 수 있어요. \`orca worktree show --worktree ${shellArg(`name:${name}`)}\`로 확인하고 있으면 ${rmCommand(`name:${name}`, true)}로 지워 주세요`;
@@ -1558,6 +1597,12 @@ export class GitWorktreeLauncher implements Launcher {
         warnings.push(
           `${spec.order.id}: ${cwd}가 detach 상태이거나 브랜치를 못 읽어 워커 브랜치를 기록하지 않았어요`,
         );
+      else if (await isProtectedBranch(this.runner, cwd, branch, spec.order)) {
+        warnings.push(
+          `${spec.order.id}: ${cwd}가 기준 브랜치나 기본 브랜치 ${branch}를 체크아웃하고 있어 워커 브랜치로 기록하지 않았어요`,
+        );
+        branch = undefined;
+      }
     } else {
       branch = await this.branchFor(spec, repoPath, warnings);
       await this.addWorktree(repoPath, branch, cwd, spec.order.baseBranch);
@@ -1595,6 +1640,7 @@ export class GitWorktreeLauncher implements Launcher {
     const previous = spec.previousBranch;
     if (previous !== undefined) {
       assertResumableBranch(previous);
+      await assertNotProtected(this.runner, repoPath, previous, spec.order);
       if (!(await hasLocalBranch(this.runner, repoPath, previous)))
         throw new Error(
           `앞 워커가 쓰던 브랜치 ${previous}가 로컬에 없어 이어받지 못했어요. origin에만 있으면 \`git -C ${shellArg(repoPath)} branch ${shellArg(previous)} ${shellArg(`origin/${previous}`)}\`로 가져온 뒤 다시 돌려 주세요`,
