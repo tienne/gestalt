@@ -203,15 +203,17 @@ async function mustRun(
   return r.stdout;
 }
 
-// git -C <경로>는 경로를 건너뛰고 오르카는 orchestration 뒤 하위 명령까지 붙여야 어느 호출이 실패했는지 보인다
+// git -C <경로>는 경로를 건너뛰고 오르카는 orchestration 뒤 하위 명령까지 붙여야 어느 호출이 실패했는지 보인다.
+// 앞 두 토큰을 옵션 전까지만 싣고 맨 앞부터 옵션이면 첫 토큰을 싣는다
 function failMessage(cmd: string, args: string[], r: CommandResult): string {
   const rest = args[0] === '-C' ? args.slice(2) : args;
-  const head = [];
+  const head: string[] = [];
   for (const a of rest.slice(0, 2)) {
     if (a.startsWith('-')) break;
     head.push(a);
   }
-  return `${cmd} ${head.join(' ')} 실패(${r.code}): ${outputHead(r)}`;
+  if (head.length === 0 && rest[0]) head.push(rest[0]);
+  return `${[cmd, ...head].join(' ')} 실패(${r.code}): ${outputHead(r)}`;
 }
 
 /**
@@ -1270,7 +1272,7 @@ export class OrcaLauncher implements Launcher {
       throw new Error(
         `${worker.id}의 오르카 dispatch가 아직 안 끝나 release를 거절당했어요(liveness ${shown.liveness ?? '모름'}). 살아 있는 워커는 멈추지 않았어요. ${stopCommandFor(worker)} 승인해 주세요`,
       );
-    // exited나 gone은 오르카가 끝 상태로 보는 값이라 show와 stop 사이에 live로 돌아가지 않는다고 본다.
+    // ctx_14ef78b9cc27에서는 stop 전후 모두 liveness가 exited였다. show와 stop 사이에 live로 돌아가지 않는다는 건 오르카 문서로 확인하지 못한 가정이다.
     // stop은 dispatch를 stopped로 바꾸기만 하고 터미널은 retained로 남긴다. release까지 불러야 거둔다
     await mustRun(
       this.runner,
