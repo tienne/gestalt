@@ -33,6 +33,7 @@ import {
   type LaunchSpec,
   type ReleaseOptions,
 } from '../../../src/conductor/launcher.js';
+import type { PrStateSource } from '../../../src/conductor/ownership.js';
 import type { ConductorConfig } from '../../../src/conductor/scheduler.js';
 import { ConductorStore, EVENTS_FILE, replay } from '../../../src/conductor/store.js';
 import type { Worker, WorkerKind } from '../../../src/conductor/types.js';
@@ -87,6 +88,8 @@ function fakeJira() {
   return { client, moves };
 }
 
+const openPrState: PrStateSource = { state: async () => ({ state: 'OPEN' }) };
+
 function deps(over: Partial<EngineDeps> = {}) {
   const git = fakeLauncher('git-worktree');
   const base: EngineDeps = {
@@ -94,6 +97,8 @@ function deps(over: Partial<EngineDeps> = {}) {
     launchers: { 'git-worktree': git.launcher },
     orcaAvailable: false,
     env: {},
+    // 기본 gh 소스가 진짜 GitHub를 조회하지 않게 막는다
+    prState: openPrState,
     ...over,
   };
   return { deps: base, git };
