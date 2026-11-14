@@ -146,3 +146,13 @@ export const ORDER_SCOPES = ['merge-through', 'approval', 'interview-first'] as 
  * 설정 스키마와 주문 접수가 같은 규칙을 쓰도록 core에 둔다. JSON 스키마 pattern도 같은 식이다
  */
 export const AGENT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+
+/** Claude Code `--effort`가 받는 값. 오르카도 claude 모델에 이 다섯 개만 허용한다 */
+export const HANDOFF_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type HandoffEffort = (typeof HANDOFF_EFFORTS)[number];
+
+/**
+ * 인계로 띄우는 지휘자 세션 모델 id의 허용 꼴. AGENT_ID_RE와 달리 별칭 뒤 `[1m]` 접미와 긴 전체 id를 받는다.
+ * 오르카 `--model` 인자로 그대로 넘어가서 설정값과 트랜스크립트에서 읽은 값 모두 이 식으로 거른다
+ */
+export const HANDOFF_MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}(\[1m\])?$/;

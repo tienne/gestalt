@@ -35,6 +35,7 @@ import {
   handoffRecordPath,
   handoffStatus,
   isSessionId,
+  resolveHandoffModel,
   launchHandoff,
   readHandoffRecord,
   recordHandoff,
@@ -653,8 +654,11 @@ export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Pr
       detail: '띄우는 중',
     });
     const orca = opts.launch === false ? undefined : detectOrca(process.env);
+    const model = resolveHandoffModel(status, ctx.config.handoffModel);
     const outcome = await launchHandoff(file, {
       cwd: process.cwd(),
+      effort: ctx.config.handoffEffort,
+      ...(model ? { model } : {}),
       ...(orca ? { orcaCommand: orca } : {}),
     });
     let recordError: string | undefined;

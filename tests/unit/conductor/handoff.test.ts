@@ -28,6 +28,7 @@ import {
   handoffStatus,
   isConductorLoopPrompt,
   CONDUCTOR_LOOP_PROMPT,
+  resolveHandoffModel,
   launchHandoff,
   readCompactions,
   registerSession,
@@ -218,7 +219,12 @@ describe('contextUsage', () => {
       assistantLine({ input_tokens: 190_000 }, { isSidechain: true }),
       JSON.stringify({ type: 'user', message: { content: 'hi' } }),
     ]);
-    expect(contextUsage(file)).toEqual({ usedTokens: 140_002, windowTokens: 200_000, percent: 70 });
+    expect(contextUsage(file)).toEqual({
+      usedTokens: 140_002,
+      windowTokens: 200_000,
+      percent: 70,
+      model: 'claude-opus-5-5',
+    });
     expect(contextUsage(file, 1_000_000)?.percent).toBe(14);
   });
 
@@ -457,6 +463,112 @@ describe('인계 파일과 띄우기', () => {
   });
 });
 
+describe('새 지휘자 세션의 모델과 effort', () => {
+  const ok: CommandRunner = async () => ({ code: 0, stdout: '{}', stderr: '' });
+
+  it('설정 모델이 먼저고 없으면 이전 세션 모델을 1M 창 표시까지 잇는다', () => {
+    const usage = (windowTokens: number, model?: string) => ({
+      sessionId: 's',
+      compactions: 1,
+      thresholdPercent: 70,
+      due: true,
+      usage: { usedTokens: 1, windowTokens, percent: 0, ...(model ? { model } : {}) },
+    });
+    expect(resolveHandoffModel(usage(200_000, 'claude-opus-5-5'), 'fable')).toBe('fable');
+    expect(resolveHandoffModel(usage(200_000, 'claude-opus-5-5'))).toBe('claude-opus-5-5');
+    expect(resolveHandoffModel(usage(1_000_000, 'claude-opus-5-5'))).toBe('claude-opus-5-5[1m]');
+    expect(resolveHandoffModel(usage(1_000_000, 'claude-opus-5-5[1m]'))).toBe(
+      'claude-opus-5-5[1m]',
+    );
+    expect(resolveHandoffModel(usage(200_000))).toBeUndefined();
+    expect(resolveHandoffModel(undefined)).toBeUndefined();
+  });
+
+  it('설정 모델에는 1M 창 표시를 붙이지 않고 적힌 그대로 쓴다', () => {
+    const big = {
+      sessionId: 's',
+      compactions: 1,
+      thresholdPercent: 70,
+      due: true,
+      usage: { usedTokens: 1, windowTokens: 1_000_000, percent: 0, model: 'claude-opus-5-5' },
+    };
+    expect(resolveHandoffModel(big, 'opus')).toBe('opus');
+    expect(resolveHandoffModel(big, 'opus[1m]')).toBe('opus[1m]');
+  });
+
+  it('트랜스크립트 모델이 허용 꼴이 아니면 모델 없이 띄운다', () => {
+    const withModel = (model: string) => ({
+      sessionId: 's',
+      compactions: 1,
+      thresholdPercent: 70,
+      due: true,
+      usage: { usedTokens: 1, windowTokens: 200_000, percent: 0, model },
+    });
+    expect(resolveHandoffModel(withModel('--help'))).toBeUndefined();
+    expect(resolveHandoffModel(withModel('opus 5'))).toBeUndefined();
+    expect(resolveHandoffModel(withModel('x'.repeat(101)))).toBeUndefined();
+  });
+
+  it('claude면 --model과 --effort를 함께 싣는다', async () => {
+    const calls: string[][] = [];
+    const r = await launchHandoff('/f.md', {
+      cwd: '/work',
+      orcaCommand: '/bin/orca',
+      model: 'claude-opus-5-5',
+      effort: 'high',
+      runner: async (_c, args) => {
+        calls.push(args);
+        return ok(_c, args, { cwd: '/work' });
+      },
+    });
+    expect(calls[0]).toEqual(
+      expect.arrayContaining(['--model', 'claude-opus-5-5', '--effort', 'high']),
+    );
+    const args = calls[0]!;
+    expect(args.indexOf('--effort')).toBe(args.indexOf('--model') + 2);
+    expect(r.detail).toContain('effort high');
+  });
+
+  it('모델을 모르면 effort를 빼고 띄운 뒤 직접 맞추라고 알린다', async () => {
+    const calls: string[][] = [];
+    const r = await launchHandoff('/f.md', {
+      cwd: '/work',
+      orcaCommand: '/bin/orca',
+      effort: 'high',
+      runner: async (_c, args) => {
+        calls.push(args);
+        return ok(_c, args, { cwd: '/work' });
+      },
+    });
+    expect(calls[0]).not.toContain('--effort');
+    expect(calls[0]).not.toContain('--model');
+    expect(r).toMatchObject({ launched: true, detail: expect.stringContaining('/effort high') });
+  });
+
+  it('claude가 아니면 모델과 effort를 싣지 않는다', async () => {
+    const calls: string[][] = [];
+    const r = await launchHandoff('/f.md', {
+      cwd: '/work',
+      orcaCommand: '/bin/orca',
+      agent: 'codex',
+      model: 'claude-opus-5-5',
+      effort: 'high',
+      runner: async (_c, args) => {
+        calls.push(args);
+        return ok(_c, args, { cwd: '/work' });
+      },
+    });
+    expect(calls[0]).not.toContain('--effort');
+    expect(calls[0]).not.toContain('--model');
+    expect(r.detail).not.toContain('effort');
+  });
+
+  it('오르카가 없으면 안내 문장에 /effort를 넣는다', async () => {
+    const r = await launchHandoff('/f.md', { cwd: '/work', effort: 'high' });
+    expect(r).toMatchObject({ launched: false, detail: expect.stringContaining('/effort high') });
+  });
+});
+
 describe('tick과 handoff 명령', () => {
   it('tick은 세션을 등록하고 handoff를 싣는다. 인계한 세션의 tick은 거절한다', async () => {
     const out: string[] = [];
@@ -584,6 +696,9 @@ describe('handoff 명령의 탭 이름', () => {
     expect(handed).toMatchObject({ launched: true });
     expect(handed).not.toHaveProperty('renameErrors');
     const calls = readFileSync(log, 'utf-8').trim().split('\n');
+    // 트랜스크립트가 없어 모델을 모르면 오르카가 거절하는 --effort 단독 인자를 싣지 않는다
+    expect(calls[0]).toMatch(/^agent launch --agent claude /);
+    expect(calls[0]).not.toContain('--effort');
     // 두 rename은 함께 돌아 기록 순서가 정해져 있지 않다
     expect(calls.slice(1)).toHaveLength(2);
     expect(calls.slice(1)).toEqual(
@@ -592,6 +707,21 @@ describe('handoff 명령의 탭 이름', () => {
         'chat rename --session=claude_new --name 🤴 지휘자 세션 🤴 --json',
       ]),
     );
+  });
+
+  it('사용자 전역 설정의 모델과 effort를 오르카 인자로 싣는다', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { stateDir, log, notes } = setup(0);
+    const home = join(base, 'home');
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    writeFileSync(
+      join(home, '.gestalt', 'conductor.json'),
+      JSON.stringify({ handoffModel: 'opus[1m]' }),
+    );
+    vi.stubEnv('GESTALT_HOME', home);
+    await conductorHandoffCommand({ stateDir, json: true, notesFile: notes });
+    const calls = readFileSync(log, 'utf-8').trim().split('\n');
+    expect(calls[0]).toContain('--model opus[1m] --effort high');
   });
 
   it('새 터미널 탭은 핸들로 바꾼다', async () => {
