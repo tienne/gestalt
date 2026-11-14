@@ -38,6 +38,7 @@ import {
   conductorOrderAddCommand,
   conductorOrderCancelCommand,
   conductorOrderMarkMergedCommand,
+  conductorOrderRemoveCommand,
   conductorOrderShowCommand,
   conductorOrderTakeOverCommand,
   conductorQueueAddCommand,
@@ -1086,6 +1087,16 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorOrderAddCommand(o));
+  conductorOrder
+    .command('remove <orderIds...>')
+    .description(
+      '끝난 주문(done, failed, cancelled)을 지운다. 지운 주문의 출처는 다시 받지 않는다. 워크트리와 브랜치는 그대로 둔다',
+    )
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (ids: string[], o) => {
+      await conductorOrderRemoveCommand(ids, o);
+    });
 
   conductorOrder
     .command('take-over <orderId>')
@@ -1216,6 +1227,10 @@ export function createCli(): Command {
     .option(
       '--answer <text>',
       '사람의 답. 워커에 결정과 함께 전하고 고정 문구보다 먼저 따르게 한다',
+    )
+    .option(
+      '--defer-delivery',
+      '직접 못 전하는 결정은 다음 tick에 넘긴다 (hostActions를 못 돌리는 호출자용)',
     )
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')

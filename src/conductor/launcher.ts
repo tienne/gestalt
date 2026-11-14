@@ -75,7 +75,8 @@ export function workerAt(cwd: string, workers: readonly Worker[]): Worker | unde
   });
 }
 
-function orcaWorktreeName(w: Pick<Worker, 'orderId' | 'attempt'>): string {
+/** 오르카 워커의 워크트리 디렉토리 이름. worker-start의 `--name`으로 넘긴 값이 그대로 디렉토리 이름이 된다 */
+export function orcaWorktreeName(w: Pick<Worker, 'orderId' | 'attempt'>): string {
   return `${w.orderId}-${w.attempt}`;
 }
 

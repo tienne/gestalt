@@ -17,6 +17,7 @@ import {
   writeQueueMessage,
 } from '../../conductor/adapters.js';
 import {
+  acquireLock,
   afterHumanMerge,
   rateLimitEntries,
   deliverGateDecision,
@@ -55,6 +56,7 @@ import {
   detectOrca,
   GitWorktreeLauncher,
   OrcaLauncher,
+  orcaWorktreeName,
   SubagentLauncher,
   workerAt,
   type HostAction,
@@ -142,7 +144,7 @@ function launchersFor(
 }
 
 /**
- * 컨덕터 전용 명령(tick, gate resolve, order add, deploy report, queue add)을 워커 안에서 부르면 거절한다.
+ * 컨덕터 전용 명령(tick, gate resolve, order add, order remove, deploy report, queue add)을 워커 안에서 부르면 거절한다.
  *
  * 환경 변수는 호스트가 git 워크트리 세션을 열 때 넣어 준 경우에만 있다. 오르카 워커는 환경이
  * 컨덕터와 같아서 작업 디렉토리가 살아 있는 워커의 워크트리 안인지로 가른다. 서브에이전트는
@@ -247,11 +249,63 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
       { defaultScope: ctx.config.defaultScope },
       { trusted: true },
     );
+    if ('removedAt' in out) {
+      if (opts.json) return print({ created: false, removedAt: out.removedAt });
+      return console.log(`이 출처의 주문은 ${out.removedAt}에 지웠어요. 다시 받지 않아요`);
+    }
     if (opts.json) return print({ created: out.created, order: out.order });
     console.log(
       `${out.created ? '주문을 받았어요' : '이미 받은 주문이에요'}: ${out.order.id} (${out.order.scope})`,
     );
   });
+}
+
+/**
+ * 끝난 주문을 저장소에서 지운다. 로그 줄을 지우지 않고 order-removed를 덧붙이니 컨덕터 tick이나
+ * 워커가 동시에 써도 안전하다. 지운 주문의 출처는 남겨 지라나 PR 감시가 같은 주문을 다시 만들지 않는다.
+ * 하나가 거절돼도 나머지는 지운다. 하나도 못 지웠으면 1로 끝난다.
+ */
+export async function conductorOrderRemoveCommand(
+  orderIds: string[],
+  opts: ConductorCommonOptions,
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'order remove');
+    // tick이 게이트를 열거나 워커를 띄우는 사이에 지우지 않게 같은 잠금을 잡고 다시 읽는다
+    const lock = acquireLock(ctx.store.dir);
+    if (!lock.ok)
+      throw new Error(
+        `컨덕터 tick이 도는 중이라 못 지웠어요${lock.holder ? ` (pid ${lock.holder})` : ''}. 잠시 뒤 다시 불러 주세요`,
+      );
+    const removed: string[] = [];
+    const skipped: { id: string; reason: string }[] = [];
+    try {
+      ctx.store.reload();
+      await ctx.store.deferSnapshot(async () => {
+        for (const id of new Set(orderIds)) {
+          try {
+            ctx.store.removeOrder(id);
+            removed.push(id);
+          } catch (e) {
+            skipped.push({ id, reason: e instanceof Error ? e.message : String(e) });
+          }
+        }
+      });
+    } finally {
+      lock.release();
+    }
+    if (opts.json) print({ removed, skipped });
+    else if (removed.length > 0) {
+      console.log(`주문 ${removed.length}개를 지웠어요: ${removed.join(', ')}`);
+      for (const s of skipped) console.log(`못 지웠어요: ${s.reason}`);
+    }
+    // 하나도 못 지우면 이유를 stderr로 한 번만 낸다. 플러그인처럼 실패하면 stderr만 보는 호출자도 받는다
+    if (removed.length === 0 && skipped.length > 0)
+      exitWithError(new Error(skipped.map((s) => s.reason).join('\n')));
+  } catch (e) {
+    exitWithError(e);
+  }
 }
 
 /**
@@ -374,29 +428,43 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
     }
     if (opts.json) {
       return print({
+        stateDir: store.dir,
         lastTickAt: store.snapshot.lastTickAt ?? null,
-        orders: orders.map((o) => ({
-          id: o.id,
-          status: o.status,
-          scope: o.scope,
-          repo: o.repo,
-          title: o.title,
-          ...(o.workerId ? { worker: o.workerId } : {}),
-          ...(o.prRef ? { pr: o.prRef } : {}),
-          ...(o.issueKey ? { issue: o.issueKey } : {}),
-          ...(o.humanOwnedAt ? { humanOwnedAt: o.humanOwnedAt } : {}),
-          ...(limited.has(o.id) ? { rateLimit: limited.get(o.id) } : {}),
-          ...(opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
-            ? { lastSummary: store.snapshot.reports[o.id]?.at(-1)?.summary ?? null }
-            : {}),
-          bypasses: bypassesOf.get(o.id) ?? [],
-        })),
+        orders: orders.map((o) => {
+          const w = o.workerId ? store.worker(o.workerId) : undefined;
+          return {
+            id: o.id,
+            status: o.status,
+            scope: o.scope,
+            repo: o.repo,
+            title: o.title,
+            updatedAt: o.updatedAt,
+            ...(o.workerId ? { worker: o.workerId } : {}),
+            // 오르카 플러그인 같은 바깥 도구가 워커 워크트리를 찾아 열 때 쓴다
+            ...(w ? { workerKind: w.kind, workerStatus: w.status } : {}),
+            ...(w?.handle ? { workerHandle: w.handle } : {}),
+            ...(w?.kind === 'orca-worktree' ? { worktreeName: orcaWorktreeName(w) } : {}),
+            // 바깥 도구가 주문 위계를 그릴 때 쓴다. 하위 주문과 부모 워크트리 둘 다 비면 뿌리 주문이다
+            ...(o.parentOrderId ? { parentOrderId: o.parentOrderId } : {}),
+            ...(o.parentWorktree ? { parentWorktree: o.parentWorktree } : {}),
+            ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}),
+            ...(o.prRef ? { pr: o.prRef } : {}),
+            ...(o.issueKey ? { issue: o.issueKey } : {}),
+            ...(o.humanOwnedAt ? { humanOwnedAt: o.humanOwnedAt } : {}),
+            ...(limited.has(o.id) ? { rateLimit: limited.get(o.id) } : {}),
+            ...(opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
+              ? { lastSummary: store.snapshot.reports[o.id]?.at(-1)?.summary ?? null }
+              : {}),
+            bypasses: bypassesOf.get(o.id) ?? [],
+          };
+        }),
         unassignedBypasses: bypassesOf.get('') ?? [],
         gates: gates.map((g) => ({
           id: g.id,
           type: g.type,
           orderId: g.orderId ?? null,
           reason: g.reason,
+          openedAt: g.openedAt,
         })),
       });
     }
@@ -692,6 +760,7 @@ export interface ConductorGateResolveOptions extends ConductorCommonOptions {
   /** 사람이 PR을 넘겨받는다. 승인, 거절과 나란히 두는 세 번째 답이다 */
   takeOver?: boolean;
   answer?: string;
+  deferDelivery?: boolean;
 }
 
 export async function conductorGateResolveCommand(
@@ -720,9 +789,12 @@ export async function conductorGateResolveCommand(
       opts.approve ? 'approved' : 'rejected',
       opts.answer,
     );
-    const delivered = await deliverGateDecision(ctx.store, closed, launchersFor(ctx, process.env));
-    if (opts.json) return print({ gate: closed, ...delivered });
+    const delivered = await deliverGateDecision(ctx.store, closed, launchersFor(ctx, process.env), {
+      defer: opts.deferDelivery === true,
+    });
+    if (opts.json) return print({ gate: ctx.store.snapshot.gates[gateId] ?? closed, ...delivered });
     console.log(`${gateId}를 ${closed.decision === 'approved' ? '승인' : '거절'}했어요`);
+    if (delivered.deferred) console.log('결정은 다음 tick이 워커에 전해요');
     for (const a of delivered.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
     for (const e of delivered.errors) console.log(`오류: ${e}`);
   } catch (e) {

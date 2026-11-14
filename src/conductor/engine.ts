@@ -320,6 +320,7 @@ async function runTick(
       if (d.kind === 'escalate') report.escalated.push(d.gate.id);
     }
   });
+  await step(report, () => deliverPendingDecisions(store, deps, report));
   await step(report, () => launchQueued(store, deps, report));
   // 사람이 넘겨받은 주문의 PR을 확인만 하고 바뀐 게 없으면 prCheckedAt 기록만 남는다. 이건 idle 판정에서 뺀다
   let prCheckEvents = 0;
@@ -649,8 +650,11 @@ async function spawnFromReport(
   };
   if (order.parentOrderId) return refuse('하위 주문의 하위 주문은 만들 수 없어요');
   const sourceRef = `spawn:${order.id}:${req.title}`;
-  if (store.findOrderBySourceRef(sourceRef)) return;
-  const made = store.orders().filter((o) => o.parentOrderId === order.id).length;
+  if (store.hasSourceRef(sourceRef)) return;
+  // 지운 하위 주문도 센다. 안 그러면 끝난 하위 주문을 지울 때마다 상한이 다시 열린다
+  const made = [...store.orders(), ...Object.values(store.snapshot.removedOrders)].filter(
+    (o) => o.parentOrderId === order.id,
+  ).length;
   if (made >= MAX_SPAWN_PER_ORDER)
     return refuse(`주문 하나에 ${MAX_SPAWN_PER_ORDER}개까지만 만들어요`);
   const scope: OrderScope = order.scope === 'merge-through' ? 'approval' : order.scope;
@@ -673,20 +677,88 @@ async function spawnFromReport(
 /**
  * 사람이 종료한 게이트의 결정을 살아 있는 워커에 전한다. `gestalt conductor gate resolve`가 부른다.
  * 워커가 없거나 끝났으면 전할 곳이 없으니 아무것도 안 한다. 주문은 resolveGate가 이미 옮겨 뒀다.
+ *
+ * `defer`는 hostActions를 실행할 수 없는 호출자(오르카 플러그인)가 켠다. 그때 런처가 직접 못 전하고
+ * hostAction으로 돌려준 결정은 게이트에 전달 대기로 남기고 다음 tick이 컨덕터 세션의 hostActions로 내보낸다.
+ * 호출자 쪽에 그 워커의 런처가 없거나 send가 던졌을 때도 대기로 남겨 다음 tick이 다시 전한다.
  */
 export async function deliverGateDecision(
   store: ConductorStore,
   gate: Gate,
   deps: Pick<EngineDeps, 'launchers'>,
-): Promise<{ hostActions: HostAction[]; errors: string[] }> {
-  const out = { hostActions: [] as HostAction[], errors: [] as string[] };
+  opts: { defer?: boolean } = {},
+): Promise<{ hostActions: HostAction[]; errors: string[]; deferred: boolean; retry: boolean }> {
+  const out = {
+    hostActions: [] as HostAction[],
+    errors: [] as string[],
+    deferred: false,
+    retry: false,
+  };
   const order = gate.orderId ? store.order(gate.orderId) : undefined;
   const worker = order?.workerId ? store.worker(order.workerId) : undefined;
   if (!worker || (worker.status !== 'running' && worker.status !== 'starting')) return out;
   const text = decisionMessage(gate);
   const fake = emptyReport(store.timestamp());
-  await sendTo(deps, fake, worker, text);
-  return { hostActions: fake.hostActions, errors: fake.errors };
+  const result = await sendTo(deps, fake, worker, text);
+  if (opts.defer && (fake.hostActions.length > 0 || result !== 'sent')) {
+    // 플러그인 프로세스에 런처가 없는 건 컨덕터 세션에서는 다를 수 있어 오류로 안 돌려준다
+    const errors = result === 'no-launcher' ? [] : fake.errors;
+    store.append({
+      type: 'gate-delivery',
+      at: store.timestamp(),
+      gateId: gate.id,
+      pending: true,
+      ...(result === 'failed' ? { attempts: 1 } : {}),
+    });
+    return { hostActions: [], errors, deferred: true, retry: false };
+  }
+  // 런처가 없으면 다시 해도 같으니 send가 던졌을 때만 다시 해 볼 만하다
+  return {
+    hostActions: fake.hostActions,
+    errors: fake.errors,
+    deferred: false,
+    retry: result === 'failed',
+  };
+}
+
+/**
+ * 시간 초과로 실패했어도 실제로는 닿았을 수 있다.
+ * 계속 다시 보내면 같은 결정이 여러 번 갈 수 있으므로 재시도 횟수에 상한을 둔다
+ */
+const MAX_DELIVERY_ATTEMPTS = 3;
+
+/**
+ * 플러그인이 종료하고 못 전한 결정을 이번 tick의 hostActions로 내보낸다. 워커가 끝났으면 버린다.
+ * send가 던지면 대기를 남겨 다음 tick에 다시 하고 MAX_DELIVERY_ATTEMPTS번 실패하면 그만둔다
+ */
+async function deliverPendingDecisions(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+): Promise<void> {
+  for (const gate of Object.values(store.snapshot.gates)) {
+    if (!gate.deliveryPending) continue;
+    const r = await deliverGateDecision(store, gate, deps);
+    report.hostActions.push(...r.hostActions);
+    report.errors.push(...r.errors);
+    if (r.retry) {
+      const attempts = (gate.deliveryAttempts ?? 0) + 1;
+      if (attempts < MAX_DELIVERY_ATTEMPTS) {
+        store.append({
+          type: 'gate-delivery',
+          at: store.timestamp(),
+          gateId: gate.id,
+          pending: true,
+          attempts,
+        });
+        continue;
+      }
+      report.errors.push(
+        `${gate.id} 결정을 ${MAX_DELIVERY_ATTEMPTS}번 못 전해서 그만뒀어요. 워커에 직접 전해 주세요`,
+      );
+    }
+    store.append({ type: 'gate-delivery', at: store.timestamp(), gateId: gate.id, pending: false });
+  }
 }
 
 /**
@@ -720,17 +792,19 @@ async function sendTo(
   report: Pick<TickReport, 'hostActions' | 'errors'>,
   worker: Worker,
   text: string,
-): Promise<void> {
+): Promise<'sent' | 'no-launcher' | 'failed'> {
   const launcher = deps.launchers[worker.kind];
   if (!launcher) {
     report.errors.push(`${worker.kind} 런처가 없어 ${worker.id}에 못 전했어요`);
-    return;
+    return 'no-launcher';
   }
   try {
     const action = await launcher.send(worker, text);
     if (action) report.hostActions.push(action);
+    return 'sent';
   } catch (err) {
     report.errors.push(`${worker.id}에 전하기 실패: ${message(err)}`);
+    return 'failed';
   }
 }
 
@@ -1115,7 +1189,7 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-type LockResult = { ok: true; release: () => void } | { ok: false; holder?: number };
+export type LockResult = { ok: true; release: () => void } | { ok: false; holder?: number };
 
 interface LockInfo {
   pid: number;
@@ -1132,7 +1206,7 @@ interface LockInfo {
  * 잠금을 다시 읽어 낡았다고 본 그 내용일 때만 지우고 새로 잡는다.
  * 풀 때도 같은 steal 줄에 서서 자기 토큰일 때만 지운다(releaseLock).
  */
-function acquireLock(dir: string): LockResult {
+export function acquireLock(dir: string): LockResult {
   const path = join(dir, LOCK_FILE);
   const token = `${process.pid}:${Date.now()}:${hostname()}:${randomUUID()}`;
   const release = () => releaseLock(path, token);

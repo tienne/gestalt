@@ -14,6 +14,7 @@ import { writeJsonAtomic } from '../core/json-file.js';
 import { log } from '../core/log.js';
 import {
   ACTIVE_WORKER_STATUSES,
+  TERMINAL_ORDER_STATUSES,
   type Checkpoint,
   type Gate,
   type ConductorEvent,
@@ -44,6 +45,7 @@ export const SNAPSHOT_FILE = 'snapshot.json';
 export function emptySnapshot(): ConductorSnapshot {
   return {
     orders: {},
+    removedOrders: {},
     workers: {},
     checkpoints: {},
     gates: {},
@@ -124,8 +126,25 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     case 'jira-transition':
       s.jiraTransitions.push(e.record);
       return;
+    case 'gate-delivery': {
+      const g = s.gates[e.gateId];
+      if (!g) return;
+      const next: Gate = { ...g };
+      if (e.pending) {
+        next.deliveryPending = true;
+        if (e.attempts !== undefined) next.deliveryAttempts = e.attempts;
+      } else {
+        delete next.deliveryPending;
+        delete next.deliveryAttempts;
+      }
+      s.gates[e.gateId] = next;
+      return;
+    }
     case 'slack-posted':
       s.slackPosted[e.gateId] = e.ref;
+      return;
+    case 'order-removed':
+      removeFromSnapshot(s, e.orderId, e.at);
       return;
     case 'report-applied':
       s.appliedReports[e.name] = e.at;
@@ -146,6 +165,47 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
   }
 }
 
+/**
+ * 주문을 못 지우는 이유를 준다. 지울 수 있으면 undefined.
+ * 멈춘 워커도 막는다. 그 워크트리가 남아 있을 수 있어서 워커 기록을 지우면 workerAt 가드가 풀린다
+ */
+function removalBlocker(s: ConductorSnapshot, orderId: string): string | undefined {
+  const o = s.orders[orderId];
+  if (!o) return `모르는 주문이에요: ${orderId}`;
+  if (!TERMINAL_ORDER_STATUSES.has(o.status))
+    return `끝난 주문만 지울 수 있어요: ${orderId}(${o.status})`;
+  if (Object.values(s.gates).some((g) => g.orderId === o.id && g.status === 'open'))
+    return `열린 게이트가 있어서 못 지워요: ${orderId}`;
+  const workers = Object.values(s.workers).filter((w) => w.orderId === o.id);
+  if (workers.some((w) => ACTIVE_WORKER_STATUSES.has(w.status)))
+    return `도는 워커가 있어서 못 지워요: ${orderId}`;
+  if (workers.some((w) => w.status === 'stopped'))
+    return `멈춘 워커의 워크트리가 남아 있을 수 있어서 못 지워요: ${orderId}`;
+  return undefined;
+}
+
+function removeFromSnapshot(s: ConductorSnapshot, orderId: string, at: string): void {
+  // 재생은 validate를 안 거친다. 다른 프로세스가 지우기와 경합해 게이트나 워커를 붙였으면 무시한다
+  if (removalBlocker(s, orderId) !== undefined) return;
+  const o = s.orders[orderId]!;
+  delete s.orders[orderId];
+  s.removedOrders[orderId] = {
+    sourceRef: o.sourceRef,
+    ...(o.parentOrderId ? { parentOrderId: o.parentOrderId } : {}),
+    removedAt: at,
+  };
+  for (const w of Object.values(s.workers)) if (w.orderId === orderId) delete s.workers[w.id];
+  delete s.checkpoints[orderId];
+  for (const g of Object.values(s.gates)) {
+    if (g.orderId !== orderId) continue;
+    delete s.gates[g.id];
+    delete s.slackPosted[g.id];
+  }
+  s.bypasses = s.bypasses.filter((b) => b.orderId !== orderId);
+  s.jiraTransitions = s.jiraTransitions.filter((t) => t.orderId !== orderId);
+  delete s.reports[orderId];
+}
+
 export function newId(prefix: 'ord' | 'wrk' | 'gate'): string {
   return `${prefix}-${randomUUID().slice(0, 8)}`;
 }
@@ -155,6 +215,11 @@ export class ConductorStore {
   private state: ConductorSnapshot;
   private readonly now: () => Date;
   private deferDepth = 0;
+  private removedIndex?: {
+    state: ConductorSnapshot;
+    size: number;
+    bySource: Map<string, string>;
+  };
 
   private constructor(dir: string, state: ConductorSnapshot, now: () => Date) {
     this.dir = dir;
@@ -224,6 +289,11 @@ export class ConductorStore {
     this.append({ type: 'order-updated', at: this.timestamp(), orderId, patch });
   }
 
+  /** 끝난 주문을 지운다. 도는 워커나 멈춘 워커, 열린 게이트가 있으면 거절한다 */
+  removeOrder(orderId: string): void {
+    this.append({ type: 'order-removed', at: this.timestamp(), orderId });
+  }
+
   startWorker(worker: Worker): void {
     this.append({ type: 'worker-started', at: this.timestamp(), worker });
   }
@@ -284,6 +354,28 @@ export class ConductorStore {
     return this.orders().find((o) => o.sourceRef === sourceRef);
   }
 
+  /** 지운 주문의 출처면 지운 시각을 준다. 접수가 이걸 보고 같은 출처를 다시 받지 않는다 */
+  removedAtOf(sourceRef: string): string | undefined {
+    // poll마다 티켓별로 불려서 출처 색인을 둔다. removedOrders는 늘기만 해서 크기로 낡았는지 본다
+    const removed = this.state.removedOrders;
+    const size = Object.keys(removed).length;
+    if (this.removedIndex?.state !== this.state || this.removedIndex.size !== size) {
+      const bySource = new Map<string, string>();
+      for (const r of Object.values(removed))
+        if (!bySource.has(r.sourceRef)) bySource.set(r.sourceRef, r.removedAt);
+      this.removedIndex = { state: this.state, size, bySource };
+    }
+    return this.removedIndex.bySource.get(sourceRef);
+  }
+
+  /** 받은 적 있는 출처인지 본다. 지운 주문도 받은 것으로 친다 */
+  hasSourceRef(sourceRef: string): boolean {
+    return (
+      this.findOrderBySourceRef(sourceRef) !== undefined ||
+      this.removedAtOf(sourceRef) !== undefined
+    );
+  }
+
   workersOf(orderId: string): Worker[] {
     return this.workers()
       .filter((w) => w.orderId === orderId)
@@ -307,10 +399,14 @@ function validate(event: ConductorEvent, s: ConductorSnapshot): void {
   if (event.type === 'order-updated' && !s.orders[event.orderId]) {
     throw new Error(`모르는 주문이에요: ${event.orderId}`);
   }
+  if (event.type === 'order-removed') {
+    const blocker = removalBlocker(s, event.orderId);
+    if (blocker) throw new Error(blocker);
+  }
   if (event.type === 'worker-updated' && !s.workers[event.workerId]) {
     throw new Error(`모르는 워커예요: ${event.workerId}`);
   }
-  if (event.type === 'gate-updated' && !s.gates[event.gateId]) {
+  if ((event.type === 'gate-updated' || event.type === 'gate-delivery') && !s.gates[event.gateId]) {
     throw new Error(`모르는 게이트예요: ${event.gateId}`);
   }
   if (event.type === 'gate-resolved') {

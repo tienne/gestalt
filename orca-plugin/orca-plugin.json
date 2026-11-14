@@ -1,0 +1,86 @@
+{
+  "manifestVersion": 2,
+  "id": "gestalt-conductor",
+  "name": "Gestalt Conductor",
+  "version": "0.1.0",
+  "description": "Shows Gestalt conductor orders, open gates and bypass reports, and lets you approve or reject gates.",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "gestalt-conductor",
+        "title": "Gestalt Conductor",
+        "icon": "activity",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ],
+    "customEditors": [
+      {
+        "id": "board",
+        "title": "컨덕터 보드",
+        "extensions": [".conductor-board"],
+        "entry": "src/board.ts",
+        "frame": "isolated"
+      }
+    ],
+    "newFiles": [
+      {
+        "id": "board",
+        "title": "컨덕터 보드",
+        "extension": ".conductor-board"
+      }
+    ],
+    "commands": [
+      {
+        "id": "conductor.refresh",
+        "title": "Gestalt 컨덕터: 상태 새로고침"
+      }
+    ],
+    "statusBarItems": [
+      {
+        "id": "conductor",
+        "text": "컨덕터",
+        "icon": "activity",
+        "command": "conductor.refresh"
+      }
+    ],
+    "settings": [
+      {
+        "key": "gestaltPath",
+        "type": "string",
+        "title": "gestalt 실행 파일",
+        "description": "비워 두면 PATH의 gestalt를 써요. 오르카가 셸 PATH를 못 물려받으면 절대 경로를 적어 주세요.",
+        "placeholder": "gestalt"
+      },
+      {
+        "key": "stateDir",
+        "type": "string",
+        "title": "컨덕터 저장소 폴더",
+        "description": "비워 두면 상태 응답이 알려 준 저장소를 써요. 상태 응답에 저장소 위치를 안 싣는 옛 CLI를 쓰면서 저장소를 기본 위치 밖에 뒀을 때만 적어 주세요.",
+        "placeholder": "~/.gestalt/conductor"
+      },
+      {
+        "key": "mobilePort",
+        "type": "integer",
+        "title": "모바일 보기 포트",
+        "description": "0이면 꺼져 있어요. 포트를 적으면 이 맥의 127.0.0.1에만 보기 전용 페이지를 열어요. 폰에서 보려면 tailscale serve로 이 포트를 테일넷에 이어 주세요.",
+        "default": 0,
+        "minimum": 0,
+        "maximum": 65535
+      }
+    ]
+  },
+  "capabilities": [
+    { "kind": "notifications:show" },
+    { "kind": "workspace:read" },
+    { "kind": "workspace:write" },
+    { "kind": "settings:own" },
+    { "kind": "storage:own" }
+  ]
+}

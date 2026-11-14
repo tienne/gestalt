@@ -14,6 +14,8 @@ export default tseslint.config(
       '.gestalt-test/',
       '.gestalt-bench/',
       'coverage/',
+      // 오르카 플러그인은 자체 tsconfig와 orca plugin test로 검사한다
+      'orca-plugin/',
     ],
   },
   js.configs.recommended,

@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -17,6 +17,7 @@ import {
   conductorGateListCommand,
   conductorGateResolveCommand,
   conductorOrderAddCommand,
+  conductorOrderRemoveCommand,
   conductorOrderShowCommand,
   conductorQueueAddCommand,
   conductorSlackDraftCommand,
@@ -114,6 +115,58 @@ describe('gestalt conductor', () => {
     );
   });
 
+  it('status JSON에 저장소 경로와 워커 워크트리를 찾을 값을 싣는다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: '배너 고치기' });
+    const orcaOrder = (last()['order'] as { id: string }).id;
+    conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: '버튼 고치기' });
+    const subOrder = (last()['order'] as { id: string }).id;
+    const store = ConductorStore.open(stateDir);
+    const ow = worker(orcaOrder, { kind: 'orca-worktree', attempt: 2, handle: 'ctx_1' });
+    store.startWorker(ow);
+    store.updateOrder(orcaOrder, { status: 'running', workerId: ow.id });
+    const sw = worker(subOrder);
+    store.startWorker(sw);
+    store.updateOrder(subOrder, { status: 'running', workerId: sw.id });
+
+    conductorStatusCommand({ stateDir, json: true });
+    const status = last();
+    expect(status['stateDir']).toBe(resolve(stateDir));
+    const orders = status['orders'] as Record<string, unknown>[];
+    expect(orders.find((o) => o['id'] === orcaOrder)).toMatchObject({
+      worker: ow.id,
+      workerKind: 'orca-worktree',
+      workerStatus: 'running',
+      workerHandle: 'ctx_1',
+      worktreeName: `${orcaOrder}-2`,
+      updatedAt: expect.any(String),
+    });
+    const sub = orders.find((o) => o['id'] === subOrder)!;
+    expect(sub).toMatchObject({ workerKind: 'subagent' });
+    expect(sub).not.toHaveProperty('worktreeName');
+    expect(sub).not.toHaveProperty('parentOrderId');
+  });
+
+  it('status JSON에 하위 주문과 부모 워크트리, 기준 브랜치를 싣는다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: '표 고치기' });
+    const parent = (last()['order'] as { id: string }).id;
+    conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: '타입 정리' });
+    const child = (last()['order'] as { id: string }).id;
+    const store = ConductorStore.open(stateDir);
+    store.updateOrder(parent, { parentWorktree: '/w/feat', baseBranch: 'feat/table' });
+    store.updateOrder(child, { parentOrderId: parent });
+
+    conductorStatusCommand({ stateDir, json: true });
+    const orders = last()['orders'] as Record<string, unknown>[];
+    expect(orders.find((o) => o['id'] === parent)).toMatchObject({
+      parentWorktree: '/w/feat',
+      baseBranch: 'feat/table',
+    });
+    expect(orders.find((o) => o['id'] === parent)).not.toHaveProperty('parentOrderId');
+    expect(orders.find((o) => o['id'] === child)).toMatchObject({ parentOrderId: parent });
+  });
+
   it('잘못된 값은 stderr와 exit 1로 끝낸다', () => {
     const stateDir = tempStateDir();
     expect(() =>
@@ -195,6 +248,58 @@ describe('gestalt conductor', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it('끝난 주문만 지우고 못 지운 주문은 이유와 함께 돌려준다', async () => {
+    const stateDir = tempStateDir();
+    const add = (title: string, sourceRef: string) => {
+      conductorOrderAddCommand({
+        stateDir,
+        json: true,
+        repo: 'acme/app',
+        title,
+        source: 'jira',
+        sourceRef,
+      });
+      return (last()['order'] as { id: string }).id;
+    };
+    const done = add('끝난 일', 'jira:APP-1');
+    const queued = add('남은 일', 'jira:APP-2');
+    const store = ConductorStore.open(stateDir);
+    store.updateOrder(done, { status: 'done' });
+
+    await conductorOrderRemoveCommand([done, queued, done], { stateDir, json: true });
+    expect(last()).toEqual({
+      removed: [done],
+      skipped: [{ id: queued, reason: expect.stringContaining('끝난 주문만') }],
+    });
+
+    conductorStatusCommand({ stateDir, json: true, all: true });
+    expect((last()['orders'] as { id: string }[]).map((o) => o.id)).toEqual([queued]);
+
+    conductorOrderAddCommand({
+      stateDir,
+      json: true,
+      repo: 'acme/app',
+      title: '끝난 일',
+      source: 'jira',
+      sourceRef: 'jira:APP-1',
+    });
+    expect(last()).toMatchObject({ created: false, removedAt: expect.any(String) });
+
+    out = [];
+    err = [];
+    await expect(conductorOrderRemoveCommand([queued], { stateDir })).rejects.toThrow('exit 1');
+    // 전부 못 지우면 이유는 stderr로 한 번만 나간다
+    expect(out).toEqual([]);
+    expect(err.join('\n').match(/끝난 주문만/g)).toHaveLength(1);
+
+    store.reload();
+    store.updateOrder(queued, { status: 'done' });
+    writeFileSync(join(stateDir, 'tick.lock'), `${process.pid}:${Date.now()}:${hostname()}:x`);
+    await expect(conductorOrderRemoveCommand([queued], { stateDir })).rejects.toThrow('exit 1');
+    expect(err.join('\n')).toContain('tick이 도는 중');
+    expect(ConductorStore.open(stateDir).order(queued)).toBeDefined();
   });
 
   it('슬랙 초안은 게이트로 올라가고 resolve로 닫힌다', async () => {

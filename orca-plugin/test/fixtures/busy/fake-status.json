@@ -1,0 +1,15 @@
+{
+  "lastTickAt": "2026-11-12T01:58:00.000Z",
+  "orders": [
+    { "id": "ord-a1", "status": "running", "scope": "pr", "repo": "web", "title": "검색 결과 빈 화면 문구 정리", "updatedAt": "2026-11-12T01:55:00.000Z", "worker": "wkr-1", "workerKind": "orca-worktree", "workerStatus": "running", "workerHandle": "ctx_1", "worktreeName": "ord-a1-1", "issue": "PROJ-12", "bypasses": [] },
+    { "id": "ord-b2", "status": "waiting-gate", "scope": "merge", "repo": "api", "title": "예약 취소 응답에 사유 추가", "updatedAt": "2026-11-12T01:40:00.000Z", "worker": "wkr-2", "workerKind": "subagent", "workerStatus": "idle", "pr": "api#48", "bypasses": [{ "need": "review", "action": "로컬 리뷰 생략", "at": "2026-11-12T01:30:00.000Z" }] },
+    { "id": "ord-c3", "status": "queued", "scope": "pr", "repo": "web", "title": "알림 설정 토글 정렬", "updatedAt": "2026-11-12T01:20:00.000Z", "parentOrderId": "ord-a1", "bypasses": [] },
+    { "id": "ord-e5", "status": "running", "scope": "pr", "repo": "web", "title": "검색 필터 칩 접근성", "updatedAt": "2026-11-12T01:50:00.000Z", "parentWorktree": "/w/web/feat-search", "baseBranch": "feat/search", "bypasses": [] },
+    { "id": "ord-d4", "status": "done", "scope": "merge", "repo": "web", "title": "로그인 리다이렉트 고정", "updatedAt": "2026-11-11T22:00:00.000Z", "pr": "web#301", "bypasses": [] }
+  ],
+  "unassignedBypasses": [{ "need": "slack", "action": "슬랙 게시 대신 큐에 남김", "at": "2026-11-12T00:10:00.000Z" }],
+  "gates": [
+    { "id": "gate-1a2b3c4d", "type": "merge", "orderId": "ord-b2", "reason": "api#48 머지 승인이 필요해요", "openedAt": "2026-11-12T01:41:00.000Z" },
+    { "id": "gate-5e6f7a8b", "type": "interview", "orderId": "ord-c3", "reason": "토글 기본값을 켜짐으로 둘까요?", "openedAt": "2026-11-12T01:21:00.000Z" }
+  ]
+}

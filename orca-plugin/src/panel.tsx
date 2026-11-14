@@ -1,0 +1,741 @@
+import {
+  atom,
+  Badge,
+  Box,
+  Button,
+  Callout,
+  Code,
+  CodeView,
+  Collapsible,
+  EmptyState,
+  Grid,
+  Heading,
+  IconButton,
+  Input,
+  List,
+  ListItem,
+  plugin,
+  read,
+  RelativeTime,
+  Row,
+  set,
+  Skeleton,
+  Stack,
+  Text,
+  Tree,
+  type PanelContext,
+  type TreeItem
+} from 'orca'
+import { buildHierarchy, hasNesting, type HierarchyNode } from './hierarchy'
+import {
+  countByStatus,
+  filterOrders,
+  groupOrders,
+  isTerminal,
+  matchRepo,
+  ms,
+  OUTDATED_CLI_TEXT,
+  OUTDATED_CLI_TITLE,
+  splitRepo,
+  STATUS_LABEL,
+  STATUS_TONE,
+  summarize,
+  type RepoSummary,
+  type Tone
+} from './model'
+import {
+  type Bypass,
+  type ConductorView,
+  type GateDecision,
+  type GateResolveResult,
+  type GateView,
+  type OrderRemoveResult,
+  type OrderView
+} from './protocol'
+
+const view = atom<ConductorView | null>(null)
+const loadError = atom<string | null>(null)
+/** 첫 누름이 고른 결정. 두 번째 누름이 있어야 워커로 보낸다 */
+const pending = atom<{ gateId: string; decision: GateDecision } | null>(null)
+const busy = atom<string | null>(null)
+const answers = atom<Record<string, string>>({})
+const lastResult = atom<GateResolveResult | null>(null)
+const openError = atom<string | null>(null)
+/** null이면 레포 지도, 값이 있으면 그 레포의 상세 */
+const selectedRepo = atom<string | null>(null)
+/** 지우기 확인을 기다리는 자리. 주문 하나면 'order:<id>', 레포의 끝난 주문 전부면 'repo:<레포>' */
+const removing = atom<{ key: string; ids: string[] } | null>(null)
+const removeBusy = atom(false)
+const removeResult = atom<OrderRemoveResult | null>(null)
+const repoQuery = atom('repoQuery', '')
+
+const RESOLVE_TIMEOUT_MS = 120_000
+
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+const DECISION_LABEL: Record<GateDecision, string> = { approve: '승인', reject: '거절' }
+
+async function load(name: 'conductor.status' | 'conductor.refresh'): Promise<void> {
+  try {
+    set(view, await plugin.request(name))
+    set(loadError, null)
+  } catch (e) {
+    set(loadError, errorText(e))
+  }
+}
+
+export function setup(ctx: PanelContext): void {
+  ctx.subscriptions.push(
+    plugin.on('conductor.changed', (next) => {
+      set(view, next)
+      set(loadError, null)
+    })
+  )
+  void load('conductor.status')
+}
+
+function choose(gateId: string, decision: GateDecision): void {
+  set(lastResult, null)
+  set(pending, { gateId, decision })
+}
+
+async function confirm(gate: GateView, decision: GateDecision): Promise<void> {
+  if (read(busy) !== null) return
+  const answer = read(answers)[gate.id]?.trim()
+  set(busy, gate.id)
+  try {
+    const result = await plugin.request(
+      'gate.resolve',
+      { gateId: gate.id, decision, ...(answer ? { answer } : {}) },
+      { timeoutMs: RESOLVE_TIMEOUT_MS }
+    )
+    set(lastResult, result)
+  } catch (e) {
+    set(lastResult, {
+      ok: false,
+      gateId: gate.id,
+      decision,
+      hostActions: [],
+      errors: [],
+      error: errorText(e)
+    })
+  } finally {
+    set(busy, null)
+    set(pending, null)
+  }
+}
+
+async function removeOrders(ids: string[]): Promise<void> {
+  if (read(removeBusy)) return
+  set(removeBusy, true)
+  try {
+    set(removeResult, await plugin.request('order.remove', { orderIds: ids }, { timeoutMs: RESOLVE_TIMEOUT_MS }))
+  } catch (e) {
+    set(removeResult, { ok: false, removed: [], skipped: [], error: errorText(e) })
+  } finally {
+    set(removeBusy, false)
+    set(removing, null)
+  }
+}
+
+/** 레포를 옮기면 앞 레포에서 띄운 게이트 확인과 지우기 확인, 결과를 걷는다 */
+function selectRepo(repo: string | null): void {
+  set(pending, null)
+  set(removing, null)
+  set(removeResult, null)
+  set(selectedRepo, repo)
+}
+
+function askRemove(key: string, ids: string[]): void {
+  set(removeResult, null)
+  set(removing, { key, ids })
+}
+
+/** 지우기 버튼을 누른 자리에만 뜨는 확인 칸 */
+function RemoveConfirm({ at }: { at: string }) {
+  const r = read(removing)
+  if (r?.key !== at) return null
+  const inFlight = read(removeBusy)
+  return (
+    <Callout tone="danger" title={r.ids.length > 1 ? `끝난 주문 ${r.ids.length}개를 지울까요?` : '이 주문을 지울까요?'}>
+      <Stack gap="xs">
+        <Text size="xs">
+          컨덕터 저장소에서 지워져 다시 볼 수 없어요. 같은 지라 티켓이나 PR로 주문이 다시 생기지도 않아요. 워크트리와 브랜치는 그대로 남아요.
+        </Text>
+        <Row gap="xs">
+          <Button tone="danger" disabled={inFlight} onPress={() => removeOrders(r.ids)}>
+            {inFlight ? '지우는 중' : '지우기 확정'}
+          </Button>
+          <Button variant="ghost" disabled={inFlight} onPress={() => set(removing, null)}>
+            취소
+          </Button>
+        </Row>
+      </Stack>
+    </Callout>
+  )
+}
+
+function RemoveResultCallout({ result }: { result: OrderRemoveResult }) {
+  return (
+    <Stack gap="xs">
+      {result.ok && result.removed.length > 0 ? (
+        <Callout tone="success" title={`주문 ${result.removed.length}개를 지웠어요`} icon="check" />
+      ) : null}
+      {!result.ok ? (
+        <Callout tone="danger" title="못 지웠어요" icon="error">
+          <Text size="xs">{result.error ?? '이유를 못 받았어요'}</Text>
+        </Callout>
+      ) : null}
+      {result.skipped.length > 0 ? (
+        <Callout tone="warning" title={`${result.skipped.length}개는 남겼어요`}>
+          <Stack gap="xs">
+            {result.skipped.map((s) => (
+              <Text key={s.id} size="xs">
+                {s.reason}
+              </Text>
+            ))}
+          </Stack>
+        </Callout>
+      ) : null}
+      <Button size="xs" variant="ghost" onPress={() => set(removeResult, null)}>
+        닫기
+      </Button>
+    </Stack>
+  )
+}
+
+async function openWorker(orderId: string): Promise<void> {
+  set(openError, null)
+  try {
+    const out = await plugin.request('worker.open', { orderId })
+    if (!out.opened) set(openError, out.error ?? '워크트리를 못 열었어요')
+  } catch (e) {
+    set(openError, errorText(e))
+  }
+}
+
+// 트리에 따라 한 번 누름에 onSelect와 onAction이 함께 올 수 있어서 같은 주문은 잠깐 한 번만 연다
+let lastTreeOpen: { id: string; at: number } | null = null
+
+function openFromTree(id: string | undefined): void {
+  if (!id) return
+  const now = Date.now()
+  if (lastTreeOpen?.id === id && now - lastTreeOpen.at < 500) return
+  lastTreeOpen = { id, at: now }
+  void openWorker(id)
+}
+
+function GateCard({ gate }: { gate: GateView }) {
+  const p = read(pending)
+  const inFlight = read(busy) === gate.id
+  const asking = p?.gateId === gate.id ? p.decision : null
+  const opened = ms(gate.openedAt)
+  return (
+    <Box border="warning" radius="md" padding="sm">
+      <Stack gap="xs">
+        <Row gap="xs" wrap>
+          <Badge tone="warning">{gate.type}</Badge>
+          <Text size="xs" muted>
+            {gate.orderId ?? '주문 없음'}
+          </Text>
+          {opened !== null ? <RelativeTime at={opened} muted /> : null}
+        </Row>
+        <Text weight="medium">{gate.reason}</Text>
+        {gate.type === 'interview' ? (
+          <Input
+            label="답"
+            placeholder="인터뷰 답을 적어 주세요"
+            value={read(answers)[gate.id] ?? ''}
+            onChange={(v) => set(answers, { ...read(answers), [gate.id]: v })}
+            disabled={inFlight}
+          />
+        ) : null}
+        {asking ? (
+          <Callout tone={asking === 'approve' ? 'warning' : 'danger'} title={`정말 ${DECISION_LABEL[asking]}할까요?`}>
+            <Stack gap="xs">
+              <Text size="xs">
+                {gate.id}를 {DECISION_LABEL[asking]}하면 오르카 워커에는 바로 전하고 다른 워커에는 컨덕터 세션이 다음 tick에 전해요. 되돌릴 수 없어요.
+              </Text>
+              <Row gap="xs">
+                <Button
+                  tone={asking === 'approve' ? 'accent' : 'danger'}
+                  disabled={inFlight}
+                  onPress={() => confirm(gate, asking)}
+                >
+                  {inFlight ? '보내는 중' : `${DECISION_LABEL[asking]} 확정`}
+                </Button>
+                <Button variant="ghost" disabled={inFlight} onPress={() => set(pending, null)}>
+                  취소
+                </Button>
+              </Row>
+            </Stack>
+          </Callout>
+        ) : (
+          <Row gap="xs">
+            <Button size="sm" icon="check" disabled={read(busy) !== null} onPress={() => choose(gate.id, 'approve')}>
+              승인
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              tone="danger"
+              icon="close"
+              disabled={read(busy) !== null}
+              onPress={() => choose(gate.id, 'reject')}
+            >
+              거절
+            </Button>
+          </Row>
+        )}
+      </Stack>
+    </Box>
+  )
+}
+
+function ResultCallout({ result }: { result: GateResolveResult }) {
+  const label = `${result.gateId} ${DECISION_LABEL[result.decision]}`
+  return (
+    <Stack gap="xs">
+      {result.ok ? (
+        <Callout tone="success" title={`${label} 완료`} icon="check">
+          {result.deferred ? <Text size="xs">이 워커에는 컨덕터 세션이 다음 tick에 결정을 전해요.</Text> : null}
+        </Callout>
+      ) : (
+        <Callout tone="danger" title={`${label} 실패`} icon="error">
+          <Text size="xs">{result.error ?? '이유를 못 받았어요'}</Text>
+        </Callout>
+      )}
+      {result.errors.length > 0 ? (
+        <Callout tone="danger" title="컨덕터가 남긴 오류">
+          <Stack gap="xs">
+            {result.errors.map((e, i) => (
+              <Text key={`${i}:${e}`} size="xs">
+                {e}
+              </Text>
+            ))}
+          </Stack>
+        </Callout>
+      ) : null}
+      {result.hostActions.length > 0 ? (
+        <Callout tone="accent" title="컨덕터 세션에서 처리할 일" icon="info">
+          <Stack gap="xs">
+            <Text size="xs" muted>
+              이 gestalt는 결정을 tick에 넘기지 못하는 버전이에요. 플러그인은 실행하지 않으니 컨덕터 세션에서 직접 처리해 주세요.
+            </Text>
+            <CodeView code={JSON.stringify(result.hostActions, null, 2)} language="json" label="hostActions" wrap />
+          </Stack>
+        </Callout>
+      ) : null}
+      <Button size="xs" variant="ghost" onPress={() => set(lastResult, null)}>
+        닫기
+      </Button>
+    </Stack>
+  )
+}
+
+function OrderRow({ order }: { order: OrderView }) {
+  const at = ms(order.updatedAt)
+  const body = (
+    <Stack gap="xs">
+      <Text weight="medium">{order.title || '(제목 없음)'}</Text>
+      <Row gap="xs" wrap>
+        <Code>{order.id}</Code>
+        <Badge>{order.scope}</Badge>
+      </Row>
+      <Row gap="xs" wrap>
+        {order.pr ? (
+          <Text size="xs" muted>
+            PR {order.pr}
+          </Text>
+        ) : null}
+        {order.issue ? (
+          <Text size="xs" muted>
+            이슈 {order.issue}
+          </Text>
+        ) : null}
+        {at !== null ? <RelativeTime at={at} muted /> : null}
+      </Row>
+    </Stack>
+  )
+  return (
+    <Box border radius="sm" padding="none">
+      <Box direction="row" align="start">
+        <Box grow padding="none">
+          {order.workspaceId ? (
+            // 카드 어디를 눌러도 워커로 가게 ListItem으로 감싼다. ListItem 안에는 버튼을 못 두므로 지우기 버튼은 옆에 둔다
+            <List label={order.title || order.id}>
+              <ListItem key={`order:${order.id}`} onPress={() => openWorker(order.id)}>
+                {body}
+              </ListItem>
+            </List>
+          ) : (
+            <Box padding="sm">{body}</Box>
+          )}
+        </Box>
+        {isTerminal(order.status) ? (
+          <Box padding="xs">
+            <IconButton
+              icon="delete"
+              label="주문 지우기"
+              tooltip="컨덕터 저장소에서 이 주문 지우기"
+              size="xs"
+              variant="ghost"
+              disabled={read(removeBusy)}
+              onPress={() => askRemove(`order:${order.id}`, [order.id])}
+            />
+          </Box>
+        ) : null}
+      </Box>
+      {read(removing)?.key === `order:${order.id}` ? (
+        <Box padding="sm">
+          <RemoveConfirm at={`order:${order.id}`} />
+        </Box>
+      ) : null}
+    </Box>
+  )
+}
+
+function BypassList({ items }: { items: readonly Bypass[] }) {
+  return (
+    <Stack gap="xs">
+      {items.map((b, i) => {
+        const at = ms(b.at)
+        return (
+          <Row key={`${i}:${b.at}`} gap="xs" wrap>
+            <Badge>{b.need}</Badge>
+            <Text size="xs">{b.action}</Text>
+            {at !== null ? <RelativeTime at={at} muted /> : null}
+          </Row>
+        )
+      })}
+    </Stack>
+  )
+}
+
+function Bypasses({ title, orders, unassigned = [] }: { title: string; orders: readonly OrderView[]; unassigned?: readonly Bypass[] }) {
+  const perOrder = orders.filter((o) => o.bypasses.length > 0)
+  const total = perOrder.reduce((n, o) => n + o.bypasses.length, 0) + unassigned.length
+  if (total === 0) return null
+  return (
+    <Collapsible title={`${title} ${total}개`} defaultOpen={false}>
+      <Stack gap="sm">
+        {perOrder.map((o) => (
+          <Stack gap="xs" key={o.id}>
+            <Text size="xs" weight="medium">
+              {o.id} {o.title}
+            </Text>
+            <BypassList items={o.bypasses} />
+          </Stack>
+        ))}
+        {unassigned.length > 0 ? <BypassList items={unassigned} /> : null}
+      </Stack>
+    </Collapsible>
+  )
+}
+
+/** 이름 두 줄, 정보 한 줄, 배지 두 줄이 들어가는 높이. 2열 격자의 타일 높이를 이 값으로 맞춘다 */
+const TILE_MIN_HEIGHT = 120
+
+function RepoTile({ s }: { s: RepoSummary }) {
+  const { name, owner } = splitRepo(s.repo)
+  const border: boolean | Tone = s.needsPerson > 0 ? 'warning' : s.active > 0 ? 'accent' : true
+  return (
+    // 격자는 칸을 그 줄에서 가장 긴 타일 높이로 늘리는데 ListItem은 내용 높이만큼만 눌린다.
+    // 타일 높이를 TILE_MIN_HEIGHT로 맞춰 두 높이를 같게 하고, 그보다 긴 타일이 나와도 테두리가 눌리는 영역을 넘지 않게 Stack으로 감싼다
+    <Stack>
+    <Box border={border} radius="md" padding="none" background={s.active > 0 || s.gates.length > 0 ? 'card' : 'muted'}>
+        {/* Box는 onPress가 없다. 타일 전체를 누르는 자리로 쓸 수 있는 건 ListItem뿐이라 항목 하나짜리 List로 감싼다 */}
+        <List label={s.repo}>
+          <ListItem key={`tile:${s.repo}`} onPress={() => selectRepo(s.repo)}>
+            <Box gap="xs" minHeight={TILE_MIN_HEIGHT}>
+              <Text weight="semibold">{name}</Text>
+              {s.project || owner ? (
+                <Text size="xs" muted truncate>
+                  {[s.project, owner].filter(Boolean).join(', ')}
+                </Text>
+              ) : null}
+              <Row gap="xs" wrap>
+                {s.gates.length > 0 ? <Badge tone="warning">{`확인 대기 ${s.gates.length}`}</Badge> : null}
+                {s.nested > 0 ? <Badge>{`하위 ${s.nested}`}</Badge> : null}
+                {countByStatus(s.orders)
+                  // 게이트 배지와 waiting-gate 상태 배지가 둘 다 "확인 대기"라 겹치면 하나만 남긴다
+                  .filter(([status]) => !(status === 'waiting-gate' && s.gates.length > 0))
+                  .map(([status, n]) => (
+                    <Badge key={status} tone={STATUS_TONE[status] ?? 'neutral'}>{`${STATUS_LABEL[status] ?? status} ${n}`}</Badge>
+                  ))}
+              </Row>
+            </Box>
+          </ListItem>
+        </List>
+      </Box>
+    </Stack>
+  )
+}
+
+function RepoMap({ v }: { v: ConductorView }) {
+  const { repos, orphanGates } = summarize(v)
+  const query = read(repoQuery)
+  const shown = repos.filter((s) => matchRepo(s, query))
+  const active = v.orders.filter((o) => !isTerminal(o.status)).length
+  return (
+    <Stack gap="md">
+      <Row gap="xs" wrap>
+        <Badge tone={v.gates.length > 0 ? 'warning' : 'neutral'}>{`확인 대기 ${v.gates.length}`}</Badge>
+        <Badge tone="accent">{`진행 중 주문 ${active}`}</Badge>
+        <Text size="xs" muted>
+          {query.trim() ? `레포 ${repos.length}곳 중 ${shown.length}곳` : `레포 ${repos.length}곳`}
+        </Text>
+      </Row>
+      {repos.length > 0 ? (
+        <Input
+          label="레포 검색"
+          labelHidden
+          type="search"
+          placeholder="레포, 프로젝트, 주문 제목으로 찾기"
+          value={query}
+          onChange={(q) => set(repoQuery, q)}
+        />
+      ) : null}
+      {orphanGates.length > 0 ? (
+        <Stack gap="sm">
+          <Heading level={3}>주문 없는 확인 대기</Heading>
+          {orphanGates.map((g) => (
+            <GateCard key={g.id} gate={g} />
+          ))}
+        </Stack>
+      ) : null}
+      {repos.length === 0 ? (
+        <EmptyState icon="layers" title="받은 주문이 없어요" description="컨덕터가 주문을 받으면 레포마다 여기에 칸이 생겨요." />
+      ) : shown.length === 0 ? (
+        <EmptyState icon="search" title="맞는 레포가 없어요" description={`"${query.trim()}"이 들어간 레포, 프로젝트, 주문이 없어요.`} />
+      ) : (
+        <Grid minItemWidth="sm" gap="sm">
+          {shown.map((s) => (
+            <RepoTile key={s.repo} s={s} />
+          ))}
+        </Grid>
+      )}
+      <Bypasses title="주문 없는 bypass" orders={[]} unassigned={v.unassignedBypasses} />
+      <Text size="xs" muted>
+        탭 바의 + 메뉴에서 "컨덕터 보드"를 고르면 위계까지 넓게 볼 수 있어요.
+      </Text>
+    </Stack>
+  )
+}
+
+function treeItems(nodes: readonly HierarchyNode[]): TreeItem[] {
+  return nodes.map((n): TreeItem => {
+    const children = n.children.length > 0 ? { children: treeItems(n.children) } : {}
+    if (n.kind === 'worktree')
+      return {
+        key: n.key,
+        label: n.label,
+        description: n.branch ? `부모 워크트리, ${n.branch}` : '부모 워크트리',
+        icon: 'folder',
+        ...children
+      }
+    const o = n.order
+    return {
+      key: n.key,
+      label: o.title || o.id,
+      description: `${STATUS_LABEL[o.status] ?? o.status}, ${o.id}${o.branch ? `, ${o.branch}` : ''}`,
+      icon: o.workspaceId ? 'branch' : 'layers',
+      ...children
+    }
+  })
+}
+
+function allKeys(nodes: readonly HierarchyNode[]): string[] {
+  return nodes.flatMap((n) => (n.children.length > 0 ? [n.key, ...allKeys(n.children)] : []))
+}
+
+function Hierarchy({ orders }: { orders: readonly OrderView[] }) {
+  const roots = buildHierarchy(orders)
+  if (!hasNesting(roots)) return null
+  const opener = new Map(orders.filter((o) => o.workspaceId).map((o) => [`order:${o.id}`, o.id]))
+  return (
+    <Stack gap="xs">
+      <Heading level={3}>위계</Heading>
+      <Text size="xs" muted>
+        하위 주문은 상위 주문 밑에, 하위 워크트리는 부모 워크트리 밑에 그려요. 주문을 누르면 그 워크트리로 이동해요.
+      </Text>
+      <Tree
+        label="주문 위계"
+        items={treeItems(roots)}
+        defaultExpanded={allKeys(roots)}
+        maxHeight="md"
+        onSelect={(item) => openFromTree(opener.get(item.key))}
+        onAction={(item) => openFromTree(opener.get(item.key))}
+      />
+    </Stack>
+  )
+}
+
+/** 검색으로 걸러졌으면 보이는 주문만 지운다. 안 보이는 주문까지 지우면 누른 사람이 무엇을 지웠는지 모른다 */
+function FinishedCleanup({ s, orders }: { s: RepoSummary; orders: readonly OrderView[] }) {
+  const ids = orders.filter((o) => isTerminal(o.status)).map((o) => o.id)
+  const result = read(removeResult)
+  if (ids.length === 0 && !result) return null
+  return (
+    <Stack gap="xs">
+      {result ? <RemoveResultCallout result={result} /> : null}
+      {ids.length > 0 ? (
+        <Row>
+          <Button
+            size="sm"
+            variant="outline"
+            tone="danger"
+            icon="delete"
+            disabled={read(removeBusy)}
+            onPress={() => askRemove(`repo:${s.repo}`, ids)}
+          >
+            {`끝난 주문 ${ids.length}개 지우기`}
+          </Button>
+        </Row>
+      ) : null}
+      <RemoveConfirm at={`repo:${s.repo}`} />
+    </Stack>
+  )
+}
+
+function RepoDetail({ s }: { s: RepoSummary }) {
+  const { name, owner } = splitRepo(s.repo)
+  const query = read(repoQuery)
+  const searching = query.trim() !== ''
+  const orders = filterOrders(s, query)
+  const shownIds = new Set(orders.map((o) => o.id))
+  const gates = searching ? s.gates.filter((g) => g.orderId && shownIds.has(g.orderId)) : s.gates
+  const hiddenGates = s.gates.length - gates.length
+  return (
+    <Stack gap="md">
+      <Stack gap="xs">
+        <Row>
+          <Button variant="ghost" size="xs" onPress={() => selectRepo(null)}>
+            ← 지도
+          </Button>
+        </Row>
+        <Heading level={2}>{name}</Heading>
+        {s.project || owner ? (
+          <Text size="xs" muted>
+            {[s.project, owner].filter(Boolean).join(' · ')}
+          </Text>
+        ) : null}
+      </Stack>
+      <Stack gap="xs">
+        <Input
+          label="주문 검색"
+          labelHidden
+          type="search"
+          placeholder="주문 제목이나 id로 찾기"
+          value={query}
+          onChange={(q) => set(repoQuery, q)}
+        />
+        {searching ? (
+          <Text size="xs" muted>
+            {`주문 ${s.orders.length}개 중 ${orders.length}개${hiddenGates > 0 ? `, 확인 대기 ${hiddenGates}개는 검색으로 가려졌어요` : ''}`}
+          </Text>
+        ) : null}
+      </Stack>
+      {gates.length > 0 ? (
+        <Stack gap="sm">
+          <Row gap="xs">
+            <Heading level={3}>확인 대기</Heading>
+            <Badge tone="warning">{gates.length}</Badge>
+          </Row>
+          {gates.map((g) => (
+            <GateCard key={g.id} gate={g} />
+          ))}
+        </Stack>
+      ) : null}
+      {searching && orders.length === 0 ? (
+        <EmptyState icon="search" title="맞는 주문이 없어요" description={`"${query.trim()}"이 들어간 주문이 이 레포에 없어요.`} />
+      ) : null}
+      <Hierarchy orders={orders} />
+      <FinishedCleanup s={s} orders={orders} />
+      {groupOrders(orders).map(([status, orders]) => (
+        <Collapsible
+          key={status}
+          title={`${STATUS_LABEL[status] ?? status} ${orders.length}`}
+          defaultOpen={!isTerminal(status)}
+        >
+          <Stack gap="xs">
+            {orders.map((o) => (
+              <OrderRow key={o.id} order={o} />
+            ))}
+          </Stack>
+        </Collapsible>
+      ))}
+      <Bypasses title="bypass 사후 보고" orders={orders} />
+    </Stack>
+  )
+}
+
+function Header({ v }: { v: ConductorView | null }) {
+  const tick = ms(v?.lastTickAt)
+  return (
+    <Row justify="between">
+      <Row gap="xs">
+        <Heading level={2}>컨덕터</Heading>
+        {tick !== null ? (
+          <Text size="xs" muted>
+            tick <RelativeTime at={tick} muted />
+          </Text>
+        ) : null}
+      </Row>
+      <Row gap="xs">
+        {/* 늘 떠 있는 안내라 지도를 밀어내지 않게 아이콘으로만 두고 내용은 툴팁으로 보여 준다 */}
+        {v?.outdatedCli ? (
+          <IconButton icon="warning" tone="warning" label={OUTDATED_CLI_TITLE} tooltip={`${OUTDATED_CLI_TITLE}. ${OUTDATED_CLI_TEXT}`} variant="ghost" size="sm" />
+        ) : null}
+        <IconButton icon="refresh" label="새로고침" variant="ghost" size="sm" onPress={() => load('conductor.refresh')} />
+      </Row>
+    </Row>
+  )
+}
+
+export default function Panel() {
+  const v = read(view)
+  const err = read(loadError)
+  const result = read(lastResult)
+  const openErr = read(openError)
+  if (!v)
+    return (
+      <Stack gap="md">
+        <Header v={null} />
+        {err ? <Callout tone="danger" title="워커에 못 닿았어요">{err}</Callout> : <Skeleton lines={4} label="불러오는 중" />}
+      </Stack>
+    )
+  if (v.state === 'missing')
+    return (
+      <Stack gap="md">
+        <Header v={v} />
+        <EmptyState
+          icon="database"
+          title="컨덕터 저장소 없음"
+          description={`${v.stateDir ?? '상태 폴더'}에 events.jsonl이 아직 없어요. 컨덕터가 첫 주문을 받으면 여기에 보여요.`}
+        />
+      </Stack>
+    )
+  const picked = read(selectedRepo)
+  // 고른 레포의 주문이 다 사라졌으면 지도로 돌아간다
+  const detail = picked === null ? undefined : summarize(v).repos.find((s) => s.repo === picked)
+  return (
+    <Stack gap="md">
+      <Header v={v} />
+      {v.state === 'error' ? (
+        <Callout tone="danger" title="gestalt CLI가 실패했어요" icon="error">
+          <Text size="xs">{v.error ?? ''}</Text>
+        </Callout>
+      ) : null}
+      {err ? <Callout tone="danger" title="워커에 못 닿았어요">{err}</Callout> : null}
+      {openErr ? (
+        <Callout tone="warning" title="워크트리를 못 열었어요">
+          {openErr}
+        </Callout>
+      ) : null}
+      {result ? <ResultCallout result={result} /> : null}
+      {/* 지도와 상세가 같은 자리에 그려져서 key로 나누지 않으면 지도에서 펼친 상태가 상세로 넘어간다 */}
+      {detail ? <RepoDetail key={`repo:${detail.repo}`} s={detail} /> : <RepoMap key="map" v={v} />}
+    </Stack>
+  )
+}

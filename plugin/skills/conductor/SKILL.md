@@ -41,7 +41,7 @@ routing:
 - **주문을 넣은 뒤에는 그 대화 원문에 기대지 않는다.** 주문 하나에 필요한 맥락은 전부 description에 옮긴다. 세션을 새로 띄워도 잃는 게 없어야 한다.
 - **여러 주문에 걸친 맥락은 레포 공통 맥락 파일에 둔다.** 대화에만 남기지 않는다. 자세한 건 1-1이다.
 - **워커 생성은 컨덕터만 한다.** 워커가 하위 워커를 원하면 보고의 `spawnRequest`로 올라오고 다음 tick이 새 주문으로 받는다. 주문 하나에 하위 주문은 세 개까지고 하위 주문의 워커는 더 못 늘린다. 넘치면 만들지 않고 그 워커에 이유를 보낸다.
-- **이 스킬 자신은 워커 안에서 돌지 않는다.** `tick`과 `gate resolve`, `order add`, `order take-over`, `order cancel`, `order mark-merged`, `queue add`, `deploy report`는 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이면 거절한다. 서브에이전트 워커는 컨덕터와 같은 자리에서 돌아서 이 검사에 안 걸리므로 지시서 규칙에만 기댄다.
+- **이 스킬 자신은 워커 안에서 돌지 않는다.** `tick`과 `gate resolve`, `order add`, `order remove`, `order take-over`, `order cancel`, `order mark-merged`, `queue add`, `deploy report`는 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이면 거절한다. 서브에이전트 워커는 컨덕터와 같은 자리에서 돌아서 이 검사에 안 걸리므로 지시서 규칙에만 기댄다.
 - **워커는 자기 id로만 보고한다.** `worker report`와 `checkpoint save`는 `GESTALT_CONDUCTOR_WORKER_ID`와 `--worker`가 다르면 거절한다. 이 환경 변수는 git 워크트리 워커에만 있어서 오르카와 서브에이전트 워커가 남의 id를 적는 건 못 막는다.
 
 ### 깨어날 때마다
@@ -67,7 +67,7 @@ gestalt conductor order add --repo acme/app --title "배너 문구 고치기" --
 
 넣은 뒤에는 그 주문 얘기를 대화 기억으로 이어 가지 않는다. 진행은 `gestalt conductor status`와 워커 보고로만 본다.
 
-지라 티켓은 호스트가 Atlassian MCP로 읽어 같은 명령에 `--source jira --source-ref jira:<KEY> --issue-key <KEY> --issue-type <type>`을 붙여 넣는다. `--source-ref`가 같으면 두 번 받지 않는다. 사용자가 지라 상태를 정해 줬으면 `--jira-status`로 넘긴다. 기본 규칙보다 먼저다.
+지라 티켓은 호스트가 Atlassian MCP로 읽어 같은 명령에 `--source jira --source-ref jira:<KEY> --issue-key <KEY> --issue-type <type>`을 붙여 넣는다. `--source-ref`가 같으면 두 번 받지 않는다. 같은 `--source-ref`의 주문을 지운 적이 있으면 `order add`가 `created: false`와 `removedAt`을 돌려주고 다시 받지 않는다. 되살리는 명령은 없으니 사용자에게 "이 티켓의 주문은 <removedAt>에 지워서 다시 받지 않아요"라고 전한다. 사용자가 지라 상태를 정해 줬으면 `--jira-status`로 넘긴다. 기본 규칙보다 먼저다.
 
 외부 큐는 tick이 상태 저장소의 `queue/`에서 직접 읽는다. 다른 시스템이 넣는 자리라 이 세션이 대신 넣을 일은 없다. 사용자가 큐 파일을 넣어 달라고 하면 `gestalt conductor queue add --body-file <파일>`을 쓴다. 꼴이 틀린 메시지는 확인 자리로 올라오고 못 읽은 파일은 tick 보고의 `errors`에 뜬다.
 
@@ -101,7 +101,7 @@ gestalt conductor context path --repo acme/app
 gestalt conductor tick --json
 ```
 
-한 번에 워커 보고 반영, 접수, 끊긴 워커 재개, 빈 슬롯만큼 띄우기, 머지 뒤 지라와 배포 처리, 정리를 돈다. `pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝난다. 사람이 방금 확인 자리를 종료했거나 주문을 넣은 직후면 `--force`를 붙인다.
+한 번에 워커 보고 반영, 접수, 끊긴 워커 재개, 전달을 미뤄 둔 확인 자리 결정 내보내기, 빈 슬롯만큼 띄우기, 머지 뒤 지라와 배포 처리, 정리를 돈다. `pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝난다. 사람이 방금 확인 자리를 종료했거나 주문을 넣은 직후면 `--force`를 붙인다.
 
 응답은 짧은 숫자와 할 일만 담는다. 그대로 대화에 붙이지 말고 아래 `hostActions`를 처리한다. `warnings`와 `errors`가 비어 있지 않으면 그 줄만 사용자에게 그대로 전한다.
 
@@ -141,6 +141,8 @@ gestalt conductor gate resolve <gateId> --take-over --answer "머지는 내가 �
 ```
 
 종료하면 결정이 그 워커에 바로 전달된다. 응답에 `hostActions`가 있으면 3번처럼 실행한다. 사람이 붙인 답은 `--answer`에 그대로 싣는다. 워커는 답을 고정 문구보다 먼저 따른다.
+
+오르카 플러그인이 종료한 확인 자리는 `--defer-delivery`로 불린다. git-worktree와 subagent 워커에는 전달을 미뤄 두므로 다음 tick의 `hostActions`에 그 결정의 `send`가 나온다. 3번처럼 실행하면 된다. 오르카 워커에는 플러그인이 그 자리에서 전하고 `send`가 안 나온다. 플러그인이 못 전했으면 다음 tick이 `hostActions` 없이 직접 다시 전한다. 세 번 못 전하면 `errors`에 직접 전해 달라는 줄이 남으니 그때 사용자에게 알린다. 컨덕터 세션에도 오르카 런처가 없으면 그 tick에서 대기를 걷고 `errors`에 런처가 없어 못 전했다는 줄만 남는다. 이때도 결정이 안 간 것이니 사용자에게 직접 전해 달라고 알린다. 그사이 워커가 끝났으면 결정은 버려지고 `send`도 안 나온다.
 
 `merge` 자리를 물을 때는 선택지를 셋으로 보여준다.
 
@@ -259,6 +261,8 @@ loop 스킬이 없는 호스트(Codex, Grok 등)에서는 반복을 걸지 않�
 진행을 보고할 때는 `gestalt conductor status`의 숫자와 바뀐 주문만 짧게 말한다. 그 사이 tick이 낸 `warnings`와 `errors`가 있으면 함께 적는다. bypass로 넘긴 일은 모아서 사후 보고한다. 주문마다 붙은 bypass 내역이 `gestalt conductor status --json`에 실리고 끝난 주문까지 보려면 `--all`을 붙인다.
 
 끝난 주문의 결과나 이전 보고를 물으면 `gestalt conductor order show <id> --json`으로 읽는다. 보고 이력의 요약과 refs, PR, gate, bypass를 근거로 답하고 대화 기억으로 복원하지 않는다. `status --all`의 텍스트 출력은 마지막 요약을 100자까지만 보여 주고 이전 진행 보고는 `order show`에만 있으므로 자세한 결과는 `order show`를 쓴다. 옛 로그에서 보고 이력이 비어 있으면 저장된 보고가 없다고 밝힌다.
+
+끝난 주문은 오르카 플러그인이나 `gestalt conductor order remove <주문 id...> --json`으로 지운다. 이 세션은 사용자가 지워 달라고 한 주문만 지운다. 지운 주문은 `order show`로 결과를 못 읽고 같은 출처로 다시 받지 않는다.
 
 ## 8. 효과 재기
 

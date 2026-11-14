@@ -102,10 +102,11 @@ export interface IntakeInput {
   parentOrderId?: string;
 }
 
-export interface IntakeResult {
-  order: Order;
-  created: boolean;
-}
+export type IntakeResult =
+  | { created: true; order: Order }
+  | { created: false; order: Order }
+  /** 같은 출처의 주문을 사람이 지웠다. 다시 받지 않는다 */
+  | { created: false; removedAt: string };
 
 export const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 
@@ -173,6 +174,8 @@ export function intakeOrder(
   const sourceRef = input.sourceRef ?? `${input.source}:${id}`;
   const existing = store.findOrderBySourceRef(sourceRef);
   if (existing) return { order: existing, created: false };
+  const removedAt = store.removedAtOf(sourceRef);
+  if (removedAt) return { created: false, removedAt };
 
   const at = store.timestamp();
   const order: Order = {
@@ -243,7 +246,7 @@ export async function pollJira(
   }
   for (const t of tickets) {
     const sourceRef = `jira:${t.key}`;
-    if (store.findOrderBySourceRef(sourceRef)) continue;
+    if (store.hasSourceRef(sourceRef)) continue;
     if (!ISSUE_KEY_RE.test(t.key)) {
       askOnce(store, sourceRef, `지라 키 꼴이 아니라 주문으로 안 받았어요: ${oneLine(t.key, 40)}`);
       result.gated.push(sourceRef);
@@ -255,7 +258,7 @@ export async function pollJira(
       continue;
     }
     const scope = t.scope && isOrderScope(t.scope) ? t.scope : undefined;
-    const { order, created } = intakeOrder(
+    const out = intakeOrder(
       store,
       {
         source: 'jira',
@@ -269,7 +272,7 @@ export async function pollJira(
       },
       config,
     );
-    if (created) result.created.push(order);
+    if (out.created) result.created.push(out.order);
   }
   return result;
 }
@@ -308,18 +311,14 @@ export async function pollQueue(
   const result: PollResult = { created: [], gated: [] };
   for (const msg of await queue.receive(max)) {
     const sourceRef = `queue:${msg.id}`;
-    if (!store.findOrderBySourceRef(sourceRef)) {
+    if (!store.hasSourceRef(sourceRef)) {
       const parsed = parseQueueBody(msg.body);
       if (typeof parsed === 'string') {
         askOnce(store, sourceRef, `큐 메시지 ${msg.id}를 주문으로 못 읽었어요: ${parsed}`);
         result.gated.push(sourceRef);
       } else {
-        const { order, created } = intakeOrder(
-          store,
-          { ...parsed, source: 'external-queue', sourceRef },
-          config,
-        );
-        if (created) result.created.push(order);
+        const out = intakeOrder(store, { ...parsed, source: 'external-queue', sourceRef }, config);
+        if (out.created) result.created.push(out.order);
       }
     }
     await queue.ack(msg.id);
