@@ -160,7 +160,7 @@ gestalt conductor order cancel <orderId> --reason "<한 줄>" --json
 gestalt conductor order mark-merged <orderId> --json
 ```
 
-tick 응답의 `humanOwned`에는 사람이 넘겨받은 주문 중 상태가 바뀐 것(`merged`, `cancelled`, `parked`)만 실린다. 사람에게 한 줄로 알린다.
+tick 응답의 `humanOwned`에는 사람이 넘겨받은 주문 중 상태가 바뀐 것(`merged`, `cancelled`, `parked`)만 실린다. 사람이 GitHub에서 PR을 바로 머지하거나 닫아 컨덕터가 쥔 주문(`running`, `waiting-gate`, `escalated`)이 정리된 것도 여기 실리고 `from`에 앞 상태가 붙는다. 사람에게 한 줄로 알린다.
 
 그 밖의 요청(단순 승인, 수동 검증, 정리, 인증, 계정 전환)은 tick이 bypass로 넘기고 기록만 남긴다. 사람에게 묻지 않는다.
 
