@@ -159,6 +159,7 @@ export async function detectStale(store: ConductorStore, opts: StaleOptions): Pr
     const status = store.order(w.orderId)?.status;
     if (status === 'waiting-gate' || status === 'human-owned') continue;
     if (w.waiting && opts.waitingEscalateAfterMs !== undefined) {
+      if (await waitingWorkerGone(store, w, opts, result)) continue;
       checkWaiting(
         store,
         w,
@@ -195,6 +196,30 @@ export async function detectStale(store: ConductorStore, opts: StaleOptions): Pr
   }
   await recheckRateLimited(store, opts, result);
   return result;
+}
+
+/**
+ * 대기 중인 워커도 소식이 staleAfter보다 오래 끊겼으면 터미널이 살아 있는지만 본다.
+ * 대기 보고 뒤에 터미널이 죽으면 상한까지 아무도 모르기 때문이다. 출력을 읽는 probe 대신 가벼운 peek를 쓴다.
+ * 살아 있으면 본 시각을 남겨 staleAfter마다 한 번만 본다. 확인이 실패하면 죽었다고 보지 않고 대기를 그대로 둔다.
+ */
+async function waitingWorkerGone(
+  store: ConductorStore,
+  w: Worker,
+  opts: StaleOptions,
+  result: StaleResult,
+): Promise<boolean> {
+  const seen = Date.parse(w.lastSeenAt);
+  if (Number.isNaN(seen) || opts.now.getTime() - seen < opts.staleAfterMs) return false;
+  if (!canProbe(w) || !opts.peek) return false;
+  const peeked = await peekOrWarn(w, opts.peek, result);
+  if (peeked === 'gone') {
+    store.updateWorker(w.id, { status: 'stopped', stopReason: 'disconnected', waiting: undefined });
+    result.stopped.push(store.worker(w.id)!);
+    return true;
+  }
+  if (peeked) store.updateWorker(w.id, { lastSeenAt: opts.now.toISOString() });
+  return false;
 }
 
 /**
@@ -291,7 +316,7 @@ async function peekOrWarn(
     return await peek(w);
   } catch (err) {
     result.warnings.push(
-      `${w.id}: 한도로 멈춘 오르카 워커의 터미널을 다시 확인 못 했어요: ${(err as Error).message}`,
+      `${w.id}: 오르카 워커의 터미널을 다시 확인 못 했어요: ${(err as Error).message}`,
     );
     return undefined;
   }

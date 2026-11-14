@@ -24,6 +24,7 @@ import {
   type EngineDeps,
 } from '../../../src/conductor/engine.js';
 import { resolveGate } from '../../../src/conductor/gates.js';
+import { saveSkillCheckpoint } from '../../../src/conductor/resume.js';
 import type { DeploySignal, JiraClient } from '../../../src/conductor/jira.js';
 import { repoContextPath } from '../../../src/conductor/context.js';
 import {
@@ -919,6 +920,66 @@ describe('컨덕터 tick', () => {
     advance(10 * 60 * 1000);
     await tick(store, d, { force: true });
     expect(store.openGates('ord-1')[0]!.reason).toContain('기한');
+  });
+
+  it('대기로 올린 게이트를 승인한 뒤에는 같은 대기로 다시 올리지 않는다', async () => {
+    const { store, advance } = clockedStore();
+    store.addOrder(order({ id: 'ord-1' }));
+    const { deps: d } = deps();
+    await tick(store, d, { force: true });
+    const wid = store.order('ord-1')!.workerId!;
+    report(store, d, { workerId: wid, status: 'waiting', wait: { reason: '사람의 답' } });
+    await tick(store, d, { force: true });
+    advance(config.waitingEscalateAfterSec * 1000);
+    await tick(store, d, { force: true });
+    const gateId = store.openGates('ord-1')[0]!.id;
+
+    resolveGate(store, gateId, 'approved');
+    await tick(store, d, { force: true });
+    advance(config.waitingEscalateAfterSec * 1000);
+    report(store, d, { workerId: wid, status: 'progress' });
+    await tick(store, d, { force: true });
+    expect(store.openGates('ord-1')).toEqual([]);
+    expect(Object.values(store.snapshot.gates).filter((g) => g.orderId === 'ord-1')).toHaveLength(
+      1,
+    );
+  });
+
+  it('대기를 알린 워커의 확인 게이트를 상한 뒤에 닫아도 다음 tick에 게이트를 새로 열지 않는다', async () => {
+    const { store, advance } = clockedStore();
+    store.addOrder(order({ id: 'ord-1', scope: 'approval' }));
+    const { deps: d } = deps();
+    await tick(store, d, { force: true });
+    const wid = store.order('ord-1')!.workerId!;
+    report(store, d, { workerId: wid, status: 'waiting', wait: { reason: 'CI 결과' } });
+    await tick(store, d, { force: true });
+    report(store, d, {
+      workerId: wid,
+      status: 'needs',
+      need: { kind: 'merge-approval', detail: '머지해도 될까요' },
+    });
+    await tick(store, d, { force: true });
+    const gateId = store.openGates('ord-1')[0]!.id;
+
+    advance(config.waitingEscalateAfterSec * 1000 + 1);
+    resolveGate(store, gateId, 'approved');
+    expect(store.worker(wid)!.waiting).toBeUndefined();
+    await tick(store, d, { force: true });
+    expect(store.openGates('ord-1')).toEqual([]);
+  });
+
+  it('대기 중에 체크포인트를 남기면 대기가 풀린다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-1' }));
+    const { deps: d } = deps();
+    await tick(store, d, { force: true });
+    const wid = store.order('ord-1')!.workerId!;
+    report(store, d, { workerId: wid, status: 'waiting', wait: { reason: 'CI 결과' } });
+    await tick(store, d, { force: true });
+    expect(store.worker(wid)!.waiting).toBeDefined();
+
+    saveSkillCheckpoint(store, { workerId: wid, skill: 'solve', next: '다음 단계' });
+    expect(store.worker(wid)!.waiting).toBeUndefined();
   });
 
   it('ship 단계 값이 없는 simple-approval은 bypass하지 않고 게이트로 올린다', async () => {

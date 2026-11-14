@@ -126,6 +126,7 @@ export async function handleNeed(
   const record: BypassRecord = {
     ...(req.orderId ? { orderId: req.orderId } : {}),
     need: req.need,
+    ...(step ? { step } : {}),
     action,
     at: store.timestamp(),
   };
@@ -229,8 +230,12 @@ export function resolveGate(
   const live = order.workerId ? store.worker(order.workerId) : undefined;
   const alive = live && (live.status === 'running' || live.status === 'starting');
   if (alive) {
-    // 게이트를 기다린 시간은 워커가 끊긴 시간이 아니다. 게이트를 종료한 시점부터 다시 센다
-    store.updateWorker(live.id, { lastSeenAt: store.timestamp() });
+    // 게이트를 기다린 시간은 워커가 끊긴 시간이 아니다. 게이트를 종료한 시점부터 다시 센다.
+    // 게이트 답을 기다린다고 알린 대기도 여기서 끝난다. 남겨 두면 다음 tick이 그 대기를 상한 초과로 다시 올린다
+    store.updateWorker(live.id, {
+      lastSeenAt: store.timestamp(),
+      ...(live.waiting ? { waiting: undefined } : {}),
+    });
     store.updateOrder(order.id, { status: 'running' });
   } else {
     store.updateOrder(order.id, { status: decision === 'approved' ? 'queued' : 'cancelled' });

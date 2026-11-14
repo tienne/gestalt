@@ -66,6 +66,9 @@ describe('워커 결과 검증', () => {
     expect(() =>
       parseWorkerReport({ ...ok, status: 'waiting', wait: { reason: 'CI', until: '내일' } }, 2000),
     ).toThrow(/ISO/);
+    expect(() =>
+      parseWorkerReport({ ...ok, status: 'progress', wait: { reason: 'CI 결과' } }, 2000),
+    ).toThrow(/waiting/);
   });
 
   it('need.step은 ship 단계 값만 받는다', () => {

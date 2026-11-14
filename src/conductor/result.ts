@@ -151,6 +151,8 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
     } else problems.push('need.kind를 모르겠어요');
   }
   const wait = r['wait'];
+  if (wait !== undefined && status !== 'waiting')
+    problems.push('wait는 status가 waiting인 보고에만 실어요');
   if (wait !== undefined) {
     const w = wait as Record<string, unknown>;
     const reason = typeof w?.['reason'] === 'string' ? w['reason'].trim() : '';

@@ -67,6 +67,28 @@ describe('handleNeed', () => {
     expect(s.openGates()).toEqual([]);
   });
 
+  it('ship 단계 승인을 넘기면 bypass 기록에 단계 값을 남긴다', async () => {
+    const s = ConductorStore.open(tempStateDir());
+    s.addOrder(
+      order({ id: 'ord-1', status: 'running', workerId: 'wrk-1', skillChain: ['solve', 'ship'] }),
+    );
+    s.startWorker(worker('ord-1', { id: 'wrk-1' }));
+    const out = await handleNeed(
+      s,
+      {
+        orderId: 'ord-1',
+        need: 'simple-approval',
+        detail: 'ship ⓐ draft PR 올리기',
+        step: 'ship-draft',
+      },
+      { 'simple-approval': async () => '워커에 승인을 전했어요' },
+    );
+    expect(out.kind).toBe('bypass');
+    expect(s.snapshot.bypasses).toEqual([
+      expect.objectContaining({ need: 'simple-approval', step: 'ship-draft' }),
+    ]);
+  });
+
   it('절차가 없거나 실패하면 no-procedure 게이트로 올린다', async () => {
     const s = storeWithRunning();
     const none = await handleNeed(

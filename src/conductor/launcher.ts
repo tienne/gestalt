@@ -314,7 +314,7 @@ export function buildWorkerPrompt(
     `- 스킬이나 단계가 바뀔 때마다 \`gestalt conductor checkpoint save${at} --worker ${worker.id} --skill <스킬> --next "<다음 할 일>"\`로 체크포인트를 남긴다. 15분 넘게 걸릴 수 있는 대기(CI 대기 등) 앞뒤로도 남긴다.`,
   );
   lines.push(
-    `- 사람의 답이나 CI, 리뷰처럼 바깥을 기다리기 전에는 \`${report} --status waiting --summary "<한 줄>" --wait-for "<무엇을 기다리는지>" --wait-until <ISO 시각>\`로 알린다. 기한을 모르면 --wait-until은 뺀다. 알리지 않고 오래 조용하면 컨덕터가 끊긴 워커로 본다. 대기가 끝나면 체크포인트나 다음 보고를 남긴다.`,
+    `- 사람의 답이나 CI, 리뷰처럼 바깥을 기다리기 전에는 \`${report} --status waiting --summary "<한 줄>" --wait-for "<무엇을 기다리는지>" --wait-until <ISO 시각>\`로 알린다. 기한을 모르면 --wait-until은 뺀다. 알리지 않고 오래 조용하면 컨덕터가 끊긴 워커로 본다. 체크포인트를 먼저 남기고 waiting 보고를 맨 마지막에 한다. 체크포인트나 다른 보고가 오면 대기가 풀리기 때문이다. 대기가 끝나면 체크포인트나 다음 보고를 남긴다.`,
   );
   lines.push(
     `- 결과는 \`${report} --status done --summary "<결과 요약>" --ref "<파일 경로>"\`로 낸다. 요약과 refs만 싣고 diff나 로그 원문은 파일로 두고 경로만 적는다.`,

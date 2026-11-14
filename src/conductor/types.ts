@@ -280,6 +280,8 @@ export type StoredReport = Omit<WorkerReport, 'spawnRequest'>;
 export interface BypassRecord {
   orderId?: string;
   need: NeedKind;
+  /** 워커가 적어 보낸 ship 승인 단계. 자기 신고라 사후에 볼 수 있게 남긴다 */
+  step?: ShipApprovalStep;
   action: string;
   at: string;
 }
