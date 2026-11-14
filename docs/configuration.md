@@ -311,7 +311,7 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 - `rateLimitEscalateAfterSec`(기본 21600초, 600~604800)는 세션 한도에 걸린 오르카 워커를 기다려 주는 상한이다. 넘으면 게이트로 사람에게 올린다. 자세한 흐름은 [오르카 워커의 세션 한도](./conductor.md#오르카-워커의-세션-한도)에 있다
 - `humanOwnedPollSec`(기본 900초, 60~86400)는 사람이 넘겨받은 `human-owned` 주문의 PR을 tick이 gh로 다시 볼 간격이다. 주문마다 따로 센다. `humanOwnedParkAfterSec`(기본 86400초, 600~2592000)가 지나도 머지나 닫힘이 없으면 `parked`로 내리고 더 안 본다. 자세한 전이는 [주문 상태](./conductor.md#주문-상태)에 있다
 - `handoffContextPercent`(기본 70)는 컨덕터 세션이 컴팩트를 한 번 거친 뒤 컨텍스트를 이 비율 이상 쓰면 다음 tick을 마친 자리에서 새 세션으로 인계하는 기준이다. `contextWindowTokens`를 비우면 모델 id와 사용량으로 200k나 1M 창을 고른다. 자세한 흐름은 [세션 인계](./conductor.md#세션-인계)에 있다
-- `handoffEffort`(기본 `high`)는 인계로 띄우는 새 지휘자 세션의 추론 수준이고 `low`, `medium`, `high`, `xhigh`, `max`를 받는다. 오르카가 `--effort`를 `--model`과 함께만 받아서 `handoffModel`을 같이 싣는다. `handoffModel`을 비우면 이전 세션 트랜스크립트의 모델을 잇고 그것도 모르면 effort 없이 띄운 뒤 직접 맞추라고 알린다. 새 세션 에이전트가 claude일 때만 싣는다. 쓰는 모델이 비용을 정하므로 레포 `gestalt.json`으로는 못 바꾼다
+- `handoffEffort`(기본 `high`)는 인계로 띄우는 새 지휘자 세션의 추론 수준이고 `low`, `medium`, `high`, `xhigh`, `max`를 받는다. 오르카가 `--effort`를 `--model`과 함께만 받아서 `handoffModel`을 같이 싣는다. `handoffModel`은 적힌 그대로 쓰므로 1M 창이 필요하면 `opus[1m]`처럼 접미까지 적는다. 비우면 이전 세션 트랜스크립트의 모델을 잇고 그것도 모르면 effort 없이 띄운 뒤 직접 맞추라고 알린다. 새 세션 에이전트가 claude일 때만 싣는다. 쓰는 모델이 비용을 정하므로 레포 `gestalt.json`으로는 못 바꾼다
 - `resultMaxChars`를 넘는 결과 요약이나 diff, 스택 트레이스가 섞인 결과는 받지 않고 요약을 다시 달라고 돌려보낸다
 
 동작 전체는 [컨덕터](./conductor.md)에 있다.
