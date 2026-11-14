@@ -109,6 +109,7 @@ describe('컨덕터 에이전트 설정', () => {
       expect(loadConfig({}, { skipDotEnv: true }).conductor).toMatchObject({
         handoffEffort: 'high',
       });
+      expect(loadConfig({}, { skipDotEnv: true }).conductor.handoffModel).toBeUndefined();
       writeFileSync(
         join(home, '.gestalt', 'conductor.json'),
         JSON.stringify({ handoffEffort: 'xhigh', handoffModel: 'opus[1m]' }),

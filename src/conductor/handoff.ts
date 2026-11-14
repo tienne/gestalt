@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import type { HandoffEffort } from '../core/constants.js';
+import { HANDOFF_MODEL_RE, type HandoffEffort } from '../core/constants.js';
 import { writeJsonAtomic } from '../core/json-file.js';
 import { execRunner, type CommandRunner } from './launcher.js';
 import type { LaunchedTab } from './tab-title.js';
@@ -355,18 +355,22 @@ export function handoffPrompt(file: string): string {
 /**
  * 새 지휘자 세션에 실을 모델. 설정값이 먼저고 없으면 이전 세션 트랜스크립트의 모델을 잇는다.
  * 트랜스크립트의 모델 id에는 1M 창 표시가 안 붙어서 사용량을 1M 창으로 셌으면 `[1m]`을 붙인다.
+ * 설정값에는 이 보정을 걸지 않는다. 사람이 적은 값을 그대로 존중하므로 1M 창이 필요하면 설정에 `[1m]`까지 적는다.
+ * 트랜스크립트 값은 `--model` 인자로 그대로 넘어가서 HANDOFF_MODEL_RE로 거르고 통과하지 못하면 모델 없이 띄운다.
  * 오르카는 `--effort`를 `--model` 없이 받지 않으므로 모델을 모르면 effort도 못 싣는다
  */
-export function handoffModel(
+export function resolveHandoffModel(
   status: HandoffStatus | undefined,
   configured?: string,
 ): string | undefined {
   if (configured) return configured;
   const usage = status?.usage;
   if (!usage?.model) return undefined;
-  if (usage.windowTokens >= LARGE_WINDOW_TOKENS && !usage.model.includes('[1m]'))
-    return `${usage.model}[1m]`;
-  return usage.model;
+  const model =
+    usage.windowTokens >= LARGE_WINDOW_TOKENS && !usage.model.includes('[1m]')
+      ? `${usage.model}[1m]`
+      : usage.model;
+  return HANDOFF_MODEL_RE.test(model) ? model : undefined;
 }
 
 export interface LaunchHandoffOptions {

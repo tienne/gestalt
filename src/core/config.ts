@@ -18,6 +18,7 @@ import {
   ORDER_SCOPES,
   AGENT_ID_RE,
   HANDOFF_EFFORTS,
+  HANDOFF_MODEL_RE,
 } from './constants.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -429,10 +430,7 @@ const conductorConfigSchema = z.object({
    * 인계로 띄우는 새 지휘자 세션의 모델(별칭이나 전체 id, `[1m]` 접미 허용).
    * 비우면 이전 세션 트랜스크립트의 모델을 잇는다. 쓰는 모델이 비용을 정하므로 레포 gestalt.json으로는 못 바꾼다
    */
-  handoffModel: z
-    .string()
-    .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}(\[1m\])?$/)
-    .optional(),
+  handoffModel: z.string().regex(HANDOFF_MODEL_RE).optional(),
   /**
    * 머지된 주문의 오르카 워커 워크트리를 정리 단계에서 지운다. 끄면 워커 터미널만 거두고 워크트리는 남긴다.
    * 레포 gestalt.json이 켜서 남의 워크트리를 지우게 하면 안 되므로 REPO_CONDUCTOR_KEYS에 넣지 않는다

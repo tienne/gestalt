@@ -28,7 +28,7 @@ import {
   handoffStatus,
   isConductorLoopPrompt,
   CONDUCTOR_LOOP_PROMPT,
-  handoffModel,
+  resolveHandoffModel,
   launchHandoff,
   readCompactions,
   registerSession,
@@ -474,12 +474,39 @@ describe('새 지휘자 세션의 모델과 effort', () => {
       due: true,
       usage: { usedTokens: 1, windowTokens, percent: 0, ...(model ? { model } : {}) },
     });
-    expect(handoffModel(usage(200_000, 'claude-opus-5-5'), 'fable')).toBe('fable');
-    expect(handoffModel(usage(200_000, 'claude-opus-5-5'))).toBe('claude-opus-5-5');
-    expect(handoffModel(usage(1_000_000, 'claude-opus-5-5'))).toBe('claude-opus-5-5[1m]');
-    expect(handoffModel(usage(1_000_000, 'claude-opus-5-5[1m]'))).toBe('claude-opus-5-5[1m]');
-    expect(handoffModel(usage(200_000))).toBeUndefined();
-    expect(handoffModel(undefined)).toBeUndefined();
+    expect(resolveHandoffModel(usage(200_000, 'claude-opus-5-5'), 'fable')).toBe('fable');
+    expect(resolveHandoffModel(usage(200_000, 'claude-opus-5-5'))).toBe('claude-opus-5-5');
+    expect(resolveHandoffModel(usage(1_000_000, 'claude-opus-5-5'))).toBe('claude-opus-5-5[1m]');
+    expect(resolveHandoffModel(usage(1_000_000, 'claude-opus-5-5[1m]'))).toBe(
+      'claude-opus-5-5[1m]',
+    );
+    expect(resolveHandoffModel(usage(200_000))).toBeUndefined();
+    expect(resolveHandoffModel(undefined)).toBeUndefined();
+  });
+
+  it('설정 모델에는 1M 창 표시를 붙이지 않고 적힌 그대로 쓴다', () => {
+    const big = {
+      sessionId: 's',
+      compactions: 1,
+      thresholdPercent: 70,
+      due: true,
+      usage: { usedTokens: 1, windowTokens: 1_000_000, percent: 0, model: 'claude-opus-5-5' },
+    };
+    expect(resolveHandoffModel(big, 'opus')).toBe('opus');
+    expect(resolveHandoffModel(big, 'opus[1m]')).toBe('opus[1m]');
+  });
+
+  it('트랜스크립트 모델이 허용 꼴이 아니면 모델 없이 띄운다', () => {
+    const withModel = (model: string) => ({
+      sessionId: 's',
+      compactions: 1,
+      thresholdPercent: 70,
+      due: true,
+      usage: { usedTokens: 1, windowTokens: 200_000, percent: 0, model },
+    });
+    expect(resolveHandoffModel(withModel('--help'))).toBeUndefined();
+    expect(resolveHandoffModel(withModel('opus 5'))).toBeUndefined();
+    expect(resolveHandoffModel(withModel('x'.repeat(101)))).toBeUndefined();
   });
 
   it('claude면 --model과 --effort를 함께 싣는다', async () => {
@@ -669,6 +696,9 @@ describe('handoff 명령의 탭 이름', () => {
     expect(handed).toMatchObject({ launched: true });
     expect(handed).not.toHaveProperty('renameErrors');
     const calls = readFileSync(log, 'utf-8').trim().split('\n');
+    // 트랜스크립트가 없어 모델을 모르면 오르카가 거절하는 --effort 단독 인자를 싣지 않는다
+    expect(calls[0]).toMatch(/^agent launch --agent claude /);
+    expect(calls[0]).not.toContain('--effort');
     // 두 rename은 함께 돌아 기록 순서가 정해져 있지 않다
     expect(calls.slice(1)).toHaveLength(2);
     expect(calls.slice(1)).toEqual(
@@ -677,6 +707,21 @@ describe('handoff 명령의 탭 이름', () => {
         'chat rename --session=claude_new --name 🤴 지휘자 세션 🤴 --json',
       ]),
     );
+  });
+
+  it('사용자 전역 설정의 모델과 effort를 오르카 인자로 싣는다', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { stateDir, log, notes } = setup(0);
+    const home = join(base, 'home');
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    writeFileSync(
+      join(home, '.gestalt', 'conductor.json'),
+      JSON.stringify({ handoffModel: 'opus[1m]' }),
+    );
+    vi.stubEnv('GESTALT_HOME', home);
+    await conductorHandoffCommand({ stateDir, json: true, notesFile: notes });
+    const calls = readFileSync(log, 'utf-8').trim().split('\n');
+    expect(calls[0]).toContain('--model opus[1m] --effort high');
   });
 
   it('새 터미널 탭은 핸들로 바꾼다', async () => {
