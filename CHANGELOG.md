@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.139.0] - 2026-11-14
+
+### Added
+
+- **컨덕터가 GitHub에서 직접 머지하거나 닫은 PR을 알아채요(#137).** 넘겨받기 없이 사람이 GitHub에서 PR을 바로 머지하면 컨덕터가 알 길이 없었어요. PR 상태를 보는 건 `human-owned` 주문뿐이라 머지 승인을 기다리던 주문은 이미 머지된 PR을 두고 `waiting-gate`로 남았고 워커도 슬롯을 계속 잡았어요.
+  - tick이 PR 있는 `running`, `waiting-gate`, `escalated` 주문도 `human-owned`와 같은 간격(`humanOwnedPollSec`)으로 봐요. MERGED면 열린 게이트를 종료하고 워커에 종료를 전한 뒤 `merged`로 넘기고 지라 전환과 배포 확인을 이어 가요. 머지 없이 CLOSED면 워커를 바로 거두고 `cancelled`로 넘겨요.
+  - 머지된 주문의 워커는 같은 tick의 워커 정리가 거둬요. 감지한 자리에서 바로 거두면 `removeMergedOrcaWorktrees`가 안 걸려 워크트리가 남아서예요.
+  - 배포 실패로 올라온 `escalated` 주문은 이미 `mergedAt`이 있어 빼요. 다시 `merged`로 넘기면 정산이 같은 실패를 되풀이해요.
+  - 컨덕터가 쥔 주문은 하루가 지나도 `parked`로 내리지 않아요. 워커나 게이트가 아직 움직이고 있어서예요.
+  - `order mark-merged`도 세 상태를 받고 같은 정리를 해요. JSON 출력이 `{ order, closedGates, hostActions, jira, errors }`로 바뀌었어요.
+
+### Fixed
+
+- **`merged`나 `done` 주문에 늦게 도착한 워커 보고를 무시해요(#137).** 거둔 워커가 뒤늦게 `done --merged`를 보내면 `mergedAt`이 덮이고 지라가 두 번 옮겨졌어요.
+- **컨덕터 테스트가 실제 `gh`를 부르지 않아요(#137).** 테스트 헬퍼에 OPEN을 돌려주는 가짜 PR 상태를 기본으로 넣었어요. 조회 대상이 넓어지자 시나리오 테스트가 실제 GitHub의 `acme/billing#7`을 조회해 깨졌어요.
+
+### 남긴 것
+
+- 워커가 기존 PR을 close하고 새 PR을 여는 사이에 조회가 걸리면 주문이 `cancelled`로 잘못 넘어갈 수 있어요. 드문 경우라 일단 두었어요.
+
 ## [0.138.0] - 2026-11-14
 
 ### Added
