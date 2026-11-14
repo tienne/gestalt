@@ -34,7 +34,7 @@ import {
   type ReleaseOptions,
 } from '../../../src/conductor/launcher.js';
 import type { ConductorConfig } from '../../../src/conductor/scheduler.js';
-import { ConductorStore } from '../../../src/conductor/store.js';
+import { ConductorStore, EVENTS_FILE, replay } from '../../../src/conductor/store.js';
 import type { Worker, WorkerKind } from '../../../src/conductor/types.js';
 import { cleanupStateDirs, clockedStore, order, worker } from './fixtures.js';
 
@@ -318,6 +318,55 @@ describe('컨덕터 tick', () => {
     expect(withContext).toContain(description);
     expect(withContext).toContain(`- 레포 공통 맥락: ${contextFile}`);
     expect(promptOf('ord-none')).not.toContain('레포 공통 맥락');
+  });
+
+  it('런처가 쓴 브랜치를 워커 기록에 남기고 재개 때 앞 브랜치로 넘긴다', async () => {
+    const { store, advance } = clockedStore();
+    store.addOrder(order({ id: 'ord-1', issueKey: 'PROJ-1' }));
+    const g = fakeLauncher('git-worktree');
+    const start = g.launcher.start;
+    g.launcher.start = async (spec) => ({
+      ...(await start(spec)),
+      branch: spec.previousBranch ?? 'feat/PROJ-1-2',
+    });
+    const { deps: d } = deps({ launchers: { 'git-worktree': g.launcher } });
+    await tick(store, d, { force: true });
+    const first = store.order('ord-1')!.workerId!;
+    expect(store.worker(first)!.branch).toBe('feat/PROJ-1-2');
+    expect(g.started[0]!.previousBranch).toBeUndefined();
+    expect(g.started[0]!.previousWorker).toBeUndefined();
+
+    advance(16 * 60 * 1000);
+    await tick(store, d, { force: true });
+    const second = store.order('ord-1')!.workerId!;
+    expect(second).not.toBe(first);
+    expect(g.started.at(-1)!.previousBranch).toBe('feat/PROJ-1-2');
+    expect(g.started.at(-1)!.previousWorker).toEqual({
+      orderId: g.started[0]!.worker.orderId,
+      attempt: 1,
+    });
+    expect(store.worker(second)!.branch).toBe('feat/PROJ-1-2');
+    // 로그를 처음부터 재생해도 같은 브랜치가 나온다
+    expect(replay(join(store.dir, EVENTS_FILE)).workers[second]!.branch).toBe('feat/PROJ-1-2');
+  });
+
+  it('런처가 브랜치를 못 돌려주면 재개한 워커 기록에 앞 브랜치를 채우지 않는다', async () => {
+    const { store, advance } = clockedStore();
+    store.addOrder(order({ id: 'ord-1', issueKey: 'PROJ-1' }));
+    const g = fakeLauncher('git-worktree');
+    const start = g.launcher.start;
+    g.launcher.start = async (spec) => {
+      const r = await start(spec);
+      return spec.previousBranch === undefined ? { ...r, branch: 'feat/PROJ-1' } : r;
+    };
+    const { deps: d } = deps({ launchers: { 'git-worktree': g.launcher } });
+    await tick(store, d, { force: true });
+    advance(16 * 60 * 1000);
+    await tick(store, d, { force: true });
+    const second = store.order('ord-1')!.workerId!;
+    expect(g.started.at(-1)!.previousBranch).toBe('feat/PROJ-1');
+    expect(store.worker(second)!.branch).toBeUndefined();
+    expect(replay(join(store.dir, EVENTS_FILE)).workers[second]!.branch).toBeUndefined();
   });
 
   it('소식이 끊긴 워커는 체크포인트부터 같은 워커 식별자로 다시 띄운다', async () => {
