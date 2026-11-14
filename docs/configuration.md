@@ -90,6 +90,7 @@ interface GestaltConfig {
     contextWindowTokens?: number; // 사용량을 낼 컨텍스트 창 크기, 비우면 200k나 1M을 고른다
     handoffEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; // 인계로 띄우는 새 지휘자 세션의 추론 수준, 기본 high
     handoffModel?: string; // 새 지휘자 세션의 모델, 비우면 이전 세션 모델을 잇는다
+    handoffCloseAfterSec: number; // 인계 뒤 이만큼(초) 지나면 새 세션의 tick이 이전 지휘자 탭을 닫는다, 0이면 안 닫음, 기본 600
   };
   dbPath: string;
   skillsDir: string;
@@ -282,7 +283,7 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 }
 ```
 
-머지 승인 범위와 워커 에이전트, 상태 저장소, 계정, 레포 경로, PR 감시 대상, 오르카 워크트리 삭제 여부, 인계 세션의 모델과 추론 수준은 사용자 전역 `~/.gestalt/conductor.json`에만 적는다. `GESTALT_HOME`을 바꿨으면 그 아래 `.gestalt/conductor.json`이다. 이 파일은 `conductor` 블록 없이 칸을 바로 적고 조율 값도 함께 둘 수 있다. 같은 칸이 두 파일에 다 있으면 이 파일이 앞선다.
+머지 승인 범위와 워커 에이전트, 상태 저장소, 계정, 레포 경로, PR 감시 대상, 오르카 워크트리 삭제 여부, 인계 세션의 모델과 추론 수준, 이전 지휘자 탭을 닫는 시간은 사용자 전역 `~/.gestalt/conductor.json`에만 적는다. `GESTALT_HOME`을 바꿨으면 그 아래 `.gestalt/conductor.json`이다. 이 파일은 `conductor` 블록 없이 칸을 바로 적고 조율 값도 함께 둘 수 있다. 같은 칸이 두 파일에 다 있으면 이 파일이 앞선다.
 
 ```json
 {
@@ -294,7 +295,8 @@ Desktop/IDE의 이름은 캡처하지 않았다.
   "repoPaths": { "acme/widget-kit": "/path/to/widget-kit" },
   "prWatchRepos": ["acme/widget-kit"],
   "removeMergedOrcaWorktrees": true,
-  "handoffEffort": "high"
+  "handoffEffort": "high",
+  "handoffCloseAfterSec": 600
 }
 ```
 
@@ -312,6 +314,7 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 - `humanOwnedPollSec`(기본 900초, 60~86400)는 사람이 넘겨받은 `human-owned` 주문의 PR을 tick이 gh로 다시 볼 간격이다. 주문마다 따로 센다. `humanOwnedParkAfterSec`(기본 86400초, 600~2592000)가 지나도 머지나 닫힘이 없으면 `parked`로 내리고 더 안 본다. 자세한 전이는 [주문 상태](./conductor.md#주문-상태)에 있다
 - `handoffContextPercent`(기본 70)는 컨덕터 세션이 컴팩트를 한 번 거친 뒤 컨텍스트를 이 비율 이상 쓰면 다음 tick을 마친 자리에서 새 세션으로 인계하는 기준이다. `contextWindowTokens`를 비우면 모델 id와 사용량으로 200k나 1M 창을 고른다. 자세한 흐름은 [세션 인계](./conductor.md#세션-인계)에 있다
 - `handoffEffort`(기본 `high`)는 인계로 띄우는 새 지휘자 세션의 추론 수준이고 `low`, `medium`, `high`, `xhigh`, `max`를 받는다. 오르카가 `--effort`를 `--model`과 함께만 받아서 `handoffModel`을 같이 싣는다. `handoffModel`은 적힌 그대로 쓰므로 1M 창이 필요하면 `opus[1m]`처럼 접미까지 적는다. 비우면 이전 세션 트랜스크립트의 모델을 잇고 그것도 모르면 effort 없이 띄운 뒤 직접 맞추라고 알린다. 새 세션 에이전트가 claude일 때만 싣는다. 쓰는 모델이 비용을 정하므로 레포 `gestalt.json`으로는 못 바꾼다
+- `handoffCloseAfterSec`(기본 600, 0~86400)는 인계로 새 세션을 띄운 뒤 이전 지휘자 탭을 닫기까지 기다리는 초다. 새 세션이 이 시간 안에 첫 tick을 돌렸을 때만 기한 뒤 tick이 이전 터미널 탭을 닫는다. 0이면 닫지 않는다. 채팅 탭은 오르카 CLI로 닫을 수 없어 경고만 남긴다. 남의 레포가 탭을 닫게 하면 안 돼서 레포 `gestalt.json`으로는 못 바꾼다. 자세한 조건은 [세션 인계](./conductor.md#세션-인계)의 6번에 있다
 - `resultMaxChars`를 넘는 결과 요약이나 diff, 스택 트레이스가 섞인 결과는 받지 않고 요약을 다시 달라고 돌려보낸다
 
 동작 전체는 [컨덕터](./conductor.md)에 있다.

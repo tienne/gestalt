@@ -160,6 +160,15 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
    오르카로 띄웠으면(`launched: true`) 명령이 두 탭 이름도 바꾼다. 넘긴 세션 탭은 `지휘자 세션 (인계 완료, MM/DD)`, 새로 띄운 탭은 `🤴 지휘자 세션 🤴`이 돼서 어느 탭이 지금 도는 컨덕터인지 바로 보인다. 새 탭은 `agent launch` 응답의 채팅 세션 id(`chat rename --session`)나 터미널 핸들(`terminal rename`)로 가리킨다. 응답에서 새 탭을 못 읽었으면 넘긴 탭만 바꾸고 `renameErrors`에 한 줄 남긴다. 새 탭은 첫 tick에서 이름이 붙는다. 이름 바꾸기가 실패해도 인계는 성공으로 두고 결과의 `renameErrors`와 stderr로 알린다. `--json`이어도 stderr에 남긴다. 오르카로 띄우지 않았으면 탭 이름을 건드리지 않는다.
 
 5. **기존 세션 멈추기.** 넘긴 세션은 `ScheduleWakeup`을 `stop: true`로 부르고 컨덕터 크론도 지운다. 그래도 반복이 남아 tick이 다시 돌면 `sessions/<세션 id>/handoff.json`이 있어서 거절한다. 새 세션이 닫혀 반복이 끊긴 걸 사람에게 확인한 뒤에만 이 파일을 지우고 그 세션에서 이어 돌린다.
+6. **이전 탭 닫기.** 오르카로 띄웠으면(`launched: true`) 명령이 넘긴 세션의 탭을 `handoff.json`의 `previousTab`에 적는다. 터미널 탭이면 `ORCA_TERMINAL_HANDLE`의 핸들을, 채팅 탭(`ORCA_STRUCTURED_SESSION=1`)이면 종류만 적는다. 그 뒤 tick마다 지금 도는 컨덕터 세션이 저장소의 `sessions/*/handoff.json`을 훑고 인계 시각부터 `handoffCloseAfterSec`(기본 600초)가 지난 기록을 처리한다.
+   - 인계 시각부터 기한 안에 등록된 다른 세션이 있으면 `orca terminal close --terminal=<핸들> --tab --json`으로 이전 탭을 닫는다. 등록은 첫 tick에서 일어나므로 새 세션이 살아서 tick을 돌렸다는 근거가 된다
+   - 기한 안에 등록된 세션이 없으면 닫지 않고 남긴다. 새 세션이 첫 tick을 못 돌렸다면 이전 탭이 사람이 이어 돌릴 자리라서다
+   - 채팅 탭은 닫지 않는다. 오르카 CLI(1.4.256에서 확인)에 채팅 탭을 닫는 명령이 없고 `terminal close`는 채팅 세션을 받지 않는다
+   - 오르카가 없거나 닫기가 실패해도 인계와 tick은 그대로 두고 경고만 남긴다
+
+   결과는 `handoff.json`의 `close`(`closed`, `skipped`, `failed`)에 적고 tick JSON의 `handoffClose`에 한 번 싣는다. 텍스트 출력에는 닫았으면 알림 한 줄, 아니면 `경고:` 줄로 찍힌다. `close`가 적힌 기록은 다시 보지 않는다. tick 둘이 같은 기록을 함께 닫지 않게 세션 디렉토리에 `close-claim`을 먼저 만든다. `launched: false`였거나 `previousTab`이 없는 기록, `handoffCloseAfterSec`가 0이면 아무것도 안 한다. 닫히는 시점은 기한이 지난 뒤 첫 tick이라 반복 간격만큼 늦을 수 있다.
+
+   타이머를 이전 세션에 두지 않은 건 그 세션이 이미 반복을 멈췄고 탭이 닫히면 프로세스도 같이 사라져서다. 오르카에는 시간을 두고 탭을 닫는 기능이 없어서 새 세션의 tick이 기한을 확인한다. 이렇게 하면 닫는 쪽이 늘 살아 있는 컨덕터라 컨덕터가 둘 다 사라지는 일이 없다. 이전 세션의 tick은 이미 거절되니 둘 다 도는 일도 없다.
 
 새 세션은 인계 파일을 읽고 규칙을 이어 지킨다. 기다리던 질문은 사람에게 다시 묻고 tick을 한 번 돌린 뒤 인계 파일에 실린 반복 문장으로 반복을 건다. 새 세션은 세션 id가 달라서 컴팩트 횟수를 0부터 센다.
 
@@ -271,7 +280,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `queue/`                    | 외부 시스템     | 외부 큐 메시지. 다음 tick이 읽고 지운다. 못 읽은 파일은 `queue/failed/`로 옮긴다                                                                                                                                                                               |
 | `slack/`                    | 호스트          | 슬랙 초안 본문                                                                                                                                                                                                                                                 |
 | `context/<owner>/<name>.md` | 컨덕터 세션     | 레포 공통 맥락. 워커 지시에 경로가 실린다                                                                                                                                                                                                                      |
-| `sessions/<세션 id>/`       | tick, 컴팩트 훅 | 등록한 컨덕터 세션. `session.json`은 tick이, `compactions`(횟수와 트랜스크립트 경로)는 훅이, `handoff.json`(인계 기록)은 `handoff` 명령이 쓴다                                                                                                                 |
+| `sessions/<세션 id>/`       | tick, 컴팩트 훅 | 등록한 컨덕터 세션. `session.json`은 tick이, `compactions`(횟수와 트랜스크립트 경로)는 훅이, `handoff.json`(인계 기록)은 `handoff` 명령이 쓰고 이전 탭 닫기 결과(`close`)와 `close-claim`은 새 세션의 tick이 쓴다                                                                                                                 |
 | `handoffs/`                 | `handoff` 명령  | 새 컨덕터 세션에 넘긴 인계 파일                                                                                                                                                                                                                                |
 | `tick.lock`                 | tick            | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다                                                                                                                                                        |
 
