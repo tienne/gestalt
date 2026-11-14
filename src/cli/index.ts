@@ -1173,7 +1173,7 @@ export function createCli(): Command {
     )
     .option(
       '--loop-prompt <text>',
-      '이 세션에 반복을 건 프롬프트 원문. /gestalt:conductor로 시작하는 한 줄(앞에 5m 같은 간격 하나는 붙어도 된다, 500자 이하)만 받는다',
+      '이 세션에 반복을 건 프롬프트 원문. "컨덕터 tick: "이나 옛 꼴 /gestalt:conductor로 시작하는 한 줄(앞에 5m 같은 간격 하나는 붙어도 된다, 500자 이하)만 받는다',
     )
     .option('--session <id>', '이 세션 id. 없으면 CLAUDE_CODE_SESSION_ID')
     .option('--no-launch', '오르카가 있어도 새 세션을 띄우지 않고 인계 파일만 쓴다')
