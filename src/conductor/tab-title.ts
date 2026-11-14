@@ -90,10 +90,17 @@ export type LaunchedTab =
  */
 export type SessionTab = { kind: 'chat' } | { kind: 'terminal'; handle: string };
 
+/** 오르카 터미널 핸들 꼴. 이 값을 `orca terminal close`에 넘기므로 공백이나 제어문자가 섞인 값은 받지 않는다 */
+const TERMINAL_HANDLE_RE = /^[A-Za-z0-9._:-]{1,128}$/;
+
+export function isTerminalHandle(value: unknown): value is string {
+  return typeof value === 'string' && TERMINAL_HANDLE_RE.test(value);
+}
+
 export function currentSessionTab(env: NodeJS.ProcessEnv): SessionTab | undefined {
   if (env['ORCA_STRUCTURED_SESSION'] === '1') return { kind: 'chat' };
   const handle = env['ORCA_TERMINAL_HANDLE'];
-  return handle ? { kind: 'terminal', handle } : undefined;
+  return isTerminalHandle(handle) ? { kind: 'terminal', handle } : undefined;
 }
 
 /** 인계를 마친 세션 탭 이름. 지금 도는 컨덕터와 헷갈리지 않게 왕관을 떼고 날짜를 붙인다 */

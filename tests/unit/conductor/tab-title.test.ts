@@ -14,6 +14,7 @@ import {
   nameConductorTab,
   renameHandoffTabs,
   tabRenameArgs,
+  currentSessionTab,
 } from '../../../src/conductor/tab-title.js';
 import { cleanupStateDirs, tempStateDir } from './fixtures.js';
 
@@ -247,5 +248,17 @@ describe('tick의 탭 이름', () => {
     await expect(tick(stateDir)).rejects.toThrow('exit 1');
     expect(existsSync(log)).toBe(false);
     expect(existsSync(join(resolve(stateDir), 'sessions', sid, 'session.json'))).toBe(false);
+  });
+});
+
+describe('currentSessionTab', () => {
+  it('터미널 핸들 꼴이 아니면 탭을 모르는 것으로 둔다', () => {
+    expect(currentSessionTab({ ORCA_TERMINAL_HANDLE: 'term_abc-1' })).toEqual({
+      kind: 'terminal',
+      handle: 'term_abc-1',
+    });
+    expect(currentSessionTab({ ORCA_TERMINAL_HANDLE: 'term abc\n' })).toBeUndefined();
+    expect(currentSessionTab({ ORCA_TERMINAL_HANDLE: 'x'.repeat(129) })).toBeUndefined();
+    expect(currentSessionTab({})).toBeUndefined();
   });
 });

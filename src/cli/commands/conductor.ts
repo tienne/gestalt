@@ -77,6 +77,8 @@ import {
   currentSessionTab,
   nameConductorTab,
   renameHandoffTabs,
+  type LaunchedTab,
+  type SessionTab,
 } from '../../conductor/tab-title.js';
 import {
   closeHandedOffTabs,
@@ -531,6 +533,8 @@ async function nameTabOnce(): Promise<void> {
 }
 
 export async function conductorTickCommand(opts: ConductorTickOptions): Promise<void> {
+  // handoff.json에 기록되면 다시 안 실리는 결과라 tick 본문이 예외로 끝나도 stderr로 남긴다
+  let handoffClose: HandoffCloseResult[] = [];
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'tick');
@@ -541,7 +545,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
         await nameTabOnce();
       }
     }
-    const handoffClose = sessionId ? await closePreviousTabs(ctx, sessionId) : [];
+    if (sessionId) handoffClose = await closePreviousTabs(ctx, sessionId);
     const deferred: HostAction[] = [];
     const watch =
       opts.prWatch !== false
@@ -600,6 +604,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     for (const r of handoffClose) console.log(handoffCloseLine(r));
     if (handoffLine) console.log(handoffLine);
   } catch (e) {
+    for (const r of handoffClose) console.error(handoffCloseLine(r));
     exitWithError(e);
   }
 }
@@ -614,20 +619,22 @@ function humanOwnedLine(h: HumanOwnedChange): string {
   return `${h.orderId}${h.prRef ? ` (${h.prRef})` : ''}: ${HUMAN_OWNED_TO[h.to]}`;
 }
 
-// 닫기 실패는 tick을 멈추지 않는다. 결과는 tick 출력의 handoffClose로만 알린다
+// 닫기 실패는 tick을 멈추지 않는다. 예외만 stderr로 남기고 나머지 결과는 handoffClose로 알린다
 async function closePreviousTabs(ctx: Ctx, sessionId: string): Promise<HandoffCloseResult[]> {
   try {
     const orca = detectOrca(process.env);
+    const currentTab = currentSessionTab(process.env);
     return await closeHandedOffTabs({
       stateDir: ctx.store.dir,
       sessionId,
+      ...(currentTab ? { currentTab } : {}),
       closeAfterSec: ctx.config.handoffCloseAfterSec,
       now: new Date(),
       cwd: process.cwd(),
       ...(orca ? { orcaCommand: orca } : {}),
     });
   } catch (e) {
-    console.error(`이전 지휘자 탭 닫기: ${(e as Error).message}`);
+    console.error(`경고: 이전 지휘자 탭을 닫지 못했어요: ${(e as Error).message}`);
     return [];
   }
 }
@@ -704,7 +711,9 @@ export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Pr
         file,
         launched: outcome.launched,
         detail: outcome.detail,
-        ...(outcome.launched && orca && previousTab ? { previousTab } : {}),
+        ...(outcome.launched && orca && previousTab && !sameTab(previousTab, outcome.tab)
+          ? { previousTab }
+          : {}),
       });
     } catch (e) {
       // 거절은 위의 기록으로 이미 걸려 있다. handoff.json에 '띄우는 중'이 남는다는 것만 알리고 문장은 그대로 낸다
@@ -1119,4 +1128,13 @@ function run(body: () => void): void {
 function exitWithError(e: unknown): never {
   console.error(e instanceof Error ? e.message : String(e));
   process.exit(1);
+}
+
+/** 새로 띄운 탭이 지금 탭과 같으면 previousTab을 적지 않는다. 그 탭을 닫으면 지휘자가 다 사라진다 */
+function sameTab(previous: SessionTab, launched: LaunchedTab | undefined): boolean {
+  return (
+    previous.kind === 'terminal' &&
+    launched?.kind === 'terminal' &&
+    launched.handle === previous.handle
+  );
 }

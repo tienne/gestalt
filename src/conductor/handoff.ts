@@ -54,6 +54,19 @@ export function sessionDir(stateDir: string, sessionId: string): string {
   return join(stateDir, SESSIONS_DIR, sessionId);
 }
 
+/** registerSession이 적은 등록 시각(ms). 파일이 없거나 깨졌으면 undefined */
+export function readSessionRegisteredAt(stateDir: string, sessionId: string): number | undefined {
+  try {
+    const raw = JSON.parse(
+      readFileSync(join(sessionDir(stateDir, sessionId), SESSION_FILE), 'utf-8'),
+    ) as { registeredAt?: unknown };
+    const at = typeof raw.registeredAt === 'string' ? Date.parse(raw.registeredAt) : NaN;
+    return Number.isFinite(at) ? at : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** 훅이 이 세션의 컴팩트를 세도록 디렉토리를 만든다. 이미 있으면 그대로 두고 false를 돌려준다 */
 export function registerSession(
   stateDir: string,

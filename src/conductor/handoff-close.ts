@@ -1,15 +1,16 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   isSessionId,
   readHandoffRecord,
+  readSessionRegisteredAt,
   recordHandoff,
   SESSIONS_DIR,
   sessionDir,
   type HandoffCloseOutcome,
 } from './handoff.js';
 import { execRunner, type CommandResult, type CommandRunner } from './launcher.js';
-import type { SessionTab } from './tab-title.js';
+import { isTerminalHandle, type SessionTab } from './tab-title.js';
 
 /**
  * 인계를 마친 이전 지휘자 세션 탭 닫기.
@@ -20,9 +21,8 @@ import type { SessionTab } from './tab-title.js';
  * 등록되므로 기한 안에 첫 tick이 없으면 이전 탭을 닫지 않고 남긴다.
  */
 
-const SESSION_FILE = 'session.json';
 const CLOSE_CLAIM = 'close-claim';
-const CLOSE_TIMEOUT_MS = 30_000;
+const CLOSE_TIMEOUT_MS = 10_000;
 
 export interface HandoffCloseResult {
   sessionId: string;
@@ -34,6 +34,8 @@ export interface ClosePreviousOptions {
   stateDir: string;
   /** tick을 돌리는 지금 세션. 이 세션의 기록은 건드리지 않는다 */
   sessionId: string;
+  /** 지금 세션이 앉은 탭. 닫을 탭이 이 탭과 같으면 닫지 않는다 */
+  currentTab?: SessionTab;
   /** 인계 뒤 이만큼(초) 지나면 닫는다. 0이면 아무것도 안 한다 */
   closeAfterSec: number;
   now: Date;
@@ -51,11 +53,7 @@ export async function closeHandedOffTabs(
   const ids = readdirSync(root, { withFileTypes: true })
     .filter((d) => d.isDirectory() && isSessionId(d.name))
     .map((d) => d.name);
-  const registered = new Map<string, number>();
-  for (const id of ids) {
-    const at = registeredAt(opts.stateDir, id);
-    if (at !== undefined) registered.set(id, at);
-  }
+  let registered: Map<string, number> | undefined;
   const results: HandoffCloseResult[] = [];
   for (const id of ids) {
     if (id === opts.sessionId) continue;
@@ -65,11 +63,22 @@ export async function closeHandedOffTabs(
     if (!Number.isFinite(handedAt)) continue;
     const deadline = handedAt + opts.closeAfterSec * 1000;
     if (opts.now.getTime() < deadline) continue;
+    registered ??= registeredSessions(opts.stateDir, ids);
     const successor = [...registered].some(
       ([other, at]) => other !== id && at >= handedAt && at <= deadline,
     );
     // 기한을 넘긴 기록 하나를 tick 둘이 같이 닫지 않게 wx 파일로 먼저 잡는다
-    if (!claim(opts.stateDir, id)) continue;
+    const claimed = claim(opts.stateDir, id, opts);
+    if (claimed === 'taken') continue;
+    if (claimed !== 'ok') {
+      // 기록을 안 남겨 다음 tick이 다시 시도한다
+      results.push({
+        sessionId: id,
+        state: 'failed',
+        detail: `close-claim을 못 만들었어요: ${claimed}`,
+      });
+      continue;
+    }
     const outcome = successor
       ? await closeTab(record.previousTab, opts)
       : {
@@ -80,7 +89,7 @@ export async function closeHandedOffTabs(
     try {
       recordHandoff(opts.stateDir, id, { ...record, close });
     } catch (e) {
-      // 잡아 둔 파일이 남아 다시 닫으려 들지 않는다. 기록만 못 남긴 걸 알린다
+      // close-claim이 남아 다음 tick도 이 기록을 건너뛴다. 기록만 못 남긴 걸 알린다
       close.detail += `. 기록은 못 남겼어요: ${(e as Error).message}`;
     }
     results.push({ sessionId: id, state: close.state, detail: close.detail });
@@ -88,24 +97,27 @@ export async function closeHandedOffTabs(
   return results;
 }
 
-function registeredAt(stateDir: string, id: string): number | undefined {
-  try {
-    const raw = JSON.parse(readFileSync(join(sessionDir(stateDir, id), SESSION_FILE), 'utf-8')) as {
-      registeredAt?: unknown;
-    };
-    const at = typeof raw.registeredAt === 'string' ? Date.parse(raw.registeredAt) : NaN;
-    return Number.isFinite(at) ? at : undefined;
-  } catch {
-    return undefined;
+function registeredSessions(stateDir: string, ids: string[]): Map<string, number> {
+  const registered = new Map<string, number>();
+  for (const id of ids) {
+    const at = readSessionRegisteredAt(stateDir, id);
+    if (at !== undefined) registered.set(id, at);
   }
+  return registered;
 }
 
-function claim(stateDir: string, id: string): boolean {
+/** 'ok'는 잡았다, 'taken'은 이미 누가 잡았다. 그 밖의 문자열은 못 잡은 이유다 */
+function claim(stateDir: string, id: string, opts: ClosePreviousOptions): string {
   try {
-    writeFileSync(join(sessionDir(stateDir, id), CLOSE_CLAIM), '', { flag: 'wx' });
-    return true;
-  } catch {
-    return false;
+    writeFileSync(
+      join(sessionDir(stateDir, id), CLOSE_CLAIM),
+      JSON.stringify({ by: opts.sessionId, at: opts.now.toISOString() }),
+      { flag: 'wx' },
+    );
+    return 'ok';
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') return 'taken';
+    return (e as Error).message;
   }
 }
 
@@ -117,6 +129,16 @@ async function closeTab(
     return {
       state: 'skipped',
       detail: '이전 세션이 채팅 탭이라 오르카 CLI로 닫을 수 없어요. 탭을 직접 닫아 주세요',
+    };
+  if (!isTerminalHandle(tab.handle))
+    return {
+      state: 'skipped',
+      detail: '기록된 이전 탭 핸들이 터미널 핸들 꼴이 아니라 닫지 않았어요. 탭을 직접 닫아 주세요',
+    };
+  if (opts.currentTab?.kind === 'terminal' && opts.currentTab.handle === tab.handle)
+    return {
+      state: 'skipped',
+      detail: '이전 탭이 지금 지휘자 탭과 같아 닫지 않았어요',
     };
   if (!opts.orcaCommand)
     return { state: 'skipped', detail: '오르카가 없어 이전 탭을 못 닫았어요. 직접 닫아 주세요' };
