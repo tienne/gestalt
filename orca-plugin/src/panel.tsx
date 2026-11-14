@@ -12,7 +12,8 @@ import {
   Heading,
   IconButton,
   Input,
-  Link,
+  List,
+  ListItem,
   plugin,
   read,
   RelativeTime,
@@ -28,8 +29,10 @@ import {
 import { buildHierarchy, hasNesting, type HierarchyNode } from './hierarchy'
 import {
   countByStatus,
+  filterOrders,
   groupOrders,
   isTerminal,
+  matchRepo,
   ms,
   splitRepo,
   STATUS_LABEL,
@@ -62,6 +65,7 @@ const selectedRepo = atom<string | null>(null)
 const removing = atom<{ key: string; ids: string[] } | null>(null)
 const removeBusy = atom(false)
 const removeResult = atom<OrderRemoveResult | null>(null)
+const repoQuery = atom('repoQuery', '')
 
 const RESOLVE_TIMEOUT_MS = 120_000
 
@@ -329,58 +333,62 @@ function ResultCallout({ result }: { result: GateResolveResult }) {
 
 function OrderRow({ order }: { order: OrderView }) {
   const at = ms(order.updatedAt)
+  const body = (
+    <Stack gap="xs">
+      <Text weight="medium">{order.title || '(제목 없음)'}</Text>
+      <Row gap="xs" wrap>
+        <Code>{order.id}</Code>
+        <Badge>{order.scope}</Badge>
+      </Row>
+      <Row gap="xs" wrap>
+        {order.pr ? (
+          <Text size="xs" muted>
+            PR {order.pr}
+          </Text>
+        ) : null}
+        {order.issue ? (
+          <Text size="xs" muted>
+            이슈 {order.issue}
+          </Text>
+        ) : null}
+        {at !== null ? <RelativeTime at={at} muted /> : null}
+      </Row>
+    </Stack>
+  )
   return (
-    <Box border radius="sm" padding="sm">
-      <Stack gap="xs">
-        <Row justify="between" align="start">
+    <Box border radius="sm" padding="none">
+      <Box direction="row" align="start">
+        <Box grow padding="none">
           {order.workspaceId ? (
-            <Link onPress={() => openWorker(order.id)}>{order.title || '(제목 없음)'}</Link>
+            // 카드 어디를 눌러도 워커로 가게 ListItem으로 감싼다. ListItem 안에는 버튼을 못 두므로 지우기 버튼은 옆에 둔다
+            <List label={order.title || order.id}>
+              <ListItem key={`order:${order.id}`} onPress={() => openWorker(order.id)}>
+                {body}
+              </ListItem>
+            </List>
           ) : (
-            <Text weight="medium">{order.title || '(제목 없음)'}</Text>
+            <Box padding="sm">{body}</Box>
           )}
-          <Row gap="xs">
-            {order.workspaceId ? (
-              <IconButton
-                icon="open-external"
-                label="워크트리 열기"
-                tooltip="워커의 오르카 워크트리로 이동"
-                size="xs"
-                variant="ghost"
-                onPress={() => openWorker(order.id)}
-              />
-            ) : null}
-            {isTerminal(order.status) ? (
-              <IconButton
-                icon="delete"
-                label="주문 지우기"
-                tooltip="컨덕터 저장소에서 이 주문 지우기"
-                size="xs"
-                variant="ghost"
-                disabled={read(removeBusy)}
-                onPress={() => askRemove(`order:${order.id}`, [order.id])}
-              />
-            ) : null}
-          </Row>
-        </Row>
-        <Row gap="xs" wrap>
-          <Code>{order.id}</Code>
-          <Badge>{order.scope}</Badge>
-        </Row>
-        <Row gap="xs" wrap>
-          {order.pr ? (
-            <Text size="xs" muted>
-              PR {order.pr}
-            </Text>
-          ) : null}
-          {order.issue ? (
-            <Text size="xs" muted>
-              이슈 {order.issue}
-            </Text>
-          ) : null}
-          {at !== null ? <RelativeTime at={at} muted /> : null}
-        </Row>
-        <RemoveConfirm at={`order:${order.id}`} />
-      </Stack>
+        </Box>
+        {isTerminal(order.status) ? (
+          <Box padding="xs">
+            <IconButton
+              icon="delete"
+              label="주문 지우기"
+              tooltip="컨덕터 저장소에서 이 주문 지우기"
+              size="xs"
+              variant="ghost"
+              disabled={read(removeBusy)}
+              onPress={() => askRemove(`order:${order.id}`, [order.id])}
+            />
+          </Box>
+        ) : null}
+      </Box>
+      {read(removing)?.key === `order:${order.id}` ? (
+        <Box padding="sm">
+          <RemoveConfirm at={`order:${order.id}`} />
+        </Box>
+      ) : null}
     </Box>
   )
 }
@@ -423,42 +431,49 @@ function Bypasses({ title, orders, unassigned = [] }: { title: string; orders: r
   )
 }
 
+/** 이름 두 줄, 정보 한 줄, 배지 두 줄이 들어가는 높이. 2열 격자의 타일 높이를 이 값으로 맞춘다 */
+const TILE_MIN_HEIGHT = 120
+
 function RepoTile({ s }: { s: RepoSummary }) {
   const { name, owner } = splitRepo(s.repo)
   const border: boolean | Tone = s.needsPerson > 0 ? 'warning' : s.active > 0 ? 'accent' : true
   return (
-    <Box border={border} radius="md" padding="sm" background={s.active > 0 || s.gates.length > 0 ? 'card' : 'muted'}>
-      <Stack gap="xs">
-        <Button variant="ghost" size="sm" tooltip={`${s.repo} 자세히 보기`} onPress={() => selectRepo(s.repo)}>
-          {name}
-        </Button>
-        {s.project ? (
-          <Text size="xs" truncate>
-            {s.project}
-          </Text>
-        ) : null}
-        {owner ? (
-          <Text size="xs" muted truncate>
-            {owner}
-          </Text>
-        ) : null}
-        <Row gap="xs" wrap>
-          {s.gates.length > 0 ? <Badge tone="warning">{`확인 대기 ${s.gates.length}`}</Badge> : null}
-          {s.nested > 0 ? <Badge>{`하위 ${s.nested}`}</Badge> : null}
-          {countByStatus(s.orders)
-            // 게이트 배지와 waiting-gate 상태 배지가 둘 다 "확인 대기"라 겹치면 하나만 남긴다
-            .filter(([status]) => !(status === 'waiting-gate' && s.gates.length > 0))
-            .map(([status, n]) => (
-              <Badge key={status} tone={STATUS_TONE[status] ?? 'neutral'}>{`${STATUS_LABEL[status] ?? status} ${n}`}</Badge>
-            ))}
-        </Row>
-      </Stack>
-    </Box>
+    // 격자는 칸을 그 줄에서 가장 긴 타일 높이로 늘리는데 ListItem은 내용 높이만큼만 눌린다.
+    // 타일 높이를 TILE_MIN_HEIGHT로 맞춰 두 높이를 같게 하고, 그보다 긴 타일이 나와도 테두리가 눌리는 영역을 넘지 않게 Stack으로 감싼다
+    <Stack>
+    <Box border={border} radius="md" padding="none" background={s.active > 0 || s.gates.length > 0 ? 'card' : 'muted'}>
+        {/* Box는 onPress가 없다. 타일 전체를 누르는 자리로 쓸 수 있는 건 ListItem뿐이라 항목 하나짜리 List로 감싼다 */}
+        <List label={s.repo}>
+          <ListItem key={`tile:${s.repo}`} onPress={() => selectRepo(s.repo)}>
+            <Box gap="xs" minHeight={TILE_MIN_HEIGHT}>
+              <Text weight="semibold">{name}</Text>
+              {s.project || owner ? (
+                <Text size="xs" muted truncate>
+                  {[s.project, owner].filter(Boolean).join(', ')}
+                </Text>
+              ) : null}
+              <Row gap="xs" wrap>
+                {s.gates.length > 0 ? <Badge tone="warning">{`확인 대기 ${s.gates.length}`}</Badge> : null}
+                {s.nested > 0 ? <Badge>{`하위 ${s.nested}`}</Badge> : null}
+                {countByStatus(s.orders)
+                  // 게이트 배지와 waiting-gate 상태 배지가 둘 다 "확인 대기"라 겹치면 하나만 남긴다
+                  .filter(([status]) => !(status === 'waiting-gate' && s.gates.length > 0))
+                  .map(([status, n]) => (
+                    <Badge key={status} tone={STATUS_TONE[status] ?? 'neutral'}>{`${STATUS_LABEL[status] ?? status} ${n}`}</Badge>
+                  ))}
+              </Row>
+            </Box>
+          </ListItem>
+        </List>
+      </Box>
+    </Stack>
   )
 }
 
 function RepoMap({ v }: { v: ConductorView }) {
   const { repos, orphanGates } = summarize(v)
+  const query = read(repoQuery)
+  const shown = repos.filter((s) => matchRepo(s, query))
   const active = v.orders.filter((o) => !isTerminal(o.status)).length
   return (
     <Stack gap="md">
@@ -466,9 +481,19 @@ function RepoMap({ v }: { v: ConductorView }) {
         <Badge tone={v.gates.length > 0 ? 'warning' : 'neutral'}>{`확인 대기 ${v.gates.length}`}</Badge>
         <Badge tone="accent">{`진행 중 주문 ${active}`}</Badge>
         <Text size="xs" muted>
-          {`레포 ${repos.length}곳`}
+          {query.trim() ? `레포 ${repos.length}곳 중 ${shown.length}곳` : `레포 ${repos.length}곳`}
         </Text>
       </Row>
+      {repos.length > 0 ? (
+        <Input
+          label="레포 검색"
+          labelHidden
+          type="search"
+          placeholder="레포, 프로젝트, 주문 제목으로 찾기"
+          value={query}
+          onChange={(q) => set(repoQuery, q)}
+        />
+      ) : null}
       {orphanGates.length > 0 ? (
         <Stack gap="sm">
           <Heading level={3}>주문 없는 확인 대기</Heading>
@@ -479,9 +504,11 @@ function RepoMap({ v }: { v: ConductorView }) {
       ) : null}
       {repos.length === 0 ? (
         <EmptyState icon="layers" title="받은 주문이 없어요" description="컨덕터가 주문을 받으면 레포마다 여기에 칸이 생겨요." />
+      ) : shown.length === 0 ? (
+        <EmptyState icon="search" title="맞는 레포가 없어요" description={`"${query.trim()}"이 들어간 레포, 프로젝트, 주문이 없어요.`} />
       ) : (
         <Grid minItemWidth="sm" gap="sm">
-          {repos.map((s) => (
+          {shown.map((s) => (
             <RepoTile key={s.repo} s={s} />
           ))}
         </Grid>
@@ -542,8 +569,9 @@ function Hierarchy({ orders }: { orders: readonly OrderView[] }) {
   )
 }
 
-function FinishedCleanup({ s }: { s: RepoSummary }) {
-  const ids = s.orders.filter((o) => isTerminal(o.status)).map((o) => o.id)
+/** 검색으로 걸러졌으면 보이는 주문만 지운다. 안 보이는 주문까지 지우면 누른 사람이 무엇을 지웠는지 모른다 */
+function FinishedCleanup({ s, orders }: { s: RepoSummary; orders: readonly OrderView[] }) {
+  const ids = orders.filter((o) => isTerminal(o.status)).map((o) => o.id)
   const result = read(removeResult)
   if (ids.length === 0 && !result) return null
   return (
@@ -570,6 +598,12 @@ function FinishedCleanup({ s }: { s: RepoSummary }) {
 
 function RepoDetail({ s }: { s: RepoSummary }) {
   const { name, owner } = splitRepo(s.repo)
+  const query = read(repoQuery)
+  const searching = query.trim() !== ''
+  const orders = filterOrders(s, query)
+  const shownIds = new Set(orders.map((o) => o.id))
+  const gates = searching ? s.gates.filter((g) => g.orderId && shownIds.has(g.orderId)) : s.gates
+  const hiddenGates = s.gates.length - gates.length
   return (
     <Stack gap="md">
       <Stack gap="xs">
@@ -585,20 +619,38 @@ function RepoDetail({ s }: { s: RepoSummary }) {
           </Text>
         ) : null}
       </Stack>
-      {s.gates.length > 0 ? (
+      <Stack gap="xs">
+        <Input
+          label="주문 검색"
+          labelHidden
+          type="search"
+          placeholder="주문 제목이나 id로 찾기"
+          value={query}
+          onChange={(q) => set(repoQuery, q)}
+        />
+        {searching ? (
+          <Text size="xs" muted>
+            {`주문 ${s.orders.length}개 중 ${orders.length}개${hiddenGates > 0 ? `, 확인 대기 ${hiddenGates}개는 검색으로 가려졌어요` : ''}`}
+          </Text>
+        ) : null}
+      </Stack>
+      {gates.length > 0 ? (
         <Stack gap="sm">
           <Row gap="xs">
             <Heading level={3}>확인 대기</Heading>
-            <Badge tone="warning">{s.gates.length}</Badge>
+            <Badge tone="warning">{gates.length}</Badge>
           </Row>
-          {s.gates.map((g) => (
+          {gates.map((g) => (
             <GateCard key={g.id} gate={g} />
           ))}
         </Stack>
       ) : null}
-      <Hierarchy orders={s.orders} />
-      <FinishedCleanup s={s} />
-      {groupOrders(s.orders).map(([status, orders]) => (
+      {searching && orders.length === 0 ? (
+        <EmptyState icon="search" title="맞는 주문이 없어요" description={`"${query.trim()}"이 들어간 주문이 이 레포에 없어요.`} />
+      ) : null}
+      <Hierarchy orders={orders} />
+      <FinishedCleanup s={s} orders={orders} />
+      {groupOrders(orders).map(([status, orders]) => (
         <Collapsible
           key={status}
           title={`${STATUS_LABEL[status] ?? status} ${orders.length}`}
@@ -611,7 +663,7 @@ function RepoDetail({ s }: { s: RepoSummary }) {
           </Stack>
         </Collapsible>
       ))}
-      <Bypasses title="bypass 사후 보고" orders={s.orders} />
+      <Bypasses title="bypass 사후 보고" orders={orders} />
     </Stack>
   )
 }

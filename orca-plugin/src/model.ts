@@ -130,3 +130,26 @@ export function splitRepo(repo: string): { name: string; owner: string | null } 
   const i = repo.lastIndexOf('/')
   return i < 0 ? { name: repo, owner: null } : { name: repo.slice(i + 1), owner: repo.slice(0, i) }
 }
+
+const searchWords = (query: string) => query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+
+const hits = (words: readonly string[], fields: readonly (string | null | undefined)[]) => {
+  const hay = fields.filter(Boolean).join('\n').toLowerCase()
+  return words.every((w) => hay.includes(w))
+}
+
+/**
+ * 레포 상세에 남길 주문. 검색어를 공백으로 나눠 조각이 전부 레포 이름, 프로젝트, 그 주문의 제목이나 id 가운데 들어 있어야 남는다.
+ * 레포 이름으로 맞았으면 주문이 전부 남고 주문 제목으로 맞았으면 그 주문만 남는다
+ */
+export function filterOrders(s: RepoSummary, query: string): OrderView[] {
+  const words = searchWords(query)
+  if (words.length === 0) return s.orders
+  return s.orders.filter((o) => hits(words, [s.repo, s.project, o.title, o.id]))
+}
+
+/** 지도에 남길 레포. 레포 자체가 맞거나 맞는 주문이 하나라도 있으면 남는다. 상세에 들어가면 빈 목록이 안 나오게 filterOrders와 같은 기준을 쓴다 */
+export function matchRepo(s: RepoSummary, query: string): boolean {
+  const words = searchWords(query)
+  return words.length === 0 || hits(words, [s.repo, s.project]) || filterOrders(s, query).length > 0
+}

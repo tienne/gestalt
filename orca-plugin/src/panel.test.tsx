@@ -91,7 +91,9 @@ test('지도는 레포마다 타일을 두고 확인 대기가 있는 레포를 
     gates: [base.gates[0]!]
   })
   const view = await mount(panel, { host })
-  const tiles = view.findAll({ type: 'Button', text: /^(web|api|docs)$/ }).map((b) => b.text)
+  const tiles = view
+    .findAll({ type: 'ListItem' })
+    .map((b) => (b.key ?? '').replace(/^tile:(acme\/)?/, ''))
   assert.deepEqual(tiles, ['api', 'web', 'docs'])
   assert.ok(view.find({ text: 'acme' }))
   // 위 요약 배지 하나, api 타일 하나. 타일 안에서 게이트 배지와 상태 배지가 겹치면 셋이 된다
@@ -101,30 +103,92 @@ test('지도는 레포마다 타일을 두고 확인 대기가 있는 레포를 
   await view.unmount()
 })
 
+test('지도 검색은 레포 이름과 프로젝트, 주문 제목으로 타일을 거른다', async () => {
+  const { host } = setup({
+    ...base,
+    orders: [...base.orders, { id: 'ord-c', status: 'done', scope: 'pr', repo: 'acme/docs', title: '오탈자', bypasses: [] }]
+  })
+  const view = await mount(panel, { host })
+  const tiles = () =>
+    view.findAll({ type: 'ListItem' }).map((b) => (b.key ?? '').replace(/^tile:/, ''))
+
+  await view.type({ label: '레포 검색' }, 'ACME')
+  assert.deepEqual(tiles(), ['acme/docs'], '대소문자를 안 가린다')
+  assert.ok(view.find({ text: '레포 3곳 중 1곳' }))
+
+  await view.type({ label: '레포 검색' }, '취소 사유', { replace: true })
+  assert.deepEqual(tiles(), ['api'], '주문 제목으로도 찾는다')
+
+  await view.type({ label: '레포 검색' }, '없는레포', { replace: true })
+  assert.deepEqual(tiles(), [])
+  assert.ok(view.summary().some((l) => l.includes('맞는 레포가 없어요')), view.summary().join(' / '))
+
+  await view.type({ label: '레포 검색' }, '', { replace: true })
+  assert.equal(tiles().length, 3)
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('지도에서 검색한 말이 레포 상세의 주문까지 이어진다', async () => {
+  const { host } = setup({
+    ...base,
+    orders: [
+      ...base.orders,
+      { id: 'ord-b2', status: 'running', scope: 'pr', repo: 'api', title: '정산 배치 수정', bypasses: [] },
+      { id: 'ord-b3', status: 'done', scope: 'pr', repo: 'api', title: '취소 사유 문구', bypasses: [] }
+    ]
+  })
+  const view = await mount(panel, { host })
+  const has = (text: string) => view.find({ text }) !== null
+
+  await view.type({ label: '레포 검색' }, '취소 사유')
+  await view.press({ testId: 'tile:api' })
+  assert.equal(view.find({ label: '주문 검색' })?.props.value, '취소 사유', '상세 검색창에 같은 말이 들어 있다')
+  assert.ok(has('취소 사유 추가'))
+  assert.ok(view.find({ type: 'Collapsible', label: '끝남 1' }), '끝난 주문은 접힌 묶음에 남는다')
+  assert.ok(!has('정산 배치 수정'), '안 맞는 주문은 가린다')
+  assert.ok(has('주문 3개 중 2개'))
+  assert.ok(has('끝난 주문 1개 지우기'))
+
+  await view.type({ label: '주문 검색' }, '정산', { replace: true })
+  assert.ok(has('정산 배치 수정'))
+  assert.ok(!has('취소 사유 추가'))
+  assert.ok(has('주문 3개 중 1개, 확인 대기 1개는 검색으로 가려졌어요'), '가려진 확인 대기를 알린다')
+  assert.ok(!has('끝난 주문 1개 지우기'), '안 보이는 주문은 지우기에 안 넣는다')
+
+  await view.type({ label: '주문 검색' }, 'api', { replace: true })
+  assert.ok(has('정산 배치 수정') && has('취소 사유 추가'), '레포 이름으로 맞으면 주문이 다 보인다')
+
+  await view.type({ label: '주문 검색' }, '없는주문', { replace: true })
+  assert.ok(view.summary().some((l) => l.includes('맞는 주문이 없어요')), view.summary().join(' / '))
+
+  await view.press({ text: '← 지도' })
+  assert.equal(view.find({ label: '레포 검색' })?.props.value, '없는주문', '지도로 돌아와도 검색어가 남는다')
+  await view.type({ label: '레포 검색' }, '', { replace: true })
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
 test('타일을 누르면 그 레포의 주문만 보이고 지도로 돌아갈 수 있다', async () => {
   const { host, opened } = setup()
   const view = await mount(panel, { host })
-  await view.press({ type: 'Button', text: 'web' })
+  await view.press({ testId: 'tile:web' })
   assert.ok(view.find({ text: /검색 문구 정리/ }))
   assert.equal(view.find({ text: /취소 사유 추가/ }), null)
-  const buttons = view.findAll({ label: '워크트리 열기' })
-  assert.equal(buttons.length, 1)
-  await view.press(buttons[0]!)
-  assert.deepEqual(opened, ['ord-a'])
-  await view.press({ type: 'Link', text: /검색 문구 정리/ })
-  assert.deepEqual(opened, ['ord-a', 'ord-a'])
+  await view.press({ testId: 'order:ord-a' })
+  assert.deepEqual(opened, ['ord-a'], '주문 카드 어디를 눌러도 그 워커로 간다')
 
   await view.press({ text: '← 지도' })
-  await view.press({ type: 'Button', text: 'api' })
+  await view.press({ testId: 'tile:api' })
   assert.ok(view.find({ text: /PR api#48/ }))
-  assert.equal(view.findAll({ label: '워크트리 열기' }).length, 0)
+  assert.equal(view.findAll({ type: 'ListItem' }).filter((i) => (i.key ?? '').startsWith('order:')).length, 0, '워크트리가 없는 주문은 누를 수 없다')
   await view.unmount()
 })
 
 test('승인은 두 번째 누름에서만 보내고 hostActions와 errors를 그대로 보여 준다', async () => {
   const { host, resolved } = setup()
   const view = await mount(panel, { host })
-  await view.press({ type: 'Button', text: 'api' })
+  await view.press({ testId: 'tile:api' })
   assert.ok(view.findAll({ text: /머지 승인이 필요해요/ }).length > 0)
 
   await view.press({ text: '승인' })
@@ -143,7 +207,7 @@ test('승인은 두 번째 누름에서만 보내고 hostActions와 errors를 �
 test('거절도 취소하면 보내지 않는다', async () => {
   const { host, resolved } = setup()
   const view = await mount(panel, { host })
-  await view.press({ type: 'Button', text: 'api' })
+  await view.press({ testId: 'tile:api' })
   await view.press({ text: '거절' })
   await view.press({ text: '취소' })
   assert.deepEqual(resolved, [])
@@ -154,11 +218,11 @@ test('거절도 취소하면 보내지 않는다', async () => {
 test('지도로 나갔다 오면 띄워 둔 게이트 확인 칸이 걷힌다', async () => {
   const { host, resolved } = setup()
   const view = await mount(panel, { host })
-  await view.press({ type: 'Button', text: 'api' })
+  await view.press({ testId: 'tile:api' })
   await view.press({ text: '승인' })
   assert.ok(view.find({ text: '승인 확정' }))
   await view.press({ text: '← 지도' })
-  await view.press({ type: 'Button', text: 'api' })
+  await view.press({ testId: 'tile:api' })
   assert.equal(view.find({ text: '승인 확정' }), null)
   assert.deepEqual(resolved, [])
   await view.unmount()
@@ -167,7 +231,7 @@ test('지도로 나갔다 오면 띄워 둔 게이트 확인 칸이 걷힌다', 
 test('인터뷰 게이트는 적은 답을 함께 보낸다', async () => {
   const { host, resolved } = setup()
   const view = await mount(panel, { host })
-  await view.press({ type: 'Button', text: 'web' })
+  await view.press({ testId: 'tile:web' })
   await view.type({ label: '답' }, '켜 두세요')
   await view.press({ text: '승인' })
   await view.press({ text: '승인 확정' })
@@ -204,7 +268,7 @@ test('bypass 보고는 접어 두고 레포 상세와 지도에 나눠 보인다
   await view.toggle({ type: 'Collapsible', text: /주문 없는 bypass 1개/ })
   assert.ok(view.find({ text: '슬랙 게시 생략' }))
 
-  await view.press({ type: 'Button', text: 'api' })
+  await view.press({ testId: 'tile:api' })
   assert.equal(view.find({ text: '로컬 리뷰 생략' }), null)
   await view.toggle({ type: 'Collapsible', text: /bypass 사후 보고 1개/ })
   assert.ok(view.find({ text: '로컬 리뷰 생략' }))
@@ -231,7 +295,7 @@ test('레포 상세는 하위 주문과 부모 워크트리를 위계 트리로 
   })
   const view = await mount(panel, { host })
   assert.ok(view.find({ text: '하위 2' }), '타일에 위계에 걸린 주문 수를 붙인다')
-  await view.press({ type: 'Button', text: 'web' })
+  await view.press({ testId: 'tile:web' })
   const tree = view.find({ type: 'Tree' })!
   assert.ok(tree)
   assert.deepEqual(view.expandedOf({ type: 'Tree' }), ['order:ord-a', 'wt:/w/feat'])
@@ -254,7 +318,7 @@ test('레포 상세는 하위 주문과 부모 워크트리를 위계 트리로 
 test('위계가 없는 레포에는 트리를 그리지 않는다', async () => {
   const { host } = setup()
   const view = await mount(panel, { host })
-  await view.press({ type: 'Button', text: 'web' })
+  await view.press({ testId: 'tile:web' })
   assert.equal(view.find({ type: 'Tree' }), null)
   await view.unmount()
 })
@@ -270,7 +334,7 @@ test('끝난 주문은 두 번째 누름에서만 지우고 남긴 주문은 이
   }
   const { host, removed } = setup(finished)
   const view = await mount(panel, { host })
-  await view.press({ type: 'Button', text: 'web' })
+  await view.press({ testId: 'tile:web' })
   assert.equal(view.findAll({ label: '주문 지우기' }).length, 0, '끝난 주문 그룹은 접혀 있다')
   await view.toggle({ type: 'Collapsible', label: '끝남 1' })
   await view.toggle({ type: 'Collapsible', label: '취소 1' })
