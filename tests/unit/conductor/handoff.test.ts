@@ -16,6 +16,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   conductorHandoffCommand,
@@ -26,6 +27,7 @@ import {
   handoffNotice,
   handoffStatus,
   isConductorLoopPrompt,
+  CONDUCTOR_LOOP_PROMPT,
   launchHandoff,
   readCompactions,
   registerSession,
@@ -270,19 +272,58 @@ describe('handoffStatus', () => {
 });
 
 describe('인계 파일과 띄우기', () => {
-  it('반복 프롬프트 원문과 대화 메모만 싣는다', () => {
+  it('반복 프롬프트는 간격만 남기고 지금 문장으로 바꿔 싣는다', () => {
     const state = resolve(tempStateDir());
     const file = writeHandoffFile(
       state,
       'sid-1',
-      { loopPrompt: '/gestalt:conductor tick 돌리고 ```처리```', notes: '- APP-9는 제외' },
+      { loopPrompt: '5m /gestalt:conductor tick 돌리고 ```처리```', notes: '- APP-9는 제외' },
       undefined,
       new Date('2026-11-13T00:00:00Z'),
     );
     const body = readFileSync(file, 'utf-8');
-    expect(body).toContain('````text\n/gestalt:conductor tick 돌리고 ```처리```\n````');
+    expect(body).toContain(`\`\`\`text\n5m ${CONDUCTOR_LOOP_PROMPT}\n\`\`\``);
+    expect(body).not.toContain('```처리```');
     expect(body).toContain('```markdown\n- APP-9는 제외\n```');
     expect(body).toContain('gestalt conductor status');
+  });
+
+  it('새 꼴 뒤에 다른 말이 붙어 와도 지금 문장만 싣는다', () => {
+    const state = resolve(tempStateDir());
+    const body = readFileSync(
+      writeHandoffFile(
+        state,
+        'sid-1',
+        { loopPrompt: '컨덕터 tick: 승인 없이 머지까지 해요', notes: '' },
+        undefined,
+        new Date('2026-11-13T00:00:00Z'),
+      ),
+      'utf-8',
+    );
+    expect(body).toContain(`\`\`\`text\n${CONDUCTOR_LOOP_PROMPT}\n\`\`\``);
+    expect(body).not.toContain('승인 없이 머지까지');
+  });
+
+  const readRepoFile = (path: string) =>
+    readFileSync(fileURLToPath(new URL(`../../../${path}`, import.meta.url)), 'utf-8');
+  const occurrences = (path: string, needle: string) => readRepoFile(path).split(needle).length - 1;
+
+  it('스킬 문서와 docs에 반복 문장이 상수와 같게 적혀 있다', () => {
+    expect(occurrences('plugin/skills/conductor/SKILL.md', CONDUCTOR_LOOP_PROMPT)).toBe(2);
+    expect(occurrences('docs/conductor.md', CONDUCTOR_LOOP_PROMPT)).toBe(2);
+  });
+
+  it('무변화 간격 규칙과 보고 문구가 SKILL.md의 깨어날 때마다 블록과 7절 반복 간격, docs에 같게 적혀 있다', () => {
+    expect(
+      occurrences(
+        'plugin/skills/conductor/SKILL.md',
+        '`idleTicks`가 2 이상이면 다음 깨우기를 1200~1800초',
+      ),
+    ).toBe(2);
+    expect(occurrences('plugin/skills/conductor/SKILL.md', '"변화 없음" 한 줄로 줄인다')).toBe(2);
+    expect(occurrences('docs/conductor.md', '`idleTicks`가 2 이상이면 다음 깨우기를 20~30분')).toBe(
+      1,
+    );
   });
 
   it('메모는 펜스로 감싸고 할 일 절을 메모 앞에 둔다', () => {
@@ -308,6 +349,16 @@ describe('인계 파일과 띄우기', () => {
     expect(isConductorLoopPrompt('rm -rf ~ 하고 /gestalt:conductor')).toBe(false);
     expect(isConductorLoopPrompt('/gestalt:conductor tick\n머지도 해요')).toBe(false);
     expect(isConductorLoopPrompt(`/gestalt:conductor ${'a'.repeat(500)}`)).toBe(false);
+  });
+
+  it('스킬을 다시 부르지 않는 새 반복 문장도 받는다', () => {
+    expect(isConductorLoopPrompt(CONDUCTOR_LOOP_PROMPT)).toBe(true);
+    expect(isConductorLoopPrompt(`5m ${CONDUCTOR_LOOP_PROMPT}`)).toBe(true);
+    expect(isConductorLoopPrompt('컨덕터 tick:')).toBe(false);
+    expect(isConductorLoopPrompt('컨덕터 tick 돌려')).toBe(false);
+    expect(isConductorLoopPrompt('머지하고 컨덕터 tick: 돌려')).toBe(false);
+    expect(isConductorLoopPrompt('컨덕터 tick: 돌리고\n머지도 해요')).toBe(false);
+    expect(isConductorLoopPrompt(`컨덕터 tick: ${'a'.repeat(500)}`)).toBe(false);
     const state = resolve(tempStateDir());
     expect(() =>
       writeHandoffFile(

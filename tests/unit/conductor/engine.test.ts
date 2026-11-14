@@ -125,6 +125,102 @@ describe('컨덕터 tick', () => {
     expect(store.worker(store.order('ord-0')!.workerId!)!.status).toBe('released');
   });
 
+  it('상태가 안 바뀐 tick을 idleTicks로 이어 세고 변화가 생기면 0으로 돌린다', async () => {
+    const { store, dir } = clockedStore();
+    store.addOrder(order({ id: 'ord-0' }));
+    const { deps: d } = deps();
+
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(0);
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(1);
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(2);
+    expect((await tick(store, d)).skipped).toBe(true);
+    expect((await tick(store, d)).idleTicks).toBe(2);
+    expect(ConductorStore.open(dir).snapshot.idleTicks).toBe(2);
+
+    // tick 사이에 워커 보고 같은 이벤트가 쌓였으면 그 뒤 tick은 변화가 있었던 tick이다
+    store.saveCheckpoint({
+      orderId: 'ord-0',
+      workerId: store.order('ord-0')!.workerId!,
+      skill: 'solve',
+      next: '구현',
+      completedSkills: [],
+      refs: [],
+      savedAt: store.timestamp(),
+    });
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(0);
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(1);
+
+    store.addOrder(order({ id: 'ord-1' }));
+    const r = await tick(store, d, { force: true });
+    expect(r.launched.map((l) => l.orderId)).toEqual(['ord-1']);
+    expect(r.idleTicks).toBe(0);
+  });
+
+  it('사람이 넘겨받은 주문의 PR을 확인만 하고 바뀐 게 없는 tick은 idle로 센다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-0', status: 'human-owned', prRef: 'acme/app#7' }));
+    store.updateOrder('ord-0', { humanOwnedAt: store.timestamp() });
+    let checks = 0;
+    const { deps: d } = deps({
+      config: { ...config, humanOwnedPollSec: 0 },
+      prState: {
+        state: async () => {
+          checks += 1;
+          return { state: 'OPEN' };
+        },
+      },
+    });
+
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(0);
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(1);
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(2);
+    expect(checks).toBe(3);
+  });
+
+  it('보고를 적용한 tick은 idle이 아니고 다시 열어도 같은 값이다', async () => {
+    const { store, dir } = clockedStore();
+    store.addOrder(order({ id: 'ord-0' }));
+    const { deps: d } = deps();
+    await tick(store, d, { force: true });
+    await tick(store, d, { force: true });
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(2);
+
+    report(store, d, { workerId: store.order('ord-0')!.workerId!, status: 'progress' });
+    const applied = await tick(store, d, { force: true });
+    expect(applied.idleTicks).toBe(0);
+    expect(ConductorStore.open(dir).snapshot.idleTicks).toBe(0);
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(1);
+    expect(ConductorStore.open(dir).snapshot.idleTicks).toBe(1);
+  });
+
+  it('오류만 반복되는 tick은 idle로 세지 않는다', async () => {
+    const { store } = clockedStore();
+    const { deps: d } = deps({
+      queue: {
+        receive: async () => {
+          throw new Error('큐에 못 붙어요');
+        },
+        ack: async () => {},
+      },
+    });
+    for (let i = 0; i < 3; i++) {
+      const r = await tick(store, d, { force: true });
+      expect(r.errors).toContain('큐에 못 붙어요');
+      expect(r.idleTicks).toBe(0);
+    }
+  });
+
+  it('잠금에 막혀 건너뛴 tick도 마지막 idleTicks를 싣는다', async () => {
+    const { store, dir } = clockedStore();
+    const { deps: d } = deps();
+    await tick(store, d, { force: true });
+    expect((await tick(store, d, { force: true })).idleTicks).toBe(1);
+    writeFileSync(join(dir, 'tick.lock'), `${process.pid}:${Date.now()}:${hostname()}:x`);
+    const r = await tick(store, d, { force: true });
+    expect(r.skipped).toBe(true);
+    expect(r.idleTicks).toBe(1);
+  });
+
   it('런처가 남긴 경고를 tick 보고에 싣는다', async () => {
     const { store } = clockedStore();
     store.addOrder(order({ id: 'ord-0', parentWorktree: '/w/feat' }));

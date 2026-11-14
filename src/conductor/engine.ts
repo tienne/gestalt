@@ -112,6 +112,11 @@ export interface TickReport {
   rateLimited: RateLimitedEntry[];
   /** 사람이 넘겨받은 주문 중 이번 tick에 상태가 바뀐 것. 바뀐 게 없으면 비어 있다 */
   humanOwned: HumanOwnedChange[];
+  /**
+   * 상태가 안 바뀐 tick이 이번까지 연달아 몇 번 왔는지. 새 주문, 띄운 워커, 올린 확인 자리, 호스트 할 일,
+   * 오류가 없고 앞 tick 뒤로 저장소에 쌓인 이벤트도 없어야 센다. 하나라도 있으면 0이다
+   */
+  idleTicks: number;
   counts: {
     queued: number;
     running: number;
@@ -258,7 +263,12 @@ export async function tick(
     report.errors.push(
       `다른 tick이 돌고 있어 이번엔 건너뛰어요${lock.holder ? ` (pid ${lock.holder})` : ''}`,
     );
-    return { ...report, skipped: true, counts: counts(store, 0) };
+    return {
+      ...report,
+      skipped: true,
+      idleTicks: store.snapshot.idleTicks ?? 0,
+      counts: counts(store, 0),
+    };
   }
   try {
     // 잠금을 잡은 뒤에 읽어야 앞 tick이 띄운 주문을 queued로 보고 또 띄우지 않는다
@@ -266,7 +276,12 @@ export async function tick(
     const last = store.snapshot.lastTickAt;
     const interval = deps.config.pollIntervalSec * 1000;
     if (!opts.force && last && Date.parse(report.at) - Date.parse(last) < interval) {
-      return { ...report, skipped: true, counts: counts(store, 0) };
+      return {
+        ...report,
+        skipped: true,
+        idleTicks: store.snapshot.idleTicks ?? 0,
+        counts: counts(store, 0),
+      };
     }
     const gap = tickGapWarning(last, report.at, deps.config.staleAfterSec * 1000);
     if (gap) report.warnings.push(gap);
@@ -283,6 +298,8 @@ async function runTick(
 ): Promise<TickReport> {
   let unanswered = 0;
   let cleared: string[] = [];
+  const eventsBefore = store.snapshot.eventCount;
+  const quietSinceLastTick = store.snapshot.lastTickEventCount === eventsBefore;
   await step(report, () => ingestReports(store, deps, report).then((c) => (cleared = c)));
   await step(report, () => intake(store, deps, report).then((n) => (unanswered = n)));
   await step(report, async () => {
@@ -304,7 +321,15 @@ async function runTick(
     }
   });
   await step(report, () => launchQueued(store, deps, report));
-  await step(report, () => watchHumanPrs(store, deps, report));
+  // 사람이 넘겨받은 주문의 PR을 확인만 하고 바뀐 게 없으면 prCheckedAt 기록만 남는다. 이건 idle 판정에서 뺀다
+  let prCheckEvents = 0;
+  await step(report, async () => {
+    const before = store.snapshot.eventCount;
+    const changesBefore = report.humanOwned.length;
+    await watchHumanPrs(store, deps, report);
+    if (report.humanOwned.length === changesBefore)
+      prCheckEvents = store.snapshot.eventCount - before;
+  });
   await step(report, () => settleMerged(store, deps, report));
   if (deps.slack) {
     const slack = deps.slack;
@@ -316,12 +341,37 @@ async function runTick(
   }
   await step(report, () => cleanupWorkers(store, deps, report));
   report.rateLimited = rateLimitEntries(store);
+  const idle = isIdleTick(
+    report,
+    quietSinceLastTick && store.snapshot.eventCount - prCheckEvents === eventsBefore,
+  );
   store.append({
     type: 'tick',
     at: report.at,
     ...(cleared.length > 0 ? { clearedReports: cleared } : {}),
+    ...(idle ? { idle: true } : {}),
   });
-  return { ...report, counts: counts(store, unanswered) };
+  return {
+    ...report,
+    idleTicks: store.snapshot.idleTicks ?? 0,
+    counts: counts(store, unanswered),
+  };
+}
+
+/**
+ * 상태가 안 바뀐 tick인지. 오류가 난 tick은 장애가 간격 늘리기에 묻히지 않게 idle로 안 센다.
+ * rateLimited와 warnings는 풀릴 때까지 tick마다 같은 값이 실리는 자리라 보지 않는다
+ */
+function isIdleTick(report: TickReport, storeQuiet: boolean): boolean {
+  return (
+    storeQuiet &&
+    report.errors.length === 0 &&
+    report.humanOwned.length === 0 &&
+    report.created.length === 0 &&
+    report.launched.length === 0 &&
+    report.escalated.length === 0 &&
+    report.hostActions.length === 0
+  );
 }
 
 async function intake(
@@ -1018,6 +1068,7 @@ function emptyReport(at: string): TickReport {
     warnings: [],
     rateLimited: [],
     humanOwned: [],
+    idleTicks: 0,
     counts: {
       queued: 0,
       running: 0,

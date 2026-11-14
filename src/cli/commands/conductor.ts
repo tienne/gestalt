@@ -511,6 +511,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
     for (const h of report.humanOwned) console.log(humanOwnedLine(h));
     for (const w of report.warnings) console.log(`경고: ${w}`);
     for (const e of report.errors) console.log(`오류: ${e}`);
+    if (report.idleTicks > 0) console.log(`변화 없는 tick ${report.idleTicks}번째`);
     if (handoffLine) console.log(handoffLine);
   } catch (e) {
     exitWithError(e);
