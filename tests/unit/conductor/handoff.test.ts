@@ -304,28 +304,26 @@ describe('인계 파일과 띄우기', () => {
     expect(body).not.toContain('승인 없이 머지까지');
   });
 
+  const readRepoFile = (path: string) =>
+    readFileSync(fileURLToPath(new URL(`../../../${path}`, import.meta.url)), 'utf-8');
+  const occurrences = (path: string, needle: string) => readRepoFile(path).split(needle).length - 1;
+
   it('스킬 문서와 docs에 반복 문장이 상수와 같게 적혀 있다', () => {
-    const count = (path: string) =>
-      readFileSync(fileURLToPath(new URL(`../../../${path}`, import.meta.url)), 'utf-8').split(
-        CONDUCTOR_LOOP_PROMPT,
-      ).length - 1;
-    expect(count('plugin/skills/conductor/SKILL.md')).toBe(2);
-    expect(count('docs/conductor.md')).toBe(2);
+    expect(occurrences('plugin/skills/conductor/SKILL.md', CONDUCTOR_LOOP_PROMPT)).toBe(2);
+    expect(occurrences('docs/conductor.md', CONDUCTOR_LOOP_PROMPT)).toBe(2);
   });
 
-  it('무변화 간격 규칙이 SKILL.md의 깨어날 때마다 블록과 7절 반복 간격, docs에 같은 숫자로 적혀 있다', () => {
-    const read = (path: string) =>
-      readFileSync(fileURLToPath(new URL(`../../../${path}`, import.meta.url)), 'utf-8');
-    const occurrences = (text: string, needle: string) => text.split(needle).length - 1;
+  it('무변화 간격 규칙과 보고 문구가 SKILL.md의 깨어날 때마다 블록과 7절 반복 간격, docs에 같게 적혀 있다', () => {
     expect(
       occurrences(
-        read('plugin/skills/conductor/SKILL.md'),
+        'plugin/skills/conductor/SKILL.md',
         '`idleTicks`가 2 이상이면 다음 깨우기를 1200~1800초',
       ),
     ).toBe(2);
-    expect(
-      occurrences(read('docs/conductor.md'), '`idleTicks`가 2 이상이면 다음 깨우기를 20~30분'),
-    ).toBe(1);
+    expect(occurrences('plugin/skills/conductor/SKILL.md', '"변화 없음" 한 줄로 줄인다')).toBe(2);
+    expect(occurrences('docs/conductor.md', '`idleTicks`가 2 이상이면 다음 깨우기를 20~30분')).toBe(
+      1,
+    );
   });
 
   it('메모는 펜스로 감싸고 할 일 절을 메모 앞에 둔다', () => {
