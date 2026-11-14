@@ -201,7 +201,7 @@ gestalt conductor order mark-merged <orderId>
 
 - `order take-over`는 `gate resolve --take-over`와 같다. 열린 확인 자리를 같이 종료하고 워커에 종료를 전한 뒤 거둔다. 오르카 터미널은 정리하지만 워크트리와 브랜치는 남겨 사람이 그 자리에서 이어 손볼 수 있다.
 - `order cancel`은 주문을 `cancelled`로 바꾼다. 살아 있는 워커에 멈추라고 전하고 거두며 정리는 [워커 정리](#워커-정리) 규칙을 따른다. 열린 확인 자리도 같이 종료한다. 머지된 주문은 머지 뒤 처리가 남아 있어 취소하지 않는다.
-- `order mark-merged`는 `human-owned`나 `parked` 주문만 받는다. gh로 PR을 한 번 확인해 MERGED일 때만 `merged`로 넘기고 머지 뒤 처리를 태운다. 아니면 이유를 출력하고 거절한다.
+- `order mark-merged`는 `human-owned`, `parked` 주문과 컨덕터가 쥔 `running`, `waiting-gate`, `escalated` 주문을 받는다. gh로 PR을 한 번 확인해 MERGED일 때만 `merged`로 넘기고 머지 뒤 처리를 태운다. 컨덕터가 쥔 주문이면 넘기기 전에 열린 확인 자리를 종료하고 워커에 종료를 전한다. 워커는 다음 tick의 [워커 정리](#워커-정리)가 거둔다. 아니면 이유를 출력하고 거절한다. 배포 실패로 올라온 `escalated` 주문은 이미 머지돼 있어 받지 않는다.
 
 ### 진행 보기와 재개
 
@@ -446,6 +446,7 @@ ship에는 밖으로 나가는 자리마다 사람 승인을 받는 단계가 �
 - 그 밖의 범위면 워커가 `need merge-approval`로 올리고 컨덕터 결정을 기다린다. `merge` 확인 자리에서 승인이 나면 머지한다.
 - 머지한 워커는 `--merged`로 보고해 주문을 `merged`로 옮긴다.
 - 사람이 직접 머지하려면 확인 자리에 `--take-over`로 답한다. 주문은 `human-owned`가 되고 tick이 머지를 확인하면 `merged`로 옮긴다.
+- 넘겨받지 않고 GitHub에서 바로 머지해도 tick이 알아챈다. 아래 [GitHub에서 직접 머지하거나 닫았을 때](#github에서-직접-머지하거나-닫았을-때)를 본다.
 
 ## 주문 상태
 
@@ -479,6 +480,22 @@ human-owned, parked ── order mark-merged(gh MERGED 확인) ──▶ merged
 - `human-owned` 주문의 워커는 거둔 워커라 끊김 판정과 재개에서 빠진다. 거둔 뒤 늦게 도착한 워커 보고는 무시한다.
 - PR이 없는 주문을 넘겨받으면 머지를 지켜볼 수 없다고 경고하고 기한이 지나면 `parked`로 내린다.
 - `status` 기본 목록은 `done`만 숨기므로 `parked` 주문이 계속 보인다.
+
+### GitHub에서 직접 머지하거나 닫았을 때
+
+넘겨받기 없이 사람이 GitHub에서 PR을 바로 머지하거나 닫을 수도 있다. tick은 PR이 있는 `running`, `waiting-gate`, `escalated` 주문도 `human-owned`와 같은 간격(`humanOwnedPollSec`)과 같은 계정 설정으로 본다.
+
+```
+running, waiting-gate, escalated ── PR MERGED ──▶ merged ──▶ done
+running, waiting-gate, escalated ── PR CLOSED(머지 없음) ──▶ cancelled
+```
+
+- MERGED면 열린 확인 자리를 종료하고 워커에 종료를 전한 뒤 `merged`로 넘긴다. 지라 전환과 배포 확인은 워커가 머지했을 때와 같다. 워커는 같은 tick의 [워커 정리](#워커-정리)가 거두므로 `removeMergedOrcaWorktrees`도 그대로 적용된다.
+- 머지 없이 CLOSED면 확인 자리를 종료하고 워커를 바로 거둔 뒤 `cancelled`로 넘긴다. 지라는 옮기지 않는다.
+- OPEN이면 확인 시각만 남긴다. 컨덕터가 쥔 주문은 하루가 지나도 `parked`로 내리지 않는다. 워커나 확인 자리가 아직 움직이고 있어서다.
+- 배포 실패로 올라온 `escalated` 주문은 이미 `mergedAt`이 있어 보지 않는다. 다시 `merged`로 넘기면 정산이 같은 실패를 되풀이한다.
+- 바뀐 주문은 tick 출력의 `humanOwned`에 실리고 `from`에 앞 상태가 붙는다.
+- 거둔 뒤 늦게 도착한 워커 보고는 주문이 `merged`나 `done`이어도 무시한다. 그래야 `mergedAt`이 덮이거나 지라가 두 번 옮겨지지 않는다.
 
 ## 체크포인트와 재개
 

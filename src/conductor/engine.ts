@@ -572,6 +572,9 @@ async function applyReport(
   // 넘겨받은 뒤 늦게 도착한 보고가 주문을 running이나 done으로 되돌리지 않게 막는다
   if (order.status === 'human-owned' || order.status === 'parked')
     throw new Error(`${worker.id}는 사람이 넘겨받은 주문의 워커라 결과를 무시해요`);
+  // GitHub에서 직접 머지돼 거둔 워커의 늦은 보고가 mergedAt을 덮거나 지라를 한 번 더 옮기지 않게 막는다
+  if (order.status === 'merged' || order.status === 'done')
+    throw new Error(`${worker.id}는 이미 머지된 주문의 워커라 결과를 무시해요`);
   // 상태를 하나라도 바꾸기 전에 거른다. 반쯤 적용된 채 failed로 옮겨지면 되살릴 때 앞부분이 겹친다
   if (r.status === 'needs' && !r.need) throw new Error('status needs인데 need가 없어요');
 
@@ -947,7 +950,10 @@ async function retirePrevious(
   }
 }
 
-/** 사람이 넘겨받은 주문의 PR을 본다. 머지됐으면 지라를 옮겨 이어지는 정산이 마무리하게 한다 */
+/**
+ * 사람이 넘겨받은 주문과 컨덕터가 쥔 주문의 PR을 본다. 머지됐으면 지라를 옮겨 이어지는 정산이
+ * 마무리하게 한다
+ */
 async function watchHumanPrs(
   store: ConductorStore,
   deps: EngineDeps,
@@ -958,8 +964,10 @@ async function watchHumanPrs(
     pollMs: deps.config.humanOwnedPollSec * 1000,
     parkAfterMs: deps.config.humanOwnedParkAfterSec * 1000,
     ...(deps.prState ? { source: deps.prState } : {}),
+    launchers: deps.launchers,
   });
   report.humanOwned.push(...r.changes);
+  report.hostActions.push(...r.hostActions);
   report.errors.push(...r.errors);
   for (const c of r.changes)
     if (c.to === 'merged') await moveJira(store, deps, report, c.orderId, 'merged');

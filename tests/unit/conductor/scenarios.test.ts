@@ -82,6 +82,8 @@ function harness(over: Partial<EngineDeps> = {}, config: Partial<ConductorConfig
     },
     orcaAvailable: true,
     env: {},
+    // 기본 gh 소스가 진짜 GitHub를 조회하지 않게 막는다
+    prState: { state: async () => ({ state: 'OPEN' }) },
     jira: { transition: async (key, to) => void jiraMoves.push(`${key}:${to}`) },
     ...over,
   };
@@ -188,6 +190,8 @@ describe('장면 1: 레포 둘, 범위 셋, 세 경로로 받은 주문', () => 
       summary: 'draft PR 생성',
       prRef: 'acme/billing#7',
     });
+    // 같은 ms에 쓴 두 보고는 파일 이름의 난수로 순서가 갈린다. 머지된 주문의 늦은 보고는 무시되므로 tick을 나눈다
+    await h.run();
     h.report(h.workerOf(bill.id), { status: 'done', merged: true });
     await h.run();
     expect(h.store.order(bill.id)!.status).toBe('merged');
@@ -418,6 +422,8 @@ describe('워커 10개 동시', () => {
       summary: 'draft PR 생성',
       prRef: 'acme/billing#7',
     });
+    // 같은 ms에 쓴 두 보고는 순서가 갈린다. 머지된 주문의 늦은 보고는 무시되므로 tick을 나눈다
+    await h.run();
     h.report(h.workerOf(bill.id), { status: 'done', merged: true });
     h.report(h.workerOf(logs.id), { status: 'done', merged: true });
     await h.run();

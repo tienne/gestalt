@@ -1112,7 +1112,7 @@ export function createCli(): Command {
   conductorOrder
     .command('mark-merged <orderId>')
     .description(
-      'human-owned나 parked 주문을 사람이 머지했다고 알린다. gh로 MERGED를 확인했을 때만 merged로 넘긴다',
+      'human-owned, parked 주문이나 컨덕터가 쥔 running, waiting-gate, escalated 주문을 사람이 머지했다고 알린다. gh로 MERGED를 확인했을 때만 워커와 게이트를 정리하고 merged로 넘긴다',
     )
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')

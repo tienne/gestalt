@@ -863,13 +863,29 @@ export async function conductorOrderMarkMergedCommand(
     const ctx = open(opts);
     assertConductorSession(ctx, 'order mark-merged');
     const gh = new GhAccounts(ctx.config.accounts);
-    const order = await confirmHumanMerge(ctx.store, id, new GhPrStateSource({ accounts: gh }));
+    const confirmed = await confirmHumanMerge(
+      ctx.store,
+      id,
+      new GhPrStateSource({ accounts: gh }),
+      launchersFor(ctx, process.env).launchers,
+    );
     const deferred: HostAction[] = [];
     const after = await afterHumanMerge(ctx.store, id, { jira: hostJiraClient(deferred) });
-    if (opts.json) return print({ order, hostActions: deferred, ...after });
+    const hostActions = [...confirmed.hostActions, ...deferred];
+    const errors = [...confirmed.errors, ...after.errors];
+    if (opts.json)
+      return print({
+        order: confirmed.order,
+        closedGates: confirmed.closedGates,
+        hostActions,
+        jira: after.jira,
+        errors,
+      });
     console.log(`${id}를 merged로 넘겼어요. 다음 tick이 머지 뒤 처리를 이어요`);
-    for (const a of deferred) console.log(`할 일: ${JSON.stringify(a)}`);
-    for (const e of after.errors) console.log(`오류: ${e}`);
+    if (confirmed.closedGates.length > 0)
+      console.log(`같이 닫은 게이트: ${confirmed.closedGates.map((g) => g.id).join(', ')}`);
+    for (const a of hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
+    for (const e of errors) console.log(`오류: ${e}`);
   } catch (e) {
     exitWithError(e);
   }

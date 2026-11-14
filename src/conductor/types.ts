@@ -90,7 +90,7 @@ export interface Order {
   deployedAt?: string;
   /** 사람이 넘겨받은 시각. 이 시각부터 parkAfter를 센다 */
   humanOwnedAt?: string;
-  /** human-owned 주문의 PR 상태를 gh로 마지막에 확인한 시각 */
+  /** PR 상태를 gh로 마지막에 확인한 시각. human-owned와 컨덕터가 쥔 주문이 같이 쓴다 */
   prCheckedAt?: string;
   /** order cancel에 적은 이유 */
   cancelReason?: string;
