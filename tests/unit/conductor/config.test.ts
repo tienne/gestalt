@@ -122,4 +122,17 @@ describe('컨덕터 에이전트 설정', () => {
       process.chdir(cwd);
     }
   });
+
+  it.each(['--help', 'opus 5', '-m', 'a'.repeat(101)])(
+    '허용 꼴이 아닌 인계 모델은 설정 검증에서 그 값만 버린다: %j',
+    (handoffModel) => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const config = loadConfig(
+        { conductor: { handoffModel, handoffEffort: 'xhigh' } },
+        isolated,
+      ).conductor;
+      expect(config.handoffModel).toBeUndefined();
+      expect(config.handoffEffort).toBe('xhigh');
+    },
+  );
 });
