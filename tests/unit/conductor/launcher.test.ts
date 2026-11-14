@@ -7,6 +7,7 @@ import {
   chooseWorkerKind,
   detectOrca,
   ensureAccount,
+  failMessage,
   GitWorktreeLauncher,
   NestedSpawnRefused,
   OrcaLauncher,
@@ -247,6 +248,12 @@ describe('런처', () => {
     });
     // 남은 워크트리는 새로 안 만들고 체크아웃한 브랜치만 읽는다
     expect(calls.slice(before)).toEqual([['-C', prev, 'branch', '--show-current']]);
+  });
+
+  it('맨 앞부터 옵션이면 첫 토큰의 = 앞까지만 싣는다', () => {
+    const r = { code: 1, stdout: '', stderr: 'boom' };
+    expect(failMessage('orca', ['--json'], r)).toBe('orca --json 실패(1): boom');
+    expect(failMessage('orca', ['--token=secret', 'x'], r)).toBe('orca --token 실패(1): boom');
   });
 
   it('git 실패 문구는 -C 경로를 빼고 하위 명령을 싣는다', async () => {
@@ -579,7 +586,7 @@ describe('오르카 런처 release', () => {
   });
 
   describe('worker_done 없이 끝난 워커', () => {
-    // 2026-11-14 ctx_14ef78b9cc27에서 받은 실제 응답 꼴
+    // 2026-11-14 ctx_14ef78b9cc27에서 받은 실제 응답 꼴이다. 그 dispatch는 stop 전후 모두 liveness가 exited였다
     const inactive = {
       code: 1,
       stdout: JSON.stringify({
