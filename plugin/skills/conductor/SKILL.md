@@ -164,7 +164,7 @@ tick 응답의 `humanOwned`에는 사람이 넘겨받은 주문 중 상태가 �
 
 그 밖의 요청(단순 승인, 수동 검증, 정리, 인증, 계정 전환)은 tick이 bypass로 넘기고 기록만 남긴다. 사람에게 묻지 않는다.
 
-워커 안에서 도는 ship의 승인 단계 셋, ⓐ draft PR 올리기와 ⓑ Copilot 반영 계획, ⓒ ready 전환도 머지가 아니라서 사람에게 묻지 않는다. 워커가 진행하면서 `gestalt conductor worker report --status needs --summary "<한 줄 요약>" --need simple-approval --need-step ship-draft --need-detail "ship ⓐ …"`로 남기고 답을 기다리지 않는다(ⓑ `ship-plan`, ⓒ `ship-ready`). tick은 단계 값이 붙은 것만 bypass로 기록하고 나머지 `simple-approval`은 확인 자리로 올린다. 사람의 답이나 CI, 리뷰를 기다리는 워커는 `--status waiting --wait-for`로 알리고 tick은 그 워커를 `waitingEscalateAfterSec`까지 끊김으로 보지 않는다.
+워커 안에서 도는 ship의 승인 단계 셋, ⓐ draft PR 올리기와 ⓑ Copilot 반영 계획, ⓒ ready 전환도 머지가 아니라서 사람에게 묻지 않는다. 워커가 진행하면서 `gestalt conductor worker report --status needs --summary "<한 줄 요약>" --need simple-approval --need-step ship-draft --need-detail "ship ⓐ …"`로 남기고 답을 기다리지 않는다(ⓑ `ship-plan`, ⓒ `ship-ready`). tick은 단계 값이 붙은 것만 bypass로 기록하고 나머지 `simple-approval`은 확인 자리로 올린다. 사람의 답이나 CI, 리뷰를 기다리는 워커는 체크포인트를 남긴 뒤 마지막으로 `--status waiting --wait-for`로 알리고 tick은 그 워커를 `waitingEscalateAfterSec`까지 끊김으로 보지 않는다.
 
 기본 체인 solve → ship은 PR을 ready로 돌리면 끝나고 머지는 워커가 이어서 한다. 범위가 `merge-through`면 워커가 바로 머지한다. 그 밖의 범위면 워커가 `need merge-approval`로 올리고 기다리다가 `merge` 확인 자리에서 승인이 나면 머지한다. 머지한 워커는 `--merged`와 `--pr owner/name#번호`, `--summary "<한 줄 요약>"`을 실어 보고한다. ship이 draft PR을 만들면 Copilot 리뷰를 요청하기 전에 `--status progress --skill ship --summary "<한 줄 요약>" --pr owner/name#번호`로 바로 보고한다. 미루면 PR 감시가 그 PR에 `review-reply` 주문을 또 만든다.
 
