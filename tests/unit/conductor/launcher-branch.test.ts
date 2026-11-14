@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   branchPrefixFor,
   GitWorktreeLauncher,
@@ -9,13 +9,18 @@ import {
   pickFreeBranch,
   prUrlOf,
   worktreeReferences,
+  type CommandOptions,
   type CommandResult,
   type CommandRunner,
+  type RemoteHeadsCache,
 } from '../../../src/conductor/launcher.js';
 import type { IssueType, Order } from '../../../src/conductor/types.js';
 import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
 
-afterEach(cleanupStateDirs);
+afterEach(() => {
+  cleanupStateDirs();
+  vi.unstubAllEnvs();
+});
 
 interface FakeGit {
   /** 로컬에 있는 브랜치 */
@@ -36,17 +41,19 @@ interface FakeGit {
   noOrigin?: boolean;
   /** for-each-ref가 실패한다 */
   localFails?: boolean;
-  /** git branch --show-current 출력 */
-  currentBranch?: string;
+  /** git branch --show-current 출력. 경로별로 다르면 경로를 키로 준다 */
+  currentBranch?: string | Record<string, string>;
+  /** git config --get core.sshCommand 값 */
+  sshCommand?: string;
 }
 
 const ok = (stdout = ''): CommandResult => ({ code: 0, stdout, stderr: '' });
 
 /** 오르카와 git을 실제로 부르지 않고 명령별로 정해 둔 답을 준다 */
 function fake(opts: FakeGit = {}) {
-  const calls: { cmd: string; args: string[] }[] = [];
-  const runner: CommandRunner = async (cmd, args) => {
-    calls.push({ cmd, args });
+  const calls: { cmd: string; args: string[]; opts?: CommandOptions }[] = [];
+  const runner: CommandRunner = async (cmd, args, o) => {
+    calls.push({ cmd, args, ...(o ? { opts: o } : {}) });
     if (cmd === 'git') {
       const sub = args[2];
       const last = args.at(-1)!.replace('refs/heads/', '');
@@ -65,8 +72,12 @@ function fake(opts: FakeGit = {}) {
         if (opts.remoteDown) return { code: 128, stdout: '', stderr: 'Could not read from remote' };
         return ok((opts.remote ?? []).map((b) => `abc\trefs/heads/${b}`).join('\n'));
       }
-      if (sub === 'branch' && args[3] === '--show-current')
-        return ok(`${opts.currentBranch ?? ''}\n`);
+      if (sub === 'branch' && args[3] === '--show-current') {
+        const cur = opts.currentBranch;
+        return ok(`${(typeof cur === 'string' ? cur : cur?.[args[1]!]) ?? ''}\n`);
+      }
+      if (sub === 'config')
+        return opts.sshCommand ? ok(`${opts.sshCommand}\n`) : { code: 1, stdout: '', stderr: '' };
       if (sub === 'worktree' && args[3] === 'list') return ok(opts.worktrees ?? '');
       return ok();
     }
@@ -188,7 +199,7 @@ describe('비어 있는 브랜치 고르기', () => {
 
   it('로컬과 origin을 한 번씩만 읽고 origin 결과는 캐시로 다시 쓴다', async () => {
     const f = fake({ local: ['feat/PROJ-1'], remote: ['feat/PROJ-1-2'] });
-    const cache = new Map<string, Set<string>>();
+    const cache: RemoteHeadsCache = new Map();
     await pickFreeBranch(f.runner, '/repos/app', 'feat/PROJ-1', cache);
     await pickFreeBranch(f.runner, '/repos/app', 'feat/PROJ-2', cache);
     const subs = f.gitCalls().map((a) => a[2]);
@@ -226,6 +237,27 @@ describe('비어 있는 브랜치 고르기', () => {
     expect(r.branch).toBe('fix/PROJ-1');
     expect(r.warnings.join()).toContain('origin을 못 읽어');
   });
+
+  it('origin을 못 읽은 결과도 캐시해 같은 tick에서 ls-remote를 다시 안 부른다', async () => {
+    const f = fake({ remoteDown: true });
+    const cache: RemoteHeadsCache = new Map();
+    await pickFreeBranch(f.runner, '/repos/app', 'feat/PROJ-1', cache);
+    const second = await pickFreeBranch(f.runner, '/repos/app', 'feat/PROJ-2', cache);
+    expect(second.warnings.join()).toContain('origin을 못 읽어');
+    expect(f.gitCalls().filter((a) => a[2] === 'ls-remote')).toHaveLength(1);
+  });
+
+  it('ssh 명령을 따로 정해 두지 않았으면 ls-remote에 BatchMode를 건다', async () => {
+    vi.stubEnv('GIT_SSH_COMMAND', '');
+    const plain = fake();
+    await pickFreeBranch(plain.runner, '/repos/app', 'feat/PROJ-1');
+    const env = plain.calls.find((c) => c.args[2] === 'ls-remote')?.opts?.env;
+    expect(env?.['GIT_SSH_COMMAND']).toContain('BatchMode=yes');
+    const custom = fake({ sshCommand: 'ssh -i ~/.ssh/work' });
+    await pickFreeBranch(custom.runner, '/repos/app', 'feat/PROJ-1');
+    const kept = custom.calls.find((c) => c.args[2] === 'ls-remote')?.opts?.env;
+    expect(kept?.['GIT_SSH_COMMAND']).toBeUndefined();
+  });
 });
 
 describe('오르카 런처의 지라 주문', () => {
@@ -239,7 +271,23 @@ describe('오르카 런처의 지라 주문', () => {
     expect(f.calls.map((c) => c.args.slice(0, 2).join(' '))).toEqual([
       'orchestration worker-start',
     ]);
-    expect(r.branch).toBeUndefined();
+    expect(r).toEqual({ handle: 'ctx_1' });
+  });
+
+  it('지라 키가 없는 주문의 재개는 앞 브랜치를 이어받지 않았다고 경고한다', async () => {
+    const f = fake();
+    const r = await orcaLauncher(f.runner).start({
+      order: order({ id: 'ord-1' }),
+      worker: worker('ord-1', { attempt: 2 }),
+      prompt: 'p',
+      previousBranch: 'tienne/ord-1-1',
+    });
+    expect(f.calls.map((c) => c.args.slice(0, 2).join(' '))).toEqual([
+      'orchestration worker-start',
+    ]);
+    expect(r.warnings).toEqual([
+      'ord-1: 지라 키가 없는 주문이라 앞 워커 브랜치 tienne/ord-1-1를 이어받지 않고 새 워크트리로 띄웠어요',
+    ]);
   });
 
   it('최상위는 브랜치와 부모 없음을 주고 워크트리를 만든 뒤 참조를 붙이고 워커를 붙인다', async () => {
@@ -383,7 +431,6 @@ describe('오르카 런처의 지라 주문', () => {
     // 재개는 비어 있는 이름을 다시 고르지 않는다
     expect(f.calls.filter((c) => c.args[2] === 'ls-remote')).toHaveLength(0);
     expect(f.gitCalls()).toEqual([
-      ['-C', '/wt/ord-1-2', 'worktree', 'prune'],
       ['-C', '/wt/ord-1-2', 'worktree', 'list', '--porcelain'],
       ['-C', '/wt/ord-1-1', 'switch', '--detach'],
       ['-C', '/wt/ord-1-2', 'switch', 'feat/PROJ-1'],
@@ -393,33 +440,57 @@ describe('오르카 런처의 지라 주문', () => {
     expect(r.branch).toBe('feat/PROJ-1');
   });
 
-  it('재개 뒤 워커가 확실히 안 떴으면 워크트리만 지우고 앞 브랜치는 남긴다', async () => {
-    const notStarted = {
-      code: 1,
-      stdout: JSON.stringify({ ok: false, result: { status: 'failed', residualResources: [] } }),
-      stderr: 'spawn failed',
-    };
-    const f = fake({ workerStart: notStarted, createdBranch: 'tienne/ord-1-2' });
-    const err = await orcaLauncher(f.runner, { 'acme/app': '/repos/app' })
-      .start({
-        order: jiraOrder(),
-        worker: worker('ord-1', { attempt: 2 }),
-        prompt: 'p',
-        previousBranch: 'feat/PROJ-1',
-      })
-      .catch((e: Error) => e);
-    expect(err).toBeInstanceOf(Error);
+  const notStarted = {
+    code: 1,
+    stdout: JSON.stringify({ ok: false, result: { status: 'failed', residualResources: [] } }),
+    stderr: 'spawn failed',
+  };
+
+  it('재개 뒤 워커가 확실히 안 떴으면 워크트리만 지우고 detach한 앞 워크트리를 되돌린다', async () => {
+    const f = fake({
+      worktrees: held('/wt/ord-1-1'),
+      workerStart: notStarted,
+      createdBranch: 'tienne/ord-1-2',
+    });
+    await expect(
+      orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start(resumeSpec()),
+    ).rejects.toThrow('/wt/ord-1-1는 다시 feat/PROJ-1로 돌려 뒀어요');
     const rm = f.orcaCalls('worktree rm');
     expect(rm).toHaveLength(1);
     expect(rm[0]!.args).not.toContain('--delete-branch');
+    expect(f.gitCalls().at(-1)).toEqual(['-C', '/wt/ord-1-1', 'switch', 'feat/PROJ-1']);
+  });
+
+  it('재개 뒤 워커가 떴는지 모르면 남은 워크트리 안내에 --delete-branch를 안 붙인다', async () => {
+    const f = fake({
+      worktrees: held('/wt/ord-1-1'),
+      workerStart: { code: 1, stdout: '', stderr: 'timeout' },
+      createdBranch: 'tienne/ord-1-2',
+    });
+    const err = await orcaLauncher(f.runner, { 'acme/app': '/repos/app' })
+      .start(resumeSpec())
+      .catch((e: Error) => e);
+    expect((err as Error).message).toContain('`orca worktree rm --worktree id:r1::/wt/ord-1-2`');
+    expect((err as Error).message).not.toContain('--delete-branch');
+    expect(f.orcaCalls('worktree rm')).toHaveLength(0);
+  });
+
+  it('남은 워크트리를 못 지우면 rm 출력을 실패 사유에 붙인다', async () => {
+    const f = fake({ workerStart: notStarted });
+    const failing: CommandRunner = async (cmd, args, o) =>
+      cmd === 'orca' && args[0] === 'worktree' && args[1] === 'rm'
+        ? { code: 1, stdout: '', stderr: 'worktree is locked' }
+        : f.runner(cmd, args, o);
+    await expect(
+      orcaLauncher(failing, { 'acme/app': '/repos/app' }).start({
+        order: jiraOrder(),
+        worker: worker('ord-1'),
+        prompt: 'p',
+      }),
+    ).rejects.toThrow('워크트리를 못 지웠어요(worktree is locked)');
   });
 
   it('처음 띄운 워커가 확실히 안 떴으면 만든 브랜치까지 지운다', async () => {
-    const notStarted = {
-      code: 1,
-      stdout: JSON.stringify({ ok: false, result: { status: 'failed', residualResources: [] } }),
-      stderr: 'spawn failed',
-    };
     const f = fake({ workerStart: notStarted });
     await expect(
       orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start({
@@ -453,11 +524,58 @@ describe('오르카 런처의 지라 주문', () => {
 
   it('앞 브랜치를 앞 워커가 아닌 워크트리가 체크아웃하고 있으면 detach하지 않고 멈춘다', async () => {
     const f = fake({ worktrees: held('/repos/app'), createdBranch: 'tienne/ord-1-2' });
-    await expect(
-      orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start(resumeSpec()),
-    ).rejects.toThrow('앞 워커가 아닌 워크트리(/repos/app)가 체크아웃하고 있어요');
+    const err = await orcaLauncher(f.runner, { 'acme/app': '/repos/app' })
+      .start(resumeSpec())
+      .catch((e: Error) => e);
+    expect((err as Error).message).toContain(
+      '앞 워커가 아닌 워크트리(/repos/app)가 체크아웃하고 있어요',
+    );
+    // 새 워크트리는 아직 오르카 임시 브랜치를 쓰고 있어서 브랜치째 지워도 된다
+    expect((err as Error).message).toContain(
+      '`orca worktree rm --worktree id:r1::/wt/ord-1-2 --delete-branch`',
+    );
     expect(f.gitCalls().some((a) => a.includes('--detach'))).toBe(false);
     expect(f.orcaCalls('orchestration worker-start')).toHaveLength(0);
+    expect(f.orcaCalls('worktree rm')).toHaveLength(0);
+  });
+
+  it('임시 브랜치를 모르면 멈출 때 안내에 --delete-branch를 안 붙인다', async () => {
+    const f = fake({ worktrees: held('/repos/app'), createdBranch: null });
+    const err = await orcaLauncher(f.runner, { 'acme/app': '/repos/app' })
+      .start(resumeSpec())
+      .catch((e: Error) => e);
+    expect((err as Error).message).toContain('`orca worktree rm --worktree id:r1::/wt/ord-1-2`');
+    expect((err as Error).message).not.toContain('--delete-branch');
+  });
+
+  it('앞 워커 워크트리 경로를 못 읽으면 detach하지 않고 멈춘다', async () => {
+    const f = fake({ worktrees: held('/wt/ord-1-1'), createdBranch: 'tienne/ord-1-2' });
+    const failing: CommandRunner = async (cmd, args, o) =>
+      cmd === 'orca' && args.join(' ').startsWith('worktree show --worktree name:ord-1-1')
+        ? { code: 1, stdout: '', stderr: 'not found' }
+        : f.runner(cmd, args, o);
+    await expect(
+      orcaLauncher(failing, { 'acme/app': '/repos/app' }).start(resumeSpec()),
+    ).rejects.toThrow('앞 워커가 아닌 워크트리(/wt/ord-1-1)가 체크아웃하고 있어요');
+    expect(f.gitCalls().some((a) => a.includes('--detach'))).toBe(false);
+  });
+
+  it('디렉토리만 지워진 앞 워크트리는 그 등록만 지우고 레포 전체를 prune하지 않는다', async () => {
+    const worktrees = held('/wt/ord-1-1').replace(
+      'branch refs/heads/feat/PROJ-1',
+      'branch refs/heads/feat/PROJ-1\nprunable gitdir file points to non-existent location',
+    );
+    const f = fake({ worktrees, createdBranch: 'tienne/ord-1-2' });
+    await orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start(resumeSpec());
+    expect(f.gitCalls()).toContainEqual([
+      '-C',
+      '/wt/ord-1-2',
+      'worktree',
+      'remove',
+      '--force',
+      '/wt/ord-1-1',
+    ]);
+    expect(f.gitCalls().some((a) => a.includes('prune') || a.includes('--detach'))).toBe(false);
   });
 
   it('detach한 뒤 새 워크트리를 못 바꾸면 앞 워크트리를 다시 그 브랜치로 돌린다', async () => {
@@ -472,6 +590,28 @@ describe('오르카 런처의 지라 주문', () => {
     expect(f.gitCalls()).toContainEqual(['-C', '/wt/ord-1-1', 'switch', 'feat/PROJ-1']);
   });
 
+  it('앞 워크트리도 못 되돌리면 되돌릴 명령을 알린다', async () => {
+    const f = fake({ worktrees: held('/wt/ord-1-1'), createdBranch: 'tienne/ord-1-2' });
+    const failing: CommandRunner = async (cmd, args, o) =>
+      cmd === 'git' && args[2] === 'switch' && args[3] !== '--detach'
+        ? { code: 1, stdout: '', stderr: 'fatal: would overwrite' }
+        : f.runner(cmd, args, o);
+    await expect(
+      orcaLauncher(failing, { 'acme/app': '/repos/app' }).start(resumeSpec()),
+    ).rejects.toThrow(
+      '/wt/ord-1-1가 detach된 채로 남았어요. `git -C /wt/ord-1-1 switch feat/PROJ-1`로 되돌려 주세요',
+    );
+  });
+
+  it('임시 브랜치 이름을 못 읽으면 워커는 띄우고 확인할 자리를 경고한다', async () => {
+    const f = fake({ worktrees: held('/wt/ord-1-1'), createdBranch: null });
+    const r = await orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start(resumeSpec());
+    expect(r.branch).toBe('feat/PROJ-1');
+    expect(r.warnings).toContain(
+      'ord-1: 오르카가 만든 임시 브랜치를 못 읽어 지우지 못했어요. /wt/ord-1-2에서 git branch로 확인해 주세요',
+    );
+  });
+
   it('임시 브랜치를 못 지워도 워커는 띄우고 경고만 남긴다', async () => {
     const f = fake({ worktrees: held('/wt/ord-1-1'), createdBranch: 'tienne/ord-1-2' });
     const failing: CommandRunner = async (cmd, args, o) =>
@@ -483,7 +623,22 @@ describe('오르카 런처의 지라 주문', () => {
     expect(r.warnings?.join()).toContain('임시 브랜치 tienne/ord-1-2를 못 지웠어요');
   });
 
-  it('브랜치 기록이 없는 옛 워커를 재개하면 남은 기본 이름 브랜치를 이어받는다', async () => {
+  it('브랜치 기록이 없는 옛 워커는 앞 워크트리가 체크아웃한 브랜치를 이어받는다', async () => {
+    const f = fake({
+      local: ['feat/PROJ-1'],
+      createdBranch: 'tienne/ord-1-2',
+      currentBranch: { '/wt/ord-1-1': 'tienne/ord-1-1' },
+    });
+    const r = await orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start(
+      resumeSpec({ previousBranch: undefined }),
+    );
+    expect(flag(f.orcaCalls('worktree create')[0]!.args, '--base-branch')).toBe('tienne/ord-1-1');
+    expect(f.gitCalls()).toContainEqual(['-C', '/wt/ord-1-2', 'switch', 'tienne/ord-1-1']);
+    expect(r.branch).toBe('tienne/ord-1-1');
+    expect(r.warnings).toBeUndefined();
+  });
+
+  it('앞 워크트리 브랜치를 못 읽은 옛 워커는 남은 기본 이름 브랜치를 경고와 함께 이어받는다', async () => {
     const f = fake({ local: ['feat/PROJ-1'], createdBranch: 'tienne/ord-1-2' });
     const r = await orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start(
       resumeSpec({ previousBranch: undefined }),
@@ -493,6 +648,21 @@ describe('오르카 런처의 지라 주문', () => {
     expect(create).not.toContain('--branch');
     expect(f.gitCalls()).toContainEqual(['-C', '/wt/ord-1-2', 'switch', 'feat/PROJ-1']);
     expect(r.branch).toBe('feat/PROJ-1');
+    expect(r.warnings?.join()).toContain(
+      '브랜치 기록이 없는 옛 워커라 기본 이름 feat/PROJ-1를 이어받았어요',
+    );
+  });
+
+  it('앞 워크트리가 기준 브랜치에 있으면 그건 이어받지 않는다', async () => {
+    const f = fake({
+      createdBranch: 'tienne/ord-1-2',
+      currentBranch: { '/wt/ord-1-1': 'develop' },
+    });
+    const r = await orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start(
+      resumeSpec({ previousBranch: undefined, order: jiraOrder({ baseBranch: 'develop' }) }),
+    );
+    expect(flag(f.orcaCalls('worktree create')[0]!.args, '--branch')).toBe('feat/PROJ-1');
+    expect(r.branch).toBe('tienne/ord-1-2');
   });
 
   it('옛 워커 재개인데 기본 이름 브랜치가 없으면 비어 있는 이름을 새로 고른다', async () => {
@@ -538,7 +708,7 @@ describe('이름 꼴 확인', () => {
           prompt: 'p',
           previousBranch: bad,
         }),
-      ).rejects.toThrow('앞 워커 브랜치 이름 꼴이 아니라');
+      ).rejects.toThrow('브랜치 이름으로 쓸 수 없는 꼴이라 이어받지 못했어요');
       expect(f.calls).toHaveLength(0);
       const root = tempStateDir();
       const g = fake();
@@ -554,7 +724,7 @@ describe('이름 꼴 확인', () => {
           prompt: 'p',
           previousBranch: bad,
         }),
-      ).rejects.toThrow('앞 워커 브랜치 이름 꼴이 아니라');
+      ).rejects.toThrow('브랜치 이름으로 쓸 수 없는 꼴이라 이어받지 못했어요');
       expect(g.calls).toHaveLength(0);
     },
   );
@@ -567,6 +737,20 @@ describe('이름 꼴 확인', () => {
       prompt: 'p',
     });
     expect(r.branch).toBe('feat/PROJ-1-2');
+    expect(r.warnings).toBeUndefined();
+  });
+
+  it('create 응답에도 체크아웃에도 브랜치가 없으면 계획한 이름을 기록하고 경고한다', async () => {
+    const f = fake({ createdBranch: null });
+    const r = await orcaLauncher(f.runner, { 'acme/app': '/repos/app' }).start({
+      order: jiraOrder(),
+      worker: worker('ord-1'),
+      prompt: 'p',
+    });
+    expect(r.branch).toBe('feat/PROJ-1');
+    expect(r.warnings).toEqual([
+      'ord-1: 오르카가 실제 브랜치를 안 알려 줘 계획한 이름 feat/PROJ-1를 기록했어요',
+    ]);
   });
 });
 
@@ -658,7 +842,42 @@ describe('git 런처의 지라 주문', () => {
     expect(r.warnings?.join()).toContain('detach 상태');
   });
 
-  it('브랜치 기록이 없는 옛 워커를 재개하면 남은 기본 이름 브랜치를 이어받는다', async () => {
+  it('기록한 앞 브랜치가 로컬에 없으면 새로 갈라 띄우지 않고 멈춘다', async () => {
+    const f = fake();
+    const { launcher } = gitLauncher(f.runner);
+    await expect(
+      launcher.start({
+        order: jiraOrder(),
+        worker: worker('ord-1', { attempt: 2 }),
+        prompt: 'p',
+        previousBranch: 'feat/PROJ-1',
+      }),
+    ).rejects.toThrow('앞 워커 브랜치 feat/PROJ-1가 로컬에 없어 이어받지 못했어요');
+    expect(f.gitCalls().some((a) => a[2] === 'worktree')).toBe(false);
+  });
+
+  it('브랜치 기록이 없는 옛 워커는 예전 이름 conductor/<주문 id>가 남아 있으면 그걸 이어받는다', async () => {
+    const f = fake({ local: ['conductor/ord-1', 'feat/PROJ-1'] });
+    const { root, launcher } = gitLauncher(f.runner);
+    const r = await launcher.start({
+      order: jiraOrder(),
+      worker: worker('ord-1', { attempt: 2 }),
+      prompt: 'p',
+      previousWorker: { orderId: 'ord-1', attempt: 1 },
+    });
+    expect(f.gitCalls().at(-1)).toEqual([
+      '-C',
+      '/repos/app',
+      'worktree',
+      'add',
+      join(root, 'wt', 'ord-1'),
+      'conductor/ord-1',
+    ]);
+    expect(r.branch).toBe('conductor/ord-1');
+    expect(r.warnings).toBeUndefined();
+  });
+
+  it('브랜치 기록이 없는 옛 워커를 재개하면 남은 기본 이름 브랜치를 경고와 함께 이어받는다', async () => {
     const f = fake({ local: ['feat/PROJ-1'] });
     const { root, launcher } = gitLauncher(f.runner);
     const r = await launcher.start({
@@ -676,6 +895,7 @@ describe('git 런처의 지라 주문', () => {
       'feat/PROJ-1',
     ]);
     expect(r.branch).toBe('feat/PROJ-1');
+    expect(r.warnings?.join()).toContain('기본 이름 feat/PROJ-1를 이어받았어요');
   });
 
   it('지라 키가 없으면 지금처럼 conductor/<주문 id>를 쓴다', async () => {
