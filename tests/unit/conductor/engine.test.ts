@@ -250,6 +250,25 @@ describe('컨덕터 tick', () => {
     expect(replay(join(store.dir, EVENTS_FILE)).workers[second]!.branch).toBe('feat/PROJ-1-2');
   });
 
+  it('런처가 브랜치를 못 돌려주면 재개한 워커 기록에 앞 브랜치를 채우지 않는다', async () => {
+    const { store, advance } = clockedStore();
+    store.addOrder(order({ id: 'ord-1', issueKey: 'PROJ-1' }));
+    const g = fakeLauncher('git-worktree');
+    const start = g.launcher.start;
+    g.launcher.start = async (spec) => {
+      const r = await start(spec);
+      return spec.previousBranch === undefined ? { ...r, branch: 'feat/PROJ-1' } : r;
+    };
+    const { deps: d } = deps({ launchers: { 'git-worktree': g.launcher } });
+    await tick(store, d, { force: true });
+    advance(16 * 60 * 1000);
+    await tick(store, d, { force: true });
+    const second = store.order('ord-1')!.workerId!;
+    expect(g.started.at(-1)!.previousBranch).toBe('feat/PROJ-1');
+    expect(store.worker(second)!.branch).toBeUndefined();
+    expect(replay(join(store.dir, EVENTS_FILE)).workers[second]!.branch).toBeUndefined();
+  });
+
   it('소식이 끊긴 워커는 체크포인트부터 같은 워커 식별자로 다시 띄운다', async () => {
     const { store, advance } = clockedStore();
     store.addOrder(order({ id: 'ord-1' }));
