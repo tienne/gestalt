@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.138.0] - 2026-11-14
+
+### Added
+
+- **`pr` 스킬이 화면이 바뀌는 PR에 수정 전/후 스크린샷을 붙여요(#136).** 리뷰어가 전/후 화면을 보려면 사람이 PR을 연 뒤 이미지를 직접 끌어다 놓아야 했어요.
+  - 화면 파일(tsx, vue, css 같은 확장자나 `components/`, `pages/` 같은 경로)이 바뀌면 인터뷰에서 이미지 파일 경로나 캡처할 주소를 받아요.
+  - 이미지 주소는 PR을 만든 뒤에야 생겨서 본문에는 `<!-- gestalt:screenshots -->` 표식만 먼저 두고 PR을 만든 직후 그 자리를 전/후 표로 채워요.
+  - GitHub에 첨부 업로드용 공개 API가 없어서 로그인된 브라우저(aside, 없으면 chrome-devtools)로 PR 코멘트 입력칸에 파일을 넣고 `user-attachments/assets/` 주소만 받아 와요. 코멘트는 제출하지 않아요.
+  - 이미지는 레포에 커밋하지 않아요. 업로드가 안 되면 이미지 커밋이나 gist로 대신하지 않고 파일 경로만 알려요.
+  - 본문은 `gh pr edit` 대신 REST PATCH로 고쳐요. `gh pr edit`은 classic Projects 카드를 읽다가 막히는 레포가 있어요.
+  - `ship`도 draft PR을 만든 직후 같은 단계를 타요.
+- **`execute`가 코드를 고치기 직전에 수정 전 화면을 찍어 둬요(#136).** PR을 올릴 즈음엔 코드가 이미 바뀌어 있어서 수정 전 화면을 다시 띄우려면 base를 체크아웃해 서버를 따로 띄워야 했어요.
+  - 절차는 `plugin/skills/_shared/before-screenshot.md` 문서로 따로 뺐어요. 이미 찍은 기록이 있거나 화면 파일이 벌써 바뀌어 있으면 찍지 않아요.
+  - 찍은 주소와 뷰포트를 `manifest.json`에 남기고 `pr` 스킬은 그 기록을 읽어 같은 주소와 크기로 수정 후만 찍어요.
+  - 컨덕터 워커는 사람에게 묻지 않고 못 찍은 이유만 남겨요. `handoff` 지시서에도 수정 전 캡처 줄을 넣게 했어요.
+
+### 남긴 것
+
+- 실제 PR에서 업로드는 아직 안 돌려 봤어요. GitHub 코멘트 입력칸 구조가 바뀌면 업로드 단계가 깨질 수 있어요.
+- 로컬 서버는 대신 띄우지 않아요. 워크트리 여럿이 같은 포트를 쓰면 다른 화면이 찍힐 수 있어서예요. 사람 없이 도는 워커는 서버가 없으면 수정 후 화면을 못 찍어요.
+
 ## [0.137.0] - 2026-11-14
 
 ### Added
