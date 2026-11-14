@@ -416,6 +416,7 @@ describe('오르카 런처 release', () => {
       wtShow?: { code: number; stdout: string };
       rm?: { code: number; stdout: string; stderr?: string };
       release?: { code: number; stdout: string }[];
+      stop?: { code: number; stdout: string };
     } = {},
   ) {
     const calls: string[][] = [];
@@ -424,7 +425,8 @@ describe('오르카 런처 release', () => {
       calls.push(args);
       if (args[1] === 'worker-release' && releases.length > 0)
         return { ...releases.shift()!, stderr: '' };
-      if (args[1] === 'worker-stop') return { code: 0, stdout: STOPPED, stderr: '' };
+      if (args[1] === 'worker-stop')
+        return { ...(over.stop ?? { code: 0, stdout: STOPPED }), stderr: '' };
       if (args[1] === 'worker-show')
         return {
           code: 0,
@@ -586,7 +588,7 @@ describe('오르카 런처 release', () => {
       });
 
     it.each(['exited', 'gone'])(
-      'liveness %s면 worker-stop으로 settle하고 다시 release한다',
+      'liveness %s면 worker-stop으로 stopped로 바꾸고 다시 release한다',
       async (liveness) => {
         const { calls, l } = scripted({ show: ready(liveness), release: [inactive, released] });
         await l.release(w(), { requireClosed: true });
@@ -616,16 +618,43 @@ describe('오르카 런처 release', () => {
 
     it('아직 live면 멈추지 않고 실패로 던진다', async () => {
       const { calls, l } = scripted({ show: ready('live'), release: [inactive] });
-      await expect(l.release(w(), { removeWorktree: true })).rejects.toThrow(/worker-stop/);
+      await expect(l.release(w(), { removeWorktree: true })).rejects.toThrow(
+        /dispatch가 아직 안 끝나.*liveness live/,
+      );
       expect(calls.some((c) => c[1] === 'worker-stop')).toBe(false);
       expect(calls.some((c) => c[0] === 'worktree')).toBe(false);
+    });
+
+    it('show에 liveness가 없으면 멈추지 않고 실패로 던진다', async () => {
+      const show = JSON.stringify({ ok: true, result: { state: 'ready', workspace: ws } });
+      const { calls, l } = scripted({ show, release: [inactive] });
+      await expect(l.release(w())).rejects.toThrow(/liveness 모름/);
+      expect(calls.some((c) => c[1] === 'worker-stop')).toBe(false);
+    });
+
+    it('worker-stop이 실패하면 다시 release하지 않고 던진다', async () => {
+      const { calls, l } = scripted({
+        show: ready('exited'),
+        release: [inactive],
+        stop: { code: 1, stdout: '{"ok":false,"error":{"code":"internal"}}' },
+      });
+      await expect(l.release(w())).rejects.toThrow(/worker-stop 실패\(1\)/);
+      expect(calls.map((c) => c[1])).toEqual(['worker-release', 'worker-show', 'worker-stop']);
+    });
+
+    it('stop 뒤 release도 거절되면 그대로 던진다', async () => {
+      const { l } = scripted({
+        show: ready('exited'),
+        release: [inactive, { code: 1, stdout: '{"ok":false,"error":{"code":"internal"}}' }],
+      });
+      await expect(l.release(w())).rejects.toThrow(/worker-release 실패\(1\)/);
     });
 
     it('dispatch_inactive가 아닌 거절은 worker-show 없이 그대로 던진다', async () => {
       const { calls, l } = scripted({
         release: [{ code: 1, stdout: '{"ok":false,"error":{"code":"selector_not_found"}}' }],
       });
-      await expect(l.release(w())).rejects.toThrow(/실패\(1\)/);
+      await expect(l.release(w())).rejects.toThrow(/worker-release 실패\(1\)/);
       expect(calls.map((c) => c[1])).toEqual(['worker-release']);
     });
   });
