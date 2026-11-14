@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.136.0] - 2026-11-14
 
 ### Added
 
@@ -14,11 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - tick이 `human-owned` 주문의 PR을 주문마다 `humanOwnedPollSec`(기본 15분) 간격으로 gh로 봐요. 머지됐으면 `merged`로 넘겨 지라 전환과 배포 처리를 잇고 머지 없이 닫혔으면 `cancelled`로 바꿔요.
   - `humanOwnedParkAfterSec`(기본 하루)가 지나도 그대로면 `parked`로 내리고 더 안 봐요. 나중에 머지했으면 `order mark-merged`로 알려요. gh로 MERGED를 확인해야 받아요.
   - PR 감시는 `human-owned`와 `parked` 주문의 PR로 주문을 새로 만들지 않아요.
+- **tick 사이 공백이 길면 경고해요(#132).** 반복은 세션 안의 크론이라 탭이 닫히면 같이 사라지는데 아무도 알리지 않았어요.
+  - 앞 tick과 이번 tick 사이가 `staleAfterSec`보다 길면 tick 경고에 공백 길이를 남겨요. `conductor status`는 마지막 tick 뒤로 지난 시간을 따로 보여 줘요.
+  - 경고는 반복이 끊겼을 수 있다는 신호로만 다뤄요. 다시 걸지는 대화 기억 말고 반복 표식과 CronList로 정하고 공백 경고가 붙어도 반복은 한 번만 걸어요.
 - **`order cancel`로 주문을 취소해요.** 살아 있는 워커에 멈추라고 전하고 거둔 뒤 열린 확인 자리도 닫아요.
 
 ### Fixed
 
 - **확인 자리 답이 승인에도 실려요.** 승인할 때 붙인 답이 워커에 안 갔어요. 이제 답을 고정 문구보다 먼저 따르라고 함께 전해요. 거절은 기다리지 말고 `--status done`으로 끝내라고 안내해서 거절된 워커가 멈춘 채 재개되지 않아요.
+- **인계 기록을 지우기 전에 사람 확인을 받아요(#132).** `handoff.json`을 지우는 조건이 택일이라 새 세션이 살아 있는데도 지워질 수 있었어요. 새 세션이 닫혔는지 사람이 확인해야 지우고 CLI 거절 문장과 스킬, 문서가 같은 조건을 말해요. 인계받은 세션에는 첫 보고에서 탭을 닫지 말라고 알리는 할 일을 더했어요.
 
 ## [0.135.1] - 2026-11-13
 
