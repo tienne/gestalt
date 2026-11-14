@@ -668,7 +668,8 @@ button, input, textarea { font: inherit; letter-spacing: inherit; }
 .repo.tone-warning { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
 .repo.tone-accent { border-color: var(--line-strong); }
 .repo-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.repo h2 { font-size: 14px; font-weight: 600; letter-spacing: -0.2px; margin: 0; }
+.repo-head > :first-child { min-width: 0; }
+.repo h2 { font-size: 14px; font-weight: 600; letter-spacing: -0.2px; margin: 0; overflow-wrap: anywhere; }
 
 .pills { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500; line-height: 16px;
