@@ -249,6 +249,30 @@ describe('런처', () => {
     expect(calls.slice(before)).toEqual([['-C', prev, 'branch', '--show-current']]);
   });
 
+  it('git 실패 문구는 -C 경로를 빼고 하위 명령을 싣는다', async () => {
+    const runner: CommandRunner = async (_cmd, args) => {
+      if (args.includes('rev-parse')) return { code: 1, stdout: '', stderr: '' };
+      if (args.includes('add')) return { code: 1, stdout: '', stderr: 'fatal: 이미 있음' };
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    const root = tempStateDir();
+    const l = new GitWorktreeLauncher({
+      worktreeRoot: join(root, 'wt'),
+      promptDir: join(root, 'prompts'),
+      repoPaths: { 'acme/app': '/repos/app' },
+      runner,
+    });
+    const err = await l
+      .start({
+        order: order({ id: 'ord-1' }),
+        worker: worker('ord-1', { id: 'wrk-1' }),
+        prompt: 'p',
+      })
+      .catch((e: Error) => e);
+    expect((err as Error).message).toMatch(/^git worktree add 실패\(1\)/);
+    expect((err as Error).message).not.toContain('/repos/app');
+  });
+
   it('재개 때 워크트리 디렉토리만 사라졌으면 남은 브랜치를 -b 없이 다시 붙인다', async () => {
     const { calls, runner } = recorder('');
     const root = tempStateDir();
