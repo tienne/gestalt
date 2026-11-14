@@ -166,7 +166,7 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
    - 채팅 탭은 닫지 않는다. 오르카 CLI(1.4.256에서 확인)에 채팅 탭을 닫는 명령이 없고 `terminal close`는 채팅 세션을 받지 않는다
    - 오르카가 없거나 닫기가 실패해도 인계와 tick은 그대로 두고 경고만 남긴다
 
-   결과는 `handoff.json`의 `close`(`closed`, `skipped`, `failed`)에 적고 tick JSON의 `handoffClose`에 한 번 싣는다. 텍스트 출력에는 닫았으면 알림 한 줄, 아니면 `경고:` 줄로 찍힌다. `close`가 적힌 기록은 다시 보지 않는다. tick 둘이 같은 기록을 함께 닫지 않게 세션 디렉토리에 `close-claim`을 먼저 만든다. `launched: false`였거나 `previousTab`이 없는 기록, `handoffCloseAfterSec`가 0이면 아무것도 안 한다. 닫히는 시점은 기한이 지난 뒤 첫 tick이라 반복 간격만큼 늦을 수 있다.
+   결과는 `handoff.json`의 `close`(`closed`, `skipped`, `failed`)에 적고 tick JSON의 `handoffClose`에 한 번 싣는다. 텍스트 출력에는 닫았으면 알림 한 줄, 아니면 `경고:` 줄로 찍힌다. `close`가 적힌 기록은 다시 보지 않는다. 오르카가 없거나 채팅 탭이라 `skipped`로 남은 기록, 닫다 실패한 `failed` 기록도 그대로 두고 다시 시도하지 않는다. 탭은 사람이 닫는다. 닫을 탭이 지금 tick을 돌리는 탭과 같거나 핸들 꼴이 터미널 핸들이 아니면 닫지 않고 `skipped`로 남긴다. tick 둘이 같은 기록을 함께 닫지 않게 세션 디렉토리에 `close-claim`을 먼저 만든다. 이 파일에는 잡은 세션과 시각을 적어 두는데 진단용이고 지우지 않는다. 파일을 못 만들면 `failed`를 알리고 기록은 안 남겨 다음 tick이 다시 시도한다. `launched: false`였거나 `previousTab`이 없는 기록, `handoffCloseAfterSec`가 0이면 아무것도 안 한다. 닫히는 시점은 기한이 지난 뒤 첫 tick이라 반복 간격만큼 늦을 수 있다.
 
    타이머를 이전 세션에 두지 않은 건 그 세션이 이미 반복을 멈췄고 탭이 닫히면 프로세스도 같이 사라져서다. 오르카에는 시간을 두고 탭을 닫는 기능이 없어서 새 세션의 tick이 기한을 확인한다. 이렇게 하면 닫는 쪽이 늘 살아 있는 컨덕터라 컨덕터가 둘 다 사라지는 일이 없다. 이전 세션의 tick은 이미 거절되니 둘 다 도는 일도 없다.
 
@@ -280,7 +280,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `queue/`                    | 외부 시스템     | 외부 큐 메시지. 다음 tick이 읽고 지운다. 못 읽은 파일은 `queue/failed/`로 옮긴다                                                                                                                                                                               |
 | `slack/`                    | 호스트          | 슬랙 초안 본문                                                                                                                                                                                                                                                 |
 | `context/<owner>/<name>.md` | 컨덕터 세션     | 레포 공통 맥락. 워커 지시에 경로가 실린다                                                                                                                                                                                                                      |
-| `sessions/<세션 id>/`       | tick, 컴팩트 훅 | 등록한 컨덕터 세션. `session.json`은 tick이, `compactions`(횟수와 트랜스크립트 경로)는 훅이, `handoff.json`(인계 기록)은 `handoff` 명령이 쓰고 이전 탭 닫기 결과(`close`)와 `close-claim`은 새 세션의 tick이 쓴다                                                                                                                 |
+| `sessions/<세션 id>/`       | tick, 컴팩트 훅 | 등록한 컨덕터 세션. `session.json`은 tick이, `compactions`(횟수와 트랜스크립트 경로)는 훅이, `handoff.json`(인계 기록)은 `handoff` 명령이 쓰고 이전 탭을 닫은 결과(`close`)와 `close-claim`은 새 세션의 tick이 쓴다                                            |
 | `handoffs/`                 | `handoff` 명령  | 새 컨덕터 세션에 넘긴 인계 파일                                                                                                                                                                                                                                |
 | `tick.lock`                 | tick            | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다                                                                                                                                                        |
 
