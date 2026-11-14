@@ -1,24 +1,24 @@
 ---
 name: conductor
-version: "1.0.0"
-description: "컨덕터 세션 하나가 말로 받은 요청과 지라 티켓, 외부 큐의 주문을 여러 레포에 걸쳐 받아 워커에 배정하고 머지(또는 주문 범위가 정한 끝 자리)까지 끌고 간다. 상태는 대화 밖 저장소에 두고 감시 주기마다 워커 결과 반영, 주문 접수, 끊긴 워커 재개, 머지 뒤 지라와 배포 처리를 돈다. 사람에게는 머지 승인, 슬랙 게시, 인터뷰 답처럼 정해진 자리만 묻는다."
+version: '1.0.0'
+description: '컨덕터 세션 하나가 말로 받은 요청과 지라 티켓, 외부 큐의 주문을 여러 레포에 걸쳐 받아 워커에 배정하고 머지(또는 주문 범위가 정한 끝 자리)까지 끌고 간다. 상태는 대화 밖 저장소에 두고 감시 주기마다 워커 결과 반영, 주문 접수, 끊긴 워커 재개, 머지 뒤 지라와 배포 처리를 돈다. 사람에게는 머지 승인, 슬랙 게시, 인터뷰 답처럼 정해진 자리만 묻는다.'
 triggers:
-  - "컨덕터 세션"
-  - "컨덕터"
-  - "주문 큐 처리해줘"
-  - "티켓들 머지까지 끌고 가"
-  - "여러 레포 주문 처리"
-  - "워커들 감시해줘"
+  - '컨덕터 세션'
+  - '컨덕터'
+  - '주문 큐 처리해줘'
+  - '티켓들 머지까지 끌고 가'
+  - '여러 레포 주문 처리'
+  - '워커들 감시해줘'
 inputs:
   scope:
     type: string
     required: false
-    description: "주문 범위. merge-through, approval, interview-first 중 하나. 비우면 설정의 defaultScope"
+    description: '주문 범위. merge-through, approval, interview-first 중 하나. 비우면 설정의 defaultScope'
 outputs:
   - tick_report
   - gate_decisions
 routing:
-  note: "주문 넣기 → tick → hostActions 실행 → 사람 확인 자리는 사람에게 → 다음 tick. 태스크 하나 맡기기는 `handoff`, 같은 실행 세션 병렬은 `dispatch`"
+  note: '주문 넣기 → tick → hostActions 실행 → 사람 확인 자리는 사람에게 → 다음 tick. 태스크 하나 맡기기는 `handoff`, 같은 실행 세션 병렬은 `dispatch`'
 ---
 
 # Conductor Skill
@@ -41,7 +41,7 @@ routing:
 - **주문을 넣은 뒤에는 그 대화 원문에 기대지 않는다.** 주문 하나에 필요한 맥락은 전부 description에 옮긴다. 세션을 새로 띄워도 잃는 게 없어야 한다.
 - **여러 주문에 걸친 맥락은 레포 공통 맥락 파일에 둔다.** 대화에만 남기지 않는다. 자세한 건 1-1이다.
 - **워커 생성은 컨덕터만 한다.** 워커가 하위 워커를 원하면 보고의 `spawnRequest`로 올라오고 다음 tick이 새 주문으로 받는다. 주문 하나에 하위 주문은 세 개까지고 하위 주문의 워커는 더 못 늘린다. 넘치면 만들지 않고 그 워커에 이유를 보낸다.
-- **이 스킬 자신은 워커 안에서 돌지 않는다.** `tick`과 `gate resolve`, `order add`, `queue add`, `deploy report`는 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이면 거절한다. 서브에이전트 워커는 컨덕터와 같은 자리에서 돌아서 이 검사에 안 걸리므로 지시서 규칙에만 기댄다.
+- **이 스킬 자신은 워커 안에서 돌지 않는다.** `tick`과 `gate resolve`, `order add`, `order take-over`, `order cancel`, `order mark-merged`, `queue add`, `deploy report`는 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이면 거절한다. 서브에이전트 워커는 컨덕터와 같은 자리에서 돌아서 이 검사에 안 걸리므로 지시서 규칙에만 기댄다.
 - **워커는 자기 id로만 보고한다.** `worker report`와 `checkpoint save`는 `GESTALT_CONDUCTOR_WORKER_ID`와 `--worker`가 다르면 거절한다. 이 환경 변수는 git 워크트리 워커에만 있어서 오르카와 서브에이전트 워커가 남의 id를 적는 건 못 막는다.
 
 ## 1. 주문 넣기
@@ -103,13 +103,13 @@ Claude Code에서는 응답에 이 세션의 `handoff`가 실린다. `due`가 tr
 
 tick 프로세스는 외부에 쓰지 못한다. 할 일을 `hostActions`로 돌려주면 이 세션이 실행한다.
 
-| type | 할 일 |
-|---|---|
-| `spawn-subagent` | `promptFile`을 읽어 Agent 도구로 서브에이전트를 띄운다. 프롬프트 원문을 대화에 다시 적지 않는다 |
-| `open-session` | `cwd`에서 새 에이전트 세션을 열고 `promptFile`을 첫 지시로 넘긴다. `env`가 있으면 그 세션 환경 변수로 넣는다. 오르카가 없을 때만 나온다 |
-| `send` | 그 워커 세션에 `message`를 보낸다 |
-| `jira-transition` | Atlassian MCP로 `issueKey`를 `to` 상태로 옮긴다. 전환 이름이 다르면 가장 가까운 전환을 고르고 보고에 적는다 |
-| `slack-post` | 이미 사람이 승인한 초안이다. 슬랙 MCP로 `channel`에 게시한다 |
+| type              | 할 일                                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `spawn-subagent`  | `promptFile`을 읽어 Agent 도구로 서브에이전트를 띄운다. 프롬프트 원문을 대화에 다시 적지 않는다                                         |
+| `open-session`    | `cwd`에서 새 에이전트 세션을 열고 `promptFile`을 첫 지시로 넘긴다. `env`가 있으면 그 세션 환경 변수로 넣는다. 오르카가 없을 때만 나온다 |
+| `send`            | 그 워커 세션에 `message`를 보낸다                                                                                                       |
+| `jira-transition` | Atlassian MCP로 `issueKey`를 `to` 상태로 옮긴다. 전환 이름이 다르면 가장 가까운 전환을 고르고 보고에 적는다                             |
+| `slack-post`      | 이미 사람이 승인한 초안이다. 슬랙 MCP로 `channel`에 게시한다                                                                            |
 
 실행하다 실패하면 그 주문만 사람에게 올리고 나머지는 계속한다.
 
@@ -127,9 +127,28 @@ gestalt conductor gate list --json
 gestalt conductor gate resolve <gateId> --approve --json
 gestalt conductor gate resolve <gateId> --approve --answer "보존 기간은 30일" --json
 gestalt conductor gate resolve <gateId> --reject --json
+gestalt conductor gate resolve <gateId> --take-over --answer "머지는 내가 할게" --json
 ```
 
-종료하면 결정이 그 워커에 바로 전달된다. 응답에 `hostActions`가 있으면 3번처럼 실행한다.
+종료하면 결정이 그 워커에 바로 전달된다. 응답에 `hostActions`가 있으면 3번처럼 실행한다. 사람이 붙인 답은 `--answer`에 그대로 싣는다. 워커는 답을 고정 문구보다 먼저 따른다.
+
+`merge` 자리를 물을 때는 선택지를 셋으로 보여준다.
+
+- **승인**: 워커가 머지한다. `--approve`
+- **거절**: 워커가 머지하지 않고 PR을 둔 채 끝낸다. 주문은 `done`으로 닫힌다. `--reject`
+- **직접 머지**: 사람이 PR을 넘겨받는다. 워커는 종료하고 워크트리와 브랜치는 남는다. 주문은 `human-owned`가 되고 tick이 머지를 확인하면 지라 전환과 배포 처리를 잇는다. `--take-over`
+
+사람이 "머지는 내가 할게"처럼 답하면 거절이 아니라 직접 머지로 받는다. 거절로 닫으면 사람이 나중에 머지해도 컨덕터가 모른다.
+
+확인 자리 없이 주문을 사람에게 넘기거나 멈출 때는 아래를 쓴다. `human-owned`로 하루(`humanOwnedParkAfterSec`)가 지나면 `parked`로 내려가 tick이 더 안 본다. 그 뒤 사람이 머지했다고 하면 `order mark-merged`로 알린다. gh로 MERGED를 확인해야 받는다.
+
+```bash
+gestalt conductor order take-over <orderId> --json
+gestalt conductor order cancel <orderId> --reason "<한 줄>" --json
+gestalt conductor order mark-merged <orderId> --json
+```
+
+tick 응답의 `humanOwned`에는 사람이 넘겨받은 주문 중 상태가 바뀐 것(`merged`, `cancelled`, `parked`)만 실린다. 사람에게 한 줄로 알린다.
 
 그 밖의 요청(단순 승인, 수동 검증, 정리, 인증, 계정 전환)은 tick이 bypass로 넘기고 기록만 남긴다. 사람에게 묻지 않는다.
 

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **사람이 넘겨받은 주문을 컨덕터가 따라가요.** 머지 확인 자리에 "머지는 내가 할게"라고 답해도 승인과 거절밖에 없어서 주문이 끊긴 워커처럼 보였고 새 워커가 같은 승인을 다시 물었어요.
+  - `gate resolve --take-over`와 `order take-over`로 주문을 `human-owned`로 넘겨요. 워커에 종료를 전하고 거두지만 워크트리와 브랜치는 남겨요. 열린 확인 자리도 같이 닫아요.
+  - tick이 `human-owned` 주문의 PR을 주문마다 `humanOwnedPollSec`(기본 15분) 간격으로 gh로 봐요. 머지됐으면 `merged`로 넘겨 지라 전환과 배포 처리를 잇고 머지 없이 닫혔으면 `cancelled`로 바꿔요.
+  - `humanOwnedParkAfterSec`(기본 하루)가 지나도 그대로면 `parked`로 내리고 더 안 봐요. 나중에 머지했으면 `order mark-merged`로 알려요. gh로 MERGED를 확인해야 받아요.
+  - PR 감시는 `human-owned`와 `parked` 주문의 PR로 주문을 새로 만들지 않아요.
+- **`order cancel`로 주문을 취소해요.** 살아 있는 워커에 멈추라고 전하고 거둔 뒤 열린 확인 자리도 닫아요.
+
+### Fixed
+
+- **확인 자리 답이 승인에도 실려요.** 승인할 때 붙인 답이 워커에 안 갔어요. 이제 답을 고정 문구보다 먼저 따르라고 함께 전해요. 거절은 기다리지 말고 `--status done`으로 끝내라고 안내해서 거절된 워커가 멈춘 채 재개되지 않아요.
+
 ## [0.135.1] - 2026-11-13
 
 ### Fixed

@@ -29,19 +29,27 @@ export const ORDER_STATUSES = [
   'failed',
   'escalated',
   'cancelled',
+  'human-owned',
+  'parked',
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 /**
  * 끝난 주문. tick이 더 손대지 않는다.
  * escalated는 여기 없다. 사람 결정을 기다리며 슬롯만 비운 상태라 게이트 승인으로 다시 움직인다.
- * 그동안 PR 감시가 같은 PR에 주문을 또 만들면 안 된다
+ * 그동안 PR 감시가 같은 PR에 주문을 또 만들면 안 된다.
+ * human-owned도 여기 없다. tick이 PR 머지를 지켜봐야 한다. parked는 끝 상태지만 PR이 열려 있을 수 있어
+ * PR 감시는 따로 막는다(HUMAN_PR_STATUSES)
  */
 export const TERMINAL_ORDER_STATUSES: ReadonlySet<OrderStatus> = new Set([
   'done',
   'failed',
   'cancelled',
+  'parked',
 ]);
+
+/** 사람이 PR을 넘겨받은 주문. PR 감시가 이 PR로 답글이나 재리뷰 주문을 새로 만들지 않는다 */
+export const HUMAN_PR_STATUSES: ReadonlySet<OrderStatus> = new Set(['human-owned', 'parked']);
 
 export const JIRA_STATUSES = ['TODO', 'In Progress', 'PR', 'Done', 'In-QA'] as const;
 export type JiraStatus = (typeof JIRA_STATUSES)[number];
@@ -80,6 +88,12 @@ export interface Order {
   explicitJiraStatus?: JiraStatus;
   mergedAt?: string;
   deployedAt?: string;
+  /** 사람이 넘겨받은 시각. 이 시각부터 parkAfter를 센다 */
+  humanOwnedAt?: string;
+  /** human-owned 주문의 PR 상태를 gh로 마지막에 확인한 시각 */
+  prCheckedAt?: string;
+  /** order cancel에 적은 이유 */
+  cancelReason?: string;
   /** 워커의 spawnRequest로 생긴 주문이면 그 워커가 맡았던 주문. 이 주문의 워커는 더 못 늘린다 */
   parentOrderId?: string;
 }
@@ -166,6 +180,9 @@ export const GATE_TYPES = [
 /** 사람 확인이 필요한 자리. no-procedure는 컨덕터가 처리 절차를 못 세운 경우다 */
 export type GateType = (typeof GATE_TYPES)[number];
 
+/** taken-over는 사람이 PR을 넘겨받거나 주문을 취소하면서 같이 종료한 게이트다 */
+export type GateDecision = 'approved' | 'rejected' | 'taken-over';
+
 export interface Gate {
   id: string;
   orderId?: string;
@@ -177,7 +194,7 @@ export interface Gate {
   payload?: Record<string, string>;
   openedAt: string;
   resolvedAt?: string;
-  decision?: 'approved' | 'rejected';
+  decision?: GateDecision;
   /** interview 게이트에 사람이 적은 답 */
   answer?: string;
 }
@@ -253,7 +270,7 @@ export type ConductorEvent =
       type: 'gate-resolved';
       at: string;
       gateId: string;
-      decision: 'approved' | 'rejected';
+      decision: GateDecision;
       answer?: string;
     }
   | { type: 'bypass'; at: string; record: BypassRecord }

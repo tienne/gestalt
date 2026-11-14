@@ -139,7 +139,9 @@ export async function detectStale(store: ConductorStore, opts: StaleOptions): Pr
   const result: StaleResult = { stopped: [], rateLimited: [], escalated: [], warnings: [] };
   for (const w of store.activeWorkers()) {
     // 사람 확인을 기다리는 워커는 보고 없이 멈춰 있는 게 정상이다. 끊김으로 보면 승인이 그 워커에 못 닿는다
-    if (store.order(w.orderId)?.status === 'waiting-gate') continue;
+    // 사람이 넘겨받은 주문의 워커는 거둔 워커라 재개하면 안 된다
+    const status = store.order(w.orderId)?.status;
+    if (status === 'waiting-gate' || status === 'human-owned') continue;
     const seen = Date.parse(w.lastSeenAt);
     if (Number.isNaN(seen) || opts.now.getTime() - seen < opts.staleAfterMs) continue;
 

@@ -36,7 +36,10 @@ import {
   conductorHandoffCommand,
   conductorMetricsCommand,
   conductorOrderAddCommand,
+  conductorOrderCancelCommand,
+  conductorOrderMarkMergedCommand,
   conductorOrderShowCommand,
+  conductorOrderTakeOverCommand,
   conductorQueueAddCommand,
   conductorSlackDraftCommand,
   conductorStatusCommand,
@@ -1084,6 +1087,38 @@ export function createCli(): Command {
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorOrderAddCommand(o));
 
+  conductorOrder
+    .command('take-over <orderId>')
+    .description(
+      '사람이 주문을 넘겨받는다. 워커를 거두고 열린 게이트를 닫는다. 워크트리와 브랜치는 남기고 tick이 PR 머지를 지켜본다',
+    )
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (id, o) => {
+      await conductorOrderTakeOverCommand(id, o);
+    });
+
+  conductorOrder
+    .command('mark-merged <orderId>')
+    .description(
+      'human-owned나 parked 주문을 사람이 머지했다고 알린다. gh로 MERGED를 확인했을 때만 merged로 넘긴다',
+    )
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (id, o) => {
+      await conductorOrderMarkMergedCommand(id, o);
+    });
+
+  conductorOrder
+    .command('cancel <orderId>')
+    .description('주문을 취소한다. 살아 있는 워커는 멈추라고 전하고 거둔다. 열린 게이트도 닫는다')
+    .option('--reason <text>', '취소 이유')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (id, o) => {
+      await conductorOrderCancelCommand(id, o);
+    });
+
   conductor
     .command('context')
     .description('여러 주문에 걸친 레포 공통 맥락 파일')
@@ -1174,7 +1209,14 @@ export function createCli(): Command {
     .description('게이트를 종료하고 결정을 살아 있는 워커에 전한다')
     .option('--approve', '승인')
     .option('--reject', '거절')
-    .option('--answer <text>', 'interview 게이트의 답')
+    .option(
+      '--take-over',
+      '사람이 PR을 넘겨받는다. 워커를 거두고 주문을 human-owned로 바꿔 tick이 머지를 지켜본다',
+    )
+    .option(
+      '--answer <text>',
+      '사람의 답. 워커에 결정과 함께 전하고 고정 문구보다 먼저 따르게 한다',
+    )
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action(async (id, o) => {

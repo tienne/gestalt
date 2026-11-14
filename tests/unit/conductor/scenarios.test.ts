@@ -37,6 +37,8 @@ const base: ConductorConfig = {
   repoPaths: {},
   defaultAgent: 'claude',
   repoAgents: {},
+  humanOwnedPollSec: 900,
+  humanOwnedParkAfterSec: 86400,
 };
 
 interface Fake {

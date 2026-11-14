@@ -388,6 +388,10 @@ const conductorConfigSchema = z.object({
    * 5시간 창 한도는 이 안에 풀린다. 주간 한도처럼 더 오래 걸리면 사람이 계정을 바꾸거나 재개를 고른다
    */
   rateLimitEscalateAfterSec: z.number().int().min(600).max(604800).default(21600),
+  /** 사람이 넘겨받은(human-owned) 주문의 PR 상태를 gh로 확인하는 주문별 간격(초) */
+  humanOwnedPollSec: z.number().int().min(60).max(86400).default(900),
+  /** human-owned로 들어간 뒤 이 시간(초)이 지나도 머지나 닫힘이 없으면 parked로 바꾸고 더 안 본다 */
+  humanOwnedParkAfterSec: z.number().int().min(600).max(2592000).default(86400),
   /**
    * 주문에 범위를 안 적었을 때. 머지 전에 사람 승인을 받는 쪽이 기본이다.
    * 레포의 gestalt.json이 바꿀 수 있는 칸은 REPO_CONDUCTOR_KEYS가 정한다. 이 칸은 못 바꾼다
@@ -434,6 +438,8 @@ const REPO_CONDUCTOR_KEYS: ReadonlySet<string> = new Set([
   'maxResumeAttempts',
   'staleAfterSec',
   'rateLimitEscalateAfterSec',
+  'humanOwnedPollSec',
+  'humanOwnedParkAfterSec',
   'resultMaxChars',
   'handoffContextPercent',
   'contextWindowTokens',

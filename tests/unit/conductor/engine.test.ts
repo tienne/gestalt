@@ -52,6 +52,8 @@ const config: ConductorConfig = {
   repoPaths: {},
   defaultAgent: 'claude',
   repoAgents: {},
+  humanOwnedPollSec: 900,
+  humanOwnedParkAfterSec: 86400,
 };
 
 function fakeLauncher(kind: WorkerKind) {
