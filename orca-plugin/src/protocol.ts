@@ -9,11 +9,13 @@ export const ORDER_STATUSES = [
   'done',
   'failed',
   'escalated',
-  'cancelled'
+  'cancelled',
+  'human-owned',
+  'parked'
 ] as const
 
 /** tick이 더 손대지 않는 주문. 상태 표시줄의 주문 수에서 뺀다 */
-export const TERMINAL_ORDER_STATUSES: readonly string[] = ['done', 'failed', 'cancelled']
+export const TERMINAL_ORDER_STATUSES: readonly string[] = ['done', 'failed', 'cancelled', 'parked']
 
 export type Bypass = { need: string; action: string; at: string }
 

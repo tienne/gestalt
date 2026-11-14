@@ -30,7 +30,9 @@ export const STATUS_LABEL: Record<string, string> = {
   done: '끝남',
   failed: '실패',
   escalated: '사람 결정 필요',
-  cancelled: '취소'
+  cancelled: '취소',
+  'human-owned': '사람이 머지 중',
+  parked: '멈춰 둠'
 }
 
 export type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
@@ -43,7 +45,9 @@ export const STATUS_TONE: Record<string, Tone> = {
   done: 'neutral',
   failed: 'danger',
   escalated: 'warning',
-  cancelled: 'neutral'
+  cancelled: 'neutral',
+  'human-owned': 'accent',
+  parked: 'neutral'
 }
 
 export const isTerminal = (status: string) => TERMINAL_ORDER_STATUSES.includes(status)
