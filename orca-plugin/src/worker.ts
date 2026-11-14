@@ -338,6 +338,11 @@ class Conductor {
       // 하나도 못 지우면 CLI는 exit 1로 끝나지만 stdout에 주문마다 이유를 남긴다. stderr 끝 몇 줄보다 그쪽이 온전하다
       const outcome = e instanceof CliError ? tryRemoveOutcome(e.stdout) : null
       if (outcome && outcome.skipped.length > 0) return { ok: false, ...outcome, error: '하나도 못 지웠어요' }
+      // order remove가 없는 옛 CLI는 commander가 "unknown command 'remove'"만 남겨 무엇을 고칠지 안 보인다
+      if (/unknown command '?remove'?/.test(message(e)))
+        return fail(
+          `설정한 gestalt(${cfg.command})에 주문 지우기 명령(conductor order remove)이 없어요. 이 명령이 들어간 버전으로 올리거나 플러그인 설정의 "gestalt 실행 파일"을 그 빌드로 바꿔 주세요.`
+        )
       return fail(message(e))
     } finally {
       void this.refresh()

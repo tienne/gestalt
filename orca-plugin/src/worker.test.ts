@@ -271,6 +271,17 @@ test('order.remove는 CLI가 하나도 못 지우면 stderr의 이유를 돌려�
   })
 })
 
+test('order.remove는 지우기 명령이 없는 옛 CLI면 무엇을 바꿀지 알려 준다', async () => {
+  const s = store(STATUS)
+  await run(s, host(s.dir), async (worker) => {
+    writeFileSync(join(s.dir, 'fake-fail'), "error: unknown command 'remove'\n")
+    const out = await worker.request('order.remove', { orderIds: ['ord-a'] })
+    assert.equal(out.ok, false)
+    assert.match(out.error ?? '', /주문 지우기 명령\(conductor order remove\)이 없어요/)
+    assert.match(out.error ?? '', /gestalt 실행 파일/)
+  })
+})
+
 test('order.remove는 CLI가 하나도 못 지우면 stdout에 남긴 주문별 이유를 돌려준다', async () => {
   const s = store(STATUS)
   await run(s, host(s.dir), async (worker) => {
