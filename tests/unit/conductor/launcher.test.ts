@@ -386,6 +386,15 @@ describe('오르카 에이전트 인자', () => {
 
 describe('오르카 런처 release', () => {
   const ws = 'repo-1::/ws/app/ord-1-2';
+  const STOPPED = JSON.stringify({
+    ok: true,
+    result: {
+      dispatchId: 'ctx_9',
+      state: 'stopped',
+      alreadySettled: false,
+      processAction: 'closed_agent_terminal',
+    },
+  });
 
   const shown = (over: Record<string, unknown> = {}) =>
     JSON.stringify({
@@ -406,11 +415,16 @@ describe('오르카 런처 release', () => {
       show?: string;
       wtShow?: { code: number; stdout: string };
       rm?: { code: number; stdout: string; stderr?: string };
+      release?: { code: number; stdout: string }[];
     } = {},
   ) {
     const calls: string[][] = [];
+    const releases = [...(over.release ?? [])];
     const runner: CommandRunner = async (_cmd, args) => {
       calls.push(args);
+      if (args[1] === 'worker-release' && releases.length > 0)
+        return { ...releases.shift()!, stderr: '' };
+      if (args[1] === 'worker-stop') return { code: 0, stdout: STOPPED, stderr: '' };
       if (args[1] === 'worker-show')
         return {
           code: 0,
@@ -536,6 +550,84 @@ describe('오르카 런처 release', () => {
     expect(msg).not.toContain('\u001b');
     expect(msg).not.toContain('x'.repeat(300));
     expect(msg).toContain(`orca worktree rm --worktree id:${ws} --delete-branch`);
+  });
+
+  describe('worker_done 없이 끝난 워커', () => {
+    // 2026-11-14 ctx_14ef78b9cc27에서 받은 실제 응답 꼴
+    const inactive = {
+      code: 1,
+      stdout: JSON.stringify({
+        ok: false,
+        error: {
+          code: 'dispatch_inactive',
+          message:
+            'Dispatch ctx_9 is ready; only a settled worker can release. Use worker-stop to cancel an active worker.',
+        },
+      }),
+    };
+    const released = {
+      code: 0,
+      stdout: JSON.stringify({
+        ok: true,
+        result: { dispatchId: 'ctx_9', state: 'released', processAction: 'none' },
+      }),
+    };
+    const ready = (liveness: string) =>
+      JSON.stringify({
+        ok: true,
+        result: {
+          dispatchId: 'ctx_9',
+          state: 'ready',
+          stage: 'input_accepted',
+          liveness,
+          terminalState: 'retained',
+          workspace: ws,
+        },
+      });
+
+    it.each(['exited', 'gone'])(
+      'liveness %s면 worker-stop으로 settle하고 다시 release한다',
+      async (liveness) => {
+        const { calls, l } = scripted({ show: ready(liveness), release: [inactive, released] });
+        await l.release(w(), { requireClosed: true });
+        expect(calls.map((c) => c[1])).toEqual([
+          'worker-release',
+          'worker-show',
+          'worker-stop',
+          'worker-release',
+        ]);
+      },
+    );
+
+    it('removeWorktree도 stop 뒤에 강제 없이 워크트리를 지운다', async () => {
+      const { calls, l } = scripted({ show: ready('exited'), release: [inactive, released] });
+      await l.release(w(), { removeWorktree: true });
+      expect(calls.map((c) => c.slice(0, 2).join(' '))).toEqual([
+        'orchestration worker-show',
+        'orchestration worker-release',
+        'orchestration worker-show',
+        'orchestration worker-stop',
+        'orchestration worker-release',
+        'worktree show',
+        'worktree rm',
+      ]);
+      expect(calls.at(-1)).not.toContain('--force');
+    });
+
+    it('아직 live면 멈추지 않고 실패로 던진다', async () => {
+      const { calls, l } = scripted({ show: ready('live'), release: [inactive] });
+      await expect(l.release(w(), { removeWorktree: true })).rejects.toThrow(/worker-stop/);
+      expect(calls.some((c) => c[1] === 'worker-stop')).toBe(false);
+      expect(calls.some((c) => c[0] === 'worktree')).toBe(false);
+    });
+
+    it('dispatch_inactive가 아닌 거절은 worker-show 없이 그대로 던진다', async () => {
+      const { calls, l } = scripted({
+        release: [{ code: 1, stdout: '{"ok":false,"error":{"code":"selector_not_found"}}' }],
+      });
+      await expect(l.release(w())).rejects.toThrow(/실패\(1\)/);
+      expect(calls.map((c) => c[1])).toEqual(['worker-release']);
+    });
   });
 
   it('dispatch id 없이 워크트리 삭제를 요청하면 에러를 던진다', async () => {
