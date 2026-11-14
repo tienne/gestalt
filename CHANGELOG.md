@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.141.0] - 2026-11-14
+
+### Added
+
+- **인계 뒤 이전 지휘자 탭을 자동으로 닫아요(#139).** 컨덕터가 새 세션으로 넘기고 나면 넘긴 세션의 오르카 탭이 그대로 남아 사람이 하나씩 닫아야 했어요.
+  - 오르카로 새 세션을 띄우면 `handoff` 명령이 넘긴 세션의 터미널 탭을 `handoff.json`에 적어요.
+  - 새 세션의 tick이 인계 시각부터 `handoffCloseAfterSec`(기본 600초)가 지난 뒤 그 탭을 닫아요. 기한 안에 새 세션이 첫 tick을 돌려 등록됐을 때만 닫아요. 새 세션이 못 떴으면 이전 탭이 사람이 이어 돌릴 자리라서예요.
+  - 대기 시간은 사용자 전역 `~/.gestalt/conductor.json`의 `handoffCloseAfterSec`로 바꿔요(0~86400). 0이면 닫지 않아요. 남의 레포가 탭을 닫게 하면 안 돼서 레포 `gestalt.json`으로는 못 바꿔요.
+  - 오르카가 없거나 채팅 탭이면 닫지 않고 경고만 남겨요. 채팅 탭은 오르카 CLI로 닫을 수 없어서예요. 닫다 실패해도 경고만 남기고 탭은 사람이 닫아요.
+  - 플러그인을 업데이트한 뒤 새로 하는 인계부터 적용돼요. 업데이트 전에 남은 인계 기록에는 탭 정보가 없어서 닫지 않아요.
+
+### Fixed
+
+- **이전 탭을 엉뚱하게 닫거나 두 번 닫지 않게 했어요(#139).**
+  - 닫을 탭이 지금 tick을 돌리는 탭과 같거나 터미널 핸들 꼴이 아니면 닫지 않아요.
+  - tick 둘이 같은 기록을 함께 닫지 않게 세션 디렉토리에 `close-claim`을 먼저 만들어요. 같은 세션이 다시 인계하면 `handoff` 명령이 새 기록을 쓰기 전에 이 파일을 지워요. 남겨 두면 tick이 새 기록을 이미 잡힌 것으로 보고 알림 없이 건너뛰었어요.
+  - tick이 탭을 닫는 사이 같은 세션이 다시 인계하면 옛 기록에 닫은 결과를 붙여 새 기록을 덮었어요. 쓰기 직전에 다시 읽어 인계 시각이 바뀌었으면 쓰지 않아요.
+
+### 남긴 것
+
+- 닫기 도중 tick이 끊기면 `close-claim`만 남고 그 기록은 다시 안 봐요. 이때는 `close-claim`에 적힌 시각을 보고 사람이 탭을 닫아요.
+
 ## [0.140.0] - 2026-11-14
 
 ### Added
