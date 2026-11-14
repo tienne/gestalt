@@ -397,7 +397,7 @@ tick 마지막 단계는 `finished`나 `failed` 워커를 거두고 `released`�
 | `orca-worktree` | `orca orchestration worker-release`로 워커 터미널만 거둔다. 워크트리는 남는다 |
 | `subagent`      | 할 일 없음                                                                    |
 
-오르카는 settled 워커만 `worker-release`를 받는다. 워커가 컨덕터에만 보고하고 오르카에 `worker_done` 없이 나가면 dispatch가 `ready`로 남아 `dispatch_inactive`로 거절된다. 그때 `worker-show`의 `liveness`가 `exited`나 `gone`이면 `worker-stop`으로 settle하고 `worker-release`를 다시 부른다. 아직 `live`면 멈추지 않고 정리 실패로 올린다.
+오르카는 settled 워커만 `worker-release`를 받는다. 워커가 컨덕터에만 보고하고 오르카에 `worker_done` 없이 나가면 dispatch가 `ready`로 남아 `dispatch_inactive`로 거절된다. 그때 `worker-show`의 `liveness`가 `exited`나 `gone`이면 `worker-stop`으로 dispatch를 끝난 상태(state `stopped`)로 바꾸고 `worker-release`를 다시 부른다. `exited`나 `gone`이 아니면(`live`거나 liveness를 모를 때) 멈추지 않고 정리 실패로 올린다.
 
 오르카 워크트리가 계속 쌓이는 게 싫으면 `~/.gestalt/conductor.json`에 `"removeMergedOrcaWorktrees": true`를 적는다. 레포 `gestalt.json`의 값은 받지 않는다. 켜면 머지된 주문(`mergedAt`이 있는 주문)의 오르카 워커는 다음처럼 정리한다.
 
