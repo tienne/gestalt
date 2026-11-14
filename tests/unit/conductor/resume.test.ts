@@ -74,7 +74,7 @@ describe('체크포인트', () => {
 });
 
 describe('끊김 감지와 재개', () => {
-  it('소식이 끊긴 워커를 멈춤으로 보고 체크포인트 자리부터 다시 띄울 재료를 만든다', () => {
+  it('소식이 끊긴 워커를 멈춤으로 보고 체크포인트 자리부터 다시 띄울 재료를 만든다', async () => {
     const c = running();
     saveSkillCheckpoint(
       c.store,
@@ -88,11 +88,12 @@ describe('끊김 감지와 재개', () => {
       shipAt('2', 1),
     );
     c.advance(60_000);
-    expect(detectStale(c.store, { now: c.now(), staleAfterMs: 300_000 })).toEqual([]);
+    expect((await detectStale(c.store, { now: c.now(), staleAfterMs: 300_000 })).stopped).toEqual(
+      [],
+    );
     c.advance(300_000);
-    expect(detectStale(c.store, { now: c.now(), staleAfterMs: 300_000 }).map((w) => w.id)).toEqual([
-      'wrk-1',
-    ]);
+    const stale = await detectStale(c.store, { now: c.now(), staleAfterMs: 300_000 });
+    expect(stale.stopped.map((w) => w.id)).toEqual(['wrk-1']);
 
     const decisions = prepareResumes(c.store, { maxResumeAttempts: 3, readShip: shipAt('2', 2) });
     expect(decisions.map((d) => d.kind)).toEqual(['resume']);

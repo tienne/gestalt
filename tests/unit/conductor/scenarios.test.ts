@@ -30,12 +30,15 @@ const base: ConductorConfig = {
   pollIntervalSec: 60,
   maxResumeAttempts: 3,
   staleAfterSec: 900,
+  rateLimitEscalateAfterSec: 21600,
   defaultScope: 'approval',
   resultMaxChars: 2000,
   accounts: {},
   repoPaths: {},
   defaultAgent: 'claude',
   repoAgents: {},
+  humanOwnedPollSec: 900,
+  humanOwnedParkAfterSec: 86400,
 };
 
 interface Fake {

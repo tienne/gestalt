@@ -8,6 +8,7 @@ import {
   fileQueue,
   GhAccounts,
   GhAccountSwitcher,
+  GhPrStateSource,
   GhPrWatchSource,
   prWatchTargets,
   hostJiraClient,
@@ -17,11 +18,15 @@ import {
 } from '../../conductor/adapters.js';
 import {
   acquireLock,
+  afterHumanMerge,
+  rateLimitEntries,
   deliverGateDecision,
   inboxDirOf,
   tick,
+  staleTickWarning,
   writeReport,
   type EngineDeps,
+  type RateLimitedEntry,
 } from '../../conductor/engine.js';
 import { existingRepoContext, repoContextPath } from '../../conductor/context.js';
 import {
@@ -58,10 +63,16 @@ import {
   type LauncherSet,
 } from '../../conductor/launcher.js';
 import { measure } from '../../conductor/metrics.js';
+import {
+  cancelOrder,
+  confirmHumanMerge,
+  takeOver,
+  type HumanOwnedChange,
+} from '../../conductor/ownership.js';
 import { resolveParentWorktree } from '../../conductor/parent-worktree.js';
 import { normalizePrRef } from '../../conductor/pr-ref.js';
 import { saveSkillCheckpoint } from '../../conductor/resume.js';
-import { nameConductorTab } from '../../conductor/tab-title.js';
+import { nameConductorTab, renameHandoffTabs } from '../../conductor/tab-title.js';
 import type { ConductorConfig } from '../../conductor/scheduler.js';
 import { draftSlack } from '../../conductor/slack.js';
 import { ConductorStore } from '../../conductor/store.js';
@@ -326,6 +337,8 @@ export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptio
     console.log(`설명: ${order.description ? terminalText(order.description) : '없음'}`);
     console.log(`체인: ${order.skillChain.join(' → ')}`);
     console.log(`PR: ${order.prRef ? terminalText(order.prRef) : '없음'}`);
+    if (order.humanOwnedAt) console.log(`사람이 넘겨받은 시각: ${order.humanOwnedAt}`);
+    if (order.cancelReason) console.log(`취소 이유: ${terminalText(order.cancelReason)}`);
     if (order.agent) console.log(`주문 에이전트: ${order.agent}`);
     console.log('워커:');
     for (const w of workers)
@@ -402,9 +415,10 @@ export interface ConductorStatusOptions extends ConductorCommonOptions {
 
 export function conductorStatusCommand(opts: ConductorStatusOptions): void {
   run(() => {
-    const { store } = open(opts);
+    const { store, config } = open(opts);
     const orders = store.orders().filter((o) => opts.all || o.status !== 'done');
     const gates = store.openGates();
+    const limited = new Map(rateLimitEntries(store).map((e) => [e.orderId, e]));
     const bypassesOf = new Map<string, { need: string; action: string; at: string }[]>();
     for (const b of store.snapshot.bypasses) {
       const key = b.orderId ?? '';
@@ -436,6 +450,8 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
             ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}),
             ...(o.prRef ? { pr: o.prRef } : {}),
             ...(o.issueKey ? { issue: o.issueKey } : {}),
+            ...(o.humanOwnedAt ? { humanOwnedAt: o.humanOwnedAt } : {}),
+            ...(limited.has(o.id) ? { rateLimit: limited.get(o.id) } : {}),
             ...(opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
               ? { lastSummary: store.snapshot.reports[o.id]?.at(-1)?.summary ?? null }
               : {}),
@@ -453,6 +469,12 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
       });
     }
     console.log(`마지막 tick: ${store.snapshot.lastTickAt ?? '없음'}`);
+    const staleWarning = staleTickWarning(
+      store.snapshot.lastTickAt,
+      new Date().toISOString(),
+      config.staleAfterSec * 1000,
+    );
+    if (staleWarning) console.log(`경고: ${staleWarning}`);
     for (const o of orders) {
       const summary =
         opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
@@ -461,12 +483,23 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
       console.log(
         `${o.id}  ${o.status}  ${o.scope}  ${o.repo}  ${o.title}${summary ? `  ${oneLine(summary, 100)}` : ''}`,
       );
+      const limit = limited.get(o.id);
+      if (limit) console.log(`  ${rateLimitLine(limit)}`);
+      if (o.status === 'human-owned' || o.status === 'parked')
+        console.log(
+          `  사람 담당: ${o.humanOwnedAt ?? '-'}부터, PR ${o.prRef ?? '없음'}${o.status === 'parked' ? ' (tick이 더 안 봐요. 머지했으면 order mark-merged)' : ''}`,
+        );
       for (const b of bypassesOf.get(o.id) ?? [])
         console.log(`  bypass ${b.at}  ${b.need}  ${b.action}`);
     }
     for (const b of bypassesOf.get('') ?? []) console.log(`bypass ${b.at}  ${b.need}  ${b.action}`);
     for (const g of gates) console.log(`게이트 ${g.id}  ${g.type}  ${g.reason}`);
   });
+}
+
+function rateLimitLine(e: RateLimitedEntry): string {
+  const via = e.source === 'text' ? ', 출력 문구로 판단' : '';
+  return `한도 대기: ${e.workerId} ${e.since}부터${e.resetsAt ? `, 풀리는 시각 ${e.resetsAt}` : ''}${via}`;
 }
 
 export interface ConductorTickOptions extends ConductorCommonOptions {
@@ -517,6 +550,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
       slack: hostSlackClient(deferred),
       deploy: fileDeploySource(join(ctx.store.dir, 'deploy')),
       ...(prSource ? { prSource } : {}),
+      prState: new GhPrStateSource({ accounts: gh }),
       ...(queue ? { queue } : {}),
       ...(Object.keys(ctx.config.accounts).length > 0
         ? { accounts: new GhAccountSwitcher({ accounts: gh }) }
@@ -541,12 +575,24 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
       `대기 ${c.queued}, 진행 ${c.running}, 게이트 ${c.openGates}, 새 주문 ${report.created.length}, 띄움 ${report.launched.length}`,
     );
     for (const a of report.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
+    for (const l of report.rateLimited) console.log(`${l.orderId} ${rateLimitLine(l)}`);
+    for (const h of report.humanOwned) console.log(humanOwnedLine(h));
     for (const w of report.warnings) console.log(`경고: ${w}`);
     for (const e of report.errors) console.log(`오류: ${e}`);
     if (handoffLine) console.log(handoffLine);
   } catch (e) {
     exitWithError(e);
   }
+}
+
+const HUMAN_OWNED_TO: Record<HumanOwnedChange['to'], string> = {
+  merged: '사람이 머지했어요. 머지 뒤 처리를 이어요',
+  cancelled: 'PR이 머지 없이 닫혀 취소했어요',
+  parked: '오래 안 움직여 parked로 내렸어요',
+};
+
+function humanOwnedLine(h: HumanOwnedChange): string {
+  return `${h.orderId}${h.prRef ? ` (${h.prRef})` : ''}: ${HUMAN_OWNED_TO[h.to]}`;
 }
 
 function sessionHandoff(ctx: Ctx, sessionId: string): HandoffStatus {
@@ -564,7 +610,7 @@ function assertNotHandedOff(ctx: Ctx, sessionId: string): void {
   if (!prev) return;
   const record = handoffRecordPath(ctx.store.dir, sessionId);
   throw new Error(
-    `이 세션은 ${prev.at}에 새 세션으로 인계했어요(${prev.file}). 반복을 멈추고 새 세션에서 돌려 주세요. 이 세션에서 계속 돌리려면 ${record}를 지워 주세요`,
+    `이 세션은 ${prev.at}에 새 세션으로 인계했어요(${prev.file}). 반복을 멈추고 새 세션에서 돌려 주세요. 새 세션이 닫혀 반복이 끊겼을 때만 이 세션에서 이어 돌릴 수 있어요. 새 탭이 닫혔는지 사람에게 확인한 뒤에만 ${record}를 지워 주세요. status의 마지막 tick이 staleAfterSec(기본 30분)보다 오래됐는지는 참고로만 봐요. 간격이 긴 반복에서도 오래돼 보여요`,
   );
 }
 
@@ -580,6 +626,7 @@ export interface ConductorHandoffOptions extends ConductorCommonOptions {
  * 오르카가 없거나 띄우기가 실패하면 파일만 남기고 사람에게 전할 문장을 돌려준다.
  * 띄우기 전에 이 세션을 인계한 것으로 적어 두고 이후 tick을 거절한다. 띄운 뒤 결과를 못 덮어써도
  * 거절은 이미 걸려 있어 컨덕터가 둘 돌지 않는다. 그때는 stderr 한 줄과 결과의 recordError로 알린다.
+ * 오르카로 띄웠으면 두 탭 이름도 바꾼다. 실패해도 인계는 성공으로 두고 결과의 renameErrors와 stderr로 알린다.
  */
 export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Promise<void> {
   try {
@@ -622,7 +669,25 @@ export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Pr
       recordError = (e as Error).message;
       console.error(`인계 기록 갱신 실패: ${recordError}`);
     }
-    const result = { sessionId, file, ...outcome, ...(recordError ? { recordError } : {}) };
+    const renameErrors =
+      outcome.launched && orca
+        ? await renameHandoffTabs({
+            env: process.env,
+            orcaCommand: orca,
+            now,
+            cwd: process.cwd(),
+            ...(outcome.tab ? { launched: outcome.tab } : {}),
+          })
+        : [];
+    const result = {
+      sessionId,
+      file,
+      ...outcome,
+      ...(recordError ? { recordError } : {}),
+      ...(renameErrors.length > 0 ? { renameErrors } : {}),
+    };
+    // recordError처럼 --json이어도 stderr에 남긴다
+    for (const e of renameErrors) console.error(`탭 이름 바꾸기: ${e}`);
     if (opts.json) return print(result);
     console.log(`인계 파일: ${file}`);
     console.log(outcome.detail);
@@ -691,6 +756,8 @@ export function conductorGateListCommand(opts: ConductorCommonOptions): void {
 export interface ConductorGateResolveOptions extends ConductorCommonOptions {
   approve?: boolean;
   reject?: boolean;
+  /** 사람이 PR을 넘겨받는다. 승인, 거절과 나란히 두는 세 번째 답이다 */
+  takeOver?: boolean;
   answer?: string;
   deferDelivery?: boolean;
 }
@@ -700,12 +767,21 @@ export async function conductorGateResolveCommand(
   opts: ConductorGateResolveOptions,
 ): Promise<void> {
   try {
-    if (opts.approve === opts.reject) throw new Error('--approve와 --reject 중 하나만 주세요');
+    const picked = [opts.approve, opts.reject, opts.takeOver].filter(Boolean).length;
+    if (picked !== 1) throw new Error('--approve, --reject, --take-over 중 하나만 주세요');
     const ctx = open(opts);
     assertConductorSession(ctx, 'gate resolve');
     const gate = ctx.store.snapshot.gates[gateId];
     if (!gate) throw new Error(`모르는 게이트예요: ${gateId}`);
     if (gate.status !== 'open') throw new Error(`이미 종료된 게이트예요: ${gateId}`);
+    if (opts.takeOver) {
+      if (!gate.orderId) throw new Error(`${gateId}는 주문이 없는 게이트라 넘겨받을 주문이 없어요`);
+      const r = await takeOver(ctx.store, gate.orderId, launchersFor(ctx, process.env).launchers, {
+        gateId,
+        ...(opts.answer ? { answer: opts.answer } : {}),
+      });
+      return printOwnership(opts, r, `${gateId}를 닫고 ${r.order.id}를 사람이 넘겨받았어요`);
+    }
     const closed = resolveGate(
       ctx.store,
       gateId,
@@ -720,6 +796,79 @@ export async function conductorGateResolveCommand(
     if (delivered.deferred) console.log('결정은 다음 tick이 워커에 전해요');
     for (const a of delivered.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
     for (const e of delivered.errors) console.log(`오류: ${e}`);
+  } catch (e) {
+    exitWithError(e);
+  }
+}
+
+interface OwnershipOutput {
+  order: { id: string; status: string };
+  closedGates: { id: string }[];
+  hostActions: HostAction[];
+  errors: string[];
+  warnings?: string[];
+}
+
+function printOwnership(opts: ConductorCommonOptions, r: OwnershipOutput, headline: string): void {
+  if (opts.json) return print(r);
+  console.log(headline);
+  if (r.closedGates.length > 0)
+    console.log(`같이 닫은 게이트: ${r.closedGates.map((g) => g.id).join(', ')}`);
+  for (const a of r.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
+  for (const w of r.warnings ?? []) console.log(`경고: ${w}`);
+  for (const e of r.errors) console.log(`오류: ${e}`);
+}
+
+/** 사람이 주문을 넘겨받는다. 확인 자리가 없어도 쓴다 */
+export async function conductorOrderTakeOverCommand(
+  id: string,
+  opts: ConductorCommonOptions,
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'order take-over');
+    const r = await takeOver(ctx.store, id, launchersFor(ctx, process.env).launchers);
+    printOwnership(opts, r, `${id}를 사람이 넘겨받았어요. tick이 PR 머지를 지켜봐요`);
+  } catch (e) {
+    exitWithError(e);
+  }
+}
+
+export interface ConductorOrderCancelOptions extends ConductorCommonOptions {
+  reason?: string;
+}
+
+export async function conductorOrderCancelCommand(
+  id: string,
+  opts: ConductorOrderCancelOptions,
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'order cancel');
+    const reason = opts.reason ? oneLine(opts.reason, 300) : undefined;
+    const r = await cancelOrder(ctx.store, id, launchersFor(ctx, process.env).launchers, reason);
+    printOwnership(opts, r, `${id}를 취소했어요`);
+  } catch (e) {
+    exitWithError(e);
+  }
+}
+
+/** 사람이 머지했다고 알린다. gh로 MERGED를 확인한 뒤에만 merged로 넘긴다 */
+export async function conductorOrderMarkMergedCommand(
+  id: string,
+  opts: ConductorCommonOptions,
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'order mark-merged');
+    const gh = new GhAccounts(ctx.config.accounts);
+    const order = await confirmHumanMerge(ctx.store, id, new GhPrStateSource({ accounts: gh }));
+    const deferred: HostAction[] = [];
+    const after = await afterHumanMerge(ctx.store, id, { jira: hostJiraClient(deferred) });
+    if (opts.json) return print({ order, hostActions: deferred, ...after });
+    console.log(`${id}를 merged로 넘겼어요. 다음 tick이 머지 뒤 처리를 이어요`);
+    for (const a of deferred) console.log(`할 일: ${JSON.stringify(a)}`);
+    for (const e of after.errors) console.log(`오류: ${e}`);
   } catch (e) {
     exitWithError(e);
   }

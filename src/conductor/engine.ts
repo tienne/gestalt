@@ -35,10 +35,20 @@ import {
   type LauncherSet,
   type ReleaseOptions,
 } from './launcher.js';
+import { watchHumanOwned, type HumanOwnedChange, type PrStateSource } from './ownership.js';
 import { repoOfPrRef } from './pr-ref.js';
 import { pollPrs, type PrWatchSource } from './pr-watch.js';
 import { parseWorkerReport } from './result.js';
-import { detectStale, prepareResumes, resumeLaunchFor, type ShipReader } from './resume.js';
+import {
+  detectStale,
+  escalateResume,
+  prepareResumes,
+  rateLimitedWorkers,
+  resumeLaunchFor,
+  wakeFromRateLimit,
+  type ResumeLaunch,
+  type ShipReader,
+} from './resume.js';
 import type { ConductorConfig } from './scheduler.js';
 import { planSlots } from './scheduler.js';
 import { publishApprovedSlack, type SlackClient } from './slack.js';
@@ -74,6 +84,8 @@ export interface EngineDeps {
   jiraSource?: JiraIntakeSource;
   queue?: ExternalQueue;
   prSource?: PrWatchSource;
+  /** 사람이 넘겨받은 주문의 PR 머지를 확인한다. 없으면 머지 확인 없이 parked로 내리기만 한다 */
+  prState?: PrStateSource;
   jira?: JiraClient;
   deploy?: DeploySource;
   slack?: SlackClient;
@@ -96,6 +108,10 @@ export interface TickReport {
   errors: string[];
   /** 멈출 일은 아니지만 사람이 알아야 할 자리. 런처가 주문 옵션을 다 못 따른 경우 같은 것 */
   warnings: string[];
+  /** 세션 한도에 걸려 재개하지 않고 기다리는 오르카 워커. 풀리기 전까지 tick마다 싣는다 */
+  rateLimited: RateLimitedEntry[];
+  /** 사람이 넘겨받은 주문 중 이번 tick에 상태가 바뀐 것. 바뀐 게 없으면 비어 있다 */
+  humanOwned: HumanOwnedChange[];
   counts: {
     queued: number;
     running: number;
@@ -104,6 +120,26 @@ export interface TickReport {
     openGates: number;
     unansweredThreads: number;
   };
+}
+
+export interface RateLimitedEntry {
+  orderId: string;
+  workerId: string;
+  /** 컨덕터가 한도 표시를 처음 본 시각 */
+  since: string;
+  resetsAt?: string;
+  /** failure는 오르카 표식, text는 출력 문구로 알았다는 뜻이다. 문구로 알았으면 잘못 걸렸을 수 있다 */
+  source?: 'failure' | 'text';
+}
+
+export function rateLimitEntries(store: ConductorStore): RateLimitedEntry[] {
+  return rateLimitedWorkers(store).map((w) => ({
+    orderId: w.orderId,
+    workerId: w.id,
+    since: w.rateLimitedAt ?? w.lastSeenAt,
+    ...(w.rateLimitResetsAt ? { resetsAt: w.rateLimitResetsAt } : {}),
+    ...(w.rateLimitSource ? { source: w.rateLimitSource } : {}),
+  }));
 }
 
 export function inboxDirOf(store: ConductorStore, deps: Pick<EngineDeps, 'inboxDir'>): string {
@@ -161,6 +197,54 @@ function policyBypass(deps: EngineDeps): BypassHandlers {
   };
 }
 
+/**
+ * 앞 tick과 이번 tick 사이가 끊긴 워커를 보는 기준(staleAfterSec)보다 길면 경고 문장을 돌려준다.
+ * 반복은 세션 안의 크론이나 ScheduleWakeup이라 탭이 닫히면 같이 사라지고 아무도 알리지 않는다.
+ * 다시 돈 첫 tick에서라도 공백을 드러내 사람이 언제부터 감시가 멈췄는지 알게 한다.
+ */
+export function tickGapWarning(
+  lastTickAt: string | undefined,
+  now: string,
+  thresholdMs: number,
+): string | undefined {
+  const gap = gapOverThreshold(lastTickAt, now, thresholdMs);
+  if (gap === undefined) return undefined;
+  return `앞 tick(${lastTickAt}) 뒤로 ${formatGap(gap)} 동안 tick이 없었어요. 반복을 걸어 둔 컨덕터 세션이 닫혔거나 반복이 끊겼을 수 있어요`;
+}
+
+/**
+ * status용. tick 사이 공백이 아니라 마지막 tick 뒤로 지금까지 지난 시간을 본다.
+ * 아직 다음 tick이 안 돌았을 뿐일 수 있어 tickGapWarning과 문장을 나눈다.
+ */
+export function staleTickWarning(
+  lastTickAt: string | undefined,
+  now: string,
+  thresholdMs: number,
+): string | undefined {
+  const gap = gapOverThreshold(lastTickAt, now, thresholdMs);
+  if (gap === undefined) return undefined;
+  return `마지막 tick(${lastTickAt}) 뒤로 ${formatGap(gap)} 지났어요. 반복을 걸어 둔 컨덕터 세션이 닫혔거나 반복이 끊겼을 수 있어요`;
+}
+
+function gapOverThreshold(
+  lastTickAt: string | undefined,
+  now: string,
+  thresholdMs: number,
+): number | undefined {
+  if (!lastTickAt) return undefined;
+  const gapMs = Date.parse(now) - Date.parse(lastTickAt);
+  if (!Number.isFinite(gapMs) || gapMs <= thresholdMs) return undefined;
+  return gapMs;
+}
+
+function formatGap(ms: number): string {
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `${minutes}분`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}시간` : `${hours}시간 ${rest}분`;
+}
+
 export async function tick(
   store: ConductorStore,
   deps: EngineDeps,
@@ -184,6 +268,8 @@ export async function tick(
     if (!opts.force && last && Date.parse(report.at) - Date.parse(last) < interval) {
       return { ...report, skipped: true, counts: counts(store, 0) };
     }
+    const gap = tickGapWarning(last, report.at, deps.config.staleAfterSec * 1000);
+    if (gap) report.warnings.push(gap);
     return await store.deferSnapshot(() => runTick(store, deps, report));
   } finally {
     lock.release();
@@ -200,10 +286,16 @@ async function runTick(
   await step(report, () => ingestReports(store, deps, report).then((c) => (cleared = c)));
   await step(report, () => intake(store, deps, report).then((n) => (unanswered = n)));
   await step(report, async () => {
-    detectStale(store, {
+    const orca = deps.launchers['orca-worktree'];
+    const stale = await detectStale(store, {
       now: new Date(report.at),
       staleAfterMs: deps.config.staleAfterSec * 1000,
+      rateLimitEscalateAfterMs: deps.config.rateLimitEscalateAfterSec * 1000,
+      ...(orca?.probe ? { probe: (w: Worker) => orca.probe!(w) } : {}),
+      ...(orca?.peek ? { peek: (w: Worker) => orca.peek!(w) } : {}),
     });
+    report.warnings.push(...stale.warnings);
+    report.escalated.push(...stale.escalated.map((g) => g.id));
     for (const d of prepareResumes(store, {
       maxResumeAttempts: deps.config.maxResumeAttempts,
       ...(deps.readShip ? { readShip: deps.readShip } : {}),
@@ -213,6 +305,7 @@ async function runTick(
   });
   await step(report, () => deliverPendingDecisions(store, deps, report));
   await step(report, () => launchQueued(store, deps, report));
+  await step(report, () => watchHumanPrs(store, deps, report));
   await step(report, () => settleMerged(store, deps, report));
   if (deps.slack) {
     const slack = deps.slack;
@@ -223,6 +316,7 @@ async function runTick(
     });
   }
   await step(report, () => cleanupWorkers(store, deps, report));
+  report.rateLimited = rateLimitEntries(store);
   store.append({
     type: 'tick',
     at: report.at,
@@ -422,12 +516,19 @@ async function applyReport(
   if (!order) throw new Error(`모르는 주문이에요: ${worker.orderId}`);
   if (order.workerId !== worker.id)
     throw new Error(`${worker.id}는 이미 다른 워커로 바뀐 주문의 앞 워커라 결과를 무시해요`);
+  // 취소된 주문의 보고는 워커 종류와 상관없이 안 받는다. 한도 게이트를 거절한 오르카 워커는 터미널이 남아 한도가 풀리면 다시 보고한다
+  if (order.status === 'cancelled')
+    throw new Error(`${worker.id}는 취소된 주문의 워커라 결과를 무시해요`);
+  // 넘겨받은 뒤 늦게 도착한 보고가 주문을 running이나 done으로 되돌리지 않게 막는다
+  if (order.status === 'human-owned' || order.status === 'parked')
+    throw new Error(`${worker.id}는 사람이 넘겨받은 주문의 워커라 결과를 무시해요`);
   // 상태를 하나라도 바꾸기 전에 거른다. 반쯤 적용된 채 failed로 옮겨지면 되살릴 때 앞부분이 겹친다
   if (r.status === 'needs' && !r.need) throw new Error('status needs인데 need가 없어요');
 
   store.updateWorker(worker.id, {
     lastSeenAt: report.at,
     ...(worker.status === 'starting' ? { status: 'running' } : {}),
+    ...wakeFromRateLimit(worker),
   });
   if (r.prRef && order.prRef !== r.prRef) store.updateOrder(order.id, { prRef: r.prRef });
 
@@ -610,14 +711,23 @@ async function deliverPendingDecisions(
   }
 }
 
-function decisionMessage(gate: Gate): string {
+/**
+ * 게이트 결정을 워커에 전할 문장. 사람이 적은 답은 승인이든 거절이든 싣고 고정 문구보다 먼저라고 밝힌다.
+ * 머지 거절은 워커가 기다리지 않고 done으로 끝내게 한다. 기다리기만 하면 주문은 running이라
+ * 끊긴 워커로 보여 새 워커가 같은 승인을 다시 묻는다.
+ */
+export function decisionMessage(gate: Gate): string {
   const ok = gate.decision === 'approved';
   const note = gate.answer ? `: ${gate.answer}` : '';
+  const answer = gate.answer
+    ? `사람의 답: "${gate.answer}". 아래 기본 지시와 다르면 답을 먼저 따르세요. `
+    : '';
   switch (gate.type) {
     case 'merge':
-      return ok
-        ? '머지 승인됐어요. 머지하고 결과를 보고하세요'
-        : `머지 거절${note}. 머지하지 말고 다음 지시를 기다리세요`;
+      if (ok) return `머지 승인됐어요. ${answer}기본 지시: 머지하고 결과를 보고하세요`;
+      return gate.answer
+        ? `머지 거절됐어요. ${answer}머지하지 말고 답대로 처리한 뒤 --status done으로 보고하고 종료하세요`
+        : '머지 거절됐어요. 머지하지 말고 PR은 그대로 둔 채 --status done으로 보고하고 종료하세요. 기다리지 마세요';
     case 'interview':
       return `인터뷰 답${note || ': (빈 답)'}`;
     case 'review-manual-switch':
@@ -690,6 +800,7 @@ async function launchQueued(
     }
 
     const resume = resumeLaunchFor(store, order, deps.readShip);
+    if (resume && !(await retirePrevious(store, deps, report, order, resume))) continue;
     const worker: Worker = {
       id: newId('wrk'),
       orderId: order.id,
@@ -741,6 +852,71 @@ async function launchQueued(
       report.escalated.push(gate.id);
     }
   }
+}
+
+/**
+ * 재개로 새 오르카 워커를 띄우기 전에 앞 워커 터미널을 거둔다. 워크트리는 지우지 않는다.
+ *
+ * 앞 터미널을 남긴 채 띄우면 한도가 풀리거나 계정이 바뀐 앞 워커가 다시 움직여 한 주문을 둘이
+ * 진행한다. 그래서 거두기가 실패하면 새 워커를 안 띄우고 재개 게이트로 사람에게 올린다.
+ * git 워크트리와 서브에이전트 워커는 지금처럼 앞 워커를 건드리지 않는다.
+ */
+async function retirePrevious(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+  order: Order,
+  resume: ResumeLaunch,
+): Promise<boolean> {
+  const { previous } = resume;
+  if (previous.kind !== 'orca-worktree') return true;
+  const launcher = deps.launchers['orca-worktree'];
+  try {
+    if (!launcher) throw new Error('오르카 런처가 없어 앞 워커 터미널을 못 거둬요');
+    await launcher.release(previous, { requireClosed: true });
+    return true;
+  } catch (err) {
+    const gate = escalateResume(
+      store,
+      order,
+      previous,
+      `앞 워커 터미널을 못 거뒀어요: ${message(err)}`,
+    );
+    report.escalated.push(gate.id);
+    return false;
+  }
+}
+
+/** 사람이 넘겨받은 주문의 PR을 본다. 머지됐으면 지라를 옮겨 이어지는 정산이 마무리하게 한다 */
+async function watchHumanPrs(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+): Promise<void> {
+  const r = await watchHumanOwned(store, {
+    now: new Date(report.at),
+    pollMs: deps.config.humanOwnedPollSec * 1000,
+    parkAfterMs: deps.config.humanOwnedParkAfterSec * 1000,
+    ...(deps.prState ? { source: deps.prState } : {}),
+  });
+  report.humanOwned.push(...r.changes);
+  report.errors.push(...r.errors);
+  for (const c of r.changes)
+    if (c.to === 'merged') await moveJira(store, deps, report, c.orderId, 'merged');
+}
+
+/**
+ * 사람이 머지했다고 알린 주문의 머지 뒤 처리를 시작한다. 지라는 여기서 옮기고 배포 대기와 정리는
+ * 다음 tick의 정산이 이어 받는다. `gestalt conductor order mark-merged`가 부른다
+ */
+export async function afterHumanMerge(
+  store: ConductorStore,
+  orderId: string,
+  deps: Pick<EngineDeps, 'jira'>,
+): Promise<Pick<TickReport, 'jira' | 'errors'>> {
+  const out = emptyReport(store.timestamp());
+  await moveJira(store, deps, out, orderId, 'merged');
+  return { jira: out.jira, errors: out.errors };
 }
 
 /**
@@ -888,8 +1064,8 @@ async function cleanupWorkers(
 
 async function moveJira(
   store: ConductorStore,
-  deps: EngineDeps,
-  report: TickReport,
+  deps: Pick<EngineDeps, 'jira'>,
+  report: Pick<TickReport, 'jira' | 'errors'>,
   orderId: string,
   stage: OrderStage,
   signal?: Parameters<typeof syncJira>[4],
@@ -914,6 +1090,8 @@ function emptyReport(at: string): TickReport {
     jira: [],
     errors: [],
     warnings: [],
+    rateLimited: [],
+    humanOwned: [],
     counts: {
       queued: 0,
       running: 0,

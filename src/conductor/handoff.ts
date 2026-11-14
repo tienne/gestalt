@@ -11,6 +11,7 @@ import {
 import { join } from 'node:path';
 import { writeJsonAtomic } from '../core/json-file.js';
 import { execRunner, type CommandRunner } from './launcher.js';
+import type { LaunchedTab } from './tab-title.js';
 
 /**
  * 컨덕터 세션 인계.
@@ -290,7 +291,9 @@ export function writeHandoffFile(
     '1. 아래 메모의 규칙을 이 세션에서도 그대로 지켜요.',
     '2. 답을 기다리던 질문은 사람에게 다시 물어요. 확인 자리(gate)는 `gestalt conductor gate list`로 다시 보여요.',
     '3. `gestalt conductor tick --force --json`으로 한 번 돌리고 hostActions를 처리해요.',
-    '4. 반복 프롬프트 원문이 있으면 그 원문 그대로 loop를 걸어요. 없으면 걸지 않아요.',
+    '4. 반복 프롬프트 원문이 있으면 그 원문 그대로 loop를 걸어요. 없으면 걸지 않아요. 반복은 이 세션 안에만 있어서 탭이 닫히면 같이 사라져요. 3번 tick에 공백 경고가 붙어도 경고만 전하고 반복은 원문으로 한 번만 걸어요.',
+    '5. 사람에게 물을 때는 AskUserQuestion 같은 대화창 말고 일반 텍스트로 물어요. 대화창이 열려 있는 동안에는 반복이 돌지 않아요. 2번에서 다시 묻는 질문도 같아요.',
+    '6. 첫 보고에 이 탭이 반복을 돌리고 있으니 닫지 말아 달라는 말을 한 줄 붙여요.',
     '',
     '## 반복 프롬프트 원문',
     '',
@@ -334,6 +337,8 @@ export interface LaunchHandoffOptions {
 export interface LaunchOutcome {
   launched: boolean;
   detail: string;
+  /** 띄운 탭을 응답에서 읽었을 때만 있다. 탭 이름을 바꿀 때 쓴다 */
+  tab?: LaunchedTab;
 }
 
 /**
@@ -367,25 +372,56 @@ export async function launchHandoff(
     const head = (r.stderr || r.stdout).trim().split('\n').slice(0, 3).join(' ');
     return { launched: false, detail: `오르카 agent launch 실패(${r.code}): ${head}. ${manual}` };
   }
+  const parsed = parseResult(r.stdout);
+  const tab = parsed && launchedTab(parsed);
+  const shown = tab
+    ? tab.kind === 'chat'
+      ? tab.sessionId
+      : tab.handle
+    : parsed && legacyHandle(parsed);
   return {
     launched: true,
-    detail: `오르카로 ${opts.cwd}에 새 세션을 띄웠어요${launchHandle(r.stdout)}`,
+    detail: `오르카로 ${opts.cwd}에 새 세션을 띄웠어요${shown ? ` (${shown})` : ''}`,
+    ...(tab ? { tab } : {}),
   };
 }
 
-// 응답 꼴이 버전마다 달라 아는 칸만 짧게 보여 준다. 못 읽어도 띄우기는 성공으로 본다
-function launchHandle(stdout: string): string {
+function parseResult(stdout: string): Record<string, unknown> | undefined {
   try {
     const d = JSON.parse(stdout) as Record<string, unknown>;
-    const r = (typeof d['result'] === 'object' && d['result'] ? d['result'] : d) as Record<
-      string,
-      unknown
-    >;
-    const id = r['sessionId'] ?? r['terminalHandle'] ?? r['handle'];
-    return typeof id === 'string' ? ` (${id})` : '';
+    return asRecord(d['result']) ?? d;
   } catch {
-    return '';
+    return undefined;
   }
+}
+
+function asRecord(v: unknown): Record<string, unknown> | undefined {
+  return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : undefined;
+}
+
+/**
+ * `agent launch --json`의 `launch.outcome`에서 띄운 탭을 읽는다. 채팅(`structured`)은 `sessionId`,
+ * 터미널은 `handle`이 그 탭을 가리킨다. 이 칸이 없는 옛 오르카면 터미널 핸들을 `agentTerminalHandle`에서 읽는다.
+ */
+function launchedTab(r: Record<string, unknown>): LaunchedTab | undefined {
+  const outcome = asRecord(asRecord(r['launch'])?.['outcome']) ?? asRecord(r['outcome']);
+  if (outcome) {
+    // outcome이 있으면 새 오르카다. 칸이 비었다고 옛 칸으로 내려가면 엉뚱한 탭을 바꿀 수 있다
+    if (outcome['kind'] === 'structured' && typeof outcome['sessionId'] === 'string')
+      return { kind: 'chat', sessionId: outcome['sessionId'] };
+    if (outcome['kind'] === 'terminal' && typeof outcome['handle'] === 'string')
+      return { kind: 'terminal', handle: outcome['handle'] };
+    return undefined;
+  }
+  const legacy = r['agentTerminalHandle'];
+  return typeof legacy === 'string' ? { kind: 'terminal', handle: legacy } : undefined;
+}
+
+// 응답 꼴이 버전마다 달라 아는 칸만 짧게 보여 준다. 못 읽어도 띄우기는 성공으로 본다.
+// 표시 전용이라 아는 칸을 넓게 읽는다. rename 대상은 launch.outcome과 옛 호스트의 agentTerminalHandle만 쓴다
+function legacyHandle(r: Record<string, unknown>): string | undefined {
+  const id = r['sessionId'] ?? r['terminalHandle'] ?? r['handle'];
+  return typeof id === 'string' ? id : undefined;
 }
 
 export function recordHandoff(stateDir: string, sessionId: string, record: HandoffRecord): void {

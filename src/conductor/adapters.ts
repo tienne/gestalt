@@ -22,6 +22,8 @@ import {
   type CommandRunner,
   type HostAction,
 } from './launcher.js';
+import type { PrState, PrStateSource } from './ownership.js';
+import { normalizePrRef } from './pr-ref.js';
 import type { PrWatchSource, WatchedPr } from './pr-watch.js';
 import type { SlackClient } from './slack.js';
 import type { Order } from './types.js';
@@ -452,5 +454,43 @@ export class GhAccountSwitcher implements AccountSwitcher {
   async switchTo(repo: string, account: string): Promise<void> {
     await this.accounts.token(account);
     this.bound.set(repo, account);
+  }
+}
+
+const PR_STATES: ReadonlySet<string> = new Set(['OPEN', 'MERGED', 'CLOSED']);
+
+/**
+ * 사람이 넘겨받은 주문의 PR 상태를 gh로 읽는다. 계정은 PR 감시와 같은 GhAccounts로 레포마다 고른다.
+ * 회사 레포는 회사 계정 토큰이어야 보인다. `--repo`로 부르니 레포 경로가 없어도 된다.
+ */
+export class GhPrStateSource implements PrStateSource {
+  private readonly runner: CommandRunner;
+  private readonly accounts: GhAccounts;
+
+  constructor(opts: { runner?: CommandRunner; accounts?: GhAccounts } = {}) {
+    this.runner = opts.runner ?? execRunner;
+    this.accounts = opts.accounts ?? new GhAccounts({}, { runner: this.runner });
+  }
+
+  async state(prRef: string): Promise<PrState> {
+    const ref = normalizePrRef(prRef);
+    if (!ref) throw new Error(`PR 꼴이 아니에요: ${prRef}`);
+    const hash = ref.indexOf('#');
+    const repo = ref.slice(0, hash);
+    const env = await this.accounts.envFor(repo);
+    const r = await this.runner(
+      'gh',
+      ['pr', 'view', ref.slice(hash + 1), '--repo', repo, '--json', 'state,mergedAt'],
+      env ? { env } : {},
+    );
+    if (r.code !== 0)
+      throw new Error(`${ref} 상태를 못 읽었어요: ${r.stderr.trim().split('\n')[0] ?? ''}`);
+    const body = JSON.parse(r.stdout) as { state?: unknown; mergedAt?: unknown };
+    const state = typeof body.state === 'string' ? body.state : '';
+    if (!PR_STATES.has(state)) throw new Error(`${ref}의 상태를 모르겠어요: ${state || '빈 값'}`);
+    return {
+      state: state as PrState['state'],
+      ...(typeof body.mergedAt === 'string' && body.mergedAt ? { mergedAt: body.mergedAt } : {}),
+    };
   }
 }
