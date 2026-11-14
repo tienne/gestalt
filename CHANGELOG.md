@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.141.1] - 2026-11-14
+
+### Fixed
+
+- **`worker_done` 없이 끝난 오르카 워커도 컨덕터가 정리해요(#140).** 워커가 컨덕터에는 결과를 보고하고 오르카에는 완료 신호를 안 보낸 채 나가면 tick의 워커 정리가 `dispatch_inactive`로 계속 거절되고 `cleanup-failed` 게이트가 열렸어요. 오르카는 끝난(settled) 워커만 `worker-release`를 받는데 이런 dispatch는 `ready`로 남아 있어서예요.
+  - `worker-release`가 `dispatch_inactive`로 거절되면 `worker-show`를 다시 봐요. 프로세스가 이미 끝났으면(`liveness`가 `exited`나 `gone`) `worker-stop`으로 dispatch를 `stopped`로 바꾸고 `worker-release`를 한 번 더 불러요. stop만으로는 터미널이 남아 있어서 release까지 불러야 정리가 끝나요.
+  - 프로세스가 아직 살아 있거나 상태를 모르면 멈추지 않고 실패로 올려요. 에러 문구에 `worker-stop` 안내가 붙어요. 다른 거절 코드는 전처럼 그대로 실패예요.
+  - 정리가 끝난 뒤 워크트리는 전처럼 `--force` 없이 지워요.
+- **런처의 외부 명령 실패 문구에 하위 명령까지 보여요(#140).** 전에는 `orca orchestration 실패(1)`, `git -C 실패(1)`처럼 나와서 어느 호출이 실패했는지 알 수 없었어요. 이제 `orca orchestration worker-stop 실패(1)`, `git worktree add 실패(1)`처럼 나와요.
+
+### 남긴 것
+
+- 워커가 `worker_done` 없이 끝나는 원인은 고치지 않았어요. 워커 지시서의 마무리 단계에서 완료 신호가 빠지는 경로가 있는지 따로 봐야 해요.
+- show와 stop 사이에 프로세스가 다시 살아나지 않는다는 건 실제 dispatch로 확인한 동작에 기댄 가정이에요. 오르카 문서로는 확인하지 못했어요.
+
 ## [0.141.0] - 2026-11-14
 
 ### Added
