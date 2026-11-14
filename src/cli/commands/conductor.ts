@@ -43,6 +43,7 @@ import {
   writeHandoffFile,
   type HandoffStatus,
 } from '../../conductor/handoff.js';
+import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
 import { resolveGate } from '../../conductor/gates.js';
 import {
   intakeOrder,
@@ -641,11 +642,16 @@ async function closePreviousTabs(ctx: Ctx, sessionId: string): Promise<HandoffCl
 }
 
 function sessionHandoff(ctx: Ctx, sessionId: string): HandoffStatus {
+  const autoCompact =
+    ctx.config.contextWindowTokens === undefined
+      ? readAutoCompactWindow({ cwd: process.cwd() })
+      : undefined;
   return handoffStatus(ctx.store.dir, sessionId, {
     thresholdPercent: ctx.config.handoffContextPercent,
     ...(ctx.config.contextWindowTokens !== undefined
       ? { contextWindowTokens: ctx.config.contextWindowTokens }
       : {}),
+    ...(autoCompact !== undefined ? { autoCompactWindowTokens: autoCompact } : {}),
   });
 }
 

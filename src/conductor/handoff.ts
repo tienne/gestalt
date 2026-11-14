@@ -110,7 +110,10 @@ export function readCompactions(stateDir: string, sessionId: string): Compaction
 
 export interface ContextUsage {
   usedTokens: number;
+  /** 사용률을 잴 때 쓴 창. 설정값이나 autoCompactWindow로 모델 창보다 작을 수 있다 */
   windowTokens: number;
+  /** 모델 자체의 창. 새 지휘자의 모델에 `[1m]`을 붙일지는 이 값으로만 가른다 */
+  modelWindowTokens: number;
   percent: number;
   /** 그 응답을 낸 모델 id. 인계로 띄우는 새 세션이 같은 모델을 이어 쓸 때 읽는다 */
   model?: string;
@@ -121,11 +124,15 @@ export interface ContextUsage {
  *
  * 훅 입력에는 사용량이 없어서 트랜스크립트에서 읽는다. 다음 요청이 다시 보내는 크기라
  * input, cache_creation, cache_read 셋을 더한다(statusline의 used_percentage와 같은 셈법).
- * 창 크기는 설정값이 먼저다. 설정이 없으면 모델 id의 `[1m]` 표시나 200k를 넘는 사용량을 보고 1M으로 본다.
+ *
+ * 사용률을 재는 창은 컨덕터 설정 contextWindowTokens, Claude settings의 autoCompactWindow, 모델 창 순으로 정한다.
+ * autoCompactWindow가 모델 창보다 크면 모델 창을 쓴다. 1M 모델을 250k에서 컴팩트하게 쓰면서 창을 1M으로 세면
+ * 220k를 써도 22%라 인계보다 컴팩트가 먼저 온다.
+ * 모델 창은 모델 id의 `[1m]` 표시나 200k를 넘는 사용량, 1M 이상인 설정값을 보고 1M으로 보고 아니면 200k로 본다.
  */
 export function contextUsage(
   transcriptPath: string,
-  windowTokens?: number,
+  opts: { windowTokens?: number; autoCompactWindowTokens?: number } = {},
 ): ContextUsage | undefined {
   let text: string;
   try {
@@ -157,14 +164,21 @@ export function contextUsage(
       num(usage['cache_creation_input_tokens']) +
       num(usage['cache_read_input_tokens']);
     if (used === 0) continue;
-    const window =
-      windowTokens ??
-      (model.includes('[1m]') || used > DEFAULT_WINDOW_TOKENS
+    const modelWindow =
+      model.includes('[1m]') ||
+      used > DEFAULT_WINDOW_TOKENS ||
+      (opts.windowTokens ?? 0) >= LARGE_WINDOW_TOKENS
         ? LARGE_WINDOW_TOKENS
-        : DEFAULT_WINDOW_TOKENS);
+        : DEFAULT_WINDOW_TOKENS;
+    const window =
+      opts.windowTokens ??
+      (opts.autoCompactWindowTokens !== undefined
+        ? Math.min(opts.autoCompactWindowTokens, modelWindow)
+        : modelWindow);
     return {
       usedTokens: used,
       windowTokens: window,
+      modelWindowTokens: modelWindow,
       percent: Math.floor((used / window) * 100),
       ...(model ? { model } : {}),
     };
@@ -235,6 +249,8 @@ export interface HandoffThresholds {
   /** 1차 컴팩트 뒤 이 비율(%)을 넘으면 인계한다 */
   thresholdPercent: number;
   contextWindowTokens?: number;
+  /** Claude settings의 autoCompactWindow. Claude Code가 이 크기에서 컴팩트하므로 창을 여기까지로 본다 */
+  autoCompactWindowTokens?: number;
 }
 
 /**
@@ -250,7 +266,14 @@ export function handoffStatus(
   const { count, transcriptPath } = readCompactions(stateDir, sessionId);
   const base = { sessionId, compactions: count, thresholdPercent: t.thresholdPercent };
   if (count === 0) return { ...base, due: false };
-  const usage = transcriptPath ? contextUsage(transcriptPath, t.contextWindowTokens) : undefined;
+  const usage = transcriptPath
+    ? contextUsage(transcriptPath, {
+        ...(t.contextWindowTokens !== undefined ? { windowTokens: t.contextWindowTokens } : {}),
+        ...(t.autoCompactWindowTokens !== undefined
+          ? { autoCompactWindowTokens: t.autoCompactWindowTokens }
+          : {}),
+      })
+    : undefined;
   const withUsage = usage ? { ...base, usage } : base;
   if (count >= 2) return { ...withUsage, due: true, reason: `컴팩트를 ${count}번 거쳤어요` };
   if (!usage)
@@ -377,7 +400,8 @@ export function handoffPrompt(file: string): string {
 
 /**
  * 새 지휘자 세션에 실을 모델. 설정값이 먼저고 없으면 이전 세션 트랜스크립트의 모델을 잇는다.
- * 트랜스크립트의 모델 id에는 1M 창 표시가 안 붙어서 사용량을 1M 창으로 셌으면 `[1m]`을 붙인다.
+ * 트랜스크립트의 모델 id에는 1M 창 표시가 안 붙어서 모델 창을 1M으로 봤으면 `[1m]`을 붙인다.
+ * 사용률을 잰 창(windowTokens)은 보지 않는다. autoCompactWindow로 창을 250k로 줄여 재도 새 지휘자는 1M 모델로 떠야 한다.
  * 설정값에는 이 보정을 걸지 않는다. 사람이 적은 값을 그대로 존중하므로 1M 창이 필요하면 설정에 `[1m]`까지 적는다.
  * 트랜스크립트 값은 `--model` 인자로 그대로 넘어가서 HANDOFF_MODEL_RE로 거르고 통과하지 못하면 모델 없이 띄운다.
  * 오르카는 `--effort`를 `--model` 없이 받지 않으므로 모델을 모르면 effort도 못 싣는다
@@ -390,7 +414,7 @@ export function resolveHandoffModel(
   const usage = status?.usage;
   if (!usage?.model) return undefined;
   const model =
-    usage.windowTokens >= LARGE_WINDOW_TOKENS && !usage.model.includes('[1m]')
+    usage.modelWindowTokens >= LARGE_WINDOW_TOKENS && !usage.model.includes('[1m]')
       ? `${usage.model}[1m]`
       : usage.model;
   return HANDOFF_MODEL_RE.test(model) ? model : undefined;
