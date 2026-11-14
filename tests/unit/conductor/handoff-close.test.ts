@@ -187,6 +187,27 @@ describe('closeHandedOffTabs', () => {
     expect(calls).toEqual([]);
   });
 
+  it('깨진 previousTab은 채팅 탭으로 읽지 않고 꼴이 틀렸다고 남긴다', async () => {
+    const stateDir = tempStateDir();
+    const old = handedOff(stateDir, {
+      previousTab: 'term_old' as unknown as HandoffRecord['previousTab'],
+    });
+    const fresh = randomUUID();
+    registerSession(stateDir, fresh, '/w', at(30));
+    const { runner, calls } = recorder();
+    const [r] = await closeHandedOffTabs({
+      stateDir,
+      sessionId: fresh,
+      closeAfterSec: 600,
+      now: at(700),
+      orcaCommand: 'orca',
+      runner,
+    });
+    expect(r).toMatchObject({ sessionId: old, state: 'skipped' });
+    expect(r!.detail).toContain('터미널 핸들 꼴');
+    expect(calls).toEqual([]);
+  });
+
   it('닫기가 실패하면 failed로 남기고 다시 시도하지 않는다', async () => {
     const stateDir = tempStateDir();
     const old = handedOff(stateDir);
@@ -455,6 +476,30 @@ describe('handoff 명령과 tick', () => {
     ).rejects.toThrow('exit');
     expect(errors).toContainEqual(expect.stringContaining(`이전 지휘자 세션 ${old}`));
     expect(readHandoffRecord(stateDir, old)?.close).toMatchObject({ state: 'closed' });
+  });
+
+  it('새로 띄운 탭이 지금 탭과 같으면 적지 않고 지난 close-claim은 지운다', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const stateDir = resolve(tempStateDir());
+    const { bin } = fakeOrca();
+    vi.stubEnv('ORCA_CLI_COMMAND', bin);
+    vi.stubEnv('GESTALT_HOME', base);
+    vi.stubEnv('ORCA_STRUCTURED_SESSION', '');
+    vi.stubEnv('ORCA_TERMINAL_HANDLE', 'term_new');
+    vi.stubEnv('GESTALT_CONDUCTOR_WORKER_ID', '');
+    const old = randomUUID();
+    vi.stubEnv('CLAUDE_CODE_SESSION_ID', old);
+    registerSession(stateDir, old, '/w', new Date());
+    const claim = join(sessionDir(stateDir, old), 'close-claim');
+    writeFileSync(claim, '{}');
+    const notes = join(base, 'notes.md');
+    writeFileSync(notes, '- 규칙');
+    await conductorHandoffCommand({ stateDir, json: true, notesFile: notes });
+    const record = readHandoffRecord(stateDir, old)!;
+    expect(record.launched).toBe(true);
+    expect(record.previousTab).toBeUndefined();
+    expect(existsSync(claim)).toBe(false);
   });
 
   it('띄우지 않은 인계는 넘긴 탭을 적지 않는다', async () => {

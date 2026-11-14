@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   isSessionId,
@@ -106,6 +106,11 @@ function registeredSessions(stateDir: string, ids: string[]): Map<string, number
   return registered;
 }
 
+/** 새 인계를 적기 전에 지난 인계의 close-claim을 지운다. 남겨 두면 새 기록을 tick이 이미 잡힌 걸로 보고 건너뛴다 */
+export function clearCloseClaim(stateDir: string, sessionId: string): void {
+  rmSync(join(sessionDir(stateDir, sessionId), CLOSE_CLAIM), { force: true });
+}
+
 /** 'ok'는 잡았다, 'taken'은 이미 누가 잡았다. 그 밖의 문자열은 못 잡은 이유다 */
 function claim(stateDir: string, id: string, opts: ClosePreviousOptions): string {
   try {
@@ -125,17 +130,20 @@ async function closeTab(
   tab: SessionTab,
   opts: ClosePreviousOptions,
 ): Promise<Omit<HandoffCloseOutcome, 'at'>> {
-  if (tab.kind !== 'terminal')
+  // handoff.json은 캐스팅만 하고 읽으므로 깨진 기록이 채팅 탭 분기로 새지 않게 kind를 직접 본다
+  const kind = (tab as { kind?: unknown } | null)?.kind;
+  if (kind === 'chat')
     return {
       state: 'skipped',
       detail: '이전 세션이 채팅 탭이라 오르카 CLI로 닫을 수 없어요. 탭을 직접 닫아 주세요',
     };
-  if (!isTerminalHandle(tab.handle))
+  const handle = (tab as { handle?: unknown }).handle;
+  if (kind !== 'terminal' || !isTerminalHandle(handle))
     return {
       state: 'skipped',
-      detail: '기록된 이전 탭 핸들이 터미널 핸들 꼴이 아니라 닫지 않았어요. 탭을 직접 닫아 주세요',
+      detail: '기록된 이전 탭 정보가 터미널 핸들 꼴이 아니라 닫지 않았어요. 탭을 직접 닫아 주세요',
     };
-  if (opts.currentTab?.kind === 'terminal' && opts.currentTab.handle === tab.handle)
+  if (opts.currentTab?.kind === 'terminal' && opts.currentTab.handle === handle)
     return {
       state: 'skipped',
       detail: '이전 탭이 지금 지휘자 탭과 같아 닫지 않았어요',
@@ -148,7 +156,7 @@ async function closeTab(
     // 핸들이 --로 시작해도 플래그로 안 읽히게 값을 붙여 넘긴다
     r = await runner(
       opts.orcaCommand,
-      ['terminal', 'close', `--terminal=${tab.handle}`, '--tab', '--json'],
+      ['terminal', 'close', `--terminal=${handle}`, '--tab', '--json'],
       { ...(opts.cwd ? { cwd: opts.cwd } : {}), timeoutMs: CLOSE_TIMEOUT_MS },
     );
   } catch (err) {
@@ -161,7 +169,7 @@ async function closeTab(
       detail: `오르카 terminal close 실패(${r.code}): ${head}. 이전 탭을 직접 닫아 주세요`,
     };
   }
-  return { state: 'closed', detail: `이전 지휘자 탭(${tab.handle})을 닫았어요` };
+  return { state: 'closed', detail: `이전 지휘자 탭(${handle})을 닫았어요` };
 }
 
 /** tick 텍스트 출력 한 줄. 닫았으면 알림, 아니면 경고 */

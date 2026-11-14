@@ -81,6 +81,7 @@ import {
   type SessionTab,
 } from '../../conductor/tab-title.js';
 import {
+  clearCloseClaim,
   closeHandedOffTabs,
   handoffCloseLine,
   type HandoffCloseResult,
@@ -689,6 +690,7 @@ export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Pr
       status,
       now,
     );
+    clearCloseClaim(ctx.store.dir, sessionId);
     recordHandoff(ctx.store.dir, sessionId, {
       at: now.toISOString(),
       file,
