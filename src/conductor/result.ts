@@ -3,6 +3,7 @@ import { isControlChar } from './intake.js';
 import { normalizePrRef } from './pr-ref.js';
 import {
   isNeedKind,
+  isShipApprovalStep,
   isStopReason,
   isWorkerId,
   REPORT_STATUSES,
@@ -142,7 +143,23 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
         ...checkSummary(detail || '-', maxChars).problems.map((p) => `need.detail: ${p}`),
       );
       report.need = { kind: n['kind'], detail };
+      const step = n['step'];
+      if (step !== undefined) {
+        if (typeof step === 'string' && isShipApprovalStep(step)) report.need.step = step;
+        else problems.push(`need.step을 모르겠어요: ${String(step).slice(0, 80)}`);
+      }
     } else problems.push('need.kind를 모르겠어요');
+  }
+  const wait = r['wait'];
+  if (wait !== undefined) {
+    const w = wait as Record<string, unknown>;
+    const reason = typeof w?.['reason'] === 'string' ? w['reason'].trim() : '';
+    if (!reason) problems.push('wait.reason이 없어요');
+    else problems.push(...checkSummary(reason, maxChars).problems.map((p) => `wait.reason: ${p}`));
+    const until = w?.['until'];
+    if (until !== undefined && (typeof until !== 'string' || Number.isNaN(Date.parse(until))))
+      problems.push('wait.until은 ISO 시각이에요');
+    report.wait = { reason, ...(typeof until === 'string' ? { until } : {}) };
   }
   const spawn = r['spawnRequest'];
   if (spawn !== undefined) {
@@ -159,6 +176,8 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
   if (report.status === 'stopped' && !report.stopReason) report.stopReason = 'unknown';
   if (report.status === 'needs' && !report.need)
     problems.push('status가 needs면 need가 있어야 해요');
+  if (report.status === 'waiting' && !report.wait)
+    problems.push('status가 waiting이면 무엇을 기다리는지(wait.reason) 있어야 해요');
 
   if (problems.length > 0) throw new ReportRejected(problems);
   return report;

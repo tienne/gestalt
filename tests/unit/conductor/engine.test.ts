@@ -47,6 +47,7 @@ const config: ConductorConfig = {
   maxResumeAttempts: 3,
   staleAfterSec: 900,
   rateLimitEscalateAfterSec: 21600,
+  waitingEscalateAfterSec: 21600,
   defaultScope: 'approval',
   resultMaxChars: 2000,
   accounts: {},
@@ -280,13 +281,13 @@ describe('컨덕터 tick', () => {
     });
     await tick(store, d, { force: true });
 
-    const ask = (id: string, kind: string) =>
+    const ask = (id: string, kind: string, step?: string) =>
       report(store, d, {
         workerId: store.order(id)!.workerId!,
         status: 'needs',
-        need: { kind, detail: '부탁해요' },
+        need: { kind, detail: '부탁해요', ...(step ? { step } : {}) },
       });
-    ask('ord-app', 'simple-approval');
+    ask('ord-app', 'simple-approval', 'ship-draft');
     await tick(store, d, { force: true });
     ask('ord-app', 'account-switch');
     ask('ord-etc', 'auth');
@@ -544,7 +545,7 @@ describe('컨덕터 tick', () => {
       report(store, d, {
         workerId: wid,
         status: 'needs',
-        need: { kind: 'simple-approval', detail: '부탁해요' },
+        need: { kind: 'simple-approval', detail: '부탁해요', step: 'ship-draft' },
         spawnRequest: { title: '하위', detail: 'x' },
       });
       const inbox = inboxDirOf(store, d);
@@ -855,6 +856,94 @@ describe('컨덕터 tick', () => {
     await tick(store, d, { force: true });
     expect(store.order('ord-bug')!.status).toBe('done');
     expect(git.started).toEqual([]);
+  });
+
+  it('대기를 알린 워커는 끊김 기준을 넘어 조용해도 재개하지 않고 다음 보고에서 대기를 푼다', async () => {
+    const { store, advance } = clockedStore();
+    store.addOrder(order({ id: 'ord-1' }));
+    const { deps: d, git } = deps();
+    await tick(store, d, { force: true });
+    const wid = store.order('ord-1')!.workerId!;
+    report(store, d, { workerId: wid, status: 'waiting', wait: { reason: 'CI 결과' } });
+    await tick(store, d, { force: true });
+    expect(store.worker(wid)!.waiting).toMatchObject({ reason: 'CI 결과' });
+
+    advance(60 * 60 * 1000);
+    const r = await tick(store, d, { force: true });
+    expect(store.worker(wid)!.status).toBe('running');
+    expect(r.escalated).toEqual([]);
+    expect(git.started).toHaveLength(1);
+
+    report(store, d, { workerId: wid, status: 'progress' });
+    await tick(store, d, { force: true });
+    expect(store.worker(wid)!.waiting).toBeUndefined();
+    advance(16 * 60 * 1000);
+    await tick(store, d, { force: true });
+    expect(store.worker(wid)!.status).toBe('stopped');
+  });
+
+  it('대기가 상한을 넘으면 끊김 대신 게이트로 한 번 올리고 대기 표시를 지운다', async () => {
+    const { store, advance } = clockedStore();
+    store.addOrder(order({ id: 'ord-1' }));
+    const { deps: d, git } = deps();
+    await tick(store, d, { force: true });
+    const wid = store.order('ord-1')!.workerId!;
+    report(store, d, { workerId: wid, status: 'waiting', wait: { reason: '사람의 답' } });
+    await tick(store, d, { force: true });
+
+    advance(config.waitingEscalateAfterSec * 1000);
+    const r = await tick(store, d, { force: true });
+    const gates = store.openGates('ord-1');
+    expect(gates).toHaveLength(1);
+    expect(gates[0]!.reason).toContain('사람의 답');
+    expect(r.escalated).toEqual([gates[0]!.id]);
+    expect(store.worker(wid)!.status).toBe('running');
+    expect(store.worker(wid)!.waiting).toBeUndefined();
+    expect(store.order('ord-1')!.status).toBe('waiting-gate');
+    expect(git.started).toHaveLength(1);
+  });
+
+  it('적어 둔 대기 기한이 지나고 끊김 기준만큼 소식이 없으면 상한 전이라도 올린다', async () => {
+    const { store, advance } = clockedStore();
+    store.addOrder(order({ id: 'ord-1' }));
+    const { deps: d } = deps();
+    await tick(store, d, { force: true });
+    const wid = store.order('ord-1')!.workerId!;
+    const until = new Date(Date.parse(store.timestamp()) + 10 * 60 * 1000).toISOString();
+    report(store, d, { workerId: wid, status: 'waiting', wait: { reason: '리뷰', until } });
+    await tick(store, d, { force: true });
+
+    advance(20 * 60 * 1000);
+    await tick(store, d, { force: true });
+    expect(store.openGates('ord-1')).toEqual([]);
+    advance(10 * 60 * 1000);
+    await tick(store, d, { force: true });
+    expect(store.openGates('ord-1')[0]!.reason).toContain('기한');
+  });
+
+  it('ship 단계 값이 없는 simple-approval은 bypass하지 않고 게이트로 올린다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-1' }));
+    const { deps: d, git } = deps();
+    await tick(store, d, { force: true });
+    const wid = store.order('ord-1')!.workerId!;
+    report(store, d, {
+      workerId: wid,
+      status: 'needs',
+      need: { kind: 'simple-approval', detail: '프로덕션 DB 마이그레이션 돌려도 될까요' },
+    });
+    await tick(store, d, { force: true });
+    expect(store.snapshot.bypasses).toEqual([]);
+    expect(store.openGates('ord-1').map((g) => g.type)).toEqual(['no-procedure']);
+    expect(git.sent).toEqual([]);
+
+    report(store, d, {
+      workerId: wid,
+      status: 'needs',
+      need: { kind: 'simple-approval', detail: 'ship ⓒ ready 전환', step: 'ship-ready' },
+    });
+    await tick(store, d, { force: true });
+    expect(store.snapshot.bypasses.map((b) => b.need)).toEqual(['simple-approval']);
   });
 
   it('사람 확인을 오래 기다린 워커도 끊긴 것으로 보지 않고 승인을 그 워커에 전한다', async () => {
@@ -1401,7 +1490,7 @@ describe('워커 에이전트와 보고 보존', () => {
       workerId,
       status: 'needs',
       summary: '승인 부탁',
-      need: { kind: 'simple-approval', detail: '부탁해요' },
+      need: { kind: 'simple-approval', detail: '부탁해요', step: 'ship-draft' },
       spawnRequest: { title: '하위', detail: 'x' },
     });
     const append = store.append.bind(store);

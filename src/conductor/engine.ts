@@ -194,7 +194,8 @@ function policyBypass(deps: EngineDeps): BypassHandlers {
     'merge-approval': async ({ order }) =>
       `${order?.scope ?? 'merge-through'} 주문이라 승인 없이 머지를 진행해요`,
     'interview-answer': async () => '인터뷰 답은 워커가 스펙과 레포를 보고 정해요',
-    'simple-approval': async ({ detail }) => `단순 승인이라 컨덕터가 승인했어요: ${detail}`,
+    'simple-approval': async ({ detail, step }) =>
+      `ship 단계(${step ?? '-'})의 단순 승인이라 컨덕터가 승인했어요: ${detail}`,
     'manual-verification': async () => '수동 검증은 워커가 직접 돌리고 결과를 다음 보고에 남겨요',
     cleanup: async () => '정리는 워커가 직접 하고 한 일을 다음 보고에 남겨요',
     'account-switch': switchAccount,
@@ -307,6 +308,7 @@ async function runTick(
     const stale = await detectStale(store, {
       now: new Date(report.at),
       staleAfterMs: deps.config.staleAfterSec * 1000,
+      waitingEscalateAfterMs: deps.config.waitingEscalateAfterSec * 1000,
       rateLimitEscalateAfterMs: deps.config.rateLimitEscalateAfterSec * 1000,
       ...(orca?.probe ? { probe: (w: Worker) => orca.probe!(w) } : {}),
       ...(orca?.peek ? { peek: (w: Worker) => orca.peek!(w) } : {}),
@@ -582,12 +584,26 @@ async function applyReport(
     lastSeenAt: report.at,
     ...(worker.status === 'starting' ? { status: 'running' } : {}),
     ...wakeFromRateLimit(worker),
+    // 대기는 waiting 보고 하나에만 걸린다. 다른 보고가 오면 대기가 끝난 것이다
+    ...(r.status === 'waiting' && r.wait
+      ? {
+          waiting: {
+            reason: r.wait.reason,
+            since: report.at,
+            ...(r.wait.until ? { until: r.wait.until } : {}),
+          },
+        }
+      : worker.waiting
+        ? { waiting: undefined }
+        : {}),
   });
   if (r.prRef && order.prRef !== r.prRef) store.updateOrder(order.id, { prRef: r.prRef });
 
   if (r.spawnRequest) await spawnFromReport(store, deps, report, order, worker, r.spawnRequest);
 
   switch (r.status) {
+    case 'waiting':
+      return;
     case 'progress':
       if (r.prRef || (r.skill && REVIEW_SKILLS.has(r.skill)))
         await moveJira(store, deps, report, order.id, 'review');
@@ -612,7 +628,13 @@ async function applyReport(
       if (!r.need) throw new Error('status needs인데 need가 없어요');
       const outcome = await handleNeed(
         store,
-        { orderId: order.id, need: r.need.kind, detail: r.need.detail, refs: r.refs },
+        {
+          orderId: order.id,
+          need: r.need.kind,
+          detail: r.need.detail,
+          ...(r.need.step ? { step: r.need.step } : {}),
+          refs: r.refs,
+        },
         { ...policyBypass(deps), ...deps.bypass },
       );
       if (outcome.kind === 'bypass') {

@@ -52,6 +52,40 @@ describe('워커 결과 검증', () => {
     expect(n.need).toEqual({ kind: 'cleanup', detail: '워크트리 삭제' });
   });
 
+  it('waiting은 무엇을 기다리는지 있어야 하고 기한은 ISO 시각만 받는다', () => {
+    expect(() => parseWorkerReport({ ...ok, status: 'waiting' }, 2000)).toThrow(/wait\.reason/);
+    const w = parseWorkerReport(
+      {
+        ...ok,
+        status: 'waiting',
+        wait: { reason: 'CI 결과', until: '2026-11-15T10:00:00.000Z' },
+      },
+      2000,
+    );
+    expect(w.wait).toEqual({ reason: 'CI 결과', until: '2026-11-15T10:00:00.000Z' });
+    expect(() =>
+      parseWorkerReport({ ...ok, status: 'waiting', wait: { reason: 'CI', until: '내일' } }, 2000),
+    ).toThrow(/ISO/);
+  });
+
+  it('need.step은 ship 단계 값만 받는다', () => {
+    const n = parseWorkerReport(
+      {
+        ...ok,
+        status: 'needs',
+        need: { kind: 'simple-approval', detail: 'ship ⓐ', step: 'ship-draft' },
+      },
+      2000,
+    );
+    expect(n.need?.step).toBe('ship-draft');
+    expect(() =>
+      parseWorkerReport(
+        { ...ok, status: 'needs', need: { kind: 'simple-approval', detail: 'x', step: 'deploy' } },
+        2000,
+      ),
+    ).toThrow(/need\.step/);
+  });
+
   it('하위 워커 요청을 받는다', () => {
     const r = parseWorkerReport(
       {

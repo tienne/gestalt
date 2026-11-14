@@ -14,7 +14,9 @@ afterEach(cleanupStateDirs);
 describe('classifyNeed', () => {
   it('사람에게 올리는 자리는 넷이고 나머지는 bypass다', () => {
     const gated = (scope: OrderScope) =>
-      NEED_KINDS.filter((n) => classifyNeed(order({ scope }), n).kind === 'gate').sort();
+      NEED_KINDS.filter(
+        (n) => classifyNeed(order({ scope }), n, 'ship-draft').kind === 'gate',
+      ).sort();
     expect(gated('approval')).toEqual([
       'merge-approval',
       'other',
@@ -29,6 +31,17 @@ describe('classifyNeed', () => {
       'review-manual-switch',
       'slack-post',
     ]);
+  });
+
+  it('simple-approval은 ship 체인 주문이 ship 단계 값을 실었을 때만 bypass다', () => {
+    const ship = order({ skillChain: ['solve', 'ship'] });
+    for (const step of ['ship-draft', 'ship-plan', 'ship-ready'] as const)
+      expect(classifyNeed(ship, 'simple-approval', step)).toEqual({ kind: 'bypass' });
+    expect(classifyNeed(ship, 'simple-approval')).toEqual({ kind: 'gate', type: 'no-procedure' });
+    expect(classifyNeed(order({ skillChain: ['solve'] }), 'simple-approval', 'ship-draft')).toEqual(
+      { kind: 'gate', type: 'no-procedure' },
+    );
+    expect(classifyNeed(undefined, 'simple-approval', 'ship-draft').kind).toBe('gate');
   });
 });
 

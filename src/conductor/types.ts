@@ -157,6 +157,17 @@ export interface Worker {
   rateLimitResetsAt?: string;
   /** 한도를 오르카 표식(failure)으로 알았는지 출력 문구(text)로 알았는지 */
   rateLimitSource?: 'failure' | 'text';
+  /** 워커가 status waiting으로 알린 대기. 다른 보고나 체크포인트가 오면 지운다 */
+  waiting?: WorkerWaiting;
+}
+
+export interface WorkerWaiting {
+  /** 무엇을 기다리는지 한 줄 */
+  reason: string;
+  /** 대기 보고를 받은 시각. 대기가 너무 길어졌는지 이 시각부터 센다 */
+  since: string;
+  /** 워커가 적은 대기 기한. 지나면 기한까지 기다린 뒤에도 소식이 없는 것으로 본다 */
+  until?: string;
 }
 
 export interface Checkpoint {
@@ -225,7 +236,25 @@ export const NEED_KINDS = [
 /** 워커가 혼자 못 넘는 자리. 컨덕터가 게이트로 올릴지 bypass로 처리할지 가른다 */
 export type NeedKind = (typeof NEED_KINDS)[number];
 
-export const REPORT_STATUSES = ['progress', 'done', 'failed', 'stopped', 'needs'] as const;
+/**
+ * simple-approval을 컨덕터가 혼자 넘겨도 되는 ship 단계. ⓐ draft PR 올리기, ⓑ Copilot 반영 계획, ⓒ ready 전환이다.
+ * 자유 문장인 need.detail로 가르지 않고 워커가 이 값을 따로 싣게 한다
+ */
+export const SHIP_APPROVAL_STEPS = ['ship-draft', 'ship-plan', 'ship-ready'] as const;
+export type ShipApprovalStep = (typeof SHIP_APPROVAL_STEPS)[number];
+
+export function isShipApprovalStep(v: string): v is ShipApprovalStep {
+  return (SHIP_APPROVAL_STEPS as readonly string[]).includes(v);
+}
+
+export const REPORT_STATUSES = [
+  'progress',
+  'waiting',
+  'done',
+  'failed',
+  'stopped',
+  'needs',
+] as const;
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
 
 /** 워커가 컨덕터에 돌려주는 결과. 원문 로그나 diff는 담지 않고 요약과 참조만 담는다 */
@@ -238,7 +267,9 @@ export interface WorkerReport {
   prRef?: string;
   merged?: boolean;
   stopReason?: StopReason;
-  need?: { kind: NeedKind; detail: string };
+  need?: { kind: NeedKind; detail: string; step?: ShipApprovalStep };
+  /** status waiting일 때 무엇을 언제까지 기다리는지 */
+  wait?: { reason: string; until?: string };
   /** 워커가 하위 워커가 필요하다고 판단했을 때. 컨덕터가 새 주문으로 받는다 */
   spawnRequest?: { title: string; detail: string };
 }

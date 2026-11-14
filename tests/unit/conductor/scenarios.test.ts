@@ -31,6 +31,7 @@ const base: ConductorConfig = {
   maxResumeAttempts: 3,
   staleAfterSec: 900,
   rateLimitEscalateAfterSec: 21600,
+  waitingEscalateAfterSec: 21600,
   defaultScope: 'approval',
   resultMaxChars: 2000,
   accounts: {},

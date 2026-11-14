@@ -144,7 +144,9 @@ describe('워커 지시서', () => {
     );
     expect(approval).toContain('머지하지 않는다');
     expect(approval).toContain('--need merge-approval');
-    expect(approval).toContain('--need simple-approval');
+    expect(approval).toContain('--need simple-approval --need-step ship-draft');
+    expect(approval).toContain('--status waiting');
+    expect(approval).toContain('--wait-for');
     expect(approval).toContain('GH_TOKEN=$(gh auth token --user team)');
     expect(approval).toContain('`gestalt conductor tick`');
     expect(approval).toContain('15분 넘게');

@@ -314,6 +314,9 @@ export function buildWorkerPrompt(
     `- 스킬이나 단계가 바뀔 때마다 \`gestalt conductor checkpoint save${at} --worker ${worker.id} --skill <스킬> --next "<다음 할 일>"\`로 체크포인트를 남긴다. 15분 넘게 걸릴 수 있는 대기(CI 대기 등) 앞뒤로도 남긴다.`,
   );
   lines.push(
+    `- 사람의 답이나 CI, 리뷰처럼 바깥을 기다리기 전에는 \`${report} --status waiting --summary "<한 줄>" --wait-for "<무엇을 기다리는지>" --wait-until <ISO 시각>\`로 알린다. 기한을 모르면 --wait-until은 뺀다. 알리지 않고 오래 조용하면 컨덕터가 끊긴 워커로 본다. 대기가 끝나면 체크포인트나 다음 보고를 남긴다.`,
+  );
+  lines.push(
     `- 결과는 \`${report} --status done --summary "<결과 요약>" --ref "<파일 경로>"\`로 낸다. 요약과 refs만 싣고 diff나 로그 원문은 파일로 두고 경로만 적는다.`,
   );
   lines.push('- PR을 만들거나 다루면 결과 보고에 `--pr owner/name#번호` 꼴로 싣는다.');
@@ -330,7 +333,7 @@ export function buildWorkerPrompt(
     );
   }
   lines.push(
-    `- ship의 ⓐ(draft PR 올리기), ⓑ(Copilot 반영 계획), ⓒ(ready 전환)는 머지가 아니라 사람에게 묻지 않고 진행한다. 넘길 때마다 \`${report} --status needs --summary "draft PR 생성 진행" --need simple-approval --need-detail "ship ⓐ draft PR 올리기"\`처럼 남기고 답을 기다리지 않고 이어 간다. 컨덕터가 이걸 bypass로 기록한다. 머지만 위 승인 절차를 탄다.`,
+    `- ship의 ⓐ(draft PR 올리기), ⓑ(Copilot 반영 계획), ⓒ(ready 전환)는 머지가 아니라 사람에게 묻지 않고 진행한다. 넘길 때마다 \`${report} --status needs --summary "draft PR 생성 진행" --need simple-approval --need-step ship-draft --need-detail "ship ⓐ draft PR 올리기"\`처럼 남기고 답을 기다리지 않고 이어 간다. --need-step은 ⓐ ship-draft, ⓑ ship-plan, ⓒ ship-ready다. 컨덕터는 이 값이 붙은 요청만 bypass로 기록하고 나머지 simple-approval은 사람에게 올린다. 머지만 위 승인 절차를 탄다.`,
   );
   if (worker.account) {
     // 계정 이름이 셸 명령 예시에 그대로 들어간다. ensureAccount가 거르지만 다른 길로 들어온 값도 막는다
