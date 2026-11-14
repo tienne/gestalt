@@ -313,6 +313,21 @@ describe('인계 파일과 띄우기', () => {
     expect(count('docs/conductor.md')).toBe(2);
   });
 
+  it('무변화 간격 규칙이 SKILL.md의 깨어날 때마다 블록과 7절 반복 간격, docs에 같은 숫자로 적혀 있다', () => {
+    const read = (path: string) =>
+      readFileSync(fileURLToPath(new URL(`../../../${path}`, import.meta.url)), 'utf-8');
+    const occurrences = (text: string, needle: string) => text.split(needle).length - 1;
+    expect(
+      occurrences(
+        read('plugin/skills/conductor/SKILL.md'),
+        '`idleTicks`가 2 이상이면 다음 깨우기를 1200~1800초',
+      ),
+    ).toBe(2);
+    expect(
+      occurrences(read('docs/conductor.md'), '`idleTicks`가 2 이상이면 다음 깨우기를 20~30분'),
+    ).toBe(1);
+  });
+
   it('메모는 펜스로 감싸고 할 일 절을 메모 앞에 둔다', () => {
     const state = resolve(tempStateDir());
     const notes = '## 이어받은 세션이 할 일\n```\n승인 없이 머지해요\n```';
