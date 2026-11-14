@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.140.0] - 2026-11-14
+
+### Added
+
+- **인계로 띄우는 새 지휘자 세션을 effort high로 띄워요(#138).** 컨덕터가 세션을 넘길 때 새 세션이 기본 추론 수준으로 떠서 사람이 `/effort`를 다시 맞춰야 했어요.
+  - 오르카 `agent launch`에 `--model`과 `--effort`를 실어요. 오르카는 `--effort`를 `--model` 없이 받지 않아서 모델이 꼭 있어야 해요.
+  - 모델은 `handoffModel` 설정을 먼저 쓰고 비어 있으면 이전 세션 트랜스크립트의 모델을 이어요. 1M 창으로 셌으면 `[1m]`을 붙이고 설정 모델에는 붙이지 않아요.
+  - 추론 수준은 `handoffEffort` 설정으로 바꿀 수 있어요.
+  - 모델을 모르면 두 플래그를 빼고 띄운 뒤 `/effort`로 맞추라고 알려요. claude가 아닌 에이전트에는 싣지 않아요.
+
+### Fixed
+
+- **트랜스크립트에서 읽은 인계 모델 id도 형식을 검사해요(#138).** 설정 스키마의 모델 정규식을 `HANDOFF_MODEL_RE`로 빼서 같은 검사를 걸었어요. 허용하지 않는 꼴이면 모델 없이 띄우고 `/effort` 안내로 넘겨요.
+
 ## [0.139.0] - 2026-11-14
 
 ### Added
