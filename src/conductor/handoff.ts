@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { HANDOFF_MODEL_RE, type HandoffEffort } from '../core/constants.js';
 import { writeJsonAtomic } from '../core/json-file.js';
 import { execRunner, type CommandRunner } from './launcher.js';
-import type { LaunchedTab } from './tab-title.js';
+import type { LaunchedTab, SessionTab } from './tab-title.js';
 
 /**
  * 컨덕터 세션 인계.
@@ -52,6 +52,19 @@ export function currentSessionId(env: NodeJS.ProcessEnv = process.env): string |
 export function sessionDir(stateDir: string, sessionId: string): string {
   if (!isSessionId(sessionId)) throw new Error(`세션 id 꼴이 아니에요: ${sessionId}`);
   return join(stateDir, SESSIONS_DIR, sessionId);
+}
+
+/** registerSession이 적은 등록 시각(ms). 파일이 없거나 깨졌으면 undefined */
+export function readSessionRegisteredAt(stateDir: string, sessionId: string): number | undefined {
+  try {
+    const raw = JSON.parse(
+      readFileSync(join(sessionDir(stateDir, sessionId), SESSION_FILE), 'utf-8'),
+    ) as { registeredAt?: unknown };
+    const at = typeof raw.registeredAt === 'string' ? Date.parse(raw.registeredAt) : NaN;
+    return Number.isFinite(at) ? at : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** 훅이 이 세션의 컴팩트를 세도록 디렉토리를 만든다. 이미 있으면 그대로 두고 false를 돌려준다 */
@@ -178,11 +191,21 @@ function readTail(path: string, bytes: number): string {
   }
 }
 
+export interface HandoffCloseOutcome {
+  state: 'closed' | 'skipped' | 'failed';
+  at: string;
+  detail: string;
+}
+
 export interface HandoffRecord {
   at: string;
   file: string;
   launched: boolean;
   detail: string;
+  /** 넘긴 세션이 앉았던 오르카 탭. 오르카로 띄웠을 때만 적고 새 세션의 tick이 이 탭을 닫는다 */
+  previousTab?: SessionTab;
+  /** 이전 탭 닫기를 한 번 처리한 결과. 있으면 다시 닫으려 들지 않는다 */
+  close?: HandoffCloseOutcome;
 }
 
 export function handoffRecordPath(stateDir: string, sessionId: string): string {

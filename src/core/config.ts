@@ -432,6 +432,11 @@ const conductorConfigSchema = z.object({
    */
   handoffModel: z.string().regex(HANDOFF_MODEL_RE).optional(),
   /**
+   * 인계가 새 세션을 띄운 뒤 이만큼(초) 지나면 새 세션의 tick이 이전 지휘자 탭을 닫는다. 0이면 닫지 않는다.
+   * 남의 레포가 탭을 닫게 하면 안 되므로 REPO_CONDUCTOR_KEYS에 넣지 않는다
+   */
+  handoffCloseAfterSec: z.number().int().min(0).max(86_400).default(600),
+  /**
    * 머지된 주문의 오르카 워커 워크트리를 정리 단계에서 지운다. 끄면 워커 터미널만 거두고 워크트리는 남긴다.
    * 레포 gestalt.json이 켜서 남의 워크트리를 지우게 하면 안 되므로 REPO_CONDUCTOR_KEYS에 넣지 않는다
    */
