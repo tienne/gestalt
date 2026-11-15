@@ -951,17 +951,18 @@ describe('컨덕터 tick', () => {
     const { deps: d } = deps();
     await tick(store, d, { force: true });
     const wid = store.order('ord-1')!.workerId!;
-    report(store, d, { workerId: wid, status: 'waiting', wait: { reason: 'CI 결과' } });
-    await tick(store, d, { force: true });
     report(store, d, {
       workerId: wid,
       status: 'needs',
       need: { kind: 'merge-approval', detail: '머지해도 될까요' },
     });
     await tick(store, d, { force: true });
+    report(store, d, { workerId: wid, status: 'waiting', wait: { reason: 'CI 결과' } });
+    await tick(store, d, { force: true });
     const gateId = store.openGates('ord-1')[0]!.id;
 
     advance(config.waitingEscalateAfterSec * 1000 + 1);
+    expect(store.worker(wid)!.waiting).toBeDefined();
     resolveGate(store, gateId, 'approved');
     expect(store.worker(wid)!.waiting).toBeUndefined();
     await tick(store, d, { force: true });
