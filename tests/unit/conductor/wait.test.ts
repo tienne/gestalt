@@ -157,26 +157,87 @@ describe('waitForAttention', () => {
     expect(r.reason).toBe('superseded');
     expect(ran).toBe(1);
   });
+
+  it('tick 소요 시간을 빼고 쉬되 간격보다 오래 걸려도 하한만큼은 쉰다', async () => {
+    const clock = fakeClock();
+    const tickMs = [50_000, 90_000, 0];
+    let t = 0;
+    const r = await waitForAttention(
+      {
+        runTick: async () => {
+          t += tickMs.shift()!;
+          return tickMs.length === 0
+            ? { report: report({ escalated: ['g'] }), handoffClose: [] }
+            : idle();
+        },
+        now: () => clock.now() + t,
+        sleep: clock.sleep,
+        stillOwner: () => true,
+      },
+      { maxWaitMs: 3_600_000, intervalMs: 60_000 },
+    );
+    expect(r.reason).toBe('attention');
+    expect(clock.sleeps).toEqual([10_000, 10_000]);
+  });
+
+  it('건너뛴 tick뿐이면 본 문장을 모으지 않고 같은 닫기 실패는 다시 이유가 안 된다', async () => {
+    const clock = fakeClock();
+    const skipped = (): WaitTickOutcome => ({
+      report: report({ skipped: true, errors: ['다른 tick이 돌고 있어'] }),
+      handoffClose: [],
+    });
+    const onlySkipped = await waitForAttention(
+      { runTick: async () => skipped(), ...clock, stillOwner: () => true },
+      { maxWaitMs: 120_000, intervalMs: 60_000 },
+    );
+    expect(onlySkipped.reason).toBe('timeout');
+    expect(onlySkipped.observed).toBeUndefined();
+
+    const fail = { sessionId: 'old', state: 'failed' as const, detail: '탭을 못 닫았어요' };
+    const stuck: WaitTickOutcome = { report: report(), handoffClose: [fail] };
+    const first = await waitForAttention(
+      { runTick: async () => stuck, ...fakeClock(), stillOwner: () => true },
+      { maxWaitMs: 120_000, intervalMs: 60_000 },
+    );
+    expect(first.reasons).toEqual(['handoffClose']);
+    const again = await waitForAttention(
+      {
+        runTick: async () => stuck,
+        ...fakeClock(),
+        stillOwner: () => true,
+        seen: new Set(first.observed),
+      },
+      { maxWaitMs: 120_000, intervalMs: 60_000 },
+    );
+    expect(again.reason).toBe('timeout');
+  });
 });
 
 describe('wait 소유 표식과 본 목록', () => {
-  it('나중에 뜬 wait가 표식을 가져가고 앞선 wait는 풀 때 남의 표식을 안 지운다', () => {
+  it('나중에 뜬 wait가 표식을 가져가고 앞선 wait는 표식을 되찾지 못한다', () => {
     const dir = tempStateDir();
     const first = claimWaitOwner(dir);
     expect(first.stillOwner()).toBe(true);
     const second = claimWaitOwner(dir);
     expect(first.stillOwner()).toBe(false);
-    first.release();
     expect(second.stillOwner()).toBe(true);
-    second.release();
-    expect(second.stillOwner()).toBe(false);
   });
 
   it('보여 준 오류를 쌓아 두고 다음 wait가 읽는다', () => {
     const dir = tempStateDir();
     expect(readSeen(dir).size).toBe(0);
-    writeSeen(dir, new Set(), ['오류 A']);
-    writeSeen(dir, readSeen(dir), ['오류 A', '경고 B']);
+    writeSeen(dir, new Set(), ['오류 A'], ['오류 A']);
+    writeSeen(dir, readSeen(dir), ['오류 A', '경고 B'], ['경고 B']);
     expect([...readSeen(dir)]).toEqual(['오류 A', '경고 B']);
+  });
+
+  it('이번 wait에서 다시 안 나온 문장은 본 목록에서 빠져 재발하면 다시 이유가 된다', () => {
+    const dir = tempStateDir();
+    writeSeen(dir, new Set(), ['오류 A', '오류 B'], ['오류 A', '오류 B']);
+    writeSeen(dir, readSeen(dir), ['오류 B'], []);
+    const seen = readSeen(dir);
+    expect([...seen]).toEqual(['오류 B']);
+    const again = { report: report({ errors: ['오류 A'] }), handoffClose: [] };
+    expect(attentionReasons(again, seen)).toEqual(['errors']);
   });
 });

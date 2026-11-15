@@ -474,7 +474,7 @@ describe('gestalt conductor', () => {
     let sleeps = 0;
     const outDuringIdle: number[] = [];
     await conductorWaitCommand(
-      { stateDir, json: true, maxWaitSec: 3600, prWatch: false },
+      { stateDir, json: true, maxWaitSec: 1500, prWatch: false },
       {
         sleep: async () => {
           if (sleeps > 5) throw new Error('게이트가 열렸는데 wait가 안 끝났어요');
@@ -499,7 +499,8 @@ describe('gestalt conductor', () => {
     expect(r.ticks).toBe(3);
     expect(r.tick.counts.openGates).toBe(1);
     expect(existsSync(join(stateDir, 'wait-last.json'))).toBe(true);
-    expect(existsSync(join(stateDir, 'wait.owner'))).toBe(false);
+    // 표식은 끝날 때 지우지 않고 다음 wait가 덮어쓴다
+    expect(existsSync(join(stateDir, 'wait.owner'))).toBe(true);
   });
 
   it('wait는 상한 시간이 지나면 할 일이 없어도 한 줄만 내고 끝난다', async () => {
@@ -510,6 +511,44 @@ describe('gestalt conductor', () => {
       { now: () => t, sleep: async (ms) => void (t += ms) },
     );
     expect(out).toEqual(['할 일 없이 2분 지나 끝났어요(tick 3번). 다시 띄워 주세요']);
+  });
+
+  it('wait는 상한으로 끝나면 보고서 파일을 안 쓰고 JSON에도 경로를 안 싣는다', async () => {
+    const stateDir = tempStateDir();
+    let t = 0;
+    await conductorWaitCommand(
+      { stateDir, json: true, maxWaitSec: 60, prWatch: false },
+      { now: () => t, sleep: async (ms) => void (t += ms) },
+    );
+    const r = last() as Record<string, unknown>;
+    expect(r.reason).toBe('timeout');
+    expect(r).not.toHaveProperty('reportFile');
+    expect(r).not.toHaveProperty('tick');
+    expect(existsSync(join(stateDir, 'wait-last.json'))).toBe(false);
+  });
+
+  it('wait는 사람이 읽는 출력에서 끝난 이유와 tick 결과를 내고 길면 파일 경로만 낸다', async () => {
+    const stateDir = tempStateDir();
+    const queueDir = join(stateDir, 'queue');
+    mkdirSync(queueDir, { recursive: true });
+    writeFileSync(join(queueDir, 'broken.json'), '{"repo"');
+    await conductorWaitCommand({ stateDir, maxWaitSec: 60, prWatch: false });
+    expect(out[0]).toMatch(/^할 일이 생겨 끝났어요: errors/);
+    expect(out.some((l) => l.includes('broken.json'))).toBe(true);
+
+    // 못 읽는 파일 이름이 오류 문장마다 실려 결과가 6000자를 넘는다
+    out.length = 0;
+    for (let i = 0; i < 40; i++)
+      writeFileSync(join(queueDir, `${'x'.repeat(200)}-${i}.json`), '{"repo"');
+    await conductorWaitCommand({ stateDir, maxWaitSec: 60, prWatch: false });
+    expect(out.at(-1)).toMatch(/^결과가 길어 파일로 뒀어요: .*wait-last\.json$/);
+    expect(existsSync(join(stateDir, 'wait-last.json'))).toBe(true);
+  });
+
+  it('wait는 상한을 넘는 --max-wait-sec을 거절한다', async () => {
+    const stateDir = tempStateDir();
+    await expect(conductorWaitCommand({ stateDir, maxWaitSec: 1501 })).rejects.toThrow('exit 1');
+    expect(err.at(-1)).toContain('1~1500');
   });
 
   it('wait는 워커 워크트리 안이면 거절한다', async () => {
