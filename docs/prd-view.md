@@ -25,7 +25,7 @@ index.html      render가 쓴 HTML
 
 `outDir`을 주면 `index.html`만 그 폴더에 쓰고 `prd-view.json`은 기본 위치에 남긴다. 상대 경로는 `repoRoot` 기준으로 풀고 폴더가 없으면 만든다.
 
-`outDir`에 이미 `index.html`이 있으면 조심한다. PRD 뷰가 쓴 파일은 첫 줄에 `<!-- gestalt-prd-view v1 -->` 표시가 있어서 그냥 갱신한다. 표시가 없는 파일은 `OUT_FILE_EXISTS`로 막고 `overwrite: true`일 때만 덮는다. 앱 폴더를 잘못 주면 실제 `index.html`이 날아가기 때문이다. 심볼릭 링크는 `overwrite`여도 쓰지 않는다.
+`outDir`에 이미 `index.html`이 있으면 조심한다. PRD 뷰가 쓴 파일은 첫 줄에 `<!-- gestalt-prd-view v1 -->` 표시가 있어서 그냥 갱신한다. 표시가 없는 파일은 `OUT_FILE_EXISTS`로 막고 `overwrite: true`일 때만 덮는다. 앱 폴더를 잘못 주면 실제 `index.html`이 날아가기 때문이다. `index.html`이나 `outDir` 폴더가 심볼릭 링크면 `overwrite`여도 쓰지 않는다. 폴더 링크는 `INVALID_OUT_DIR`로 막는다.
 
 HTML은 외부 파일을 불러오지 않는 한 장짜리라 `file://`로 바로 열린다. 테마 선택은 영상 요약 뷰어와 같이 쓴다.
 

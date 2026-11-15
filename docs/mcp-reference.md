@@ -1458,7 +1458,7 @@ index.html      render가 쓴 HTML (outDir을 주면 그 폴더에 쓴다)
 | `RANGE_OUT_OF_BOUNDS` | `source`의 `from`, `to`가 원문 밖이다 |
 | `VIEW_NOT_FOUND`, `VIEW_NOT_JSON`, `VIEW_TOO_LARGE`, `INVALID_PRD_VIEW`, `SLUG_MISMATCH` | 뷰 파일을 못 읽거나 스키마에 안 맞거나 slug가 다르다 |
 | `RENDER_BLOCKED` | lint 오류가 남아 있다. `lintErrors`에 목록이 실린다 |
-| `INVALID_OUT_DIR`, `OUT_DIR_NOT_DIRECTORY`, `OUT_FILE_EXISTS` | `outDir`이 비었거나 파일이거나, 남의 `index.html`이나 심볼릭 링크가 있다 |
+| `INVALID_OUT_DIR`, `OUT_DIR_NOT_DIRECTORY`, `OUT_FILE_EXISTS` | `outDir`이 비었거나 파일이거나 심볼릭 링크 폴더이거나, 남의 `index.html`이나 심볼릭 링크가 있다 |
 | `RENDER_FAILED` | 그 밖의 쓰기 실패 |
 
 ---

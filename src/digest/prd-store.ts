@@ -1,14 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  writeFileSync,
-  type Stats,
-} from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync, type Stats } from 'node:fs';
 import { basename, extname, isAbsolute, join, resolve } from 'node:path';
 import { writeJsonAtomic } from '../core/json-file.js';
 import { SLUG_PATTERN } from './schema-base.js';
@@ -62,13 +53,22 @@ export type OutDirResult =
   | { ok: true; dir: string }
   | { ok: false; code: 'INVALID_OUT_DIR' | 'OUT_DIR_NOT_DIRECTORY'; message: string };
 
-/** 상대 경로는 repoRoot 기준으로 푼다. 없으면 만든다 */
+/** 상대 경로는 repoRoot 기준으로 푼다. 없으면 만든다. 마지막 폴더가 심볼릭 링크면 거절한다 */
 export function resolveOutDir(repoRoot: string, outDir: string): OutDirResult {
   if (outDir.trim() === '' || outDir.includes('\0')) {
     return { ok: false, code: 'INVALID_OUT_DIR', message: 'outDir이 비었거나 NUL 문자가 있다' };
   }
   const dir = isAbsolute(outDir) ? outDir : resolve(repoRoot, outDir);
-  if (existsSync(dir) && !statSync(dir).isDirectory()) {
+  const st = lstatOrNull(dir);
+  // index.html 링크만 막고 폴더 링크를 따라가면 링크 대상에 쓰게 되니 폴더도 같이 막는다
+  if (st?.isSymbolicLink()) {
+    return {
+      ok: false,
+      code: 'INVALID_OUT_DIR',
+      message: `심볼릭 링크 폴더에는 쓰지 않는다: ${dir}`,
+    };
+  }
+  if (st && !st.isDirectory()) {
     return { ok: false, code: 'OUT_DIR_NOT_DIRECTORY', message: `디렉토리가 아니다: ${dir}` };
   }
   mkdirSync(dir, { recursive: true });
