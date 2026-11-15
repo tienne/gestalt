@@ -48,6 +48,14 @@ HTML은 외부 파일을 불러오지 않는 한 장짜리라 `file://`로 바�
 | `decision` | 정한 것과 버린 안 | `decided`, `why`, `rejected[{ option, reason }]` |
 | `question` | 아직 안 정한 것 | `item`, `owner`, `due` |
 | `prose` | 맞는 블록이 없을 때 | `text` |
+| `compare` | AS-IS와 TO-BE, A안과 B안 비교 | `labels[왼쪽, 오른쪽]`, `rows[{ label, left, right }]` |
+| `scope` | 이번에 안 하는 것 목록 | `out` |
+| `quote` | 유저 말투 그대로의 인용 | `text`, `origin`(`voc`, `virtual`, `unknown`), `by` |
+| `flow` | 순서대로 이어지는 단계 | `steps`(두 개 이상) |
+| `stateMatrix` | 상태와 조건을 놓은 표 | `rows`, `cols`, `cells[행][열]`(빈 칸은 `null`) |
+| `timeline` | 일정 | `items[{ date, what }]` |
+| `glossary` | 용어 정의 | `terms[{ term, meaning }]` |
+| `callout` | 원문이 강조한 주의 문단 | `text`, `tone`(`info`, `warn`, `danger`) |
 
 원문에 없는 칸은 필드를 빼서 비워 둔다. 화면에는 "원문에 없음"으로 회색 칸이 남는다. 비어 있다는 사실도 보여야 해서다.
 
@@ -111,6 +119,23 @@ HTML은 외부 파일을 불러오지 않는 한 장짜리라 `file://`로 바�
 | `SECTION_TITLE_NOT_IN_SOURCE` | 섹션 제목이 원문 헤딩에 없다 |
 | `SOURCE_STALE` | `meta.sourceSha256`이 지금 원문과 다르다 |
 | `OMITTED_TOO_MUCH` | 생략 선언이 내용 줄의 25% 초과 |
+
+## 원문 빈칸
+
+`validate`와 `render`는 lint 경고와 따로 `gaps`를 돌려준다. lint 경고는 세션이 뷰를 고쳐 없앨 것이고 `gaps`는 PRD 원문 자체가 비어 있는 자리라 세션이 채우면 안 된다. 렌더한 화면에는 본문 앞 "원문 빈칸" 패널에 코드별로 묶여 나온다.
+
+| 코드 | 조건 |
+|---|---|
+| `BASELINE_NO_NUMBER` | 지표 베이스라인이 없거나 숫자가 없다 |
+| `DUE_NOT_DATE` | 질문 기한이 없거나 날짜 꼴이 아니다. `2026-3-10`, `3/10`, `3월 10일`, `D-7`을 날짜로 본다 |
+| `TBD_PLACEHOLDER` | 글 칸에 `{{TBD...}}` 자리표시가 남았다 |
+| `METRIC_UNLINKED` | 어느 요구사항에도 안 걸린 지표 |
+| `REQUIREMENT_UNLINKED` | 연결된 지표가 없는 요구사항 |
+| `QUOTE_VIRTUAL` | 인용이 실제 VOC가 아니라 가상 화법이다 |
+| `DECISION_UNCONFIRMED` | 결정 글에 "제안"이나 "확인 필요"가 있다 |
+| `OPEN_CLAIMS` | 상태가 미정인 주장. 여러 개여도 한 건으로 묶는다 |
+
+지표 연결 두 코드는 문서에 요구사항과 지표가 둘 다 있을 때만 본다.
 
 ## 범위 밖
 
