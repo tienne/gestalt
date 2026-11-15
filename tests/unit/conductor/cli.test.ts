@@ -4,9 +4,11 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +18,7 @@ import {
   conductorDeployReportCommand,
   conductorGateListCommand,
   conductorGateResolveCommand,
+  conductorHandoffCommand,
   conductorOrderAddCommand,
   conductorOrderRemoveCommand,
   conductorOrderShowCommand,
@@ -543,6 +546,55 @@ describe('gestalt conductor', () => {
     await conductorWaitCommand({ stateDir, maxWaitSec: 60, prWatch: false });
     expect(out.at(-1)).toMatch(/^결과가 길어 파일로 뒀어요: .*wait-last\.json$/);
     expect(existsSync(join(stateDir, 'wait-last.json'))).toBe(true);
+  });
+
+  it('wait는 다른 wait가 이어받으면 앞선 보고서와 본 목록을 건드리지 않고 끝난다', async () => {
+    const stateDir = tempStateDir();
+    const reportFile = join(stateDir, 'wait-last.json');
+    writeFileSync(reportFile, '{"이어받은 wait":"보고서"}');
+    let sleeps = 0;
+    await conductorWaitCommand(
+      { stateDir, json: true, maxWaitSec: 1500, queue: false, prWatch: false },
+      {
+        sleep: async () => {
+          if (++sleeps > 1) throw new Error('표식을 뺏겼는데 tick을 더 돌렸어요');
+          // 시작할 때 표식을 덮어쓰므로 도는 중에 바꿔야 이어받은 상황이 된다
+          writeFileSync(join(stateDir, 'wait.owner'), 'other:token');
+        },
+      },
+    );
+    const r = last();
+    expect(r.reason).toBe('superseded');
+    expect(r).not.toHaveProperty('reportFile');
+    expect(r).not.toHaveProperty('tick');
+    expect(readFileSync(reportFile, 'utf-8')).toBe('{"이어받은 wait":"보고서"}');
+    expect(existsSync(join(stateDir, 'wait-seen.json'))).toBe(false);
+  });
+
+  it('wait가 도는 사이 인계하면 다음 tick에서 거절해 끝난다', async () => {
+    const stateDir = tempStateDir();
+    vi.stubEnv('CLAUDE_CODE_SESSION_ID', randomUUID());
+    vi.stubEnv('GESTALT_CONDUCTOR_WORKER_ID', '');
+    const notesFile = join(stateDir, 'notes.md');
+    writeFileSync(notesFile, '- 대화에서 정한 규칙');
+    let sleeps = 0;
+    try {
+      await expect(
+        conductorWaitCommand(
+          { stateDir, json: true, maxWaitSec: 1500, queue: false, prWatch: false },
+          {
+            sleep: async () => {
+              if (++sleeps > 1) throw new Error('인계했는데 tick을 더 돌렸어요');
+              await conductorHandoffCommand({ stateDir, json: true, notesFile, launch: false });
+            },
+          },
+        ),
+      ).rejects.toThrow('exit 1');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(sleeps).toBe(1);
+    expect(err.at(-1)).toContain('인계했어요');
   });
 
   it('wait는 상한을 넘는 --max-wait-sec을 거절한다', async () => {
