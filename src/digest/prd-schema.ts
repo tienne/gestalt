@@ -32,8 +32,10 @@ const base = {
 export const CLAIM_STATUSES = ['confirmed', 'assumed', 'open'] as const;
 export const PHASES = ['mvp', 'later'] as const;
 export const METRIC_ROLES = ['primary', 'secondary', 'guardrail'] as const;
+export const QUOTE_ORIGINS = ['voc', 'virtual', 'unknown'] as const;
+export const CALLOUT_TONES = ['info', 'warn', 'danger'] as const;
 
-export const blockSchema = z.discriminatedUnion('kind', [
+const blockUnion = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.literal('claim'), text: textSchema, status: z.enum(CLAIM_STATUSES) }),
   z.object({
     ...base,
@@ -74,13 +76,79 @@ export const blockSchema = z.discriminatedUnion('kind', [
     due: textSchema.optional(),
   }),
   z.object({ ...base, kind: z.literal('prose'), text: textSchema }),
+  z.object({
+    ...base,
+    kind: z.literal('compare'),
+    labels: z.tuple([textSchema, textSchema]),
+    rows: z
+      .array(
+        z.object({
+          label: textSchema.optional(),
+          left: textSchema.optional(),
+          right: textSchema.optional(),
+        }),
+      )
+      .min(1)
+      .max(40),
+  }),
+  z.object({ ...base, kind: z.literal('scope'), out: z.array(textSchema).min(1).max(40) }),
+  z.object({
+    ...base,
+    kind: z.literal('quote'),
+    text: textSchema,
+    origin: z.enum(QUOTE_ORIGINS),
+    by: textSchema.optional(),
+  }),
+  z.object({ ...base, kind: z.literal('flow'), steps: z.array(textSchema).min(2).max(20) }),
+  z.object({
+    ...base,
+    kind: z.literal('stateMatrix'),
+    rows: z.array(textSchema).min(1).max(30),
+    cols: z.array(textSchema).min(1).max(12),
+    /** cells[행][열]. 원문에 빈 칸이면 null */
+    cells: z.array(z.array(textSchema.nullable()).max(12)).max(30),
+  }),
+  z.object({
+    ...base,
+    kind: z.literal('timeline'),
+    items: z
+      .array(z.object({ date: textSchema, what: textSchema }))
+      .min(1)
+      .max(40),
+  }),
+  z.object({
+    ...base,
+    kind: z.literal('glossary'),
+    terms: z
+      .array(z.object({ term: textSchema, meaning: textSchema }))
+      .min(1)
+      .max(60),
+  }),
+  z.object({
+    ...base,
+    kind: z.literal('callout'),
+    text: textSchema,
+    tone: z.enum(CALLOUT_TONES),
+  }),
 ]);
+
+// discriminatedUnion 안의 객체에는 refine을 걸 수 없어서 표 모양 검사는 union 바깥에서 한다
+export const blockSchema = blockUnion.superRefine((b, ctx) => {
+  if (b.kind !== 'stateMatrix') return;
+  if (b.cells.length !== b.rows.length || b.cells.some((r) => r.length !== b.cols.length)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['cells'],
+      message: 'cells는 rows 수만큼의 행과 cols 수만큼의 열이어야 한다',
+    });
+  }
+});
 
 export type PrdBlock = z.infer<typeof blockSchema>;
 export type BlockKind = PrdBlock['kind'];
 export type BlockOf<K extends BlockKind> = Extract<PrdBlock, { kind: K }>;
 
-export const BLOCK_KINDS = blockSchema.options.map((o) => o.shape.kind.value) as BlockKind[];
+export const BLOCK_KINDS = blockUnion.options.map((o) => o.shape.kind.value) as BlockKind[];
 
 export const sectionSchema = z.object({
   id: idSchema,
@@ -192,6 +260,57 @@ export const BLOCK_DOCS: Record<BlockKind, Omit<BlockDoc, 'kind'>> = {
     stage: 1,
     purpose: '맞는 블록이 없을 때 쓰는 문단. 다른 블록으로 표현할 수 있으면 그쪽을 쓴다',
     fields: { text: '문단' },
+  },
+  compare: {
+    stage: 3,
+    purpose: 'AS-IS와 TO-BE, A안과 B안처럼 두 쪽을 행마다 나란히 놓는 비교',
+    fields: {
+      labels: '[왼쪽 이름, 오른쪽 이름]',
+      rows: '[{ label?, left?, right? }] 원문에 빈 칸이면 필드를 뺀다',
+    },
+  },
+  scope: {
+    stage: 3,
+    purpose: '이번에 안 하는 것 목록. requirement 하나에 딸린 경계는 requirement.boundary에 둔다',
+    fields: { out: '안 하는 것 문장 배열' },
+  },
+  quote: {
+    stage: 3,
+    purpose: '유저 말투 그대로의 인용. 실제 VOC인지 기획자가 지어낸 가상 화법인지 출처를 단다',
+    fields: {
+      text: '인용문',
+      origin: "'voc'(실제 유저 목소리) | 'virtual'(가상 화법) | 'unknown'(원문이 안 밝힘)",
+      by: '말한 사람이나 출처(원문에 있을 때만)',
+    },
+  },
+  flow: {
+    stage: 3,
+    purpose: '화면이나 단계가 순서대로 이어지는 흐름. 단계 두 개 이상',
+    fields: { steps: '단계 이름 배열' },
+  },
+  stateMatrix: {
+    stage: 3,
+    purpose: '상태와 조건을 행과 열로 놓은 표. 원문 표를 그대로 옮긴다',
+    fields: {
+      rows: '행 이름 배열',
+      cols: '열 이름 배열',
+      cells: '[행][열] 2차원 배열. rows와 cols 수에 맞춘다. 원문에 빈 칸이면 null',
+    },
+  },
+  timeline: {
+    stage: 3,
+    purpose: '일정. 날짜와 할 일',
+    fields: { items: '[{ date, what }] date는 원문 글자 그대로' },
+  },
+  glossary: {
+    stage: 3,
+    purpose: '용어 정의',
+    fields: { terms: '[{ term, meaning }]' },
+  },
+  callout: {
+    stage: 3,
+    purpose: '원문이 강조한 주의 문단. 원문에 경고나 참고 표시가 있을 때만',
+    fields: { text: '문단', tone: "'info' | 'warn' | 'danger'" },
   },
 };
 

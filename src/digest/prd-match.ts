@@ -89,6 +89,46 @@ export function verbatimFields(block: PrdBlock): VerbatimField[] {
       add('owner', block.owner);
       add('due', block.due);
       break;
+    case 'compare':
+      block.labels.forEach((l, k) => add(`labels.${k}`, l));
+      block.rows.forEach((r, k) => {
+        add(`rows.${k}.label`, r.label);
+        add(`rows.${k}.left`, r.left);
+        add(`rows.${k}.right`, r.right);
+      });
+      break;
+    case 'scope':
+      block.out.forEach((o, k) => add(`out.${k}`, o));
+      break;
+    case 'quote':
+      add('text', block.text);
+      add('by', block.by);
+      break;
+    case 'flow':
+      block.steps.forEach((x, k) => add(`steps.${k}`, x));
+      break;
+    case 'stateMatrix':
+      block.rows.forEach((x, k) => add(`rows.${k}`, x));
+      block.cols.forEach((x, k) => add(`cols.${k}`, x));
+      block.cells.forEach((row, i) =>
+        row.forEach((c, j) => add(`cells.${i}.${j}`, c ?? undefined)),
+      );
+      break;
+    case 'timeline':
+      block.items.forEach((x, k) => {
+        add(`items.${k}.date`, x.date);
+        add(`items.${k}.what`, x.what);
+      });
+      break;
+    case 'glossary':
+      block.terms.forEach((x, k) => {
+        add(`terms.${k}.term`, x.term);
+        add(`terms.${k}.meaning`, x.meaning);
+      });
+      break;
+    case 'callout':
+      add('text', block.text);
+      break;
   }
   return out;
 }

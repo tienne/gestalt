@@ -30,6 +30,25 @@ export const KIND_LABEL: Record<BlockKind, string> = {
   decision: '결정',
   question: '질문',
   prose: '본문',
+  compare: '비교',
+  scope: '안 하는 것',
+  quote: '인용',
+  flow: '흐름',
+  stateMatrix: '상태 표',
+  timeline: '일정',
+  glossary: '용어',
+  callout: '강조',
+};
+
+const QUOTE_LABEL: Record<BlockOf<'quote'>['origin'], string> = {
+  voc: '실제 VOC',
+  virtual: '가상 화법',
+  unknown: '출처 모름',
+};
+const TONE_LABEL: Record<BlockOf<'callout'>['tone'], string> = {
+  info: '참고',
+  warn: '주의',
+  danger: '위험',
 };
 
 const CLAIM_LABEL: Record<BlockOf<'claim'>['status'], string> = {
@@ -139,6 +158,78 @@ function body(block: PrdBlock, ctx: BlockContext): { html: string; tags: string[
     }
     case 'prose':
       return { html: `<p>${inlineMd(block.text)}</p>`, tags: [], cls: [] };
+    case 'compare': {
+      const td = (v: string | undefined) =>
+        v ? `<td>${inlineMd(v)}</td>` : '<td class="empty"></td>';
+      const hasLabel = block.rows.some((r) => r.label);
+      return {
+        html: `<div class="xwrap"><table class="tbl"><thead><tr>${hasLabel ? '<th></th>' : ''}<th scope="col">${inlineMd(block.labels[0])}</th><th scope="col">${inlineMd(block.labels[1])}</th></tr></thead><tbody>${block.rows
+          .map(
+            (r) =>
+              `<tr>${hasLabel ? `<th scope="row">${r.label ? inlineMd(r.label) : ''}</th>` : ''}${td(r.left)}${td(r.right)}</tr>`,
+          )
+          .join('')}</tbody></table></div>`,
+        tags: [],
+        cls: [],
+      };
+    }
+    case 'scope':
+      return {
+        html: `<ul class="out">${block.out.map((o) => `<li>${inlineMd(o)}</li>`).join('')}</ul>`,
+        tags: [],
+        cls: [],
+      };
+    case 'quote':
+      return {
+        html: `<blockquote>${inlineMd(block.text)}</blockquote>${block.by ? `<p class="by">${esc(block.by)}</p>` : ''}`,
+        tags: [
+          `<span class="badge ${block.origin === 'virtual' ? 'warn' : block.origin === 'voc' ? 'ok' : ''}">${QUOTE_LABEL[block.origin]}</span>`,
+        ],
+        cls: [`origin-${block.origin}`],
+      };
+    case 'flow':
+      return {
+        html: `<ol class="flow">${block.steps.map((x) => `<li>${inlineMd(x)}</li>`).join('')}</ol>`,
+        tags: [],
+        cls: [],
+      };
+    case 'stateMatrix':
+      return {
+        html: `<div class="xwrap"><table class="tbl"><thead><tr><th></th>${block.cols
+          .map((c) => `<th scope="col">${inlineMd(c)}</th>`)
+          .join('')}</tr></thead><tbody>${block.rows
+          .map(
+            (r, i) =>
+              `<tr><th scope="row">${inlineMd(r)}</th>${(block.cells[i] ?? [])
+                .map((c) => (c ? `<td>${inlineMd(c)}</td>` : '<td class="empty"></td>'))
+                .join('')}</tr>`,
+          )
+          .join('')}</tbody></table></div>`,
+        tags: [],
+        cls: [],
+      };
+    case 'timeline':
+      return {
+        html: `<ol class="tl">${block.items
+          .map((x) => `<li><span class="date">${esc(x.date)}</span>${inlineMd(x.what)}</li>`)
+          .join('')}</ol>`,
+        tags: [],
+        cls: [],
+      };
+    case 'glossary':
+      return {
+        html: `<dl class="gl">${block.terms
+          .map((x) => `<dt>${inlineMd(x.term)}</dt><dd>${inlineMd(x.meaning)}</dd>`)
+          .join('')}</dl>`,
+        tags: [],
+        cls: [],
+      };
+    case 'callout':
+      return {
+        html: `<p>${inlineMd(block.text)}</p>`,
+        tags: [`<span class="badge">${TONE_LABEL[block.tone]}</span>`],
+        cls: [`tone-${block.tone}`],
+      };
   }
 }
 
