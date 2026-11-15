@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.143.0] - 2026-11-15
+
+### Added
+
+- **컨덕터 세션은 하나만 돌아요.** 컨덕터가 다른 탭에 떠 있는데 다른 세션에서 컨덕터 주문을 하면 tick을 부른 그 세션까지 컨덕터로 등록돼서 컨덕터가 둘이 됐어요.
+  - 처음 tick을 돌리는 세션은 다른 컨덕터 세션이 `staleAfterSec`의 두 배(기본 1시간) 안에 tick을 돌렸으면 등록하지 않고 거절해요. 그 세션은 `order add`로 주문만 넣고 끝나며 주문은 떠 있는 컨덕터가 다음 tick에 받아요.
+  - 등록에 성공한 세션은 나머지 세션에 `superseded.json`을 남겨요. 오래 쉬던 예전 세션이 다시 깨어나도 tick과 wait가 거절돼요.
+  - 원래 세션이 닫혔는데 기한이 안 지났으면 `tick --take-over`로 넘겨받아요. wait에도 같은 옵션이 있어요. 기한을 두 배로 잡은 건 반복이 한가할 때 깨우는 간격이 `staleAfterSec` 근처까지 늘어나서예요.
+  - 인계한 세션은 확인 대상에서 빠져서 인계받은 새 세션은 막히지 않아요.
+
+### 남긴 것
+
+- 두 세션이 거의 같은 순간에 처음 tick을 돌리면 서로를 넘겨받은 것으로 적어서 둘 다 멈출 수 있어요. 드문 경우라 잠금을 더하지 않았고 한쪽에서 `--take-over`를 한 번 부르면 풀려요.
+
 ## [0.142.0] - 2026-11-15
 
 ### Added
