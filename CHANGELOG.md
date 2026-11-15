@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.142.0] - 2026-11-15
+
+### Added
+
+- **지휘자 세션이 감시 주기를 백그라운드 `gestalt conductor wait`로 돌려요(#142).** 전에는 `/loop`로 주기마다 깨어나서 할 일이 없는 주기에도 tick 결과와 판단이 대화에 쌓였어요. `autoCompactWindow`를 250k로 줄여 쓰니 쌓이는 속도가 곧 세션 수명이었고 지휘자 세션이 한두 시간마다 인계됐어요.
+  - wait는 `pollIntervalSec`마다 tick을 돌리다가 호스트가 판단할 일이 생긴 tick에서만 결과를 내고 끝나요. 할 일 없는 tick은 아무것도 출력하지 않아요.
+  - 끝난 이유는 `reason`에 `attention`(호스트 할 일, 새 게이트, 처음 보는 오류, 인계처럼 호스트가 볼 일), `timeout`(상한 동안 할 일 없음), `superseded`(나중에 뜬 wait가 이어받음) 중 하나로 실려요.
+  - 상한은 새 설정 `waitMaxSec`(60~1500초, 기본 1500초)이에요. 상한이 지나도 마지막 tick이 끝나야 wait가 끝나서 Claude Code 백그라운드 명령의 제한 시간 30분 안에 마치도록 1500초로 막았어요.
+  - 결과가 6000자를 넘으면 tick 본문을 빼고 `wait-last.json` 경로만 실어요. 이 파일은 `attention`으로 끝날 때만 써요.
+  - 이미 보여 준 오류와 경고는 `wait-seen.json`에 남겨서 고쳐지지 않는 오류 하나로 wait가 띄우자마자 끝나지 않게 했어요. wait 하나 동안 한 번도 안 나온 문장은 그 wait가 끝날 때 빼서 고쳐졌다가 다시 나면 다음 wait가 깨워요.
+  - 뜰 때 `wait.owner`에 표식을 써요. 컴팩트 뒤 중복으로 띄웠거나 닫힌 세션에 남은 wait는 다음 tick 앞에서 `superseded`로 끝나요. 닫힌 세션의 wait가 호스트 할 일을 가져가 버리는 걸 막으려고요.
+  - 컨덕터 스킬 7절을 백그라운드 wait, loop 반복, 수동 실행으로 나눴어요. 백그라운드 알림이 없는 호스트는 기존 loop 경로를 그대로 써요. 워커 안에서는 wait를 거절해요.
+- **워커가 대기 중이라고 알릴 수 있어요(#141).** CI나 사람 답을 정상적으로 기다리는 워커를 tick이 끊긴 워커로 보고 escalation을 올렸어요. 한 주문에서 헛 escalation이 53번 쌓였어요.
+  - `worker report --status waiting --wait-for "<무엇을>" [--wait-until <ISO 시각>]`을 새로 받아요. tick은 대기를 보고한 워커를 끊김 판정에서 빼요. 다른 보고나 체크포인트가 오면 대기가 풀려요.
+  - 대기 중인 오르카 워커도 `staleAfterSec`마다 터미널이 살아 있는지 보고 사라졌으면 재개해요.
+  - 대기 시작부터 `waitingEscalateAfterSec`(기본 6시간)이 지났거나 `--wait-until`에서 `staleAfterSec`만큼 더 지나면 `no-procedure` 게이트로 올려요.
+  - 사람이 그 워커의 게이트를 종료하면 대기 표시도 지워요. 대기 중에 올린 머지 승인을 상한 뒤에 닫았을 때 다음 tick이 같은 워커를 또 올리던 걸 막으려고요.
+
+### Changed
+
+- **`simple-approval`은 ship 단계 값이 있을 때만 bypass돼요(#141).** 전에는 detail을 안 보고 늘 bypass돼서 다른 승인 요청도 같은 종류로 올리면 그대로 통과했어요.
+  - `--need-step ship-draft|ship-plan|ship-ready`(ship ⓐⓑⓒ)를 새로 받아요. step이 있고 주문 스킬 체인에 `ship`이 있을 때만 bypass하고 나머지는 사람 게이트로 올려요. bypass 기록에 step 값을 남겨요.
+  - 배포 전에 떠 있던 워커는 step 없이 올리니 그 ship 승인은 확인 자리로 한 번 올라와요. 승인으로 종료하면 돼요.
+- **인계 판정의 창 크기에 `autoCompactWindow`를 써요(#141).** 판정이 모델 창(200k 또는 1M)만 보고 비율을 세서 `autoCompactWindow`를 250k로 줄여 둔 세션은 컴팩트가 먼저 오고 인계가 안 걸렸어요.
+  - 창 크기는 conductor `contextWindowTokens`, Claude 설정의 `autoCompactWindow`, 모델 추정 순으로 정해요. 설정은 관리 설정, 프로젝트 로컬, 프로젝트, 사용자(`CLAUDE_CONFIG_DIR` 우선) 순으로 읽고 모델 창보다 크면 모델 창을 써요.
+  - 인계 모델의 `[1m]` 판정은 모델 창으로만 해요. 창을 250k로 줄였다고 1M 모델을 200k 모델로 내리면 안 돼서요.
+  - 설정 파일은 컴팩트가 한 번 이상 왔을 때만 읽어요.
+
+### 남긴 것
+
+- 프로젝트 설정은 지휘자 세션 cwd 바로 아래 `.claude/`만 봐요. 하위 디렉토리에서 띄웠거나 `managed-settings.d` 드롭인에 둔 값은 못 찾아요.
+- 한 wait 안에서 풀렸다가 다시 난 오류는 이미 본 것으로 보고 깨우지 않아요.
+- 지휘자 탭이 닫힐 때 Claude Code가 백그라운드 wait를 함께 끝내는지는 실환경에서 아직 확인하지 못했어요. 안 끝나도 새 wait가 뜨면 `superseded`로 끝나요.
+
 ## [0.141.1] - 2026-11-14
 
 ### Fixed
