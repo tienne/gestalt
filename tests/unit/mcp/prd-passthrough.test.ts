@@ -92,6 +92,21 @@ describe('ges_prd', () => {
     expect(call(root, { action: 'render', slug: 'rental-reco' }).ok).toBe(true);
   });
 
+  it('validate와 render 응답에 lint 경고와 따로 gaps를 싣는다', () => {
+    const root = repo();
+    writeSample(root);
+    const v = call(root, { action: 'validate', slug: 'rental-reco' });
+    expect(v.gaps.map((g: Json) => g.code)).toEqual([
+      'BASELINE_NO_NUMBER',
+      'REQUIREMENT_UNLINKED',
+      'OPEN_CLAIMS',
+    ]);
+    expect(v.warnings.map((w: Json) => w.code)).not.toContain('BASELINE_NO_NUMBER');
+    const r = call(root, { action: 'render', slug: 'rental-reco' });
+    expect(r.gaps).toEqual(v.gaps);
+    expect(readFileSync(r.htmlPath, 'utf8')).toContain('id="gaps"');
+  });
+
   it('lint 오류가 있으면 RENDER_BLOCKED이고 파일을 만들지 않는다', () => {
     const root = repo();
     const v = sampleView() as Json;

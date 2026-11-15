@@ -189,3 +189,65 @@ export function writeSample(
   writeFileSync(viewPath, JSON.stringify(view));
   return { sourcePath, viewPath };
 }
+
+/** 3단계 블록 8개를 하나씩 담은 섹션. 원문 줄을 빌려 쓰므로 글자 대조 경고는 날 수 있지만 오류는 없다 */
+export function stage3Section(): Record<string, unknown> {
+  return {
+    id: 'more',
+    title: '요구사항',
+    blocks: [
+      {
+        id: 'x-compare',
+        kind: 'compare',
+        src: [[15, 15]],
+        labels: ['지금', '바꾼 뒤'],
+        rows: [{ label: '추천 기준', left: '인기순 고정', right: '회원 취향' }, { left: '인기순' }],
+      },
+      { id: 'x-scope', kind: 'scope', src: [[21, 21]], out: ['푸시 알림은 이번에 하지 않는다'] },
+      {
+        id: 'x-quote',
+        kind: 'quote',
+        src: [[20, 20]],
+        text: '바로 다음 책을 보여 주면 좋겠다',
+        origin: 'virtual',
+      },
+      { id: 'x-flow', kind: 'flow', src: [[19, 19]], steps: ['반납 완료', '추천 카드', '찜'] },
+      {
+        id: 'x-matrix',
+        kind: 'stateMatrix',
+        src: [[29, 30]],
+        rows: ['M1', 'M2'],
+        cols: ['베이스라인', '목표'],
+        cells: [
+          ['22%', '27%'],
+          [null, '8%'],
+        ],
+      },
+      {
+        id: 'x-timeline',
+        kind: 'timeline',
+        src: [[10, 10]],
+        items: [{ date: '2026-03-02', what: '오픈' }],
+      },
+      {
+        id: 'x-glossary',
+        kind: 'glossary',
+        src: [[29, 29]],
+        terms: [{ term: '재대여율', meaning: '7일 내 재대여율' }],
+      },
+      {
+        id: 'x-callout',
+        kind: 'callout',
+        src: [[14, 14]],
+        text: '한 달 안에 이탈한다',
+        tone: 'warn',
+      },
+    ],
+  };
+}
+
+export function sampleViewWithStage3(): Record<string, any> {
+  const v = sampleView() as Record<string, any>;
+  v.sections.push(stage3Section());
+  return v;
+}

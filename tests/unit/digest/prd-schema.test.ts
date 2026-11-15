@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  BLOCK_DOCS,
-  BLOCK_KINDS,
-  blockSchema,
-  parsePrdView,
-} from '../../../src/digest/prd-schema.js';
+import { BLOCK_DOCS, BLOCK_KINDS, parsePrdView } from '../../../src/digest/prd-schema.js';
 import { sampleView } from './prd-fixture.js';
 
 type Json = Record<string, any>;
@@ -54,6 +49,7 @@ describe('prd-view 스키마', () => {
 
   it('BLOCK_DOCS의 kind는 스키마의 kind와 같다', () => {
     expect(Object.keys(BLOCK_DOCS).sort()).toEqual([...BLOCK_KINDS].sort());
-    expect(blockSchema.options.length).toBe(BLOCK_KINDS.length);
+    const byStage = (n: number) => BLOCK_KINDS.filter((k) => BLOCK_DOCS[k].stage === n).length;
+    expect([byStage(1), byStage(3)]).toEqual([6, 8]);
   });
 });

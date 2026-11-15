@@ -5,11 +5,12 @@ import { PRD_HTML_MARKER } from '../../../src/digest/prd-store.js';
 import { PRD_VIEWER_JS } from '../../../src/digest/prd-viewer-js.js';
 import { renderPrdHtml } from '../../../src/digest/render-prd.js';
 import { THEME_BOOT_JS } from '../../../src/digest/viewer-js.js';
-import { sampleSource, sampleView } from './prd-fixture.js';
+import { collectPrdGaps } from '../../../src/digest/lint-prd-gaps.js';
+import { sampleSource, sampleView, sampleViewWithStage3 } from './prd-fixture.js';
 
 type Json = Record<string, any>;
 
-function render(v: Json = sampleView()): string {
+function render(v: Json = sampleView(), withGaps = false): string {
   const r = parsePrdView(v);
   if (!r.ok) throw new Error(r.issues.join('\n'));
   const view: PrdView = r.value;
@@ -17,6 +18,7 @@ function render(v: Json = sampleView()): string {
   return renderPrdHtml(view, {
     sourceSha256: source.sha256,
     coverage: lintPrdView(view, source).coverage,
+    ...(withGaps ? { gaps: collectPrdGaps(view) } : {}),
   });
 }
 
@@ -60,7 +62,7 @@ describe('renderPrdHtml', () => {
 
   it('모든 글 칸의 스크립트와 javascript 링크를 무력화한다', () => {
     const bad = '<script>alert(1)</script>"><img src=x onerror=alert(1)>[x](javascript:alert(1))';
-    const v = sampleView() as Json;
+    const v = sampleViewWithStage3() as Json;
     v.meta.title = bad;
     v.meta.source = bad;
     v.meta.rows[0].key = bad;
@@ -70,7 +72,18 @@ describe('renderPrdHtml', () => {
     const walk = (o: Json) => {
       for (const [k, val] of Object.entries(o)) {
         if (
-          ['id', 'kind', 'status', 'phase', 'role', 'metricId', 'metrics', 'audience'].includes(k)
+          [
+            'id',
+            'kind',
+            'status',
+            'phase',
+            'role',
+            'metricId',
+            'metrics',
+            'audience',
+            'origin',
+            'tone',
+          ].includes(k)
         )
           continue;
         if (typeof val === 'string') o[k] = bad;
@@ -88,5 +101,37 @@ describe('renderPrdHtml', () => {
     ]);
     expect(html).not.toContain('<img');
     expect(html).not.toMatch(/href="javascript:/i);
+  });
+
+  it('3단계 블록을 종류별 카드로 그린다', () => {
+    const html = render(sampleViewWithStage3());
+    for (const kind of [
+      'compare',
+      'scope',
+      'quote',
+      'flow',
+      'stateMatrix',
+      'timeline',
+      'glossary',
+      'callout',
+    ]) {
+      expect(html).toContain(`blk blk-${kind}`);
+    }
+    expect(html).toContain('origin-virtual');
+    expect(html).toContain('가상 화법');
+    expect(html).toContain('tone-warn');
+    expect(html).toContain('<ol class="flow">');
+    expect(html).toContain('<dl class="gl">');
+    // 원문에 빈 칸이던 셀은 빈 칸으로 둔다
+    expect(html).toMatch(/<th scope="row">M2<\/th><td class="empty"><\/td><td>8%<\/td>/);
+  });
+
+  it('gaps를 주면 코드별로 묶은 빈칸 패널을 본문 앞에 그린다', () => {
+    const html = render(sampleView(), true);
+    expect(html).toContain('<section class="sec gaps" id="gaps">');
+    expect(html).toContain('href="#gaps"');
+    expect(html).toContain('베이스라인에 숫자가 없는 지표');
+    expect(html.indexOf('id="gaps"')).toBeLessThan(html.indexOf('id="s-problem"'));
+    expect(render(sampleView())).not.toContain('id="gaps"');
   });
 });
