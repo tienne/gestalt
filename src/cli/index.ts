@@ -45,6 +45,7 @@ import {
   conductorSlackDraftCommand,
   conductorStatusCommand,
   conductorTickCommand,
+  conductorWaitCommand,
   conductorWorkerReportCommand,
 } from './commands/conductor.js';
 import {
@@ -1160,6 +1161,22 @@ export function createCli(): Command {
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action(async (o) => {
       await conductorTickCommand(o);
+    });
+
+  conductor
+    .command('wait')
+    .description(
+      'tick을 감시 간격마다 돌리다가 호스트가 판단할 일이 생기거나 상한 시간이 지나면 끝난다. 할 일 없는 tick은 출력하지 않는다',
+    )
+    .option('--max-wait-sec <sec>', '할 일 없이 기다리는 상한(초). 기본은 설정의 waitMaxSec', (v) =>
+      Number(v),
+    )
+    .option('--no-pr-watch', 'PR 감시를 건너뛴다')
+    .option('--no-queue', '외부 큐를 건너뛴다')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (o) => {
+      await conductorWaitCommand(o);
     });
 
   conductor

@@ -72,6 +72,7 @@ interface GestaltConfig {
   conductor: {
     maxConcurrentWorkers: number; // 동시 워커 상한, 기본 10
     pollIntervalSec: number; // 진행 감시 주기, 기본 60
+    waitMaxSec: number; // conductor wait가 할 일 없이 기다리는 상한(초), 기본 1500
     maxResumeAttempts: number; // 체크포인트 재개 횟수 상한, 기본 3
     staleAfterSec: number; // 소식이 이만큼(초) 없으면 끊긴 워커로 본다, 기본 1800
     rateLimitEscalateAfterSec: number; // 오르카 워커가 세션 한도에 걸린 채 이만큼(초) 지나면 사람에게 올린다, 기본 21600
@@ -273,6 +274,7 @@ Desktop/IDE의 이름은 캡처하지 않았다.
   "conductor": {
     "maxConcurrentWorkers": 10,
     "pollIntervalSec": 60,
+    "waitMaxSec": 1500,
     "maxResumeAttempts": 3,
     "staleAfterSec": 1800,
     "rateLimitEscalateAfterSec": 21600,

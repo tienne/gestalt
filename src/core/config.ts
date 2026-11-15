@@ -381,6 +381,11 @@ const conductorConfigSchema = z.object({
   maxConcurrentWorkers: z.number().int().min(1).max(100).default(10),
   /** 진행 감시 주기(초). 컨덕터가 tick을 이 간격보다 자주 돌리지 않는다 */
   pollIntervalSec: z.number().int().min(10).max(3600).default(60),
+  /**
+   * `conductor wait`가 할 일 없이 기다리는 상한(초). 지나면 한 번 끝나 지휘자 세션이 살아 있는지 확인하게 한다.
+   * 호스트의 백그라운드 명령 제한 시간(Claude Code 기본 30분)보다 짧게 둔다
+   */
+  waitMaxSec: z.number().int().min(60).max(7000).default(1500),
   /** 같은 주문의 워커를 체크포인트부터 다시 띄우는 최대 횟수. 넘으면 사람에게 올린다 */
   maxResumeAttempts: z.number().int().min(1).max(10).default(3),
   /** 워커 소식(보고나 체크포인트)이 이 시간(초) 넘게 없으면 끊긴 것으로 보고 재개한다 */
@@ -457,6 +462,7 @@ const conductorConfigSchema = z.object({
 const REPO_CONDUCTOR_KEYS: ReadonlySet<string> = new Set([
   'maxConcurrentWorkers',
   'pollIntervalSec',
+  'waitMaxSec',
   'maxResumeAttempts',
   'staleAfterSec',
   'rateLimitEscalateAfterSec',
