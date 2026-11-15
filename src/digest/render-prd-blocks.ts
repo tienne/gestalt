@@ -14,13 +14,24 @@ export const esc = (s: string): string =>
  * 링크 주소도 escape된 글자에서 꺼내니 따옴표로 속성을 깨지 못한다
  */
 export function inlineMd(s: string): string {
-  return esc(s)
+  // 링크를 먼저 바꿔 둬야 주소 안 백틱이 code 태그로 href에 끼지 않는다. 바꾼 태그는 자리표시로 빼 두었다가 되돌린다
+  const links: string[] = [];
+  const held = esc(s.replace(/\uE000/g, '')).replace(
+    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    (_, label: string, href: string) => {
+      links.push(
+        `<a href="${href}" rel="noopener noreferrer" target="_blank">${inlineFmt(label)}</a>`,
+      );
+      return `\uE000${links.length - 1}\uE000`;
+    },
+  );
+  return inlineFmt(held).replace(/\uE000(\d+)\uE000/g, (_, i: string) => links[Number(i)]!);
+}
+
+function inlineFmt(s: string): string {
+  return s
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(
-      /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-      '<a href="$2" rel="noopener noreferrer" target="_blank">$1</a>',
-    );
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
 
 export const KIND_LABEL: Record<BlockKind, string> = {

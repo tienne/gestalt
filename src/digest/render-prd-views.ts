@@ -6,7 +6,7 @@ import {
   type PrdView,
 } from './prd-schema.js';
 import { AUDIENCES } from './prd-schema.js';
-import { esc, inlineMd } from './render-prd-blocks.js';
+import { esc } from './render-prd-blocks.js';
 
 /**
  * 교차 뷰. 세션이 따로 쓰지 않고 렌더러가 블록 참조만으로 모은다.
@@ -73,7 +73,8 @@ export function deriveReqMetric(view: PrdView): ReqMetricMatrix | null {
   };
 }
 
-const anchor = (b: PrdBlock, text: string) => `<a href="#b-${esc(b.id)}">${text}</a>`;
+// 카드로 가는 링크로 감싸므로 안에 마크다운 링크를 살리면 a가 중첩된다. 글자만 넣는다
+const anchor = (b: PrdBlock, text: string) => `<a href="#b-${esc(b.id)}">${esc(text)}</a>`;
 const where = (title: string) => `<span class="where">${esc(title)}</span>`;
 
 function unresolvedHtml(items: ReturnType<typeof deriveUnresolved>): string {
@@ -87,13 +88,13 @@ function unresolvedHtml(items: ReturnType<typeof deriveUnresolved>): string {
               .filter(Boolean)
               .join(', ')
           : '';
-      return `<li><span class="badge">${tag}</span> ${anchor(block, inlineMd(text))}${extra ? ` <span class="where">${extra}</span>` : ''} ${where(sectionTitle)}</li>`;
+      return `<li><span class="badge">${tag}</span> ${anchor(block, text)}${extra ? ` <span class="where">${extra}</span>` : ''} ${where(sectionTitle)}</li>`;
     })
     .join('')}</ul>`;
 }
 
 function reqMetricHtml(m: ReqMetricMatrix): string {
-  const head = m.metrics.map((x) => `<th scope="col">${anchor(x, esc(x.metricId))}</th>`).join('');
+  const head = m.metrics.map((x) => `<th scope="col">${anchor(x, x.metricId)}</th>`).join('');
   const rows = m.requirements
     .map((r) => {
       const set = m.links.get(r.id)!;
@@ -101,7 +102,7 @@ function reqMetricHtml(m: ReqMetricMatrix): string {
         .map((x) => `<td>${set.has(x.metricId) ? '<span aria-label="연결">●</span>' : ''}</td>`)
         .join('');
       const flag = set.size === 0 ? ' <span class="badge warn">연결 지표 없음</span>' : '';
-      return `<tr><th scope="row">${anchor(r, inlineMd(r.title))}${flag}</th>${cells}</tr>`;
+      return `<tr><th scope="row">${anchor(r, r.title)}${flag}</th>${cells}</tr>`;
     })
     .join('');
   const orphan = m.unlinkedMetrics.length
@@ -116,12 +117,13 @@ function decisionsHtml(items: ReturnType<typeof deriveDecisions>): string {
   return `<ul class="xlist">${items
     .map(
       ({ block, sectionTitle }) =>
-        `<li>${anchor(block, inlineMd(block.decided))}${block.rejected?.length ? ` <span class="where">버린 안 ${block.rejected.length}개</span>` : ''} ${where(sectionTitle)}</li>`,
+        `<li>${anchor(block, block.decided)}${block.rejected?.length ? ` <span class="where">버린 안 ${block.rejected.length}개</span>` : ''} ${where(sectionTitle)}</li>`,
     )
     .join('')}</ul>`;
 }
 
-export const OVERVIEW_SECTION_ID = 'overview';
+// 본문 섹션은 s-<id>라서 접두어를 다르게 둬야 섹션 id가 overview여도 안 겹친다
+export const OVERVIEW_SECTION_ID = 'x-overview';
 
 export interface OverviewParts {
   html: string;
@@ -152,7 +154,7 @@ export function renderOverview(view: PrdView): OverviewParts {
   }
   if (parts.length === 0) return { html: '', toc: [] };
   return {
-    html: `<section class="sec overview" id="s-${OVERVIEW_SECTION_ID}"><h2>모아 보기</h2>${parts
+    html: `<section class="sec overview" id="${OVERVIEW_SECTION_ID}"><h2>모아 보기</h2>${parts
       .map(
         (p) => `<details open id="${p.id}"><summary>${esc(p.title)}</summary>${p.body}</details>`,
       )
