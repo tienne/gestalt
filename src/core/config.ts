@@ -24,6 +24,9 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(__dirname, '..', '..');
 
+/** `conductor wait` 상한(초)의 최댓값. 설정과 `--max-wait-sec`가 같이 쓴다 */
+export const WAIT_MAX_SEC_LIMIT = 1500;
+
 // ─── Zod Schemas ────────────────────────────────────────────────
 
 const llmTierConfigSchema = z.object({
@@ -383,9 +386,9 @@ const conductorConfigSchema = z.object({
   pollIntervalSec: z.number().int().min(10).max(3600).default(60),
   /**
    * `conductor wait`가 할 일 없이 기다리는 상한(초). 지나면 한 번 끝나 지휘자 세션이 살아 있는지 확인하게 한다.
-   * 호스트의 백그라운드 명령 제한 시간(Claude Code 기본 30분)보다 짧게 둔다
+   * 스킬이 wait를 띄우는 timeout(30분)보다 짧아야 한다. 상한에 닿은 뒤에도 tick을 한 번 더 돌리니 그 몫을 남긴다
    */
-  waitMaxSec: z.number().int().min(60).max(7000).default(1500),
+  waitMaxSec: z.number().int().min(60).max(WAIT_MAX_SEC_LIMIT).default(WAIT_MAX_SEC_LIMIT),
   /** 같은 주문의 워커를 체크포인트부터 다시 띄우는 최대 횟수. 넘으면 사람에게 올린다 */
   maxResumeAttempts: z.number().int().min(1).max(10).default(3),
   /** 워커 소식(보고나 체크포인트)이 이 시간(초) 넘게 없으면 끊긴 것으로 보고 재개한다 */

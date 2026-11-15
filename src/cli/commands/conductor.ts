@@ -1,7 +1,8 @@
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { loadConfig } from '../../core/config.js';
+import { loadConfig, WAIT_MAX_SEC_LIMIT } from '../../core/config.js';
+import { writeJsonAtomic } from '../../core/json-file.js';
 import { gestaltPath } from '../../core/home.js';
 import {
   fileDeploySource,
@@ -92,6 +93,7 @@ import { draftSlack } from '../../conductor/slack.js';
 import {
   claimWaitOwner,
   readSeen,
+  shownLines,
   WAIT_REPORT_FILE,
   waitForAttention,
   writeSeen,
@@ -564,6 +566,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
 async function enterTickSession(ctx: Ctx): Promise<string | undefined> {
   const sessionId = currentSessionId();
   if (!sessionId) return undefined;
+  // 등록과 탭 이름 붙이기 전에 거절한다. 인계한 세션이 자기를 새 세션으로 다시 올리면 안 된다
   assertNotHandedOff(ctx, sessionId);
   if (registerSession(ctx.store.dir, sessionId, process.cwd(), new Date())) await nameTabOnce();
   return sessionId;
@@ -576,6 +579,7 @@ async function runConductorTick(
   sessionId: string | undefined,
   onClose: (r: HandoffCloseResult[]) => void = () => {},
 ): Promise<WaitTickOutcome> {
+  // wait가 도는 사이 인계했으면 다음 tick에서 거절해 wait를 끝낸다
   if (sessionId) assertNotHandedOff(ctx, sessionId);
   const handoffClose = sessionId ? await closePreviousTabs(ctx, sessionId) : [];
   onClose(handoffClose);
@@ -584,7 +588,8 @@ async function runConductorTick(
     opts.prWatch !== false
       ? prWatchTargets(ctx.config.prWatchRepos, ctx.config.repoPaths)
       : undefined;
-  // 토큰과 로그인 계정 캐시를 PR 감시와 계정 맞추기가 tick 하나 동안 함께 쓴다
+  // 토큰과 로그인 계정 캐시를 PR 감시와 계정 맞추기가 tick 하나 동안 함께 쓴다.
+  // wait도 tick마다 새로 만든다. 길게 들고 있으면 그사이 gh auth switch로 바뀐 계정을 못 본다
   const gh = new GhAccounts(ctx.config.accounts);
   const prSource =
     watch && Object.keys(watch.repoPaths).length > 0
@@ -659,20 +664,29 @@ export async function conductorWaitCommand(
   opts: ConductorWaitOptions,
   loop: Partial<Pick<WaitLoopDeps, 'sleep' | 'now'>> = {},
 ): Promise<void> {
-  let owner: ReturnType<typeof claimWaitOwner> | undefined;
+  // tick 명령과 같다. 닫기 결과는 handoff.json에 기록되면 다시 안 실려서 tick이 던져도 stderr로 남긴다
+  let handoffClose: HandoffCloseResult[] = [];
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'wait');
     const maxWaitSec = opts.maxWaitSec ?? ctx.config.waitMaxSec;
-    if (!Number.isInteger(maxWaitSec) || maxWaitSec < 1)
-      throw new Error('--max-wait-sec는 1 이상의 정수여야 해요');
+    if (!Number.isInteger(maxWaitSec) || maxWaitSec < 1 || maxWaitSec > WAIT_MAX_SEC_LIMIT)
+      throw new Error(`--max-wait-sec는 1~${WAIT_MAX_SEC_LIMIT} 사이의 정수여야 해요`);
     const sessionId = await enterTickSession(ctx);
-    owner = claimWaitOwner(ctx.store.dir);
+    const owner = claimWaitOwner(ctx.store.dir);
     const seen = readSeen(ctx.store.dir);
     const result = await waitForAttention(
       {
         // 간격은 wait가 직접 잰다. 시계 하한에 맡기면 호스트가 방금 돌린 tick 때문에 첫 주기를 통째로 건너뛴다
-        runTick: () => runConductorTick(ctx, { ...opts, force: true }, sessionId),
+        runTick: async () => {
+          handoffClose = [];
+          return runConductorTick(
+            ctx,
+            { ...opts, force: true },
+            sessionId,
+            (r) => (handoffClose = r),
+          );
+        },
         sleep: loop.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
         now: loop.now ?? (() => Date.now()),
         stillOwner: owner.stillOwner,
@@ -681,23 +695,24 @@ export async function conductorWaitCommand(
       },
       { maxWaitMs: maxWaitSec * 1000, intervalMs: ctx.config.pollIntervalSec * 1000 },
     );
-    if (result.reason === 'attention' && result.last) {
-      const r = result.last.report;
-      writeSeen(ctx.store.dir, seen, [...r.errors, ...r.warnings]);
+    // superseded는 이어받은 wait가 본 목록을 맡는다. 건너뛴 tick뿐이었으면 무엇이 풀렸는지 몰라 그대로 둔다
+    if (result.reason !== 'superseded' && result.observed) {
+      const shown = result.reason === 'attention' && result.last ? shownLines(result.last) : [];
+      writeSeen(ctx.store.dir, seen, result.observed, shown);
     }
     printWaitResult(ctx, opts, result);
   } catch (e) {
+    for (const r of handoffClose) console.error(handoffCloseLine(r));
     exitWithError(e);
-  } finally {
-    owner?.release();
   }
 }
 
 function printWaitResult(ctx: Ctx, opts: ConductorWaitOptions, result: WaitResult): void {
   const minutes = Math.round(result.elapsedMs / 60_000);
   const reportFile = join(ctx.store.dir, WAIT_REPORT_FILE);
-  const full = result.last ? tickJson(result.last) : undefined;
-  if (full) writeFileSync(reportFile, JSON.stringify(full, null, 2));
+  // attention일 때만 쓴다. superseded로 끝난 앞선 wait가 이어받은 wait의 보고서를 덮지 않게 한다
+  const full = result.reason === 'attention' && result.last ? tickJson(result.last) : undefined;
+  if (full) writeJsonAtomic(reportFile, full, { mode: 0o600 });
   const inline = full !== undefined && JSON.stringify(full).length <= WAIT_INLINE_MAX;
   if (opts.json)
     return print({
@@ -706,7 +721,7 @@ function printWaitResult(ctx: Ctx, opts: ConductorWaitOptions, result: WaitResul
       ticks: result.ticks,
       elapsedSec: Math.round(result.elapsedMs / 1000),
       ...(full ? { reportFile } : {}),
-      ...(result.reason === 'attention' && inline ? { tick: full } : {}),
+      ...(inline ? { tick: full } : {}),
     });
   if (result.reason === 'superseded') {
     console.log('다른 wait가 이어받아 이 wait는 끝났어요. 다시 띄우지 않아요');
