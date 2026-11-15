@@ -40,6 +40,7 @@ import { handleGraphVisualizePassthrough } from './tools/graph-visualize-passthr
 import { handleArchitecturePassthrough } from './tools/architecture-passthrough.js';
 import { handleResearchPassthrough } from './tools/research-passthrough.js';
 import { handleDigestPassthrough } from './tools/digest-passthrough.js';
+import { handlePrdPassthrough } from './tools/prd-passthrough.js';
 import { handleGenerateKb } from './tools/generate-kb.js';
 import { handlePr } from './tools/pr.js';
 import { handlePeer } from './tools/peer.js';
@@ -66,6 +67,8 @@ import {
   RESEARCH_ACTIONS,
   digestInputSchema,
   DIGEST_ACTIONS,
+  prdInputSchema,
+  PRD_ACTIONS,
 } from './schemas.js';
 import { PassthroughExecuteEngine } from '../execute/passthrough-engine.js';
 import { PassthroughAgentGenerator } from '../agent/passthrough-generator.js';
@@ -546,6 +549,17 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
     async (params) => {
       const input = digestInputSchema.parse(params);
       const result = handleDigestPassthrough(input, process.cwd());
+      return toolReply(JSON.stringify(result, null, 2));
+    },
+  );
+
+  guardedTool(
+    'ges_prd',
+    `PRD view helpers: read a PRD markdown with line numbers, validate a prd-view.json written from it (block vocabulary, source line ranges, text match against the source, uncovered lines), and render it as single-file HTML without calling an LLM. Results are kept under .gestalt/prd-view, or under outDir. Actions: ${PRD_ACTIONS.join(', ')}.`,
+    prdInputSchema.shape,
+    async (params) => {
+      const input = prdInputSchema.parse(params);
+      const result = handlePrdPassthrough(input, process.cwd());
       return toolReply(JSON.stringify(result, null, 2));
     },
   );

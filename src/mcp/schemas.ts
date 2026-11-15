@@ -1340,3 +1340,43 @@ export const digestInputSchema = guardObject(
 );
 
 export type DigestInput = z.infer<typeof digestInputSchema>;
+
+/** `ges_prd`가 받는 액션. view JSON은 인자로 받지 않고 세션이 쓴 파일을 slug나 viewPath로 읽는다 */
+export const PRD_ACTIONS = ['guide', 'source', 'validate', 'render'] as const;
+
+export const prdInputSchema = guardObject(
+  z.object({
+    action: z
+      .enum(PRD_ACTIONS)
+      .describe(
+        'guide: 블록 어휘와 규칙, 예시를 준다. source: 원문 PRD를 줄 번호를 붙여 400줄씩 돌려준다(nextFrom이 null이 될 때까지). validate: prd-view.json을 스키마와 원문 대조, 빠진 줄(coverage)로 검사한다. render: 검사를 통과한 뷰로 HTML 한 장을 만든다. 기본 위치는 .gestalt/prd-view/<slug>/index.html이고 outDir을 주면 그 폴더에 쓴다. LLM을 부르지 않는다',
+      ),
+    slug: z
+      .string()
+      .optional()
+      .describe('저장 폴더 이름. .gestalt/prd-view/<slug>/prd-view.json을 읽는다'),
+    viewPath: z
+      .string()
+      .optional()
+      .describe(
+        'validate, render: 저장소 밖에 쓴 prd-view.json 경로. render하면 저장소로 옮겨 둔다',
+      ),
+    sourcePath: z
+      .string()
+      .optional()
+      .describe('원문 PRD 마크다운 경로. validate와 render에서 비우면 view.meta.source를 쓴다'),
+    from: z.number().int().min(1).optional().describe('source: 시작 줄(1부터, 기본 1)'),
+    to: z.number().int().min(1).optional().describe('source: 끝 줄(기본 마지막 줄)'),
+    outDir: z
+      .string()
+      .optional()
+      .describe('render: index.html을 쓸 폴더. 상대 경로는 repoRoot 기준이다. 없으면 만든다'),
+    overwrite: z
+      .boolean()
+      .optional()
+      .describe('render: outDir에 PRD 뷰가 만들지 않은 index.html이 있어도 덮는다'),
+    repoRoot: z.string().optional().describe('기본은 현재 디렉토리'),
+  }),
+);
+
+export type PrdInput = z.infer<typeof prdInputSchema>;
