@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { createMcpServer } from '../../../src/mcp/server.js';
 import {
   DIGEST_ACTIONS,
+  PRD_ACTIONS,
   executeInputSchema,
   interviewInputSchema,
 } from '../../../src/mcp/schemas.js';
@@ -109,6 +110,14 @@ describe('등록 스키마와 schemas.ts의 action 목록', () => {
       const tool = tools['ges_digest'];
       expect(registeredActions(tool)).toEqual([...DIGEST_ACTIONS]);
       for (const action of DIGEST_ACTIONS) expect(tool?.description).toContain(action);
+    });
+  });
+
+  it('ges_prd는 PRD_ACTIONS와 같고 설명에도 전부 나온다', async () => {
+    await withTools('passthrough', (tools) => {
+      const tool = tools['ges_prd'];
+      expect(registeredActions(tool)).toEqual([...PRD_ACTIONS]);
+      for (const action of PRD_ACTIONS) expect(tool?.description).toContain(action);
     });
   });
 });

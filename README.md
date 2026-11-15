@@ -126,7 +126,7 @@ What you get:
 
 | Item | Details |
 |------|---------|
-| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_peer`, `ges_architecture`, `ges_research`, `ges_digest` — see the [MCP reference](./docs/mcp-reference.md) |
+| **MCP Tools** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_peer`, `ges_architecture`, `ges_research`, `ges_digest`, `ges_prd` — see the [MCP reference](./docs/mcp-reference.md) |
 | **Slash Commands** | Workflow skills — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send`, and more. Full list in [Skills](#skills) |
 | **Agents** | Pipeline agents, [role agents](#role-agents), and [review agents](#review-agents) |
 | **CLAUDE.md** | Project context and MCP usage guide auto-injected |
@@ -697,6 +697,7 @@ Each skill is a slash command in Claude Code. In Codex the same skill is `gestal
 | `/presentation` | Slide decks — `presentation-writer` writes the content and `presentation-designer` builds Reveal.js HTML |
 | `/video-digest` | Turn a YouTube video or a video file into a summary viewer where every bullet cites transcript sentences, with a table of contents, player, and a script that follows playback. Also exports Markdown. See [Video digest](./docs/video-digest.md) |
 | `/lens` | Read a paper PDF, web article, or podcast with a companion viewer. Every sentence cites the source page and paragraph, claims that disagree with the source's own tables get a doubt mark, and unverified parts are collected at the end. Adds prior-work cards, links to your own notes, and interactive figures drawn from the source tables. See [Reading lens](./docs/lens.md) |
+| `/prd-view` | Turn an existing PRD markdown into a single card-style HTML page. Sections follow the source, every block carries its source line range, and lines that never made it onto the page are reported. See [PRD view](./docs/prd-view.md) |
 | `/research` | Competitor research in one document: sources, products, screen captures, comparison, judgment, and open questions. Cells without evidence say "unconfirmed" instead of being filled in. See [Competitor research](./docs/research-pipeline.md) |
 | `/market-scan` | Survey the landscape of services that do the same job and pick reference candidates. Stops before screen capture and analysis |
 | `/screen-ref` | Collect only the competitor's screens. Builds a screen map, captures with personal data swapped for fake values, and stops before payment. No interpretation |
@@ -1026,6 +1027,7 @@ Claude Code (you)
 - [Choosing a skill](./docs/choosing-skills.md) — which skill to use when several look alike
 - [Competitor research](./docs/research-pipeline.md) — the five research skills and the order to run them
 - [Reading lens](./docs/lens.md) — paper, article, and podcast viewer with source citations
+- [PRD view](./docs/prd-view.md) — card-style HTML view of a PRD with source line ranges
 - [Video digest](./docs/video-digest.md) — YouTube or local video summary viewer with sourced bullets
 - [Local PR](./docs/local-pr.md) — in-repo pull requests for agent-to-agent review
 - [Conductor](./docs/conductor.md) — one session that takes orders across repos and drives workers to merge

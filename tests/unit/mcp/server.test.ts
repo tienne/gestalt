@@ -5,6 +5,7 @@ import { createMcpServer } from '../../../src/mcp/server.js';
 import {
   architectureInputSchema,
   digestInputSchema,
+  prdInputSchema,
   researchInputSchema,
 } from '../../../src/mcp/schemas.js';
 import type { GestaltConfig } from '../../../src/core/config.js';
@@ -49,6 +50,7 @@ const expectedPassthroughTools = [
   'ges_architecture',
   'ges_research',
   'ges_digest',
+  'ges_prd',
   'ges_generate_kb',
   'ges_search',
   'ges_sync',
@@ -148,6 +150,24 @@ describe('createMcpServer', () => {
         ?.shape;
       expect(Object.keys(registered ?? {}).sort()).toEqual(
         Object.keys(digestInputSchema.shape).sort(),
+      );
+    } finally {
+      eventStore.close();
+    }
+  });
+
+  it('ges_prd 등록 인자는 스키마 필드를 그대로 쓴다', async () => {
+    const { server, eventStore } = await createMcpServer({
+      dbPath: dbPath(),
+      llm: { apiKey: '', model: 'test-model' },
+    });
+
+    try {
+      const tool = registeredTools(server)['ges_prd'];
+      const registered = (tool?.inputSchema as { shape?: Record<string, unknown> } | undefined)
+        ?.shape;
+      expect(Object.keys(registered ?? {}).sort()).toEqual(
+        Object.keys(prdInputSchema.shape).sort(),
       );
     } finally {
       eventStore.close();

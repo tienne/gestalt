@@ -151,7 +151,7 @@ claude plugin install gestalt@gestalt
 
 | 항목 | 내용 |
 |------|------|
-| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_peer`, `ges_architecture`, `ges_research`, `ges_digest` — [MCP 레퍼런스](./docs/mcp-reference.md) 참고 |
+| **MCP 도구** | `ges_interview`, `ges_generate_spec`, `ges_execute`, `ges_create_agent`, `ges_agent`, `ges_status`, `ges_code_graph`, `ges_graph_visualize`, `ges_benchmark`, `ges_generate_kb`, `ges_search`, `ges_sync`, `ges_pr`, `ges_peer`, `ges_architecture`, `ges_research`, `ges_digest`, `ges_prd` — [MCP 레퍼런스](./docs/mcp-reference.md) 참고 |
 | **슬래시 커맨드** | 워크플로 스킬 — `/interview`, `/spec`, `/execute`, `/review`, `/pr`, `/brief`, `/jira-create`, `/slack-send` 등. 전체 목록은 [스킬](#스킬) |
 | **에이전트** | 파이프라인 에이전트, [Role 에이전트와 Review 에이전트](#6단계--code-review-코드-리뷰) |
 | **CLAUDE.md** | 프로젝트 컨텍스트 및 MCP 사용 가이드 자동 추가 |
@@ -649,6 +649,7 @@ Claude Code에서는 스킬마다 슬래시 커맨드로 불러요. Codex에서�
 | `/presentation` | 발표 자료를 만들어요. `presentation-writer`가 콘텐츠를 쓰고 `presentation-designer`가 Reveal.js HTML로 조립해요 |
 | `/video-digest` | 유튜브 영상이나 영상 파일로 요약 뷰어를 만들어요. 불릿마다 근거가 된 스크립트 문장이 달리고 목차와 플레이어, 재생 위치를 따라가는 스크립트가 붙어요. 마크다운으로도 내요. [영상 요약 뷰어](./docs/video-digest.md) 참고 |
 | `/lens` | 논문 PDF나 웹 글, 팟캐스트를 같이 읽어 주는 뷰어를 만들어요. 문장마다 원문 쪽과 문단 출처가 달리고 원문 표 숫자와 어긋나는 주장에는 의심 표시가, 끝에는 검증 안 된 부분이 붙어요. 선행 연구 카드와 내 노트 연결, 원문 표로 그린, 눌러 보면 바뀌는 그림도 붙여요. [읽기 렌즈](./docs/lens.md) 참고 |
+| `/prd-view` | 이미 있는 PRD 마크다운을 카드형 HTML 한 장으로 바꿔요. 섹션은 원문을 따르고 블록마다 원문 줄 범위가 달리며, 화면에 옮기지 못한 줄을 알려 줘요. [PRD 뷰](./docs/prd-view.md) 참고 |
 | `/research` | 경쟁사 조사부터 화면 캡처, 비교표, 판단, 열린 질문까지 한 문서로 내요. 근거 없는 칸은 채우지 않고 확인 못함으로 적어요. [경쟁사 리서치](./docs/research-pipeline.md) 참고 |
 | `/market-scan` | 같은 기능을 하는 서비스 지형을 훑어 레퍼런스 후보를 골라요. 화면 캡처와 분석은 하지 않아요 |
 | `/screen-ref` | 경쟁 서비스의 화면만 수집해요. 화면 지도를 만들고 개인정보를 가짜 값으로 바꿔 캡처하며 결제 직전에서 멈춰요. 해석은 쓰지 않아요 |
