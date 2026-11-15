@@ -179,7 +179,8 @@ export function readSeen(stateDir: string): Set<string> {
 /**
  * 호스트에 보여 준 문장을 남긴다. 고쳐지지 않는 오류 하나로 wait가 매번 바로 끝나지 않게 한다.
  * 이번 wait의 tick에서 한 번도 안 나온 문장은 뺀다. 고쳐졌다가 같은 문장으로 다시 나면 다음 wait가 호스트를 깨운다.
- * 한 wait 안에서 풀렸다가 다시 난 문장은 못 알아본다. 띄엄띄엄 실리는 오류로 매번 깨우지 않으려는 것이다
+ * 한 wait 안에서 풀렸다가 다시 난 문장은 못 알아본다. 띄엄띄엄 실리는 오류로 매번 깨우지 않으려는 것이다.
+ * 그 오류는 실리는 간격보다 오래 돈 wait에서만 남는다. 일찍 끝난 wait 뒤에는 다시 깨울 수 있다
  */
 export function writeSeen(
   stateDir: string,
