@@ -4,9 +4,11 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +18,7 @@ import {
   conductorDeployReportCommand,
   conductorGateListCommand,
   conductorGateResolveCommand,
+  conductorHandoffCommand,
   conductorOrderAddCommand,
   conductorOrderRemoveCommand,
   conductorOrderShowCommand,
@@ -23,6 +26,7 @@ import {
   conductorSlackDraftCommand,
   conductorStatusCommand,
   conductorTickCommand,
+  conductorWaitCommand,
   conductorWorkerReportCommand,
 } from '../../../src/cli/commands/conductor.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
@@ -465,6 +469,148 @@ describe('gestalt conductor', () => {
     expect(report.counts.openGates).toBe(1);
     expect(report.errors.some((e) => e.includes('broken.json'))).toBe(true);
     expect(readdirSync(dir)).toEqual(['failed']);
+  });
+
+  it('wait는 할 일 없는 tick엔 아무것도 출력하지 않다가 게이트가 열린 tick에서 그 게이트를 내고 끝난다', async () => {
+    const stateDir = tempStateDir();
+    const queueDir = join(stateDir, 'queue');
+    let sleeps = 0;
+    const outDuringIdle: number[] = [];
+    await conductorWaitCommand(
+      { stateDir, json: true, maxWaitSec: 1500, prWatch: false },
+      {
+        sleep: async () => {
+          if (sleeps > 5) throw new Error('게이트가 열렸는데 wait가 안 끝났어요');
+          outDuringIdle.push(out.length);
+          // 두 번 할 일 없이 돈 뒤에 꼴이 틀린 주문이 들어온다
+          if (++sleeps === 2) {
+            mkdirSync(queueDir, { recursive: true });
+            writeFileSync(join(queueDir, 'no-title.json'), JSON.stringify({ repo: 'acme/app' }));
+          }
+        },
+      },
+    );
+    expect(outDuringIdle).toEqual([0, 0]);
+    const r = last() as {
+      reason: string;
+      reasons: string[];
+      ticks: number;
+      tick: { counts: { openGates: number } };
+    };
+    expect(r.reason).toBe('attention');
+    expect(r.reasons).toEqual(['gatesOpened']);
+    expect(r.ticks).toBe(3);
+    expect(r.tick.counts.openGates).toBe(1);
+    expect(existsSync(join(stateDir, 'wait-last.json'))).toBe(true);
+    // 표식은 끝날 때 지우지 않고 다음 wait가 덮어쓴다
+    expect(existsSync(join(stateDir, 'wait.owner'))).toBe(true);
+  });
+
+  it('wait는 상한 시간이 지나면 할 일이 없어도 한 줄만 내고 끝난다', async () => {
+    const stateDir = tempStateDir();
+    let t = 0;
+    await conductorWaitCommand(
+      { stateDir, maxWaitSec: 120, prWatch: false },
+      { now: () => t, sleep: async (ms) => void (t += ms) },
+    );
+    expect(out).toEqual(['할 일 없이 2분 지나 끝났어요(tick 3번). 다시 띄워 주세요']);
+  });
+
+  it('wait는 상한으로 끝나면 보고서 파일을 안 쓰고 JSON에도 경로를 안 싣는다', async () => {
+    const stateDir = tempStateDir();
+    let t = 0;
+    await conductorWaitCommand(
+      { stateDir, json: true, maxWaitSec: 60, prWatch: false },
+      { now: () => t, sleep: async (ms) => void (t += ms) },
+    );
+    const r = last() as Record<string, unknown>;
+    expect(r.reason).toBe('timeout');
+    expect(r).not.toHaveProperty('reportFile');
+    expect(r).not.toHaveProperty('tick');
+    expect(existsSync(join(stateDir, 'wait-last.json'))).toBe(false);
+  });
+
+  it('wait는 사람이 읽는 출력에서 끝난 이유와 tick 결과를 내고 길면 파일 경로만 낸다', async () => {
+    const stateDir = tempStateDir();
+    const queueDir = join(stateDir, 'queue');
+    mkdirSync(queueDir, { recursive: true });
+    writeFileSync(join(queueDir, 'broken.json'), '{"repo"');
+    await conductorWaitCommand({ stateDir, maxWaitSec: 60, prWatch: false });
+    expect(out[0]).toMatch(/^할 일이 생겨 끝났어요: errors/);
+    expect(out.some((l) => l.includes('broken.json'))).toBe(true);
+
+    // 못 읽는 파일 이름이 오류 문장마다 실려 결과가 6000자를 넘는다
+    out.length = 0;
+    for (let i = 0; i < 40; i++)
+      writeFileSync(join(queueDir, `${'x'.repeat(200)}-${i}.json`), '{"repo"');
+    await conductorWaitCommand({ stateDir, maxWaitSec: 60, prWatch: false });
+    expect(out.at(-1)).toMatch(/^결과가 길어 파일로 뒀어요: .*wait-last\.json$/);
+    expect(existsSync(join(stateDir, 'wait-last.json'))).toBe(true);
+  });
+
+  it('wait는 다른 wait가 이어받으면 앞선 보고서와 본 목록을 건드리지 않고 끝난다', async () => {
+    const stateDir = tempStateDir();
+    const reportFile = join(stateDir, 'wait-last.json');
+    writeFileSync(reportFile, '{"이어받은 wait":"보고서"}');
+    let sleeps = 0;
+    await conductorWaitCommand(
+      { stateDir, json: true, maxWaitSec: 1500, queue: false, prWatch: false },
+      {
+        sleep: async () => {
+          if (++sleeps > 1) throw new Error('표식을 뺏겼는데 tick을 더 돌렸어요');
+          // 시작할 때 표식을 덮어쓰므로 도는 중에 바꿔야 이어받은 상황이 된다
+          writeFileSync(join(stateDir, 'wait.owner'), 'other:token');
+        },
+      },
+    );
+    const r = last();
+    expect(r.reason).toBe('superseded');
+    expect(r).not.toHaveProperty('reportFile');
+    expect(r).not.toHaveProperty('tick');
+    expect(readFileSync(reportFile, 'utf-8')).toBe('{"이어받은 wait":"보고서"}');
+    expect(existsSync(join(stateDir, 'wait-seen.json'))).toBe(false);
+  });
+
+  it('wait가 도는 사이 인계하면 다음 tick에서 거절해 끝난다', async () => {
+    const stateDir = tempStateDir();
+    vi.stubEnv('CLAUDE_CODE_SESSION_ID', randomUUID());
+    vi.stubEnv('GESTALT_CONDUCTOR_WORKER_ID', '');
+    const notesFile = join(stateDir, 'notes.md');
+    writeFileSync(notesFile, '- 대화에서 정한 규칙');
+    let sleeps = 0;
+    try {
+      await expect(
+        conductorWaitCommand(
+          { stateDir, json: true, maxWaitSec: 1500, queue: false, prWatch: false },
+          {
+            sleep: async () => {
+              if (++sleeps > 1) throw new Error('인계했는데 tick을 더 돌렸어요');
+              await conductorHandoffCommand({ stateDir, json: true, notesFile, launch: false });
+            },
+          },
+        ),
+      ).rejects.toThrow('exit 1');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(sleeps).toBe(1);
+    expect(err.at(-1)).toContain('인계했어요');
+  });
+
+  it('wait는 상한을 넘는 --max-wait-sec을 거절한다', async () => {
+    const stateDir = tempStateDir();
+    await expect(conductorWaitCommand({ stateDir, maxWaitSec: 1501 })).rejects.toThrow('exit 1');
+    expect(err.at(-1)).toContain('1~1500');
+  });
+
+  it('wait는 워커 워크트리 안이면 거절한다', async () => {
+    const stateDir = tempStateDir();
+    vi.stubEnv('GESTALT_CONDUCTOR_WORKER_ID', 'wrk-1');
+    try {
+      await expect(conductorWaitCommand({ stateDir, maxWaitSec: 60 })).rejects.toThrow('exit 1');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('tick은 prWatchRepos에 있는데 repoPaths에 없는 레포를 오류로 알리고 --no-pr-watch면 조용하다', async () => {

@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { loadConfig } from '../../core/config.js';
+import { loadConfig, WAIT_MAX_SEC_LIMIT } from '../../core/config.js';
+import { writeJsonAtomic } from '../../core/json-file.js';
 import { gestaltPath } from '../../core/home.js';
 import {
   fileDeploySource,
@@ -89,6 +90,17 @@ import {
 } from '../../conductor/handoff-close.js';
 import type { ConductorConfig } from '../../conductor/scheduler.js';
 import { draftSlack } from '../../conductor/slack.js';
+import {
+  claimWaitOwner,
+  readSeen,
+  shownLines,
+  WAIT_REPORT_FILE,
+  waitForAttention,
+  writeSeen,
+  type WaitLoopDeps,
+  type WaitResult,
+  type WaitTickOutcome,
+} from '../../conductor/wait.js';
 import { ConductorStore } from '../../conductor/store.js';
 import {
   INTAKE_KINDS,
@@ -540,75 +552,193 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'tick');
-    const sessionId = currentSessionId();
-    if (sessionId) {
-      assertNotHandedOff(ctx, sessionId);
-      if (registerSession(ctx.store.dir, sessionId, process.cwd(), new Date())) {
-        await nameTabOnce();
-      }
-    }
-    if (sessionId) handoffClose = await closePreviousTabs(ctx, sessionId);
-    const deferred: HostAction[] = [];
-    const watch =
-      opts.prWatch !== false
-        ? prWatchTargets(ctx.config.prWatchRepos, ctx.config.repoPaths)
-        : undefined;
-    // 토큰과 로그인 계정 캐시를 PR 감시와 계정 맞추기가 tick 하나 동안 함께 쓴다
-    const gh = new GhAccounts(ctx.config.accounts);
-    const prSource =
-      watch && Object.keys(watch.repoPaths).length > 0
-        ? new GhPrWatchSource({ repoPaths: watch.repoPaths, accounts: gh })
-        : undefined;
-    const queue = opts.queue !== false ? fileQueue(queueDirOf(ctx)) : undefined;
-    const deps: EngineDeps = {
-      config: ctx.config,
-      ...launchersFor(ctx, process.env),
-      jira: hostJiraClient(deferred),
-      slack: hostSlackClient(deferred),
-      deploy: fileDeploySource(join(ctx.store.dir, 'deploy')),
-      ...(prSource ? { prSource } : {}),
-      prState: new GhPrStateSource({ accounts: gh }),
-      ...(queue ? { queue } : {}),
-      ...(Object.keys(ctx.config.accounts).length > 0
-        ? { accounts: new GhAccountSwitcher({ accounts: gh }) }
-        : {}),
-    };
-    const report = await tick(ctx.store, deps, { force: opts.force === true });
-    report.hostActions.push(...deferred);
-    // 건너뛴 tick은 감시를 안 돌았다. 경로 누락 오류를 붙이면 출력이 그걸 건너뛴 이유로 보여 준다
-    if (!report.skipped) report.errors.push(...(queue?.errors ?? []), ...(watch?.errors ?? []));
-    for (const repo of prSource?.truncatedRepos ?? [])
-      report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
-    const handoff = sessionId ? sessionHandoff(ctx, sessionId) : undefined;
-    if (opts.json)
-      return print({
-        ...report,
-        ...(handoff ? { handoff } : {}),
-        ...(handoffClose.length > 0 ? { handoffClose } : {}),
-      });
-    const handoffLine = handoffNotice(handoff);
-    if (report.skipped) {
-      console.log(`건너뛰었어요${report.errors[0] ? `: ${report.errors[0]}` : ' (감시 간격 안)'}`);
-      for (const r of handoffClose) console.log(handoffCloseLine(r));
-      if (handoffLine) console.log(handoffLine);
-      return;
-    }
-    const c = report.counts;
-    console.log(
-      `대기 ${c.queued}, 진행 ${c.running}, 게이트 ${c.openGates}, 새 주문 ${report.created.length}, 띄움 ${report.launched.length}`,
-    );
-    for (const a of report.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
-    for (const l of report.rateLimited) console.log(`${l.orderId} ${rateLimitLine(l)}`);
-    for (const h of report.humanOwned) console.log(humanOwnedLine(h));
-    for (const w of report.warnings) console.log(`경고: ${w}`);
-    for (const e of report.errors) console.log(`오류: ${e}`);
-    if (report.idleTicks > 0) console.log(`변화 없는 tick ${report.idleTicks}번째`);
-    for (const r of handoffClose) console.log(handoffCloseLine(r));
-    if (handoffLine) console.log(handoffLine);
+    const sessionId = await enterTickSession(ctx);
+    const outcome = await runConductorTick(ctx, opts, sessionId, (r) => (handoffClose = r));
+    if (opts.json) return print(tickJson(outcome));
+    printTickLines(outcome);
   } catch (e) {
     for (const r of handoffClose) console.error(handoffCloseLine(r));
     exitWithError(e);
   }
+}
+
+/** 인계한 세션이면 거절하고 처음 보는 세션이면 등록해 탭 이름을 붙인다. 세션 id를 돌려준다 */
+async function enterTickSession(ctx: Ctx): Promise<string | undefined> {
+  const sessionId = currentSessionId();
+  if (!sessionId) return undefined;
+  // 등록과 탭 이름 붙이기 전에 거절한다. 인계한 세션이 자기를 새 세션으로 다시 올리면 안 된다
+  assertNotHandedOff(ctx, sessionId);
+  if (registerSession(ctx.store.dir, sessionId, process.cwd(), new Date())) await nameTabOnce();
+  return sessionId;
+}
+
+/** tick 한 번. tick 명령과 wait가 함께 쓴다. onClose는 tick 본문이 던져도 닫기 결과를 남기게 한다 */
+async function runConductorTick(
+  ctx: Ctx,
+  opts: Pick<ConductorTickOptions, 'force' | 'prWatch' | 'queue'>,
+  sessionId: string | undefined,
+  onClose: (r: HandoffCloseResult[]) => void = () => {},
+): Promise<WaitTickOutcome> {
+  // wait가 도는 사이 인계했으면 다음 tick에서 거절해 wait를 끝낸다
+  if (sessionId) assertNotHandedOff(ctx, sessionId);
+  const handoffClose = sessionId ? await closePreviousTabs(ctx, sessionId) : [];
+  onClose(handoffClose);
+  const deferred: HostAction[] = [];
+  const watch =
+    opts.prWatch !== false
+      ? prWatchTargets(ctx.config.prWatchRepos, ctx.config.repoPaths)
+      : undefined;
+  // 토큰과 로그인 계정 캐시를 PR 감시와 계정 맞추기가 tick 하나 동안 함께 쓴다.
+  // wait도 tick마다 새로 만든다. 길게 들고 있으면 그사이 gh auth switch로 바뀐 계정을 못 본다
+  const gh = new GhAccounts(ctx.config.accounts);
+  const prSource =
+    watch && Object.keys(watch.repoPaths).length > 0
+      ? new GhPrWatchSource({ repoPaths: watch.repoPaths, accounts: gh })
+      : undefined;
+  const queue = opts.queue !== false ? fileQueue(queueDirOf(ctx)) : undefined;
+  const deps: EngineDeps = {
+    config: ctx.config,
+    ...launchersFor(ctx, process.env),
+    jira: hostJiraClient(deferred),
+    slack: hostSlackClient(deferred),
+    deploy: fileDeploySource(join(ctx.store.dir, 'deploy')),
+    ...(prSource ? { prSource } : {}),
+    prState: new GhPrStateSource({ accounts: gh }),
+    ...(queue ? { queue } : {}),
+    ...(Object.keys(ctx.config.accounts).length > 0
+      ? { accounts: new GhAccountSwitcher({ accounts: gh }) }
+      : {}),
+  };
+  const report = await tick(ctx.store, deps, { force: opts.force === true });
+  report.hostActions.push(...deferred);
+  // 건너뛴 tick은 감시를 안 돌았다. 경로 누락 오류를 붙이면 출력이 그걸 건너뛴 이유로 보여 준다
+  if (!report.skipped) report.errors.push(...(queue?.errors ?? []), ...(watch?.errors ?? []));
+  for (const repo of prSource?.truncatedRepos ?? [])
+    report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
+  const handoff = sessionId ? sessionHandoff(ctx, sessionId) : undefined;
+  return { report, ...(handoff ? { handoff } : {}), handoffClose };
+}
+
+function tickJson(o: WaitTickOutcome): Record<string, unknown> {
+  return {
+    ...o.report,
+    ...(o.handoff ? { handoff: o.handoff } : {}),
+    ...(o.handoffClose.length > 0 ? { handoffClose: o.handoffClose } : {}),
+  };
+}
+
+function printTickLines({ report, handoff, handoffClose }: WaitTickOutcome): void {
+  const handoffLine = handoffNotice(handoff);
+  if (report.skipped) {
+    console.log(`건너뛰었어요${report.errors[0] ? `: ${report.errors[0]}` : ' (감시 간격 안)'}`);
+    for (const r of handoffClose) console.log(handoffCloseLine(r));
+    if (handoffLine) console.log(handoffLine);
+    return;
+  }
+  const c = report.counts;
+  console.log(
+    `대기 ${c.queued}, 진행 ${c.running}, 게이트 ${c.openGates}, 새 주문 ${report.created.length}, 띄움 ${report.launched.length}`,
+  );
+  for (const a of report.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
+  for (const l of report.rateLimited) console.log(`${l.orderId} ${rateLimitLine(l)}`);
+  for (const h of report.humanOwned) console.log(humanOwnedLine(h));
+  for (const w of report.warnings) console.log(`경고: ${w}`);
+  for (const e of report.errors) console.log(`오류: ${e}`);
+  if (report.idleTicks > 0) console.log(`변화 없는 tick ${report.idleTicks}번째`);
+  for (const r of handoffClose) console.log(handoffCloseLine(r));
+  if (handoffLine) console.log(handoffLine);
+}
+
+export interface ConductorWaitOptions extends ConductorTickOptions {
+  maxWaitSec?: number;
+}
+
+/** 출력이 이 글자 수를 넘으면 tick 결과 전체는 파일로 두고 경로만 싣는다 */
+const WAIT_INLINE_MAX = 6000;
+
+/**
+ * 할 일이 생길 때까지 tick을 감시 간격마다 돌린다. 지휘자 세션이 백그라운드로 띄우고 끝나면 결과만 처리한다.
+ * 할 일 없는 tick은 출력하지 않는다. 상한 시간이 지나면 할 일이 없어도 한 줄 남기고 끝난다.
+ */
+export async function conductorWaitCommand(
+  opts: ConductorWaitOptions,
+  loop: Partial<Pick<WaitLoopDeps, 'sleep' | 'now'>> = {},
+): Promise<void> {
+  // tick 명령과 같다. 닫기 결과는 handoff.json에 기록되면 다시 안 실려서 tick이 던져도 stderr로 남긴다
+  let handoffClose: HandoffCloseResult[] = [];
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'wait');
+    const maxWaitSec = opts.maxWaitSec ?? ctx.config.waitMaxSec;
+    if (!Number.isInteger(maxWaitSec) || maxWaitSec < 1 || maxWaitSec > WAIT_MAX_SEC_LIMIT)
+      throw new Error(`--max-wait-sec는 1~${WAIT_MAX_SEC_LIMIT} 사이의 정수여야 해요`);
+    const sessionId = await enterTickSession(ctx);
+    const owner = claimWaitOwner(ctx.store.dir);
+    const seen = readSeen(ctx.store.dir);
+    const result = await waitForAttention(
+      {
+        // 간격은 wait가 직접 잰다. 시계 하한에 맡기면 호스트가 방금 돌린 tick 때문에 첫 주기를 통째로 건너뛴다
+        runTick: async () => {
+          handoffClose = [];
+          return runConductorTick(
+            ctx,
+            { ...opts, force: true },
+            sessionId,
+            (r) => (handoffClose = r),
+          );
+        },
+        sleep: loop.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+        now: loop.now ?? (() => Date.now()),
+        stillOwner: owner.stillOwner,
+        seen,
+        openGatesBefore: ctx.store.openGates().length,
+      },
+      { maxWaitMs: maxWaitSec * 1000, intervalMs: ctx.config.pollIntervalSec * 1000 },
+    );
+    // superseded는 이어받은 wait가 본 목록을 맡는다. 건너뛴 tick뿐이었으면 무엇이 풀렸는지 몰라 그대로 둔다
+    if (result.reason !== 'superseded' && result.observed) {
+      const shown = result.reason === 'attention' && result.last ? shownLines(result.last) : [];
+      writeSeen(ctx.store.dir, seen, result.observed, shown);
+    }
+    printWaitResult(ctx, opts, result);
+  } catch (e) {
+    for (const r of handoffClose) console.error(handoffCloseLine(r));
+    exitWithError(e);
+  }
+}
+
+function printWaitResult(ctx: Ctx, opts: ConductorWaitOptions, result: WaitResult): void {
+  const minutes = Math.round(result.elapsedMs / 60_000);
+  const reportFile = join(ctx.store.dir, WAIT_REPORT_FILE);
+  // attention일 때만 쓴다. superseded로 끝난 앞선 wait가 이어받은 wait의 보고서를 덮지 않게 한다
+  const full = result.reason === 'attention' && result.last ? tickJson(result.last) : undefined;
+  if (full) writeJsonAtomic(reportFile, full, { mode: 0o600 });
+  const inline = full !== undefined && JSON.stringify(full).length <= WAIT_INLINE_MAX;
+  if (opts.json)
+    return print({
+      reason: result.reason,
+      reasons: result.reasons,
+      ticks: result.ticks,
+      elapsedSec: Math.round(result.elapsedMs / 1000),
+      ...(full ? { reportFile } : {}),
+      ...(inline ? { tick: full } : {}),
+    });
+  if (result.reason === 'superseded') {
+    console.log('다른 wait가 이어받아 이 wait는 끝났어요. 다시 띄우지 않아요');
+    return;
+  }
+  if (result.reason === 'timeout') {
+    console.log(`할 일 없이 ${minutes}분 지나 끝났어요(tick ${result.ticks}번). 다시 띄워 주세요`);
+    return;
+  }
+  console.log(
+    `할 일이 생겨 끝났어요: ${result.reasons.join(', ')} (tick ${result.ticks}번, ${minutes}분)`,
+  );
+  if (!inline) {
+    console.log(`결과가 길어 파일로 뒀어요: ${reportFile}`);
+    return;
+  }
+  printTickLines(result.last!);
 }
 
 const HUMAN_OWNED_TO: Record<HumanOwnedChange['to'], string> = {
