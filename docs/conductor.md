@@ -109,7 +109,45 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
 
 ### 반복 돌리기
 
-스킬은 사람이 멈추라고 하거나 [세션 인계](#세션-인계)를 마칠 때까지 tick → hostActions → 확인 자리 점검을 반복한다. Claude Code에서는 스킬을 처음 부르면 첫 tick을 돌린 뒤 세션이 loop 스킬을 직접 불러 아래와 같은 반복을 간격 없이 건다. 간격을 비우면 세션이 간격을 스스로 정한다.
+스킬은 사람이 멈추라고 하거나 [세션 인계](#세션-인계)를 마칠 때까지 tick → hostActions → 확인 자리 점검을 반복한다. 감시 방식은 호스트가 주는 도구로 고른다.
+
+| 호스트 | 감시 방식 |
+|---|---|
+| 백그라운드 명령이 끝날 때 알림이 오는 호스트(Claude Code) | `gestalt conductor wait`를 백그라운드로 띄운다 |
+| 그런 도구는 없고 `/loop`이 있는 호스트 | loop 반복을 건다 |
+| 둘 다 없는 호스트(Codex, Grok 등) | 걸지 않고 사람이 다시 돌려 달라고 할 때 tick을 돈다 |
+
+#### 백그라운드 wait
+
+```bash
+gestalt conductor wait --json          # 상한은 설정의 waitMaxSec(기본 1500초)
+gestalt conductor wait --max-wait-sec 600
+```
+
+wait는 `pollIntervalSec`마다 tick을 돌리다가 호스트가 판단할 일이 생긴 tick에서만 결과를 내고 끝난다. 지휘자 세션은 Bash 도구의 백그라운드 실행으로 띄우고 차례를 끝낸다. 명령이 끝나면 호스트가 알림으로 세션을 깨우고 세션은 그 출력만 처리한 뒤 다시 띄운다.
+
+loop 반복과 비교하면 할 일 없는 주기에 세션이 아예 안 깨어난다. loop는 깨어날 때마다 반복 문장과 tick 출력, 판단이 대화에 쌓였고 할 일이 없어도 같았다. wait는 할 일 없는 tick을 출력 없이 넘기니 대화에 쌓이는 건 끝났을 때의 짧은 결과 하나뿐이다. `tests/unit/conductor/cli.test.ts`의 wait 테스트가 할 일 없는 tick 동안 출력이 한 줄도 없다는 걸 확인한다.
+
+끝나는 이유는 `reason`에 실린다.
+
+| reason | 뜻 | 세션이 할 일 |
+|---|---|---|
+| `attention` | 호스트 할 일, 새 게이트, 사람 담당 PR 변화, 처음 보는 오류나 경고, 인계, 이전 탭 닫기 결과가 생겼다. 어떤 칸 때문인지는 `reasons`에 있다 | `tick`(tick JSON과 같은 꼴)을 처리하고 다시 띄운다 |
+| `timeout` | 상한 동안 할 일이 없었다. 세션이 살아 있는지 확인할 기회를 준다 | 보고 없이 다시 띄운다 |
+| `superseded` | 더 나중에 띄운 wait가 이어받았다 | 다시 띄우지 않는다 |
+
+- 출력은 호스트가 바로 처리할 만큼만 싣는다. tick 결과가 6000자를 넘으면 `tick`을 빼고 `reportFile`(상태 저장소의 `wait-last.json`) 경로만 싣는다. 이 파일은 끝날 때마다 덮어쓴다.
+- 접수 단계(지라, 큐, PR 감시)가 연 게이트는 tick의 `escalated`에 안 실린다. wait는 띄울 때 열려 있던 게이트 수보다 늘었으면 `gatesOpened`로 끝난다.
+- 이미 보여 준 오류와 경고는 상태 저장소의 `wait-seen.json`에 남긴다. 고쳐지지 않는 오류 하나 때문에 wait가 띄우자마자 끝나는 일을 막는다. 다른 이유로 끝나면 그 오류도 함께 실린다.
+- 세션 한도 대기(`rateLimited`)는 풀릴 때까지 tick마다 실려서 이유로 안 친다. 오래가면 tick이 게이트로 올린다.
+- tick은 기존 잠금(`tick.lock`)을 그대로 쓴다. wait가 도는 중에 사람이 시켜 `tick --force`를 돌려도 둘이 겹쳐 돌지 않는다. 간격은 wait가 직접 재고 tick은 `--force`로 부른다. 시계 하한에 맡기면 호스트가 방금 돌린 tick 때문에 첫 주기를 통째로 건너뛴다.
+- wait는 뜰 때 상태 저장소의 `wait.owner`에 자기 표식을 쓴다. 컴팩트 뒤 중복으로 띄웠거나 닫힌 세션에 wait가 남아 있어도 다음 tick 앞에서 표식이 바뀐 걸 보고 `superseded`로 끝난다. 닫힌 세션에 남은 wait가 tick을 계속 돌리면 hostActions를 아무도 못 받기 때문이다.
+- 상한 기본값이 1500초인 건 Claude Code 백그라운드 명령의 기본 제한 시간(30분)보다 짧게 두려는 것이다. 스킬은 `timeout: 1800000`으로 띄운다. 레포 `gestalt.json`에서도 바꿀 수 있다.
+- 인계한 세션의 wait는 다음 tick이 거절돼 실패로 끝난다.
+
+#### loop 반복
+
+백그라운드 알림이 없는 호스트에서는 첫 tick을 돌린 뒤 세션이 loop 스킬을 직접 불러 아래와 같은 반복을 간격 없이 건다. 간격을 비우면 세션이 간격을 스스로 정한다.
 
 ```text
 /loop 컨덕터 tick: 맥락에 있는 gestalt:conductor 스킬의 깨어날 때마다 절차대로 gestalt conductor tick --json 돌리고 hostActions 처리, 반복은 다시 걸지 않음
@@ -127,11 +165,11 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
 
 직접 `/loop`으로 시작해도 된다. 그때는 스킬이 반복을 더 걸지 않는다. `pollIntervalSec` 안에 다시 부른 tick은 `skipped: true`로 바로 끝나서 자주 불러도 토큰이 거의 안 든다. 멈추려면 멈추라고 말한다. 세션에 남은 `ScheduleWakeup`과 컨덕터 크론을 함께 끈다.
 
-`/loop`이 없는 호스트(Codex, Grok 등)에서는 반복을 걸지 않고 안내만 한다. 다시 돌려 달라고 그때그때 말하거나 그 호스트의 반복 기능을 쓴다. 호스트마다 반복 기능이 어떻게 동작하는지는 아직 확인하지 않았다.
+`/loop`도 백그라운드 알림도 없는 호스트(Codex, Grok 등)에서는 감시를 걸지 않고 안내만 한다. 다시 돌려 달라고 그때그때 말하거나 그 호스트의 반복 기능을 쓴다. 호스트마다 반복 기능이 어떻게 동작하는지는 아직 확인하지 않았다.
 
 ### 세션 인계
 
-컨덕터 세션은 컴팩트를 한 번까지만 허용한다. 두 번째 컴팩트가 오기 전에 새 세션을 띄워 대화에만 있던 맥락을 넘기고 기존 세션은 반복을 멈춘다. 진행 상태는 이미 저장소에 들어 있으니 다시 쓰지 않는다.
+컨덕터 세션은 컴팩트를 한 번까지만 허용한다. 두 번째 컴팩트가 오기 전에 새 세션을 띄워 대화에만 있던 맥락을 넘기고 기존 세션은 감시(wait나 반복)를 멈춘다. 진행 상태는 이미 저장소에 들어 있으니 다시 쓰지 않는다.
 
 1. **세션 등록.** Claude Code에서 `gestalt conductor tick`을 부르면 Bash 환경의 `CLAUDE_CODE_SESSION_ID`로 이 세션을 상태 저장소의 `sessions/<세션 id>/`에 등록한다. 이 디렉토리가 있는 세션만 컨덕터 세션으로 본다.
 2. **컴팩트 세기.** 플러그인 훅 `scripts/conductor-compact-hook.sh`가 `SessionStart`의 `compact` 시작(자동과 수동 둘 다)에 걸린다. 등록된 세션이면 `sessions/<세션 id>/compactions`의 횟수를 하나 올리고 훅 입력의 `transcript_path`를 같이 적는다. 그리고 컴팩트 뒤 맥락에 "컨덕터 세션이고 N번째 컴팩트"라는 한 줄을 붙인다. 등록 안 된 세션은 아무것도 안 쓰고 끝난다. 훅은 bash와 cat, mv로만 돌고 Node를 띄우지 않는다.
@@ -298,7 +336,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 8. **슬랙**: 승인된 초안을 `slack-post`로 넘긴다.
 9. **정리**: 끝난 워커를 거둔다. git 워커는 워크트리를 지우고 오르카 워커는 터미널만 거둔다. `removeMergedOrcaWorktrees`를 켜면 머지된 주문의 오르카 워크트리까지 지운다. 규칙은 [워커 정리](#워커-정리)에 있다.
 
-`pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝나서 상태를 자주 물어도 토큰이 늘지 않는다. 응답에는 숫자와 할 일만 담는다.
+`pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝나서 상태를 자주 물어도 토큰이 늘지 않는다. 응답에는 숫자와 할 일만 담는다. 감시 주기마다 tick을 돌리고 할 일이 생겼을 때만 깨우는 건 [`wait`](#백그라운드-wait)가 한다.
 
 ## 워커 종류 고르기
 
@@ -636,3 +674,4 @@ tick은 메시지를 이렇게 처리한다.
 - 실제 컴팩트 직후 트랜스크립트 마지막 응답의 usage가 줄어든 크기로 바로 잡히는지
 - gh `pr list --json`의 `reviews[].commit.oid`와 `comments[].id`
 - 지라 전환 이름이 프로젝트마다 다를 때 호스트가 고르는 전환
+- 지휘자 탭이 닫힐 때 Claude Code가 백그라운드로 띄운 `conductor wait`를 함께 끝내는지. 안 끝나도 새 wait가 뜨면 `superseded`로 끝나고 인계한 세션의 wait는 tick 거절로 끝난다
