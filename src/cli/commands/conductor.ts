@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadConfig, WAIT_MAX_SEC_LIMIT } from '../../core/config.js';
@@ -39,11 +39,19 @@ import {
   resolveHandoffModel,
   launchHandoff,
   readHandoffRecord,
+  readSessionRegisteredAt,
   recordHandoff,
   registerSession,
   writeHandoffFile,
   type HandoffStatus,
 } from '../../conductor/handoff.js';
+import {
+  findActiveConductor,
+  readSupersededRecord,
+  supersededRecordPath,
+  supersedeOthers,
+  touchSessionTick,
+} from '../../conductor/session-owner.js';
 import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
 import { resolveGate } from '../../conductor/gates.js';
 import {
@@ -530,6 +538,7 @@ function rateLimitLine(e: RateLimitedEntry): string {
 
 export interface ConductorTickOptions extends ConductorCommonOptions {
   force?: boolean;
+  takeOver?: boolean;
   prWatch?: boolean;
   queue?: boolean;
 }
@@ -552,7 +561,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'tick');
-    const sessionId = await enterTickSession(ctx);
+    const sessionId = await enterTickSession(ctx, opts.takeOver === true);
     const outcome = await runConductorTick(ctx, opts, sessionId, (r) => (handoffClose = r));
     if (opts.json) return print(tickJson(outcome));
     printTickLines(outcome);
@@ -562,14 +571,48 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
   }
 }
 
-/** 인계한 세션이면 거절하고 처음 보는 세션이면 등록해 탭 이름을 붙인다. 세션 id를 돌려준다 */
-async function enterTickSession(ctx: Ctx): Promise<string | undefined> {
+/**
+ * 인계했거나 넘겨받힌 세션이면 거절하고 처음 보는 세션이면 등록해 탭 이름을 붙인다. 세션 id를 돌려준다.
+ * 다른 탭에서 주문만 넣으려다 컨덕터가 둘이 되지 않도록, 처음 등록하는 세션은 최근에 tick을 돌린
+ * 다른 컨덕터 세션이 있으면 거절한다. takeOver면 그 세션을 넘겨받는다.
+ */
+async function enterTickSession(ctx: Ctx, takeOver: boolean): Promise<string | undefined> {
   const sessionId = currentSessionId();
   if (!sessionId) return undefined;
+  const dir = ctx.store.dir;
+  if (takeOver) rmSync(supersededRecordPath(dir, sessionId), { force: true });
   // 등록과 탭 이름 붙이기 전에 거절한다. 인계한 세션이 자기를 새 세션으로 다시 올리면 안 된다
-  assertNotHandedOff(ctx, sessionId);
-  if (registerSession(ctx.store.dir, sessionId, process.cwd(), new Date())) await nameTabOnce();
+  assertStillConductor(ctx, sessionId);
+  const now = new Date();
+  const registered = readSessionRegisteredAt(dir, sessionId) !== undefined;
+  if (!registered && !takeOver) {
+    const active = findActiveConductor(
+      dir,
+      sessionId,
+      now.getTime(),
+      activeConductorWindowMs(ctx.config),
+    );
+    if (active) {
+      throw new Error(
+        `다른 컨덕터 세션이 돌고 있어요(세션 ${active.sessionId}${active.cwd ? `, ${active.cwd}` : ''}, 마지막 tick ${active.lastTickAt}). 이 세션은 컨덕터로 등록하지 않았어요. 주문만 넣으려면 order add를 쓰면 그 세션이 다음 tick에 받아요. 그 세션이 닫힌 게 맞으면 tick --take-over로 넘겨받아요`,
+      );
+    }
+  }
+  const isNew = registerSession(dir, sessionId, process.cwd(), now);
+  if (isNew || takeOver) {
+    for (const id of supersedeOthers(dir, sessionId, now))
+      console.error(`컨덕터 세션 ${id}를 넘겨받았어요. 그 세션의 tick은 이제 거절돼요`);
+  }
+  if (isNew) await nameTabOnce();
   return sessionId;
+}
+
+/**
+ * 다른 세션이 살아 있는 컨덕터인지 보는 기한. 반복이 한가할 때 깨우는 간격이 staleAfterSec 근처까지
+ * 늘어나서 그 두 배를 쓴다. 이보다 오래 tick이 없었으면 닫힌 세션으로 보고 새 세션이 넘겨받는다
+ */
+function activeConductorWindowMs(config: ConductorConfig): number {
+  return config.staleAfterSec * 2 * 1000;
 }
 
 /** tick 한 번. tick 명령과 wait가 함께 쓴다. onClose는 tick 본문이 던져도 닫기 결과를 남기게 한다 */
@@ -579,8 +622,11 @@ async function runConductorTick(
   sessionId: string | undefined,
   onClose: (r: HandoffCloseResult[]) => void = () => {},
 ): Promise<WaitTickOutcome> {
-  // wait가 도는 사이 인계했으면 다음 tick에서 거절해 wait를 끝낸다
-  if (sessionId) assertNotHandedOff(ctx, sessionId);
+  // wait가 도는 사이 인계했거나 다른 세션이 넘겨받았으면 다음 tick에서 거절해 wait를 끝낸다
+  if (sessionId) {
+    assertStillConductor(ctx, sessionId);
+    touchSessionTick(ctx.store.dir, sessionId, new Date());
+  }
   const handoffClose = sessionId ? await closePreviousTabs(ctx, sessionId) : [];
   onClose(handoffClose);
   const deferred: HostAction[] = [];
@@ -672,7 +718,7 @@ export async function conductorWaitCommand(
     const maxWaitSec = opts.maxWaitSec ?? ctx.config.waitMaxSec;
     if (!Number.isInteger(maxWaitSec) || maxWaitSec < 1 || maxWaitSec > WAIT_MAX_SEC_LIMIT)
       throw new Error(`--max-wait-sec는 1~${WAIT_MAX_SEC_LIMIT} 사이의 정수여야 해요`);
-    const sessionId = await enterTickSession(ctx);
+    const sessionId = await enterTickSession(ctx, opts.takeOver === true);
     const owner = claimWaitOwner(ctx.store.dir);
     const seen = readSeen(ctx.store.dir);
     const result = await waitForAttention(
@@ -780,8 +826,14 @@ function sessionHandoff(ctx: Ctx, sessionId: string): HandoffStatus {
   });
 }
 
-/** 인계한 세션의 반복이 안 멈췄으면 tick을 거절해 컨덕터가 둘이 되지 않게 한다 */
-function assertNotHandedOff(ctx: Ctx, sessionId: string): void {
+/** 인계했거나 다른 세션이 넘겨받은 세션의 반복이 안 멈췄으면 tick을 거절해 컨덕터가 둘이 되지 않게 한다 */
+function assertStillConductor(ctx: Ctx, sessionId: string): void {
+  const superseded = readSupersededRecord(ctx.store.dir, sessionId);
+  if (superseded) {
+    throw new Error(
+      `이 세션은 ${superseded.at}에 다른 컨덕터 세션(${superseded.by})이 넘겨받았어요. 반복을 멈춰 주세요. 이 세션에서 다시 돌리려면 tick --take-over를 써요`,
+    );
+  }
   const prev = readHandoffRecord(ctx.store.dir, sessionId);
   if (!prev) return;
   const record = handoffRecordPath(ctx.store.dir, sessionId);
@@ -810,7 +862,7 @@ export async function conductorHandoffCommand(opts: ConductorHandoffOptions): Pr
     assertConductorSession(ctx, 'handoff');
     const sessionId = opts.session ?? currentSessionId();
     if (!isSessionId(sessionId)) throw new Error('이 세션의 id를 몰라요. --session <id>로 주세요');
-    assertNotHandedOff(ctx, sessionId);
+    assertStillConductor(ctx, sessionId);
     const notes = readDescriptionFile(opts.notesFile);
     const now = new Date();
     const status = sessionHandoff(ctx, sessionId);

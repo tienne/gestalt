@@ -1155,6 +1155,7 @@ export function createCli(): Command {
       '결과 반영, 접수, 재개, 띄우기, 머지 뒤 처리, 정리를 한 번 돈다. 호스트가 할 일을 돌려준다',
     )
     .option('--force', '감시 간격 안이어도 돈다')
+    .option('--take-over', '다른 컨덕터 세션이 돌고 있어도 이 세션이 넘겨받는다')
     .option('--no-pr-watch', '이번엔 PR 감시를 건너뛴다')
     .option('--no-queue', '이번엔 외부 큐를 건너뛴다')
     .addOption(stateDir())
@@ -1171,6 +1172,7 @@ export function createCli(): Command {
     .option('--max-wait-sec <sec>', '할 일 없이 기다리는 상한(초). 기본은 설정의 waitMaxSec', (v) =>
       Number(v),
     )
+    .option('--take-over', '다른 컨덕터 세션이 돌고 있어도 이 세션이 넘겨받는다')
     .option('--no-pr-watch', 'PR 감시를 건너뛴다')
     .option('--no-queue', '외부 큐를 건너뛴다')
     .addOption(stateDir())
