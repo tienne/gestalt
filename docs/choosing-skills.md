@@ -158,6 +158,7 @@
 | 스킬           | 대상                      | 한 줄 요약                                                                                      | 가이드                                         |
 | -------------- | ------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------- |
 | `lens`         | 논문 PDF, 웹 글, 팟캐스트 | 문장마다 원문 출처가 달린 읽기 뷰어를 만든다. 원문 표 숫자와 어긋나는 주장에는 의심 표시를 단다 | [lens.md](./lens.md)                           |
+| `prd-view`     | PRD 마크다운              | 블록마다 원문 줄 범위가 달린 카드형 HTML로 바꾼다. 원문에서 옮기지 못한 줄을 알려 준다            | [prd-view.md](./prd-view.md)                   |
 | `video-digest` | 유튜브 주소, 영상 파일    | 문장마다 출처가 달린 요약 뷰어를 만든다. HTML과 마크다운까지 낸다                               | [video-digest.md](./video-digest.md)           |
 | `research`     | 경쟁 서비스               | 경쟁사 조사부터 화면 캡처, 비교표, 판단, 열린 질문까지 한 문서로 낸다                           | [research-pipeline.md](./research-pipeline.md) |
 | `market-scan`  | 경쟁 서비스               | 서비스 지형을 훑어 레퍼런스 후보를 고른다. 화면 캡처와 분석은 하지 않는다                       | [research-pipeline.md](./research-pipeline.md) |
@@ -171,6 +172,7 @@
 | 자료                                  | 쓸 것                                                                    |
 | ------------------------------------- | ------------------------------------------------------------------------ |
 | 논문 PDF, 웹 글, 팟캐스트             | `lens`                                                                   |
+| 이미 있는 PRD 마크다운                | `prd-view`                                                               |
 | 유튜브 영상이나 영상 파일             | `video-digest`                                                           |
 | 경쟁 서비스 전체                      | `research`                                                               |
 | 경쟁 서비스의 한 단계만               | 단계별 스킬 (`market-scan`, `screen-ref`, `ux-research`, `reverse-plan`) |
@@ -203,6 +205,9 @@
 | `slack-send` / `slack-messenger`        | 전송이나 예약까지 하려면 `slack-send`, 문구만 다듬으려면 `slack-messenger`                                                       |
 | `brief` / `technical-writer`            | 성과와 기획 산문은 `brief`, README나 API 문서 같은 코드 중심 문서는 `technical-writer`                                           |
 | `lens` / `video-digest`                 | 논문과 웹 글과 팟캐스트는 `lens`, 유튜브 영상이나 영상 파일은 `video-digest`                                                     |
+| `prd-view` / `lens`                     | PRD를 카드형 화면으로 바꾸려면 `prd-view`, 논문이나 웹 글을 출처와 의심 표시를 달아 읽으려면 `lens`                             |
+| `prd-view` / `brief`                    | 이미 있는 PRD를 그대로 옮겨 그리면 `prd-view`, 기획 문서를 새로 쓰려면 `brief`                                                  |
+| `prd-view` / `spec`                     | PRD 원문을 화면으로 옮기면 `prd-view`, 인터뷰를 마친 요구사항으로 스펙을 만들려면 `spec`                                        |
 | `research` / 하위 네 스킬               | 조사 전체를 한 문서로 받으려면 `research`, 한 단계만 필요하면 `market-scan`, `screen-ref`, `ux-research`, `reverse-plan` 중 하나 |
 | `research` / `video-digest`             | 경쟁 서비스 조사 안에서 영상을 다루면 `research`, 영상 하나를 요약하는 일이면 `video-digest`                                     |
 | `architecture` / `blast-radius`         | 구조를 그림으로 그리려면 `architecture`, 바꿀 파일의 영향 범위를 뽑으려면 `blast-radius`                                         |

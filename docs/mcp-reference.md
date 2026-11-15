@@ -24,6 +24,7 @@ Complete reference for all Gestalt MCP tools.
 | [`ges_peer`](./peer.md#보는-쪽-에이전트에-넘기기) | 세션 공유. `ask_user`는 이 세션을 보는 팀원에게 묻고 답은 팀원 기기가 서명해 나중에 들어온다. `peek`은 내가 보는 팀원 공유의 요약, `send`는 그 주인 세션에 에이전트 메시지 넣기, `status`와 `list`는 읽기만 한다. 공유를 열고 닫거나 사람을 받고 끊는 action은 없다(`/gestalt:share`). 데몬도 띄우지 않는다. 데몬이 없으면 실패하고 `/gestalt:share daemon start`를 알린다 |
 | [`ges_research`](../plugin/skills/research/SKILL.md#쓰는-도구) | 경쟁사 리서치의 출처 확인, 개인정보 치환, 검증, 윤문, 렌더. 서버는 LLM을 부르지 않는다 |
 | [`ges_digest`](#ges_digest) | 영상 요약과 읽기 렌즈(`digest.json`)의 검증, 윤문, 뷰어 렌더. 수집과 프레임, 서버는 `gestalt digest`와 `gestalt lens` CLI가 맡는다 |
+| [`ges_prd`](#ges_prd) | PRD 마크다운을 줄 번호와 함께 읽고, 세션이 쓴 `prd-view.json`을 원문과 대조해 검사한 뒤 카드형 HTML 한 장으로 그린다. 서버는 LLM을 부르지 않는다 |
 | [`ges_architecture`](./architecture-view.md#ges_architecture-mcp-툴) | 세션이 쓴 아키텍처 IR을 검증하고 단일 HTML로 결정적으로 그린다. `service` 노드가 있으면 전체에서 서비스, 기능영역으로 들어가는 드릴다운 한 장으로 그린다. 서비스를 서빙하는 도메인, CDN, 버킷은 읽기 전용 클라우드 조회(`live` 근거)로 확인해 함께 싣는다. 서버는 LLM을 부르지 않는다 |
 
 ---
@@ -1397,6 +1398,68 @@ gestalt digest serve 뷰어에서 사용자가 버튼을 눌러 보낸 요청이
 `sent`면 뷰어가 만드는 중 표시를 띄운다. 템플릿은 탭 줄에 그 템플릿 이름의 빈 탭이 생겨 바로 열리고 흐른 시간이 1초마다 바뀐다. 리포트는 쉽게 보기 옆에 "쉬운 리포트 만드는 중" 칩이 붙는다. 넣은 요청은 sessionStorage에 두고 3초마다 페이지를 HEAD로 받아 `ETag`(디스크 `digest.html`의 수정 시각과 크기)가 바뀌는지 본다. 세션이 다시 렌더해 값이 바뀌면 새 페이지를 받아 지금 화면에 없는 확장 탭과 바뀐 리포트 묶음만 끼워 넣는다. 새로고침하지 않아서 보던 탭과 리포트, 스크롤이 그대로다. 빈 탭은 진짜 탭으로 바뀌고 리포트 칩은 누르면 그 리포트를 여는 버튼이 된다. 화면 짜임이 달라 끼울 자리를 못 찾으면 그때만 새로고침한다. 아직 안 된 요청이 남았으면 이어서 기다리고 30분이 지나면 그만 보고 세션 화면을 확인해 달라고 띄운다. 그 밖의 응답과 네트워크 오류, 토큰이 없는 페이지(파일로 연 `digest.html`)에서는 예전처럼 명령을 보여 주고 복사하게 한다. 부모를 따라 올라가 찾은 세션 pid는 기억하고 그 `sessions/<pid>.json`은 요청마다 다시 읽어서 `/clear`나 재시작 뒤에도 따라간다. 파일이 없어지면 다시 찾고 못 찾은 결과는 30초 동안 다시 훑지 않는다. 따로 연 터미널에서 띄운 serve는 부모 중에 세션이 없어 늘 명령 복사로 간다.
 
 인박스로 들어간 글을 Claude Code가 다른 세션 메시지로 다뤄 승인 창을 띄우는지, 권한 확인을 건너뛰는(bypass) 세션에서도 그런지, 놀던 세션이 이 글로 새 턴을 여는지는 아직 사람이 확인하지 않았다.
+
+---
+
+## `ges_prd`
+
+PRD 마크다운을 카드형 HTML로 그리는 도구다. 흐름은 [`prd-view` 스킬](../plugin/skills/prd-view/SKILL.md)에, 블록 어휘와 검사 규칙은 [PRD 뷰](./prd-view.md)에 있다. 뷰 JSON은 세션이 쓰고 이 도구는 LLM을 부르지 않는다.
+
+파일은 `.gestalt/prd-view/<slug>/` 아래에 있다.
+
+```
+prd-view.json   세션이 쓴 뷰 (render가 viewPath로 받은 뷰를 여기 옮겨 둔다)
+index.html      render가 쓴 HTML (outDir을 주면 그 폴더에 쓴다)
+```
+
+### Actions
+
+| Action | Description |
+|:---|:---|
+| `guide` | 블록 어휘, 공통 칸, 규칙, 예시 원문과 예시 뷰를 준다 |
+| `source` | 원문을 줄 번호를 붙여 400줄씩 준다. 줄당 600자에서 자른다 |
+| `validate` | 스키마, 원문 대조, 빠진 줄(coverage)을 검사한다 |
+| `render` | lint 오류가 없을 때만 HTML을 쓴다 |
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|---|---|:---|---|---|
+| `action` | `"guide" \| "source" \| "validate" \| "render"` | Y | — | 수행할 액션 |
+| `slug` | `string` | | — | `.gestalt/prd-view/` 아래 폴더 이름. `viewPath`가 없으면 필요하다 |
+| `viewPath` | `string` | | — | `validate`, `render`: 저장소 밖에 쓴 뷰 경로 |
+| `sourcePath` | `string` | `source` | `view.meta.source` | 원문 PRD 경로 |
+| `from`, `to` | `number` | | 1, 마지막 줄 | `source`: 읽을 줄 범위 |
+| `outDir` | `string` | | — | `render`: `index.html`을 쓸 폴더. 상대 경로는 `repoRoot` 기준 |
+| `overwrite` | `boolean` | | `false` | `render`: `outDir`에 PRD 뷰가 만들지 않은 `index.html`이 있어도 덮는다 |
+| `repoRoot` | `string` | | 서버 cwd | 레포 루트 |
+
+### Responses
+
+```javascript
+// source
+{ ok: true, action: "source", path, totalLines, contentLines, sha256, suggestedSlug, from, to, nextFrom, text: "12: ...", truncatedLines: [] }
+
+// validate
+{ ok, action: "validate", slug, errors: [{ path, severity, code, message, blockId? }], warnings: [...],
+  coverage: { contentLines, coveredLines, omittedLines, uncoveredLines, uncoveredRatio, ranges: [{ from, to, preview }], truncated },
+  sourceSha256 }
+
+// render
+{ ok: true, action: "render", slug, htmlPath, jsonPath, warnings: [...], coverage }
+```
+
+### Errors
+
+| Code | 상황 |
+|---|---|
+| `INVALID_SLUG` | `viewPath`도 올바른 slug도 없다 |
+| `SOURCE_REQUIRED`, `SOURCE_NOT_FOUND`, `SOURCE_TOO_LARGE`, `SOURCE_NOT_TEXT` | 원문 경로가 없거나 파일이 없거나 2MB를 넘거나 NUL이 있다 |
+| `RANGE_OUT_OF_BOUNDS` | `source`의 `from`, `to`가 원문 밖이다 |
+| `VIEW_NOT_FOUND`, `VIEW_NOT_JSON`, `VIEW_TOO_LARGE`, `INVALID_PRD_VIEW`, `SLUG_MISMATCH` | 뷰 파일을 못 읽거나 스키마에 안 맞거나 slug가 다르다 |
+| `RENDER_BLOCKED` | lint 오류가 남아 있다. `lintErrors`에 목록이 실린다 |
+| `INVALID_OUT_DIR`, `OUT_DIR_NOT_DIRECTORY`, `OUT_FILE_EXISTS` | `outDir`이 비었거나 파일이거나, 남의 `index.html`이나 심볼릭 링크가 있다 |
+| `RENDER_FAILED` | 그 밖의 쓰기 실패 |
 
 ---
 
