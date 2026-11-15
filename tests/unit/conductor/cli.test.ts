@@ -843,3 +843,86 @@ describe('주문 상세와 에이전트', () => {
     expect(() => conductorOrderShowCommand('ord-missing', { stateDir })).toThrow('exit 1');
   });
 });
+
+describe('컨덕터 세션은 하나만', () => {
+  const tickAs = async (
+    stateDir: string,
+    sessionId: string,
+    extra: { takeOver?: boolean } = {},
+  ) => {
+    vi.stubEnv('CLAUDE_CODE_SESSION_ID', sessionId);
+    vi.stubEnv('GESTALT_CONDUCTOR_WORKER_ID', '');
+    try {
+      await conductorTickCommand({
+        stateDir,
+        json: true,
+        force: true,
+        queue: false,
+        prWatch: false,
+        ...extra,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  };
+
+  it('다른 세션이 최근에 tick을 돌렸으면 새 세션은 등록하지 않고 거절한다', async () => {
+    const stateDir = tempStateDir();
+    const a = randomUUID();
+    const b = randomUUID();
+    await tickAs(stateDir, a);
+    await expect(tickAs(stateDir, b)).rejects.toThrow('exit 1');
+    expect(err.at(-1)).toContain('다른 컨덕터 세션이 돌고 있어요');
+    expect(err.at(-1)).toContain(a);
+    expect(existsSync(join(stateDir, 'sessions', b, 'session.json'))).toBe(false);
+    // 원래 세션은 계속 돈다
+    await tickAs(stateDir, a);
+  });
+
+  it('--take-over로 넘겨받으면 원래 세션의 tick을 거절한다', async () => {
+    const stateDir = tempStateDir();
+    const a = randomUUID();
+    const b = randomUUID();
+    await tickAs(stateDir, a);
+    await tickAs(stateDir, b, { takeOver: true });
+    expect(err.some((l) => l.includes(`${a}를 넘겨받았어요`))).toBe(true);
+    await expect(tickAs(stateDir, a)).rejects.toThrow('exit 1');
+    expect(err.at(-1)).toContain('넘겨받았어요');
+    // 되찾을 때도 --take-over
+    await tickAs(stateDir, a, { takeOver: true });
+    await expect(tickAs(stateDir, b)).rejects.toThrow('exit 1');
+  });
+
+  it('인계한 세션은 막지 않아 인계받은 새 세션이 첫 tick에 등록된다', async () => {
+    const stateDir = tempStateDir();
+    const a = randomUUID();
+    const b = randomUUID();
+    await tickAs(stateDir, a);
+    const notesFile = join(stateDir, 'notes.md');
+    writeFileSync(notesFile, '- 대화에서 정한 규칙');
+    vi.stubEnv('CLAUDE_CODE_SESSION_ID', a);
+    try {
+      await conductorHandoffCommand({ stateDir, json: true, notesFile, launch: false });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    await tickAs(stateDir, b);
+    expect(existsSync(join(stateDir, 'sessions', b, 'session.json'))).toBe(true);
+    expect(existsSync(join(stateDir, 'sessions', a, 'superseded.json'))).toBe(false);
+  });
+
+  it('원래 세션의 tick이 기한보다 오래됐으면 새 세션이 등록하고 원래 세션을 넘겨받는다', async () => {
+    const stateDir = tempStateDir();
+    const a = randomUUID();
+    const b = randomUUID();
+    await tickAs(stateDir, a);
+    // 기본 staleAfterSec 1800초의 두 배보다 오래
+    writeFileSync(
+      join(stateDir, 'sessions', a, 'last-tick'),
+      new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+    );
+    await tickAs(stateDir, b);
+    await expect(tickAs(stateDir, a)).rejects.toThrow('exit 1');
+    expect(err.at(-1)).toContain('넘겨받았어요');
+  });
+});
