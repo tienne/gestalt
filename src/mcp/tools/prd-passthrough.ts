@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { lintPrdView, prdLintErrors, prdLintWarnings } from '../../digest/lint-prd.js';
+import { collectPrdGaps } from '../../digest/lint-prd-gaps.js';
 import { prdGuide } from '../../digest/prd-guide.js';
 import { parsePrdView, type PrdView } from '../../digest/prd-schema.js';
 import {
@@ -129,6 +130,7 @@ function handleValidate(input: PrdInput, repoRoot: string): object {
     errors,
     warnings: prdLintWarnings(c.lint.issues),
     coverage: c.lint.coverage,
+    gaps: collectPrdGaps(c.view),
     sourceSha256: c.source.sha256,
   };
 }
@@ -152,9 +154,11 @@ function handleRender(input: PrdInput, repoRoot: string): object {
   }
   try {
     const store = new PrdViewStore(repoRoot);
+    const gaps = collectPrdGaps(c.view);
     const html = renderPrdHtml(c.view, {
       sourceSha256: c.source.sha256,
       coverage: c.lint.coverage,
+      gaps,
     });
     const written = writeHtmlTo(outDir ?? store.dir(c.view.slug), html, {
       // 저장소 안의 index.html은 우리가 쓴 파일이라 표시가 없어도 덮는다
@@ -171,6 +175,7 @@ function handleRender(input: PrdInput, repoRoot: string): object {
       jsonPath,
       warnings: prdLintWarnings(c.lint.issues),
       coverage: c.lint.coverage,
+      gaps,
     };
   } catch (e) {
     log(`ges_prd render 실패: ${e instanceof Error ? e.message : String(e)}`);

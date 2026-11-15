@@ -1,4 +1,5 @@
 import type { PrdCoverage } from './lint-prd.js';
+import { GAP_TITLE, PRD_GAP_CODES, type PrdGap } from './lint-prd-gaps.js';
 import { PRD_CSS } from './prd-css.js';
 import { allBlocks, type PrdView } from './prd-schema.js';
 import { PRD_HTML_MARKER } from './prd-store.js';
@@ -17,6 +18,28 @@ import { THEME_BOOT_JS, THEME_BOOT_JS_SHA256 } from './viewer-js.js';
 export interface RenderPrdOptions {
   sourceSha256: string;
   coverage: PrdCoverage;
+  /** 원문 빈칸. 주면 본문 앞에 패널로 그린다 */
+  gaps?: readonly PrdGap[];
+}
+
+/** 빈칸 패널. 코드별로 묶고 걸린 카드로 링크한다 */
+function renderGaps(gaps: readonly PrdGap[]): string {
+  if (gaps.length === 0) return '';
+  const groups = PRD_GAP_CODES.map((code) => ({
+    code,
+    items: gaps.filter((g) => g.code === code),
+  })).filter((g) => g.items.length);
+  return `<section class="sec gaps" id="gaps"><h2>원문 빈칸 ${gaps.length}</h2>${groups
+    .map(
+      (g) =>
+        `<h3>${esc(GAP_TITLE[g.code])}</h3><ul class="xlist">${g.items
+          .map(
+            (i) =>
+              `<li>${i.blockIds.map((id) => `<a href="#b-${esc(id)}">${esc(id)}</a>`).join(', ')} <span class="where">${esc(i.message)}</span></li>`,
+          )
+          .join('')}</ul>`,
+    )
+    .join('')}</section>`;
 }
 
 const CSP = [
@@ -54,8 +77,13 @@ export function renderPrdHtml(view: PrdView, opts: RenderPrdOptions): string {
     .map((s) => `<li><a href="#s-${esc(s.id)}">${esc(s.title)}</a></li>`)
     .join('');
   const overview = renderOverview(view);
-  const overviewToc = overview.toc.length
-    ? `<p class="toc-h">모아 보기</p><ol>${overview.toc
+  const gapsHtml = renderGaps(opts.gaps ?? []);
+  const xToc = [
+    ...(gapsHtml ? [{ id: 'gaps', title: `원문 빈칸 ${opts.gaps!.length}` }] : []),
+    ...overview.toc,
+  ];
+  const overviewToc = xToc.length
+    ? `<p class="toc-h">모아 보기</p><ol>${xToc
         .map((t) => `<li><a href="#${t.id}">${esc(t.title)}</a></li>`)
         .join('')}</ol>`
     : '';
@@ -109,6 +137,7 @@ export function renderPrdHtml(view: PrdView, opts: RenderPrdOptions): string {
 ${rows ? `<div class="meta">${rows}</div>` : ''}
 <p class="src-path">원문 ${esc(view.meta.source)} · ${esc(opts.sourceSha256.slice(0, 8))}</p>
 </header>
+${gapsHtml}
 ${overview.html}
 ${sections}
 <footer class="foot"><p>${covText}</p>${omitted}<p>원문 sha256 ${esc(opts.sourceSha256)}</p></footer>
