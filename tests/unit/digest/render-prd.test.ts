@@ -7,7 +7,7 @@ import { renderPrdHtml } from '../../../src/digest/render-prd.js';
 import { THEME_BOOT_JS } from '../../../src/digest/viewer-js.js';
 import { sampleSource, sampleView } from './prd-fixture.js';
 
-type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Json = Record<string, any>;
 
 function render(v: Json = sampleView()): string {
   const r = parsePrdView(v);

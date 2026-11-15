@@ -7,7 +7,7 @@ import { handlePrdPassthrough } from '../../../src/mcp/tools/prd-passthrough.js'
 import type { PrdInput } from '../../../src/mcp/schemas.js';
 import { sampleView, writeSample } from '../digest/prd-fixture.js';
 
-type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Json = Record<string, any>;
 
 let dirs: string[] = [];
 afterEach(() => {

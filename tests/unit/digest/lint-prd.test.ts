@@ -4,7 +4,7 @@ import { parsePrdView, type PrdView } from '../../../src/digest/prd-schema.js';
 import { sourceFromText } from '../../../src/digest/prd-source.js';
 import { sampleSource, sampleView } from './prd-fixture.js';
 
-type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Json = Record<string, any>;
 
 function parse(v: Json): PrdView {
   const r = parsePrdView(v);

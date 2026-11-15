@@ -7,7 +7,7 @@ import {
 } from '../../../src/digest/prd-schema.js';
 import { sampleView } from './prd-fixture.js';
 
-type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Json = Record<string, any>;
 
 function withBlock(patch: (b: Json) => void): Json {
   const v = sampleView() as Json;
