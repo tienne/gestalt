@@ -48,7 +48,7 @@ routing:
 
 wait가 끝났다는 알림이나 반복이 깨운 차례에서는 이 블록만 따른다. 자세한 규칙은 7절이다.
 
-- **wait 알림이면** 출력의 `reason`만 본다. `attention`이면 `tick`(없으면 `reportFile`을 읽는다)을 tick 결과처럼 처리하고 4절 사람 확인 자리를 점검한 뒤 wait를 다시 띄운다. `timeout`이면 보고 없이 다시 띄운다. `superseded`면 아무것도 안 한다.
+- **wait 알림이면** 출력의 `reason`만 본다. `attention`이면 `tick`(없으면 `reportFile`을 읽는다)을 tick 결과처럼 처리하고 4절 사람 확인 자리를 점검한 뒤 7-A 1번대로 wait를 다시 띄운다. 7-1 인계로 갔으면 다시 띄우지 않는다. `timeout`이면 보고 없이 7-A 1번대로 다시 띄운다. `superseded`면 아무것도 안 한다. 명령이 실패로 끝났으면 7-A 2번의 실패 항목대로 한다.
 - **반복이 깨웠으면** `gestalt conductor tick --json`을 돌리고 `hostActions`를 처리한 뒤 4절을 점검한다. 반복은 이미 걸려 있다. loop 스킬도 이 스킬도 다시 부르지 않는다. `idleTicks`가 2 이상이면 다음 깨우기를 1200~1800초 뒤로 잡고 보고를 "변화 없음" 한 줄로 줄인다. 0이나 1이면 짧은 간격으로 돌아온다. 사람이 대화로 답했으면 `idleTicks`와 상관없이 짧은 간격이다.
 - tick 결과의 `handoff.due`가 true면 7-1 인계로 간다.
 
@@ -209,14 +209,14 @@ gestalt conductor deploy report --order <orderId> --status success --ref <pipeli
    ```
 
 2. **끝나면 알림이 온다.** 출력의 `reason`대로 한다.
-   - `attention`: `reasons`에 끝난 이유(`hostActions`, `escalated`, `gatesOpened`, `humanOwned`, `errors`, `warnings`, `handoff`, `handoffClose`)가 있다. `tick`이 tick JSON과 같은 꼴이니 tick 결과처럼 hostActions를 처리하고 4절을 점검한다. 결과가 길면 `tick`이 빠지고 `reportFile` 경로만 오니 그 파일을 읽는다. `handoff.due`가 true면 7-1로 간다. 처리를 마쳤으면 1번대로 다시 띄운다.
+   - `attention`: `reasons`에 끝난 이유(`hostActions`, `escalated`, `gatesOpened`, `humanOwned`, `errors`, `warnings`, `handoff`, `handoffClose`)가 있다. `tick`이 tick JSON과 같은 꼴이니 tick 결과처럼 hostActions를 처리하고 4절을 점검한다. 결과가 길면 `tick`이 빠지고 `reportFile` 경로만 오니 그 파일을 읽는다. `handoff.due`가 true면 7-1로 가고 wait는 다시 띄우지 않는다. 그 밖에는 처리를 마쳤으면 1번대로 다시 띄운다.
    - `timeout`: 상한(`waitMaxSec`, 기본 1500초) 동안 할 일이 없었다는 뜻이다. 사람에게 보고하지 않고 1번대로 다시 띄운다.
    - `superseded`: 더 나중에 띄운 wait가 이어받았다. 다시 띄우지 않는다.
    - 명령이 실패로 끝났으면 stderr 문장을 사람에게 전한다. 인계한 세션이라 거절됐으면 다시 띄우지 않는다. 그 밖의 실패는 한 번만 다시 띄우고 또 실패하면 사람에게 묻는다.
 3. **wait가 도는 동안 사람이 말을 걸면** 그 일을 처리한다. 확인 자리를 종료했거나 주문을 넣었으면 `tick --force --json`을 한 번 돌려 바로 반영한다. wait는 그대로 두고 다시 띄우지 않는다. 같은 tick 잠금을 쓰니 둘이 겹쳐 돌지 않는다.
 4. **wait가 떠 있는지 기억이 없으면**(컴팩트나 재개 뒤) 그냥 다시 띄운다. 새 wait가 소유 표식을 가져가고 앞선 wait는 다음 tick 앞에서 `superseded`로 끝난다.
 
-wait는 tick을 감시 간격마다 `--force`로 돌린다. 이미 보여 준 오류와 경고는 `wait-seen.json`에 남겨 같은 문장만으로는 다시 끝나지 않는다. 다른 이유로 끝나면 함께 실린다. 세션 한도 대기(`rateLimited`)는 이유로 안 친다. 오래가면 tick이 확인 자리로 올린다.
+wait는 tick을 감시 간격마다 `--force`로 돌린다. 이미 보여 준 경고와 오류, 탭 닫기 실패는 `wait-seen.json`에 남겨 같은 문장만으로는 다시 끝나지 않는다. 다른 이유로 끝나면 함께 실린다. 다음 wait 동안 다시 안 나온 문장은 목록에서 빠지니 고쳐졌다가 같은 문장으로 다시 나면 wait가 끝난다. 세션 한도 대기(`rateLimited`)는 이유로 안 친다. 오래가면 tick이 확인 자리로 올린다.
 
 ### 7-B. loop 반복
 
@@ -252,7 +252,7 @@ wait는 tick을 감시 간격마다 `--force`로 돌린다. 이미 보여 준 �
 - 사람에게 물을 때는 AskUserQuestion 같은 대화창 도구를 쓰지 않고 일반 텍스트로 묻는다. 대화창이 열려 있는 동안에는 이 차례가 끝나지 않아 wait 알림과 크론, `ScheduleWakeup` 깨우기를 받지 못한다. 답은 다음 차례에서 사람이 친 글로 받는다.
 - tick이 "앞 tick 뒤로 … 동안 tick이 없었어요" 경고를 내면 감시가 끊겼을 수 있다. 공백 길이와 함께 사용자에게 전한다. 한 번만 돌리는 요청이거나 감시 도구가 없는 호스트면 경고만 전하고 감시는 걸지 않는다. 7-A 호스트면 wait를 다시 띄운다. 7-B 호스트면 1번 가운데 대화 기억 항목(세 번째)은 빼고 반복 표식과 `CronList`만으로 다시 판정해 둘 다 없으면 2번대로 반복을 다시 건다. 탭이 닫혔다 다시 열린 세션은 loop를 불렀던 기억이 남아도 반복은 이미 사라졌다. 기준은 `staleAfterSec`(기본 30분)이라 반복 간격이 이보다 길면 끊기지 않아도 경고가 뜬다. `gestalt conductor status`도 마지막 tick이 이 기준보다 오래됐으면 "마지막 tick 뒤로 … 지났어요" 경고를 붙인다.
 
-사용자가 멈추라고 하거나 7-1 인계를 마쳤으면 떠 있는 wait를 백그라운드 작업 종료 도구(Claude Code는 `TaskStop`)로 끄고 `ScheduleWakeup`을 `stop: true`로 부르고 컨덕터 크론도 지워 다음 깨우기를 남기지 않는다. 두 겹으로 걸렸을 수 있으니 셋 다 확인한다.
+사용자가 멈추라고 하거나 7-1 인계를 마쳤으면 떠 있는 wait를 끄는 도구(Claude Code는 `TaskStop`)로 끄고 `ScheduleWakeup`을 `stop: true`로 부르고 컨덕터 크론도 지워 다음 깨우기를 남기지 않는다. 두 겹으로 걸렸을 수 있으니 셋 다 확인한다.
 
 ### 7-1. 세션 인계
 
@@ -284,7 +284,7 @@ wait는 tick을 감시 간격마다 `--force`로 돌린다. 이미 보여 준 �
 5. 첫 보고에 이 탭이 감시를 돌리고 있으니 닫지 말아 달라는 말을 한 줄 붙인다. 2번에서 다시 묻는 질문도 일반 텍스트로 묻는다.
 6. 이전 지휘자 탭은 tick이 닫는다. 인계 뒤 `handoffCloseAfterSec`(기본 600초)가 지나면 첫 tick이 이전 탭을 닫을지 정한다. 기한 안에 등록된 다른 세션이 있으면 닫는다. 결과는 tick 응답의 `handoffClose`에 실린다. `closed`면 한 줄로 알린다. `skipped`나 `failed`면 `detail`(채팅 탭이라 CLI로 못 닫음, 오르카 없음, 닫기 실패, 기한 안에 첫 tick 없음, 지금 탭과 같음, 핸들 꼴이 아님)을 그대로 전하고 탭은 사람이 닫게 둔다. 결과는 기록마다 한 번만 실린다. 예외는 close-claim을 못 만든 `failed`다. 기록이 안 남아 다음 tick이 다시 시도하고 같은 경고가 tick마다 다시 실린다. 이때는 탭을 닫으라고 하지 말고 경고와 원인만 전한다. 따로 부를 명령은 없다.
 
-인계한 뒤 새 세션이 닫히면 감시가 끊기고 이전 세션의 tick은 거절된 채로 남는다. 이전 세션에서 이어 돌리려면 먼저 새 세션이 정말 닫혔는지 확인한다. 사람에게 새 탭이 닫혔는지 묻고 답을 받은 뒤에만 지운다. `gestalt conductor status`의 마지막 tick이 `staleAfterSec`보다 오래됐는지는 참고로만 쓴다. 간격이 긴 반복에서도 오래돼 보여서다. 새 세션이 살아 있는데 지우면 컨덕터 둘이 같은 저장소를 돌린다. 닫힌 게 맞으면 거절 문장이 가리키는 `handoff.json`을 지우고 7번 순서로 반복을 다시 건다. 새 컨덕터 세션을 띄워도 된다.
+인계한 뒤 새 세션이 닫히면 감시가 끊기고 이전 세션의 tick은 거절된 채로 남는다. 이전 세션에서 이어 돌리려면 먼저 새 세션이 정말 닫혔는지 확인한다. 사람에게 새 탭이 닫혔는지 묻고 답을 받은 뒤에만 지운다. `gestalt conductor status`의 마지막 tick이 `staleAfterSec`보다 오래됐는지는 참고로만 쓴다. 간격이 긴 반복에서도 오래돼 보여서다. 새 세션이 살아 있는데 지우면 컨덕터 둘이 같은 저장소를 돌린다. 닫힌 게 맞으면 거절 문장이 가리키는 `handoff.json`을 지우고 7번 순서로 감시를 다시 건다. 새 컨덕터 세션을 띄워도 된다.
 
 진행을 보고할 때는 `gestalt conductor status`의 숫자와 바뀐 주문만 짧게 말한다. 그 사이 tick이 낸 `warnings`와 `errors`가 있으면 함께 적는다. bypass로 넘긴 일은 모아서 사후 보고한다. 주문마다 붙은 bypass 내역이 `gestalt conductor status --json`에 실리고 끝난 주문까지 보려면 `--all`을 붙인다.
 
