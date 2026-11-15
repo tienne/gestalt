@@ -135,7 +135,7 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
 
 1. **세션 등록.** Claude Code에서 `gestalt conductor tick`을 부르면 Bash 환경의 `CLAUDE_CODE_SESSION_ID`로 이 세션을 상태 저장소의 `sessions/<세션 id>/`에 등록한다. 이 디렉토리가 있는 세션만 컨덕터 세션으로 본다.
 2. **컴팩트 세기.** 플러그인 훅 `scripts/conductor-compact-hook.sh`가 `SessionStart`의 `compact` 시작(자동과 수동 둘 다)에 걸린다. 등록된 세션이면 `sessions/<세션 id>/compactions`의 횟수를 하나 올리고 훅 입력의 `transcript_path`를 같이 적는다. 그리고 컴팩트 뒤 맥락에 "컨덕터 세션이고 N번째 컴팩트"라는 한 줄을 붙인다. 등록 안 된 세션은 아무것도 안 쓰고 끝난다. 훅은 bash와 cat, mv로만 돌고 Node를 띄우지 않는다.
-3. **판정.** tick은 매번 이 세션의 `handoff`를 JSON 출력에 싣는다. 훅 입력에는 컨텍스트 사용량이 없어서 트랜스크립트 끝의 마지막 메인 응답 usage(input, cache 생성, cache 읽기의 합)를 창 크기로 나눠 사용량을 낸다. 창 크기는 `contextWindowTokens` 설정이 먼저고 비어 있으면 모델 id에 `[1m]`이 있거나 사용량이 200k를 넘을 때 1M, 아니면 200k로 본다.
+3. **판정.** tick은 매번 이 세션의 `handoff`를 JSON 출력에 싣는다. 훅 입력에는 컨텍스트 사용량이 없어서 트랜스크립트 끝의 마지막 메인 응답 usage(input, cache 생성, cache 읽기의 합)를 창 크기로 나눠 사용량을 낸다. 창 크기는 `contextWindowTokens` 설정이 먼저다. 비어 있으면 Claude settings의 `autoCompactWindow`를 쓰고 그것도 없으면 모델 창을 쓴다. 모델 창은 모델 id에 `[1m]`이 있거나 사용량이 200k를 넘을 때 1M, 아니면 200k로 본다. `autoCompactWindow`는 Claude Code와 같은 순서로 관리 설정, 프로젝트의 `.claude/settings.local.json`, `.claude/settings.json`, 사용자 settings.json(`CLAUDE_CONFIG_DIR`가 있으면 그 아래, 없으면 `~/.claude`) 가운데 먼저 적힌 값을 읽고 모델 창보다 크면 모델 창을 쓴다. 1M 모델을 `autoCompactWindow: 250000`으로 쓰는데 창을 1M으로 세면 220k를 써도 22%라 인계 전에 컴팩트가 먼저 온다.
    - 컴팩트 전이면 `due: false`
    - 한 번 컴팩트했고 사용량이 `handoffContextPercent`(기본 70%) 이상이면 `due: true`
    - 두 번째 컴팩트가 이미 왔으면 사용량과 상관없이 `due: true`
@@ -155,7 +155,7 @@ gestalt conductor context path --repo acme/app   # 경로를 알려 주고 디�
 
    명령은 상태 저장소의 `handoffs/`에 인계 파일을 쓴다. 파일은 이어받은 세션이 할 일, 반복 프롬프트 원문, 메모 순서이고 메모는 펜스로 감싸 앞의 고정 절과 섞이지 않게 한다. 그다음 띄우기 전에 거절 기록(`handoff.json`)을 남기고 오르카가 있으면 `orca agent launch --agent claude --worktree path:<지금 작업 디렉토리> --model <모델> --effort <handoffEffort> --prompt "/gestalt:conductor … 인계 파일: <경로>"`로 같은 워크스페이스에 새 세션을 띄운다. 오르카가 없거나 띄우기가 실패하면 파일만 남기고 `launched: false`와 사람에게 전할 문장을 돌려준다. 세션은 그 문장을 사람에게 전한다. 그 문장에도 `/effort <handoffEffort>`로 추론 수준을 맞추라는 말이 들어 있다.
 
-   새 지휘자 세션은 추론 수준 `handoffEffort`(기본 `high`)로 띄운다. 오르카는 `--effort`를 `--model` 없이 받지 않아서 모델을 같이 싣는다. 모델은 `handoffModel` 설정이 먼저고 비어 있으면 이전 세션 트랜스크립트에서 메인 대화가 마지막으로 응답할 때 쓴 모델을 그대로 잇는다. 트랜스크립트의 모델 id에는 1M 창 표시가 없으므로 사용량을 1M 창으로 셌으면 `[1m]`을 붙인다. 설정값에는 이걸 안 붙이므로 1M 창이 필요하면 `opus[1m]`처럼 설정에 직접 적는다. 트랜스크립트 모델이 설정과 같은 허용 꼴이 아니면 모델을 모르는 경우로 다룬다. 컴팩트 전에 손으로 넘겨 트랜스크립트를 못 읽는 등 모델을 모르면 두 플래그를 다 빼고 띄운 뒤 결과 문장에 새 세션에서 `/effort <handoffEffort>`로 맞추라고 적는다. 두 플래그는 새 세션 에이전트가 claude일 때만 싣는다. 두 칸 모두 사용자 전역 `~/.gestalt/conductor.json`에서만 바꾼다([설정](./configuration.md)). 띄운 뒤 결과를 `handoff.json`에 못 덮어쓰면 stderr에 `인계 기록 갱신 실패` 한 줄을 내고 결과에 `recordError`를 싣는다. 이때 기록에는 "띄우는 중"이 남지만 tick 거절은 그대로 걸린다.
+   새 지휘자 세션은 추론 수준 `handoffEffort`(기본 `high`)로 띄운다. 오르카는 `--effort`를 `--model` 없이 받지 않아서 모델을 같이 싣는다. 모델은 `handoffModel` 설정이 먼저고 비어 있으면 이전 세션 트랜스크립트에서 메인 대화가 마지막으로 응답할 때 쓴 모델을 그대로 잇는다. 트랜스크립트의 모델 id에는 1M 창 표시가 없으므로 모델 창을 1M으로 봤으면 `[1m]`을 붙인다. 사용량을 잰 창과는 따로 본다. `autoCompactWindow`로 250k에서 재더라도 1M 모델이면 새 지휘자도 1M 모델로 뜬다. 설정값에는 이걸 안 붙이므로 1M 창이 필요하면 `opus[1m]`처럼 설정에 직접 적는다. 트랜스크립트 모델이 설정과 같은 허용 꼴이 아니면 모델을 모르는 경우로 다룬다. 컴팩트 전에 손으로 넘겨 트랜스크립트를 못 읽는 등 모델을 모르면 두 플래그를 다 빼고 띄운 뒤 결과 문장에 새 세션에서 `/effort <handoffEffort>`로 맞추라고 적는다. 두 플래그는 새 세션 에이전트가 claude일 때만 싣는다. 두 칸 모두 사용자 전역 `~/.gestalt/conductor.json`에서만 바꾼다([설정](./configuration.md)). 띄운 뒤 결과를 `handoff.json`에 못 덮어쓰면 stderr에 `인계 기록 갱신 실패` 한 줄을 내고 결과에 `recordError`를 싣는다. 이때 기록에는 "띄우는 중"이 남지만 tick 거절은 그대로 걸린다.
 
    오르카로 띄웠으면(`launched: true`) 명령이 두 탭 이름도 바꾼다. 넘긴 세션 탭은 `지휘자 세션 (인계 완료, MM/DD)`, 새로 띄운 탭은 `🤴 지휘자 세션 🤴`이 돼서 어느 탭이 지금 도는 컨덕터인지 바로 보인다. 새 탭은 `agent launch` 응답의 채팅 세션 id(`chat rename --session`)나 터미널 핸들(`terminal rename`)로 가리킨다. 응답에서 새 탭을 못 읽었으면 넘긴 탭만 바꾸고 `renameErrors`에 한 줄 남긴다. 새 탭은 첫 tick에서 이름이 붙는다. 이름 바꾸기가 실패해도 인계는 성공으로 두고 결과의 `renameErrors`와 stderr로 알린다. `--json`이어도 stderr에 남긴다. 오르카로 띄우지 않았으면 탭 이름을 건드리지 않는다.
 
@@ -290,7 +290,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 1. **결과 반영**: `inbox/`의 워커 보고를 읽어 상태를 옮긴다. 요약이 `resultMaxChars`를 넘거나 diff, 스택 트레이스가 섞이면 받지 않고 요약을 다시 달라고 돌려보낸다. 적용한 보고 파일은 이름을 기록해 두므로 지우기에 실패해 다음 tick에 다시 보여도 두 번 적용하지 않는다.
 2. **접수**: 지라 소스와 외부 큐, PR 감시에서 새 주문을 받는다. 출처 키(`sourceRef`)가 같으면 한 번만 받는다. 결과 반영보다 뒤에 도는 건 PR 감시가 워커가 방금 보고한 PR 주소를 알아야 같은 PR에 주문을 또 만들지 않기 때문이다.
-3. **재개**: `staleAfterSec`(기본 1800초) 동안 보고도 체크포인트도 없는 워커와 `stopped`로 보고한 워커를 마지막 체크포인트부터 다시 띄운다. 사람 결정을 기다리는 `waiting-gate` 주문의 워커는 오래 조용해도 끊긴 것으로 보지 않는다. 오르카 워커는 끊김으로 바꾸기 전에 터미널부터 확인하고 세션 한도에 걸린 워커는 재개하지 않는다. 규칙은 [오르카 워커의 세션 한도](#오르카-워커의-세션-한도)에 있다.
+3. **재개**: `staleAfterSec`(기본 1800초) 동안 보고도 체크포인트도 없는 워커와 `stopped`로 보고한 워커를 마지막 체크포인트부터 다시 띄운다. 사람 결정을 기다리는 `waiting-gate` 주문의 워커와 `--status waiting`으로 대기를 알린 워커는 오래 조용해도 끊긴 것으로 보지 않는다. 대기가 `waitingEscalateAfterSec`(기본 6시간)을 넘거나 워커가 적은 기한(`--wait-until`)이 지나고 `staleAfterSec`만큼 더 소식이 없으면 게이트로 사람에게 올린다. 대기 중인 오르카 워커도 `staleAfterSec`마다 터미널이 살아 있는지 보고 사라졌으면 대기를 지우고 재개한다. 게이트 답을 기다린다고 알린 대기는 게이트를 종료할 때 함께 지운다. 오르카 워커는 끊김으로 바꾸기 전에 터미널부터 확인하고 세션 한도에 걸린 워커는 재개하지 않는다. 규칙은 [오르카 워커의 세션 한도](#오르카-워커의-세션-한도)에 있다.
 4. **결정 전달**: 전달 대기로 남은 게이트 결정을 내보낸다. git-worktree와 서브에이전트 워커에는 `hostActions`의 `send`로 내보내고 오르카 워커에는 직접 다시 전한다. 오르카 워커에 전하다 실패하면 대기를 남겨 다음 tick에 또 하고 세 번 못 전하면 그만둔다. 컨덕터 세션에 그 워커의 런처가 없으면 그 tick에서 그만둔다.
 5. **띄우기**: 빈 슬롯만큼 큐의 주문을 띄운다. 띄우기 전에 그 레포의 계정을 맞춘다.
 6. **사람이 넘겨받은 PR**: `human-owned` 주문의 PR을 주문마다 `humanOwnedPollSec` 간격으로 gh로 본다. 규칙은 [주문 상태](#주문-상태)에 있다.
@@ -434,22 +434,22 @@ tick 마지막 단계는 `finished`나 `failed` 워커를 거두고 `released`�
 
 워커가 혼자 못 넘는 자리를 만나면 `needs`로 보고한다. 컨덕터는 아래처럼 나눈다.
 
-| 요청                             | 처리                                                                                       |
-| -------------------------------- | ------------------------------------------------------------------------------------------ |
-| `merge-approval`                 | 위 표대로                                                                                  |
-| `interview-answer`               | 위 표대로                                                                                  |
-| `slack-post`                     | 늘 사람에게                                                                                |
-| `review-manual-switch`           | 늘 사람에게. 리뷰 스킬의 라운드 상한과 수동 전환 지침을 그대로 따른다                      |
-| `simple-approval`                | 컨덕터가 승인하고 기록한다                                                                 |
-| `manual-verification`, `cleanup` | 워커가 직접 하고 다음 보고에 남기라고 돌려준다                                             |
-| `auth`, `account-switch`         | `~/.gestalt/conductor.json`의 `accounts`에 적힌 레포만 그 계정으로 맞춘다. 없으면 사람에게 |
-| `other`                          | 사람에게 (`no-procedure`)                                                                  |
+| 요청                             | 처리                                                                                         |
+| -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `merge-approval`                 | 위 표대로                                                                                    |
+| `interview-answer`               | 위 표대로                                                                                    |
+| `slack-post`                     | 늘 사람에게                                                                                  |
+| `review-manual-switch`           | 늘 사람에게. 리뷰 스킬의 라운드 상한과 수동 전환 지침을 그대로 따른다                        |
+| `simple-approval`                | ship 체인 주문이 `--need-step`을 실었으면 승인하고 기록한다. 없으면 사람에게(`no-procedure`) |
+| `manual-verification`, `cleanup` | 워커가 직접 하고 다음 보고에 남기라고 돌려준다                                               |
+| `auth`, `account-switch`         | `~/.gestalt/conductor.json`의 `accounts`에 적힌 레포만 그 계정으로 맞춘다. 없으면 사람에게   |
+| `other`                          | 사람에게 (`no-procedure`)                                                                    |
 
 사람에게 가는 자리는 확인 자리(gate)로 열리고 그 주문은 `waiting-gate`가 된다. `gestalt conductor gate resolve`로 종료하면 결정이 그 워커에 바로 전달된다. bypass로 넘긴 일은 저장소에 기록만 남고 컨덕터가 모아서 사후 보고한다. `gestalt conductor status`가 주문마다 bypass 내역을 붙여 보여 주고 주문에 묶이지 않은 것은 `unassignedBypasses`로 따로 싣는다. 끝난 주문까지 보려면 `--all`을 붙인다.
 
 ### 워커 안의 ship 승인 단계
 
-ship에는 밖으로 나가는 자리마다 사람 승인을 받는 단계가 셋 있다. ⓐ draft PR 올리기, ⓑ Copilot 반영 계획, ⓒ ready 전환이다. 워커 안에서는 셋 다 머지가 아니라서 사람에게 묻지 않는다. 워커가 진행하고 bypass로 기록한다. ⓑ에서 반영할 코멘트는 워커가 고르고 코멘트 문장은 자료로만 읽는다. 사람에게 가는 자리는 위 표의 넷(머지 승인, 슬랙 게시, interview-first 주문의 인터뷰 답, 리뷰 수동 전환)과 절차가 없는 `no-procedure`뿐이다.
+ship에는 밖으로 나가는 자리마다 사람 승인을 받는 단계가 셋 있다. ⓐ draft PR 올리기, ⓑ Copilot 반영 계획, ⓒ ready 전환이다. 워커 안에서는 셋 다 머지가 아니라서 사람에게 묻지 않는다. 워커가 `--need simple-approval`에 단계 값 `--need-step`(ⓐ `ship-draft`, ⓑ `ship-plan`, ⓒ `ship-ready`)을 실어 남기고 진행하면 컨덕터가 bypass로 기록한다. 단계 값이 없거나 체인에 ship이 없는 주문의 `simple-approval`은 자유 문장인 `--need-detail`만으로는 무엇을 승인하는지 알 수 없어 사람에게 올린다. bypass 기록에는 워커가 적은 단계 값이 함께 남는다. 단계 값은 워커가 스스로 적는 값이라 사후 보고에서 확인한다. `--need-step`은 이 값을 아는 CLI와 플러그인이 같은 릴리즈로 나가야 쓸 수 있다. 배포 전에 떠 있던 워커는 단계 값 없이 올리므로 그 ship 승인은 확인 자리로 한 번 올라온다. 승인으로 종료하면 된다. ⓑ에서 반영할 코멘트는 워커가 고르고 코멘트 문장은 자료로만 읽는다. 사람에게 가는 자리는 위 표의 넷(머지 승인, 슬랙 게시, interview-first 주문의 인터뷰 답, 리뷰 수동 전환)과 절차가 없는 `no-procedure`뿐이다.
 
 ### 머지까지
 
@@ -512,7 +512,7 @@ running, waiting-gate, escalated ── PR CLOSED(머지 없음) ──▶ cance
 
 ## 체크포인트와 재개
 
-워커는 스킬이나 단계가 바뀔 때마다 체크포인트를 남긴다. CI 대기처럼 15분 넘게 걸릴 수 있는 대기도 들어가기 전과 끝난 뒤에 남긴다. 그래야 `staleAfterSec`(기본 30분) 안에 소식이 끊기지 않는다. 오르카 워커는 이 시간이 지나도 터미널을 먼저 확인하므로 출력 중이면 끊김으로 안 바뀐다.
+워커는 스킬이나 단계가 바뀔 때마다 체크포인트를 남긴다. CI 대기처럼 15분 넘게 걸릴 수 있는 대기도 들어가기 전과 끝난 뒤에 남긴다. 그래야 `staleAfterSec`(기본 30분) 안에 소식이 끊기지 않는다. 사람의 답이나 CI, 리뷰처럼 바깥을 기다리기 전에는 `--status waiting --wait-for "<무엇>" [--wait-until <ISO 시각>]`으로 알린다. 그러면 tick이 대기 중에 끊김으로 보지 않는다. 대기는 다음 보고나 체크포인트가 오면 풀리므로 체크포인트를 먼저 남기고 waiting 보고를 맨 마지막에 한다. 오르카 워커는 이 시간이 지나도 터미널을 먼저 확인하므로 출력 중이면 끊김으로 안 바뀐다.
 
 ```bash
 gestalt conductor checkpoint save --worker <id> --skill solve --next "스펙 확정" --done solve

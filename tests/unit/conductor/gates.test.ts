@@ -14,7 +14,9 @@ afterEach(cleanupStateDirs);
 describe('classifyNeed', () => {
   it('사람에게 올리는 자리는 넷이고 나머지는 bypass다', () => {
     const gated = (scope: OrderScope) =>
-      NEED_KINDS.filter((n) => classifyNeed(order({ scope }), n).kind === 'gate').sort();
+      NEED_KINDS.filter(
+        (n) => classifyNeed(order({ scope }), n, 'ship-draft').kind === 'gate',
+      ).sort();
     expect(gated('approval')).toEqual([
       'merge-approval',
       'other',
@@ -29,6 +31,17 @@ describe('classifyNeed', () => {
       'review-manual-switch',
       'slack-post',
     ]);
+  });
+
+  it('simple-approval은 ship 체인 주문이 ship 단계 값을 실었을 때만 bypass다', () => {
+    const ship = order({ skillChain: ['solve', 'ship'] });
+    for (const step of ['ship-draft', 'ship-plan', 'ship-ready'] as const)
+      expect(classifyNeed(ship, 'simple-approval', step)).toEqual({ kind: 'bypass' });
+    expect(classifyNeed(ship, 'simple-approval')).toEqual({ kind: 'gate', type: 'no-procedure' });
+    expect(classifyNeed(order({ skillChain: ['solve'] }), 'simple-approval', 'ship-draft')).toEqual(
+      { kind: 'gate', type: 'no-procedure' },
+    );
+    expect(classifyNeed(undefined, 'simple-approval', 'ship-draft').kind).toBe('gate');
   });
 });
 
@@ -52,6 +65,28 @@ describe('handleNeed', () => {
       expect.objectContaining({ orderId: 'ord-1', need: 'cleanup', action: '워크트리를 지웠어요' }),
     ]);
     expect(s.openGates()).toEqual([]);
+  });
+
+  it('ship 단계 승인을 넘기면 bypass 기록에 단계 값을 남긴다', async () => {
+    const s = ConductorStore.open(tempStateDir());
+    s.addOrder(
+      order({ id: 'ord-1', status: 'running', workerId: 'wrk-1', skillChain: ['solve', 'ship'] }),
+    );
+    s.startWorker(worker('ord-1', { id: 'wrk-1' }));
+    const out = await handleNeed(
+      s,
+      {
+        orderId: 'ord-1',
+        need: 'simple-approval',
+        detail: 'ship ⓐ draft PR 올리기',
+        step: 'ship-draft',
+      },
+      { 'simple-approval': async () => '워커에 승인을 전했어요' },
+    );
+    expect(out.kind).toBe('bypass');
+    expect(s.snapshot.bypasses).toEqual([
+      expect.objectContaining({ need: 'simple-approval', step: 'ship-draft' }),
+    ]);
   });
 
   it('절차가 없거나 실패하면 no-procedure 게이트로 올린다', async () => {

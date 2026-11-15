@@ -75,6 +75,7 @@ interface GestaltConfig {
     maxResumeAttempts: number; // 체크포인트 재개 횟수 상한, 기본 3
     staleAfterSec: number; // 소식이 이만큼(초) 없으면 끊긴 워커로 본다, 기본 1800
     rateLimitEscalateAfterSec: number; // 오르카 워커가 세션 한도에 걸린 채 이만큼(초) 지나면 사람에게 올린다, 기본 21600
+    waitingEscalateAfterSec: number; // 대기를 알린 워커가 이만큼(초) 넘게 기다리면 사람에게 올린다, 기본 21600
     defaultScope: 'merge-through' | 'approval' | 'interview-first'; // 기본 approval
     resultMaxChars: number; // 워커 결과 요약 글자 수 상한, 기본 2000
     stateDir?: string; // 실행 상태 저장소, 기본 ~/.gestalt/conductor
@@ -87,7 +88,7 @@ interface GestaltConfig {
     humanOwnedPollSec: number; // 사람이 넘겨받은 주문의 PR을 gh로 볼 간격(초), 기본 900
     humanOwnedParkAfterSec: number; // 넘겨받은 뒤 이만큼(초) 머지나 닫힘이 없으면 parked로 내린다, 기본 86400
     handoffContextPercent: number; // 1차 컴팩트 뒤 이 사용량(%)이면 새 세션으로 인계, 기본 70
-    contextWindowTokens?: number; // 사용량을 낼 컨텍스트 창 크기, 비우면 200k나 1M을 고른다
+    contextWindowTokens?: number; // 사용량을 낼 컨텍스트 창 크기, 비우면 Claude settings의 autoCompactWindow, 그것도 없으면 200k나 1M을 고른다
     handoffEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; // 인계로 띄우는 새 지휘자 세션의 추론 수준, 기본 high
     handoffModel?: string; // 새 지휘자 세션의 모델, 비우면 이전 세션 모델을 잇는다
     handoffCloseAfterSec: number; // 인계 뒤 이만큼(초) 지나면 새 세션의 tick이 이전 지휘자 탭을 닫는다, 0이면 안 닫음, 기본 600
@@ -275,6 +276,7 @@ Desktop/IDE의 이름은 캡처하지 않았다.
     "maxResumeAttempts": 3,
     "staleAfterSec": 1800,
     "rateLimitEscalateAfterSec": 21600,
+    "waitingEscalateAfterSec": 21600,
     "resultMaxChars": 2000,
     "humanOwnedPollSec": 900,
     "humanOwnedParkAfterSec": 86400,
@@ -309,10 +311,11 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 - `repoPaths`는 오르카가 없을 때 git 워크트리를 만들 원본 체크아웃 경로다. 오르카가 있으면 레포를 가리키는 데 쓰고 비어 있으면 레포 이름으로 찾는다. 주문에 부모 워크트리를 주면 그 워크트리가 이 경로와 같은 레포인지도 여기로 확인한다. 비어 있으면 `origin` 주소로 확인한다. PR 감시는 켜지 않는다
 - `prWatchRepos`에 적은 레포만 tick이 열린 PR을 감시해 리뷰 답글과 재리뷰 주문을 만든다. 기본은 빈 배열이라 감시하지 않는다. gh를 그 레포 체크아웃에서 부르므로 `repoPaths`에도 같은 철자의 키로 경로가 있어야 하고 없으면 tick 보고의 `errors`에 이유를 남긴다. `owner/name` 꼴이 아닌 항목도 빼고 `errors`에 남긴다. 자세한 조건은 [PR 감시](./conductor.md#pr-감시)에 있다
 - `removeMergedOrcaWorktrees`(기본 `false`)를 켜면 머지된 주문의 오르카 워커는 정리 단계에서 터미널을 거둔 뒤 워크트리까지 지운다. 끄면 지금처럼 워크트리를 남긴다. 머지 안 된 주문의 워크트리는 켜도 남긴다. 자세한 조건은 [워커 정리](./conductor.md#워커-정리)에 있다
-- `staleAfterSec`(기본 1800초) 동안 보고도 체크포인트도 없는 워커는 끊긴 것으로 보고 마지막 체크포인트부터 다시 띄운다. 사람 결정을 기다리는 `waiting-gate` 주문의 워커는 이 셈에서 빠진다. CI 대기처럼 15분 넘게 걸릴 수 있는 대기는 워커가 앞뒤로 체크포인트를 남긴다. 오르카 워커는 이 시간이 지나면 터미널을 먼저 확인해서 출력 중이면 그대로 두고 세션 한도 표시가 보이면 재개하지 않는다
+- `staleAfterSec`(기본 1800초) 동안 보고도 체크포인트도 없는 워커는 끊긴 것으로 보고 마지막 체크포인트부터 다시 띄운다. 사람 결정을 기다리는 `waiting-gate` 주문의 워커와 `--status waiting`으로 대기를 알린 워커는 이 셈에서 빠진다. CI 대기처럼 15분 넘게 걸릴 수 있는 대기는 워커가 앞뒤로 체크포인트를 남긴다. 오르카 워커는 이 시간이 지나면 터미널을 먼저 확인해서 출력 중이면 그대로 두고 세션 한도 표시가 보이면 재개하지 않는다
 - `rateLimitEscalateAfterSec`(기본 21600초, 600~604800)는 세션 한도에 걸린 오르카 워커를 기다려 주는 상한이다. 넘으면 게이트로 사람에게 올린다. 자세한 흐름은 [오르카 워커의 세션 한도](./conductor.md#오르카-워커의-세션-한도)에 있다
+- `waitingEscalateAfterSec`(기본 21600초, 600~604800)는 `--status waiting`으로 대기를 알린 워커를 기다려 주는 상한이다. 넘거나 워커가 적은 기한이 지나고 `staleAfterSec`만큼 더 소식이 없으면 게이트로 사람에게 올린다
 - `humanOwnedPollSec`(기본 900초, 60~86400)는 사람이 넘겨받은 `human-owned` 주문의 PR을 tick이 gh로 다시 볼 간격이다. 주문마다 따로 센다. `humanOwnedParkAfterSec`(기본 86400초, 600~2592000)가 지나도 머지나 닫힘이 없으면 `parked`로 내리고 더 안 본다. 자세한 전이는 [주문 상태](./conductor.md#주문-상태)에 있다
-- `handoffContextPercent`(기본 70)는 컨덕터 세션이 컴팩트를 한 번 거친 뒤 컨텍스트를 이 비율 이상 쓰면 다음 tick을 마친 자리에서 새 세션으로 인계하는 기준이다. `contextWindowTokens`를 비우면 모델 id와 사용량으로 200k나 1M 창을 고른다. 자세한 흐름은 [세션 인계](./conductor.md#세션-인계)에 있다
+- `handoffContextPercent`(기본 70)는 컨덕터 세션이 컴팩트를 한 번 거친 뒤 컨텍스트를 이 비율 이상 쓰면 다음 tick을 마친 자리에서 새 세션으로 인계하는 기준이다. `contextWindowTokens`를 비우면 Claude settings의 `autoCompactWindow`를 창으로 쓰고(모델 창보다 크면 모델 창) 그것도 없으면 모델 id와 사용량으로 200k나 1M 창을 고른다. 새 지휘자에 `[1m]`을 붙일지는 이 창과 따로 모델 창으로만 가른다. 자세한 흐름은 [세션 인계](./conductor.md#세션-인계)에 있다
 - `handoffEffort`(기본 `high`)는 인계로 띄우는 새 지휘자 세션의 추론 수준이고 `low`, `medium`, `high`, `xhigh`, `max`를 받는다. 오르카가 `--effort`를 `--model`과 함께만 받아서 `handoffModel`을 같이 싣는다. `handoffModel`은 적힌 그대로 쓰므로 1M 창이 필요하면 `opus[1m]`처럼 접미까지 적는다. 비우면 이전 세션 트랜스크립트의 모델을 잇고 그것도 모르면 effort 없이 띄운 뒤 직접 맞추라고 알린다. 새 세션 에이전트가 claude일 때만 싣는다. 쓰는 모델이 비용을 정하므로 레포 `gestalt.json`으로는 못 바꾼다
 - `handoffCloseAfterSec`(기본 600, 0~86400)는 인계로 새 세션을 띄운 뒤 이전 지휘자 탭을 닫기까지 기다리는 초다. 새 세션이 이 시간 안에 첫 tick을 돌렸을 때만 기한 뒤 tick이 이전 터미널 탭을 닫는다. 0이면 닫지 않는다. 채팅 탭은 오르카 CLI로 닫을 수 없어 경고만 남긴다. 남의 레포가 탭을 닫게 하면 안 돼서 레포 `gestalt.json`으로는 못 바꾼다. 자세한 조건은 [세션 인계](./conductor.md#세션-인계)의 6번에 있다
 - `resultMaxChars`를 넘는 결과 요약이나 diff, 스택 트레이스가 섞인 결과는 받지 않고 요약을 다시 달라고 돌려보낸다

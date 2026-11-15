@@ -43,6 +43,7 @@ import {
   writeHandoffFile,
   type HandoffStatus,
 } from '../../conductor/handoff.js';
+import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
 import { resolveGate } from '../../conductor/gates.js';
 import {
   intakeOrder,
@@ -645,7 +646,7 @@ function sessionHandoff(ctx: Ctx, sessionId: string): HandoffStatus {
     thresholdPercent: ctx.config.handoffContextPercent,
     ...(ctx.config.contextWindowTokens !== undefined
       ? { contextWindowTokens: ctx.config.contextWindowTokens }
-      : {}),
+      : { autoCompactWindowTokens: () => readAutoCompactWindow({ cwd: process.cwd() }) }),
   });
 }
 
@@ -760,6 +761,9 @@ export interface ConductorWorkerReportOptions extends ConductorCommonOptions {
   stopReason?: string;
   need?: string;
   needDetail?: string;
+  needStep?: string;
+  waitFor?: string;
+  waitUntil?: string;
   spawnTitle?: string;
   spawnDetail?: string;
   file?: string;
@@ -782,7 +786,23 @@ export function conductorWorkerReportCommand(opts: ConductorWorkerReportOptions)
       ...(opts.pr ? { prRef: prRef(opts.pr) } : {}),
       ...(opts.merged ? { merged: true } : {}),
       ...(opts.stopReason ? { stopReason: opts.stopReason } : {}),
-      ...(opts.need ? { need: { kind: opts.need, detail: opts.needDetail ?? '' } } : {}),
+      ...(opts.need
+        ? {
+            need: {
+              kind: opts.need,
+              detail: opts.needDetail ?? '',
+              ...(opts.needStep ? { step: opts.needStep } : {}),
+            },
+          }
+        : {}),
+      ...(opts.waitFor
+        ? {
+            wait: {
+              reason: opts.waitFor,
+              ...(opts.waitUntil ? { until: opts.waitUntil } : {}),
+            },
+          }
+        : {}),
       ...(opts.spawnTitle
         ? { spawnRequest: { title: opts.spawnTitle, detail: opts.spawnDetail ?? '' } }
         : {}),

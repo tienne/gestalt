@@ -7,7 +7,14 @@ import {
 import { openOrReuse } from './gates.js';
 import { stopCommandFor, type ResumeContext } from './launcher.js';
 import type { ConductorStore } from './store.js';
-import { isWorkerId, type Checkpoint, type Gate, type Order, type Worker } from './types.js';
+import {
+  isWorkerId,
+  type Checkpoint,
+  type Gate,
+  type Order,
+  type Worker,
+  type WorkerWaiting,
+} from './types.js';
 
 /** ship 체크포인트 파일을 읽는 자리. 테스트에서 git 호출 없이 바꿔 끼운다 */
 export type ShipReader = (dir: string) => CheckReport;
@@ -77,7 +84,12 @@ export function saveSkillCheckpoint(
     savedAt: store.timestamp(),
   };
   store.saveCheckpoint(checkpoint);
-  store.updateWorker(worker.id, { lastSeenAt: checkpoint.savedAt, ...wakeFromRateLimit(worker) });
+  store.updateWorker(worker.id, {
+    lastSeenAt: checkpoint.savedAt,
+    ...wakeFromRateLimit(worker),
+    // 체크포인트를 남겼으면 대기에서 돌아와 다시 움직이는 것이다
+    ...(worker.waiting ? { waiting: undefined } : {}),
+  });
   return checkpoint;
 }
 
@@ -108,6 +120,8 @@ export interface StaleOptions {
   peek?: PeekWorker;
   /** 한도에 걸린 채 이 시간이 지나면 사람에게 올린다. 없으면 올리지 않는다 */
   rateLimitEscalateAfterMs?: number;
+  /** 대기를 보고한 워커가 이 시간을 넘겨 기다리면 사람에게 올린다. 없으면 대기 보고를 안 따지고 지금처럼 끊김으로 본다 */
+  waitingEscalateAfterMs?: number;
 }
 
 export interface StaleResult {
@@ -123,6 +137,8 @@ export interface StaleResult {
 
 /** 한도가 오래 가는 워커를 올린 게이트임을 payload로 표시한다 */
 const RATE_LIMIT_GATE_KIND = 'rate-limit';
+/** 대기가 너무 길어진 워커를 올린 게이트임을 payload로 표시한다 */
+const WAITING_GATE_KIND = 'waiting';
 
 /**
  * 소식이 끊긴 워커를 stopped로 바꾼다.
@@ -142,6 +158,19 @@ export async function detectStale(store: ConductorStore, opts: StaleOptions): Pr
     // 사람이 넘겨받은 주문의 워커는 거둔 워커라 재개하면 안 된다
     const status = store.order(w.orderId)?.status;
     if (status === 'waiting-gate' || status === 'human-owned') continue;
+    if (w.waiting && opts.waitingEscalateAfterMs !== undefined) {
+      if (await waitingWorkerGone(store, w, opts, result)) continue;
+      checkWaiting(
+        store,
+        w,
+        w.waiting,
+        opts.now,
+        opts.waitingEscalateAfterMs,
+        opts.staleAfterMs,
+        result,
+      );
+      continue;
+    }
     const seen = Date.parse(w.lastSeenAt);
     if (Number.isNaN(seen) || opts.now.getTime() - seen < opts.staleAfterMs) continue;
 
@@ -167,6 +196,68 @@ export async function detectStale(store: ConductorStore, opts: StaleOptions): Pr
   }
   await recheckRateLimited(store, opts, result);
   return result;
+}
+
+/**
+ * 대기 중인 워커도 소식이 staleAfter보다 오래 끊겼으면 터미널이 살아 있는지만 본다.
+ * 대기 보고 뒤에 터미널이 죽으면 상한까지 아무도 모르기 때문이다. 출력을 읽는 probe 대신 가벼운 peek를 쓴다.
+ * 살아 있으면 본 시각을 남겨 staleAfter마다 한 번만 본다. 확인이 실패하면 죽었다고 보지 않고 대기를 그대로 둔다.
+ */
+async function waitingWorkerGone(
+  store: ConductorStore,
+  w: Worker,
+  opts: StaleOptions,
+  result: StaleResult,
+): Promise<boolean> {
+  const seen = Date.parse(w.lastSeenAt);
+  if (Number.isNaN(seen) || opts.now.getTime() - seen < opts.staleAfterMs) return false;
+  if (!canProbe(w) || !opts.peek) return false;
+  const peeked = await peekOrWarn(w, opts.peek, result);
+  if (peeked === 'gone') {
+    store.updateWorker(w.id, { status: 'stopped', stopReason: 'disconnected', waiting: undefined });
+    result.stopped.push(store.worker(w.id)!);
+    return true;
+  }
+  if (peeked) store.updateWorker(w.id, { lastSeenAt: opts.now.toISOString() });
+  return false;
+}
+
+/**
+ * 대기를 보고한 워커는 끊김으로 보지 않는다. 사람의 답이나 CI, 리뷰를 기다리는 동안 보고가 없는 게 정상이라서다.
+ * 대기가 상한을 넘거나 워커가 적은 기한이 지나고도 staleAfter만큼 소식이 없으면 그때 사람에게 올린다.
+ * 올린 뒤에는 대기 표시를 지우고 마지막 소식을 지금으로 당긴다. 사람이 게이트를 닫은 뒤에는
+ * 같은 대기로 다시 올리지 않고 보통 워커처럼 끊김 판정을 받는다.
+ */
+function checkWaiting(
+  store: ConductorStore,
+  w: Worker,
+  waiting: WorkerWaiting,
+  now: Date,
+  limitMs: number,
+  staleAfterMs: number,
+  result: StaleResult,
+): void {
+  const since = Date.parse(waiting.since);
+  const until = waiting.until ? Date.parse(waiting.until) : Number.NaN;
+  const elapsed = now.getTime() - since;
+  const overLimit = !Number.isNaN(since) && elapsed >= limitMs;
+  const pastDeadline = !Number.isNaN(until) && now.getTime() - until >= staleAfterMs;
+  if (!overLimit && !pastDeadline) return;
+  const hours = Math.floor(elapsed / 3_600_000);
+  const why = pastDeadline
+    ? `적어 둔 기한(${waiting.until})이 지나고도 소식이 없어요`
+    : `${hours}시간째 기다리고 있어요`;
+  const { gate } = openOrReuse(store, {
+    orderId: w.orderId,
+    type: 'no-procedure',
+    reason: [
+      `워커 ${w.id}가 "${waiting.reason}"을 기다린다고 알렸는데 ${why}.`,
+      '기다리던 게 풀렸는지 확인하고 답해 주세요. 결정은 워커에 그대로 전해요.',
+    ].join(' '),
+    payload: { kind: WAITING_GATE_KIND, workerId: w.id },
+  });
+  store.updateWorker(w.id, { waiting: undefined, lastSeenAt: now.toISOString() });
+  result.escalated.push(gate);
 }
 
 /**
@@ -225,7 +316,7 @@ async function peekOrWarn(
     return await peek(w);
   } catch (err) {
     result.warnings.push(
-      `${w.id}: 한도로 멈춘 오르카 워커의 터미널을 다시 확인 못 했어요: ${(err as Error).message}`,
+      `${w.id}: 오르카 워커의 터미널을 다시 확인 못 했어요: ${(err as Error).message}`,
     );
     return undefined;
   }

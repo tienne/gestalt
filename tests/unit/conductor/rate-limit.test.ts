@@ -396,6 +396,70 @@ describe('오르카 워커 끊김 감지', () => {
     expect(r.errors).toEqual([expect.stringMatching(/취소된 주문/)]);
     expect(c.store.order('ord-1')?.status).toBe('cancelled');
   });
+
+  describe('대기를 알린 오르카 워커', () => {
+    const WAIT_LIMIT_MS = 21_600_000;
+    const waitingOrca = () => {
+      const c = staleOrca();
+      c.store.updateWorker('wrk-1', {
+        waiting: { reason: 'CI 결과', since: c.now().toISOString() },
+      });
+      return c;
+    };
+
+    it('터미널이 사라졌으면 대기를 지우고 끊김으로 바꿔 재개한다', async () => {
+      const c = waitingOrca();
+      const out = await detectStale(c.store, {
+        now: c.now(),
+        staleAfterMs: STALE_MS,
+        peek: peekAs('gone'),
+        waitingEscalateAfterMs: WAIT_LIMIT_MS,
+      });
+      expect(out.stopped.map((w) => w.id)).toEqual(['wrk-1']);
+      expect(c.store.worker('wrk-1')).toMatchObject({
+        status: 'stopped',
+        stopReason: 'disconnected',
+      });
+      expect(c.store.worker('wrk-1')?.waiting).toBeUndefined();
+    });
+
+    it('터미널이 살아 있으면 대기를 두고 본 시각만 당긴다', async () => {
+      const c = waitingOrca();
+      const out = await detectStale(c.store, {
+        now: c.now(),
+        staleAfterMs: STALE_MS,
+        peek: peekAs('live'),
+        waitingEscalateAfterMs: WAIT_LIMIT_MS,
+      });
+      expect(out.stopped).toEqual([]);
+      expect(c.store.worker('wrk-1')).toMatchObject({
+        status: 'running',
+        lastSeenAt: c.now().toISOString(),
+      });
+      expect(c.store.worker('wrk-1')?.waiting).toMatchObject({ reason: 'CI 결과' });
+    });
+
+    it('터미널 확인이 실패하면 대기를 그대로 두고 경고만 남긴다', async () => {
+      const c = waitingOrca();
+      const out = await detectStale(c.store, {
+        now: c.now(),
+        staleAfterMs: STALE_MS,
+        peek: async () => {
+          throw new Error('orca 응답 없음');
+        },
+        waitingEscalateAfterMs: WAIT_LIMIT_MS,
+      });
+      expect(out.stopped).toEqual([]);
+      expect(out.warnings).toHaveLength(1);
+      expect(c.store.worker('wrk-1')?.waiting).toMatchObject({ reason: 'CI 결과' });
+    });
+
+    it('대기 상한 설정이 없으면 대기 보고를 안 따지고 끊김으로 본다', async () => {
+      const c = waitingOrca();
+      const out = await detectStale(c.store, { now: c.now(), staleAfterMs: STALE_MS });
+      expect(out.stopped.map((w) => w.id)).toEqual(['wrk-1']);
+    });
+  });
 });
 
 describe('취소된 주문의 보고', () => {
@@ -423,6 +487,7 @@ const config: ConductorConfig = {
   maxResumeAttempts: 3,
   staleAfterSec: 900,
   rateLimitEscalateAfterSec: 21600,
+  waitingEscalateAfterSec: 21600,
   defaultScope: 'approval',
   resultMaxChars: 2000,
   accounts: {},

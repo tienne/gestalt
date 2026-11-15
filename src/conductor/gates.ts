@@ -6,6 +6,7 @@ import {
   type GateType,
   type NeedKind,
   type Order,
+  type ShipApprovalStep,
 } from './types.js';
 
 /**
@@ -15,11 +16,17 @@ import {
  * interview-first 주문의 인터뷰 답변, 리뷰 스킬의 수동 전환 지침이 사람에게 넘기라고 한 자리다.
  * 나머지(단순 승인, 수동 검증, 정리, 인증, 계정 전환)는 컨덕터가 bypass로 처리하고 기록을 남겨
  * 사후 보고한다. 처리할 절차가 없거나 절차가 실패하면 그때만 no-procedure 게이트로 올린다.
+ * 단순 승인은 체인에 ship이 있는 주문이 ship ⓐⓑⓒ 단계 값(step)을 실어 올린 요청만 넘긴다.
+ * 단계 값이 없으면 워커가 다른 자리에 쓴 것이라 무엇을 승인하는지 컨덕터가 알 수 없어 사람에게 올린다.
  */
 
 export type NeedDecision = { kind: 'gate'; type: GateType } | { kind: 'bypass' };
 
-export function classifyNeed(order: Order | undefined, need: NeedKind): NeedDecision {
+export function classifyNeed(
+  order: Order | undefined,
+  need: NeedKind,
+  step?: ShipApprovalStep,
+): NeedDecision {
   switch (need) {
     case 'merge-approval':
       return order?.scope === 'merge-through'
@@ -37,6 +44,10 @@ export function classifyNeed(order: Order | undefined, need: NeedKind): NeedDeci
     case 'other':
       return { kind: 'gate', type: 'no-procedure' };
     case 'simple-approval':
+      // ship이 없는 체인의 워커가 단계 값만 붙여 오면 ship 승인이 아니다
+      return step && order?.skillChain.includes('ship')
+        ? { kind: 'bypass' }
+        : { kind: 'gate', type: 'no-procedure' };
     case 'manual-verification':
     case 'cleanup':
     case 'auth':
@@ -49,6 +60,7 @@ export interface BypassInput {
   order?: Order;
   need: NeedKind;
   detail: string;
+  step?: ShipApprovalStep;
 }
 
 /** bypass 절차 하나. 한 일을 한 줄로 돌려준다. 못 하면 던진다 */
@@ -59,6 +71,7 @@ export interface NeedRequest {
   orderId?: string;
   need: NeedKind;
   detail: string;
+  step?: ShipApprovalStep;
   refs?: string[];
   payload?: Record<string, string>;
 }
@@ -74,29 +87,38 @@ export async function handleNeed(
   handlers: BypassHandlers,
 ): Promise<NeedOutcome> {
   const order = req.orderId ? store.order(req.orderId) : undefined;
-  const decision = classifyNeed(order, req.need);
+  const decision = classifyNeed(order, req.need, req.step);
+  const { step, ...gateReq } = req;
   if (decision.kind === 'gate') {
     return openOrReuse(store, {
-      ...req,
+      ...gateReq,
       type: decision.type,
-      reason: req.detail,
+      reason:
+        req.need === 'simple-approval'
+          ? `ship ⓐⓑⓒ 단계로 확인되지 않은 단순 승인이라 사람에게 올려요: ${req.detail}`
+          : req.detail,
     });
   }
 
   const handler = handlers[req.need];
   if (!handler) {
     return openOrReuse(store, {
-      ...req,
+      ...gateReq,
       type: 'no-procedure',
       reason: `${req.need} 처리 절차가 없어요: ${req.detail}`,
     });
   }
   let action: string;
   try {
-    action = await handler({ ...(order ? { order } : {}), need: req.need, detail: req.detail });
+    action = await handler({
+      ...(order ? { order } : {}),
+      need: req.need,
+      detail: req.detail,
+      ...(step ? { step } : {}),
+    });
   } catch (err) {
     return openOrReuse(store, {
-      ...req,
+      ...gateReq,
       type: 'no-procedure',
       reason: `${req.need} 처리에 실패했어요: ${(err as Error).message}`,
     });
@@ -104,6 +126,7 @@ export async function handleNeed(
   const record: BypassRecord = {
     ...(req.orderId ? { orderId: req.orderId } : {}),
     need: req.need,
+    ...(step ? { step } : {}),
     action,
     at: store.timestamp(),
   };
@@ -207,8 +230,12 @@ export function resolveGate(
   const live = order.workerId ? store.worker(order.workerId) : undefined;
   const alive = live && (live.status === 'running' || live.status === 'starting');
   if (alive) {
-    // 게이트를 기다린 시간은 워커가 끊긴 시간이 아니다. 게이트를 종료한 시점부터 다시 센다
-    store.updateWorker(live.id, { lastSeenAt: store.timestamp() });
+    // 게이트를 기다린 시간은 워커가 끊긴 시간이 아니다. 게이트를 종료한 시점부터 다시 센다.
+    // 게이트 답을 기다린다고 알린 대기도 여기서 끝난다. 남겨 두면 다음 tick이 그 대기를 상한 초과로 다시 올린다
+    store.updateWorker(live.id, {
+      lastSeenAt: store.timestamp(),
+      ...(live.waiting ? { waiting: undefined } : {}),
+    });
     store.updateOrder(order.id, { status: 'running' });
   } else {
     store.updateOrder(order.id, { status: decision === 'approved' ? 'queued' : 'cancelled' });

@@ -1189,7 +1189,7 @@ export function createCli(): Command {
     .command('report')
     .description('워커 결과를 넘긴다. 요약과 참조만 받고 diff나 로그 원문은 거절한다')
     .requiredOption('--worker <id>', '워커 id')
-    .option('--status <status>', 'progress, done, failed, stopped, needs')
+    .option('--status <status>', 'progress, waiting, done, failed, stopped, needs')
     .option('--summary <text>', '짧은 요약')
     .option('--ref <ref>', '파일 경로나 링크 (여러 번)', collect)
     .option('--skill <name>', '지금 돌던 스킬')
@@ -1201,6 +1201,12 @@ export function createCli(): Command {
     )
     .option('--need <kind>', '혼자 못 넘는 자리의 종류')
     .option('--need-detail <text>', '그 자리의 설명')
+    .option(
+      '--need-step <step>',
+      'simple-approval이 ship의 어느 단계인지: ship-draft, ship-plan, ship-ready. 없으면 사람에게 올린다',
+    )
+    .option('--wait-for <text>', 'status waiting일 때 무엇을 기다리는지 (사람의 답, CI, 리뷰 등)')
+    .option('--wait-until <iso>', '언제까지 기다릴 셈인지 ISO 시각')
     .option('--spawn-title <text>', '하위 워커가 필요하면 새 주문 제목')
     .option('--spawn-detail <text>', '새 주문 설명')
     .option('--file <path>', '같은 필드를 담은 JSON 파일. 플래그가 먼저다')

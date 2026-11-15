@@ -49,6 +49,8 @@ beforeEach(() => {
   nodeMarker = join(base, 'node-ran');
   mkdirSync(fakeBin, { recursive: true });
   writeFileSync(join(fakeBin, 'node'), `#!/bin/sh\ntouch "${nodeMarker}"\n`, { mode: 0o755 });
+  // tick이 사용자 Claude settings의 autoCompactWindow를 읽으므로 실제 설정이 판정에 끼지 않게 막는다
+  vi.stubEnv('CLAUDE_CONFIG_DIR', join(base, 'claude'));
 });
 
 afterEach(() => {
@@ -222,10 +224,29 @@ describe('contextUsage', () => {
     expect(contextUsage(file)).toEqual({
       usedTokens: 140_002,
       windowTokens: 200_000,
+      modelWindowTokens: 200_000,
       percent: 70,
       model: 'claude-opus-5-5',
     });
-    expect(contextUsage(file, 1_000_000)?.percent).toBe(14);
+    expect(contextUsage(file, { windowTokens: 1_000_000 })?.percent).toBe(14);
+  });
+
+  it('autoCompactWindow가 있으면 모델 창 대신 그 크기로 재고 모델 창은 그대로 둔다', () => {
+    const used = transcript([assistantLine({ input_tokens: 220_000 })]);
+    expect(contextUsage(used)).toMatchObject({ windowTokens: 1_000_000, percent: 22 });
+    expect(contextUsage(used, { autoCompactWindowTokens: 250_000 })).toMatchObject({
+      windowTokens: 250_000,
+      modelWindowTokens: 1_000_000,
+      percent: 88,
+    });
+  });
+
+  it('autoCompactWindow가 모델 창보다 크면 모델 창을 쓰고 설정값 contextWindowTokens가 둘보다 먼저다', () => {
+    const used = transcript([assistantLine({ input_tokens: 150_000 })]);
+    expect(contextUsage(used, { autoCompactWindowTokens: 250_000 })?.windowTokens).toBe(200_000);
+    expect(
+      contextUsage(used, { windowTokens: 500_000, autoCompactWindowTokens: 250_000 })?.windowTokens,
+    ).toBe(500_000);
   });
 
   it('[1m] 모델이나 200k를 넘는 사용량은 1M 창으로 본다', () => {
@@ -270,6 +291,37 @@ describe('handoffStatus', () => {
       due: false,
       reason: expect.stringContaining('사용량'),
     });
+  });
+
+  it('autoCompactWindow 기준이면 1M 모델의 220k 사용도 임계값을 넘는다', () => {
+    const state = resolve(tempStateDir());
+    const sid = randomUUID();
+    registerSession(state, sid, '/work', new Date());
+    const tp = transcript([assistantLine({ input_tokens: 220_000 })]);
+    writeFileSync(join(state, 'sessions', sid, 'compactions'), `1\n${tp}\n`);
+    expect(handoffStatus(state, sid, { thresholdPercent: 70 }).due).toBe(false);
+    expect(
+      handoffStatus(state, sid, { thresholdPercent: 70, autoCompactWindowTokens: 250_000 }).due,
+    ).toBe(true);
+  });
+
+  it('컴팩트가 없으면 autoCompactWindow 설정을 읽지 않는다', () => {
+    const state = resolve(tempStateDir());
+    const sid = randomUUID();
+    registerSession(state, sid, '/work', new Date());
+    let reads = 0;
+    const lazy = () => {
+      reads += 1;
+      return 250_000;
+    };
+    handoffStatus(state, sid, { thresholdPercent: 70, autoCompactWindowTokens: lazy });
+    expect(reads).toBe(0);
+    const tp = transcript([assistantLine({ input_tokens: 220_000 })]);
+    writeFileSync(join(state, 'sessions', sid, 'compactions'), `1\n${tp}\n`);
+    expect(
+      handoffStatus(state, sid, { thresholdPercent: 70, autoCompactWindowTokens: lazy }).due,
+    ).toBe(true);
+    expect(reads).toBe(1);
   });
 
   it('두 번째 컴팩트가 왔으면 사용량과 상관없이 넘긴다', () => {
@@ -472,7 +524,13 @@ describe('새 지휘자 세션의 모델과 effort', () => {
       compactions: 1,
       thresholdPercent: 70,
       due: true,
-      usage: { usedTokens: 1, windowTokens, percent: 0, ...(model ? { model } : {}) },
+      usage: {
+        usedTokens: 1,
+        windowTokens,
+        modelWindowTokens: windowTokens,
+        percent: 0,
+        ...(model ? { model } : {}),
+      },
     });
     expect(resolveHandoffModel(usage(200_000, 'claude-opus-5-5'), 'fable')).toBe('fable');
     expect(resolveHandoffModel(usage(200_000, 'claude-opus-5-5'))).toBe('claude-opus-5-5');
@@ -484,13 +542,33 @@ describe('새 지휘자 세션의 모델과 effort', () => {
     expect(resolveHandoffModel(undefined)).toBeUndefined();
   });
 
+  it('autoCompactWindow로 잰 창이 작아도 1M 모델이면 새 지휘자에 [1m]을 붙인다', () => {
+    const used = transcript([assistantLine({ input_tokens: 220_000 })]);
+    const usage = contextUsage(used, { autoCompactWindowTokens: 250_000 })!;
+    expect(usage.windowTokens).toBe(250_000);
+    const status = {
+      sessionId: 's',
+      compactions: 1,
+      thresholdPercent: 70,
+      due: true,
+      usage,
+    };
+    expect(resolveHandoffModel(status)).toBe('claude-opus-5-5[1m]');
+  });
+
   it('설정 모델에는 1M 창 표시를 붙이지 않고 적힌 그대로 쓴다', () => {
     const big = {
       sessionId: 's',
       compactions: 1,
       thresholdPercent: 70,
       due: true,
-      usage: { usedTokens: 1, windowTokens: 1_000_000, percent: 0, model: 'claude-opus-5-5' },
+      usage: {
+        usedTokens: 1,
+        windowTokens: 1_000_000,
+        modelWindowTokens: 1_000_000,
+        percent: 0,
+        model: 'claude-opus-5-5',
+      },
     };
     expect(resolveHandoffModel(big, 'opus')).toBe('opus');
     expect(resolveHandoffModel(big, 'opus[1m]')).toBe('opus[1m]');
@@ -502,7 +580,13 @@ describe('새 지휘자 세션의 모델과 effort', () => {
       compactions: 1,
       thresholdPercent: 70,
       due: true,
-      usage: { usedTokens: 1, windowTokens: 200_000, percent: 0, model },
+      usage: {
+        usedTokens: 1,
+        windowTokens: 200_000,
+        modelWindowTokens: 200_000,
+        percent: 0,
+        model,
+      },
     });
     expect(resolveHandoffModel(withModel('--help'))).toBeUndefined();
     expect(resolveHandoffModel(withModel('opus 5'))).toBeUndefined();
@@ -606,6 +690,27 @@ describe('tick과 handoff 명령', () => {
     ).rejects.toThrow('exit 1');
     expect(err.at(-1)).toContain('인계했어요');
   });
+  it('tick은 CLAUDE_CONFIG_DIR settings.json의 autoCompactWindow로 인계를 판정한다', async () => {
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((v: unknown) => void out.push(String(v)));
+    const stateDir = tempStateDir();
+    const sid = randomUUID();
+    vi.stubEnv('CLAUDE_CODE_SESSION_ID', sid);
+    vi.stubEnv('GESTALT_CONDUCTOR_WORKER_ID', '');
+    const claudeDir = join(base, 'claude');
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(join(claudeDir, 'settings.json'), JSON.stringify({ autoCompactWindow: 250_000 }));
+    registerSession(resolve(stateDir), sid, '/work', new Date());
+    const tp = transcript([assistantLine({ input_tokens: 220_000 })]);
+    writeFileSync(join(resolve(stateDir), 'sessions', sid, 'compactions'), `1\n${tp}\n`);
+
+    await conductorTickCommand({ stateDir, json: true, force: true, queue: false, prWatch: false });
+    const report = JSON.parse(out.at(-1)!) as {
+      handoff: { due: boolean; usage: { windowTokens: number } };
+    };
+    expect(report.handoff).toMatchObject({ due: true, usage: { windowTokens: 250_000 } });
+  });
+
   it('띄운 뒤 결과를 못 덮어쓰면 띄우는 중 기록이 남고 recordError로 알린다', async () => {
     if (process.getuid?.() === 0) return;
     const out: string[] = [];
