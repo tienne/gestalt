@@ -55,6 +55,22 @@ section.sec>h2{font-size:1.2rem;margin:0 0 12px;padding-bottom:6px;border-bottom
 .blk-decision .rej s{color:var(--fg)}
 .blk-prose{background:var(--chip)}
 .foot{margin-top:48px;color:var(--muted);font-size:.78rem;border-top:1px solid var(--line);padding-top:12px}
+.aud-filter{display:flex;flex-wrap:wrap;gap:4px;padding:0 8px}
+.aud-filter .toc-h{flex-basis:100%;margin-left:0}
+.aud-filter button{border:1px solid var(--line);background:none;border-radius:999px;padding:0 10px;font-size:.8rem;cursor:pointer}
+.aud-filter button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.blk.aud-hide{display:none}
+.overview details{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:8px 14px;margin:0 0 12px}
+.overview summary{cursor:pointer;font-weight:600}
+.xlist{margin:8px 0 4px;padding-left:20px}
+.xlist li{margin:4px 0}
+.where{color:var(--muted);font-size:.8rem;margin-left:4px}
+.xwrap{overflow-x:auto;margin:8px 0 4px}
+.xmatrix{border-collapse:collapse;font-size:.88rem}
+.xmatrix th,.xmatrix td{border:1px solid var(--line);padding:4px 10px;text-align:center}
+.xmatrix th[scope="row"]{text-align:left;font-weight:500}
+.xmatrix td{color:var(--accent)}
+.xmatrix .orphan td{color:var(--warn)}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 @media (max-width:860px){.layout{grid-template-columns:1fr}.toc{position:static;height:auto;padding-bottom:0}.cells{grid-template-columns:repeat(2,minmax(0,1fr))}}
 `;

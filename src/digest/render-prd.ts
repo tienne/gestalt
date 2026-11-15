@@ -3,7 +3,15 @@ import { PRD_CSS } from './prd-css.js';
 import { allBlocks, type PrdView } from './prd-schema.js';
 import { PRD_HTML_MARKER } from './prd-store.js';
 import { PRD_VIEWER_JS, PRD_VIEWER_JS_SHA256 } from './prd-viewer-js.js';
-import { esc, fmtSrc, inlineMd, renderBlock, type BlockContext } from './render-prd-blocks.js';
+import {
+  AUDIENCE_LABEL,
+  esc,
+  fmtSrc,
+  inlineMd,
+  renderBlock,
+  type BlockContext,
+} from './render-prd-blocks.js';
+import { renderOverview, usedAudiences } from './render-prd-views.js';
 import { THEME_BOOT_JS, THEME_BOOT_JS_SHA256 } from './viewer-js.js';
 
 export interface RenderPrdOptions {
@@ -45,6 +53,23 @@ export function renderPrdHtml(view: PrdView, opts: RenderPrdOptions): string {
   const toc = view.sections
     .map((s) => `<li><a href="#s-${esc(s.id)}">${esc(s.title)}</a></li>`)
     .join('');
+  const overview = renderOverview(view);
+  const overviewToc = overview.toc.length
+    ? `<p class="toc-h">모아 보기</p><ol>${overview.toc
+        .map((t) => `<li><a href="#${t.id}">${esc(t.title)}</a></li>`)
+        .join('')}</ol>`
+    : '';
+  const audiences = usedAudiences(view);
+  // 대상이 하나뿐이면 걸러도 달라지는 게 거의 없어서 버튼을 안 낸다
+  const audFilter =
+    audiences.length > 1
+      ? `<div class="aud-filter" role="group" aria-label="대상별 보기"><p class="toc-h">대상별 보기</p><button type="button" data-aud-filter="" aria-pressed="true">전체</button>${audiences
+          .map(
+            (a) =>
+              `<button type="button" data-aud-filter="${a}" aria-pressed="false">${AUDIENCE_LABEL[a]}</button>`,
+          )
+          .join('')}</div>`
+      : '';
   const rows = view.meta.rows
     .map(
       (r) =>
@@ -73,17 +98,18 @@ export function renderPrdHtml(view: PrdView, opts: RenderPrdOptions): string {
 <title>${esc(view.meta.title)}</title>
 <script>${THEME_BOOT_JS}</script>
 <style>${PRD_CSS}</style>
-<noscript><style>.theme-switch{display:none!important}</style></noscript>
+<noscript><style>.theme-switch,.aud-filter{display:none!important}</style></noscript>
 </head>
 <body>
 <div class="layout">
-<nav class="toc" aria-label="목차"><p class="toc-h">목차</p><ol>${toc}</ol></nav>
+<nav class="toc" aria-label="목차">${audFilter}${overviewToc}<p class="toc-h">목차</p><ol>${toc}</ol></nav>
 <main>
 <header class="head"><span class="theme-switch" role="group" aria-label="테마"><button type="button" data-theme-set="auto" aria-pressed="true">자동</button><button type="button" data-theme-set="light" aria-pressed="false">라이트</button><button type="button" data-theme-set="dark" aria-pressed="false">다크</button></span>
 <h1>${inlineMd(view.meta.title)}</h1>
 ${rows ? `<div class="meta">${rows}</div>` : ''}
 <p class="src-path">원문 ${esc(view.meta.source)} · ${esc(opts.sourceSha256.slice(0, 8))}</p>
 </header>
+${overview.html}
 ${sections}
 <footer class="foot"><p>${covText}</p>${omitted}<p>원문 sha256 ${esc(opts.sourceSha256)}</p></footer>
 </main>

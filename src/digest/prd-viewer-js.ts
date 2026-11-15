@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { THEME_STORAGE_KEY } from './viewer-js.js';
 
-/** PRD 뷰 스크립트. 테마 전환과 목차 하이라이트만 한다. 내용은 전부 서버가 HTML로 그려 둔다 */
+/** PRD 뷰 스크립트. 테마 전환과 대상별 필터, 목차 하이라이트만 한다. 내용은 전부 서버가 HTML로 그려 둔다 */
 export const PRD_VIEWER_JS = `(function(){
 var KEY='${THEME_STORAGE_KEY}';
 var root=document.documentElement;
@@ -14,6 +14,13 @@ var v=this.getAttribute('data-theme-set');
 if(v==='auto')root.removeAttribute('data-theme');else root.setAttribute('data-theme',v);
 try{if(v==='auto')localStorage.removeItem(KEY);else localStorage.setItem(KEY,v);}catch(e){}
 mark(v);});
+var fb=document.querySelectorAll('[data-aud-filter]');
+var blks=document.querySelectorAll('.blk[data-aud]');
+for(var f=0;f<fb.length;f++)fb[f].addEventListener('click',function(){
+var a=this.getAttribute('data-aud-filter');
+for(var j=0;j<fb.length;j++)fb[j].setAttribute('aria-pressed',String(fb[j]===this));
+for(var b=0;b<blks.length;b++){var d=blks[b].getAttribute('data-aud');
+blks[b].classList.toggle('aud-hide',a!==''&&d!==''&&(' '+d+' ').indexOf(' '+a+' ')<0);}});
 var links=document.querySelectorAll('.toc a[href^="#"]');
 if('IntersectionObserver' in window){
 var io=new IntersectionObserver(function(es){es.forEach(function(en){if(!en.isIntersecting)return;
