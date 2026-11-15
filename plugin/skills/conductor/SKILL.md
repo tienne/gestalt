@@ -41,7 +41,7 @@ routing:
 - **주문을 넣은 뒤에는 그 대화 원문에 기대지 않는다.** 주문 하나에 필요한 맥락은 전부 description에 옮긴다. 세션을 새로 띄워도 잃는 게 없어야 한다.
 - **여러 주문에 걸친 맥락은 레포 공통 맥락 파일에 둔다.** 대화에만 남기지 않는다. 자세한 건 1-1이다.
 - **워커 생성은 컨덕터만 한다.** 워커가 하위 워커를 원하면 보고의 `spawnRequest`로 올라오고 다음 tick이 새 주문으로 받는다. 주문 하나에 하위 주문은 세 개까지고 하위 주문의 워커는 더 못 늘린다. 넘치면 만들지 않고 그 워커에 이유를 보낸다.
-- **이 스킬 자신은 워커 안에서 돌지 않는다.** `tick`과 `gate resolve`, `order add`, `order remove`, `order take-over`, `order cancel`, `order mark-merged`, `queue add`, `deploy report`는 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이면 거절한다. 서브에이전트 워커는 컨덕터와 같은 자리에서 돌아서 이 검사에 안 걸리므로 지시서 규칙에만 기댄다.
+- **이 스킬 자신은 워커 안에서 돌지 않는다.** `tick`과 `gate resolve`, `order add`, `order remove`, `order take-over`, `order cancel`, `order mark-merged`, `queue add`, `deploy report`, `wait`는 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이면 거절한다. 서브에이전트 워커는 컨덕터와 같은 자리에서 돌아서 이 검사에 안 걸리므로 지시서 규칙에만 기댄다.
 - **워커는 자기 id로만 보고한다.** `worker report`와 `checkpoint save`는 `GESTALT_CONDUCTOR_WORKER_ID`와 `--worker`가 다르면 거절한다. 이 환경 변수는 git 워크트리 워커에만 있어서 오르카와 서브에이전트 워커가 남의 id를 적는 건 못 막는다.
 
 ### 깨어날 때마다
@@ -216,7 +216,7 @@ gestalt conductor deploy report --order <orderId> --status success --ref <pipeli
 3. **wait가 도는 동안 사람이 말을 걸면** 그 일을 처리한다. 확인 자리를 종료했거나 주문을 넣었으면 `tick --force --json`을 한 번 돌려 바로 반영한다. wait는 그대로 두고 다시 띄우지 않는다. 같은 tick 잠금을 쓰니 둘이 겹쳐 돌지 않는다.
 4. **wait가 떠 있는지 기억이 없으면**(컴팩트나 재개 뒤) 그냥 다시 띄운다. 새 wait가 소유 표식을 가져가고 앞선 wait는 다음 tick 앞에서 `superseded`로 끝난다.
 
-wait는 tick을 감시 간격마다 `--force`로 돌린다. 이미 보여 준 경고와 오류, 탭 닫기 실패는 `wait-seen.json`에 남겨 같은 문장만으로는 다시 끝나지 않는다. 다른 이유로 끝나면 함께 실린다. 다음 wait 동안 다시 안 나온 문장은 목록에서 빠지니 고쳐졌다가 같은 문장으로 다시 나면 wait가 끝난다. 세션 한도 대기(`rateLimited`)는 이유로 안 친다. 오래가면 tick이 확인 자리로 올린다.
+wait는 tick을 감시 간격마다 `--force`로 돌린다. 이미 보여 준 경고와 오류, 이전 탭을 닫은 결과는 `wait-seen.json`에 남겨 같은 문장만으로는 다시 끝나지 않는다. 다른 이유로 끝나면 함께 실린다. wait 하나 동안 한 번도 안 나온 문장은 그 wait가 끝날 때 목록에서 빠진다. 고쳐졌다가 같은 문장으로 다시 나면 그다음 wait가 끝난다. 세션 한도 대기(`rateLimited`)는 이유로 안 친다. 오래가면 tick이 확인 자리로 올린다.
 
 ### 7-B. loop 반복
 

@@ -32,7 +32,7 @@ export interface WaitResult {
   /** 마지막으로 돈 tick. attention이면 끝나게 한 tick이다 */
   last?: WaitTickOutcome;
   /**
-   * 건너뛰지 않은 tick에 실린 경고와 오류, 이전 탭 닫기 결과 문장. 본 목록에서 이미 풀린 문장을 빼는 데 쓴다.
+   * 건너뛰지 않은 tick에 실린 경고와 오류, 이전 탭을 닫은 결과를 적은 문장. 본 목록에서 이미 풀린 문장을 빼는 데 쓴다.
    * 건너뛰지 않은 tick이 하나도 없으면 비워 둔다
    */
   observed?: string[];
@@ -178,7 +178,8 @@ export function readSeen(stateDir: string): Set<string> {
 
 /**
  * 호스트에 보여 준 문장을 남긴다. 고쳐지지 않는 오류 하나로 wait가 매번 바로 끝나지 않게 한다.
- * 이번 wait의 tick에서 다시 안 나온 문장은 뺀다. 고쳐졌다가 같은 문장으로 다시 나면 호스트를 깨워야 해서다
+ * 이번 wait의 tick에서 한 번도 안 나온 문장은 뺀다. 고쳐졌다가 같은 문장으로 다시 나면 다음 wait가 호스트를 깨운다.
+ * 한 wait 안에서 풀렸다가 다시 난 문장은 못 알아본다. 띄엄띄엄 실리는 오류로 매번 깨우지 않으려는 것이다
  */
 export function writeSeen(
   stateDir: string,

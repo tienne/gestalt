@@ -72,7 +72,7 @@ interface GestaltConfig {
   conductor: {
     maxConcurrentWorkers: number; // 동시 워커 상한, 기본 10
     pollIntervalSec: number; // 진행 감시 주기, 기본 60
-    waitMaxSec: number; // conductor wait가 할 일 없이 기다리는 상한(초), 기본이자 최대 1500. 마지막 tick까지 호스트 백그라운드 제한 30분 안에 끝나게 막았다
+    waitMaxSec: number; // conductor wait가 할 일 없이 기다리는 상한(초), 기본이자 최대 1500. 마지막 tick까지 스킬이 백그라운드로 띄울 때 주는 30분 제한(timeout: 1800000) 안에 끝나게 막았다
     maxResumeAttempts: number; // 체크포인트 재개 횟수 상한, 기본 3
     staleAfterSec: number; // 소식이 이만큼(초) 없으면 끊긴 워커로 본다, 기본 1800
     rateLimitEscalateAfterSec: number; // 오르카 워커가 세션 한도에 걸린 채 이만큼(초) 지나면 사람에게 올린다, 기본 21600
