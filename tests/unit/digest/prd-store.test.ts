@@ -54,6 +54,14 @@ describe('resolveOutDir', () => {
     expect(resolveOutDir(root, ' ')).toMatchObject({ ok: false, code: 'INVALID_OUT_DIR' });
     expect(resolveOutDir(root, 'f')).toMatchObject({ ok: false, code: 'OUT_DIR_NOT_DIRECTORY' });
   });
+
+  it('심볼릭 링크 폴더는 따라가지 않고 거절한다', () => {
+    const root = tmp();
+    mkdirSync(join(root, 'real'));
+    symlinkSync(join(root, 'real'), join(root, 'link'));
+    expect(resolveOutDir(root, 'link')).toMatchObject({ ok: false, code: 'INVALID_OUT_DIR' });
+    expect(existsSync(join(root, 'real', 'index.html'))).toBe(false);
+  });
 });
 
 describe('writeHtmlTo', () => {

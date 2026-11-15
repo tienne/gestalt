@@ -86,13 +86,13 @@ describe('모아 보기 렌더', () => {
     ]);
     expect(renderOverview(view)).toEqual({ html: '', toc: [] });
     const html = render(view);
-    expect(html).not.toContain('id="s-overview"');
+    expect(html).not.toContain('id="x-overview"');
     expect(html).not.toContain('모아 보기');
   });
 
   it('미확정, 연결 표, 결정을 펼친 details로 그리고 원래 카드로 링크한다', () => {
     const html = render(parse());
-    expect(html).toContain('id="s-overview"');
+    expect(html).toContain('id="x-overview"');
     for (const id of ['x-unresolved', 'x-req-metric', 'x-decisions']) {
       expect(html).toContain(`<details open id="${id}">`);
       expect(html).toContain(`href="#${id}"`);
@@ -101,7 +101,7 @@ describe('모아 보기 렌더', () => {
     expect(html).toContain('href="#b-d1"');
     expect(html).toContain('연결 지표 없음');
     // 모아 보기는 본문 섹션보다 앞에 온다
-    expect(html.indexOf('id="s-overview"')).toBeLessThan(html.indexOf('id="s-problem"'));
+    expect(html.indexOf('id="x-overview"')).toBeLessThan(html.indexOf('id="s-problem"'));
   });
 
   it('모아 보기에 옮겨 담는 글도 escape한다', () => {
@@ -129,5 +129,32 @@ describe('대상별 필터', () => {
     const v = sampleView() as Json;
     v.sections[1].blocks[0].audience = ['pm'];
     expect(render(parse(v))).not.toContain('data-aud-filter="');
+  });
+});
+
+describe('모아 보기와 본문 섹션 id', () => {
+  it('본문 섹션 id가 overview여도 모아 보기 섹션과 DOM id가 겹치지 않는다', () => {
+    const v = sampleView() as Json;
+    v.sections[0].id = 'overview';
+    const html = render(parse(v));
+    const ids = [...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]!);
+    expect(ids.filter((id) => id === 'x-overview')).toHaveLength(1);
+    expect(ids.filter((id) => id === 's-overview')).toHaveLength(1);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('모아 보기 목록은 글 안의 마크다운 링크를 글자로 남겨 a를 중첩하지 않는다', () => {
+    const v = sampleView() as Json;
+    const q = (v.sections as Json[]).flatMap((s) => s.blocks as Json[]).find((b) => b.id === 'q1')!;
+    q.item = `${q.item} [참고](https://example.com/a)`;
+    const html = render(parse(v));
+    const overview = html.slice(
+      html.indexOf('id="x-overview"'),
+      html.indexOf('</section>', html.indexOf('id="x-overview"')),
+    );
+    expect(overview).toContain('[참고](https://example.com/a)');
+    expect(overview).not.toContain('href="https://example.com/a"');
+    // 본문 카드에서는 링크로 살아 있다
+    expect(html).toContain('href="https://example.com/a"');
   });
 });

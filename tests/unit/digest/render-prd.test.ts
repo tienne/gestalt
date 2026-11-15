@@ -4,6 +4,7 @@ import { parsePrdView, type PrdView } from '../../../src/digest/prd-schema.js';
 import { PRD_HTML_MARKER } from '../../../src/digest/prd-store.js';
 import { PRD_VIEWER_JS } from '../../../src/digest/prd-viewer-js.js';
 import { renderPrdHtml } from '../../../src/digest/render-prd.js';
+import { inlineMd } from '../../../src/digest/render-prd-blocks.js';
 import { THEME_BOOT_JS } from '../../../src/digest/viewer-js.js';
 import { collectPrdGaps } from '../../../src/digest/lint-prd-gaps.js';
 import { sampleSource, sampleView, sampleViewWithStage3 } from './prd-fixture.js';
@@ -133,5 +134,25 @@ describe('renderPrdHtml', () => {
     expect(html).toContain('베이스라인에 숫자가 없는 지표');
     expect(html.indexOf('id="gaps"')).toBeLessThan(html.indexOf('id="s-problem"'));
     expect(render(sampleView())).not.toContain('id="gaps"');
+  });
+});
+
+describe('inlineMd', () => {
+  it('링크 주소 안의 백틱을 code 태그로 바꾸지 않는다', () => {
+    expect(inlineMd('[x](https://a.example/`b`c)')).toBe(
+      '<a href="https://a.example/`b`c" rel="noopener noreferrer" target="_blank">x</a>',
+    );
+  });
+
+  it('링크 밖 코드와 굵게, 링크 글자 안 서식은 그대로 바꾼다', () => {
+    expect(inlineMd('`k` **b** [`c` 문서](https://a.example)')).toBe(
+      '<code>k</code> <strong>b</strong> <a href="https://a.example" rel="noopener noreferrer" target="_blank"><code>c</code> 문서</a>',
+    );
+  });
+
+  it('입력에 섞인 자리표시 글자는 링크 자리표시로 읽히지 않는다', () => {
+    expect(inlineMd('\uE0000\uE000 [x](https://a.example)')).toBe(
+      '0 <a href="https://a.example" rel="noopener noreferrer" target="_blank">x</a>',
+    );
   });
 });
