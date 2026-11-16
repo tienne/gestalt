@@ -180,7 +180,7 @@ PR을 작성하기 전에 세 가지를 확인합니다. 없으면 Enter / "없�
 
 **화면이 바뀌는 변경이면 4번 질문을 같은 묶음에 붙입니다.** 이 시점엔 아직 diff를 안 모았으니 [`../_shared/pr-base.md`](../_shared/pr-base.md) 4절 블록 뒤에 `git diff --name-only "$baseRef"...HEAD`만 붙여 파일 목록을 먼저 봅니다. 기준은 [5.5단계](#55단계-수정-전후-스크린샷-첨부)의 "화면 변경 판정"입니다. 해당하지 않으면 4번은 묻지 않습니다.
 
-**묻기 전에 미리 찍어 둔 수정 전 화면이 있는지 봅니다.** `execute`가 고치기 직전에 [`../_shared/before-screenshot.md`](../_shared/before-screenshot.md)대로 찍어 두었으면 5.5단계의 `$shotTmp/manifest.json`에 남아 있습니다.
+**묻기 전에 미리 찍어 둔 수정 전 화면이 있는지 봅니다.** `execute`나 컨덕터 워커가 고치기 직전에 [`../_shared/before-screenshot.md`](../_shared/before-screenshot.md)대로 찍어 두었으면 5.5단계의 `$shotTmp/manifest.json`에 남아 있습니다.
 
 - `pairs`가 있으면 4번을 묻지 않습니다. 그 화면들은 같은 주소와 뷰포트로 수정 후만 찍으면 되므로 `prIntent.screenshots`에 그대로 옮깁니다. 미리보기에서 사용자가 화면을 더하거나 뺄 수 있습니다.
 - `skipped`만 있으면 그 이유를 한 줄 보이고 4번을 그대로 묻습니다.

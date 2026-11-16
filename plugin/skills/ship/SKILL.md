@@ -708,7 +708,7 @@ GESTALT_PR=1 gh pr create --draft --base "<base>" --assignee @me \
 
 PR 번호를 `prNumber`, URL을 `prUrl`로 보관한다.
 
-**`pr` 스킬 1단계에서 스크린샷을 받았으면 바로 그 스킬의 5.5단계로 붙인다.** 본문을 `pr` 스킬을 거치지 않고 템플릿을 보며 직접 썼더라도 화면 변경이면 같다. 본문에 `<!-- gestalt:screenshots -->` 표식이 없으면 `pr` 스킬 4단계의 스크린샷 자리 규칙대로 넣고 5.5단계를 돈다. 이때는 `pr` 1단계를 안 거쳐 `prIntent`가 없으므로 Phase 3의 4번 답을 고른 표대로 `prIntent.screenshots`를 직접 채워 넘긴다. manifest에 `pairs`가 있으면 그대로 옮긴다. 직접 썼다는 이유로 스크린샷을 빼지 않는다. 본문의 `<!-- gestalt:screenshots -->` 표식 자리를 채우는 일이라 draft여도 그대로 돈다. 이미지는 레포에 커밋하지 않는다. 못 붙였으면 그 이유를 승인 단계 ⓒ 메시지에 한 줄 적고 Phase 4로 넘어간다.
+**`pr` 스킬 1단계에서 스크린샷을 받았으면 바로 그 스킬의 5.5단계로 붙인다.** 본문을 `pr` 스킬을 거치지 않고 템플릿을 보며 직접 썼더라도 화면 변경이면 같다. 본문에 `<!-- gestalt:screenshots -->` 표식이 없으면 `pr` 스킬 4단계의 스크린샷 자리 규칙대로 넣고 5.5단계를 돈다. 이때는 `pr` 1단계를 안 거쳐 `prIntent`가 없으므로, 위의 "상황 | 4번에 적는 답" 표에 지금 base 대비 변경 파일을 대어 고른 답으로 `prIntent.screenshots`를 직접 채워 넘긴다. manifest에 `pairs`가 있으면 그대로 옮긴다. 직접 썼다는 이유로 스크린샷을 빼지 않는다. 본문의 `<!-- gestalt:screenshots -->` 표식 자리를 채우는 일이라 draft여도 그대로 돈다. 이미지는 레포에 커밋하지 않는다. 못 붙였으면 그 이유를 승인 단계 ⓒ 메시지에 한 줄 적고 Phase 4로 넘어간다.
 
 ## Phase 4 — Copilot 리뷰 루프
 
