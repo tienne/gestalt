@@ -2,10 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { lintPrdView } from '../../../src/digest/lint-prd.js';
 import { parsePrdView, type PrdView } from '../../../src/digest/prd-schema.js';
 import { PRD_HTML_MARKER } from '../../../src/digest/prd-store.js';
-import { PRD_VIEWER_JS } from '../../../src/digest/prd-viewer-js.js';
+import { PRD_VIEWER_JS, PRD_THEME_BOOT_JS } from '../../../src/digest/prd-viewer-js.js';
 import { renderPrdHtml } from '../../../src/digest/render-prd.js';
 import { inlineMd } from '../../../src/digest/render-prd-blocks.js';
-import { THEME_BOOT_JS } from '../../../src/digest/viewer-js.js';
 import { collectPrdGaps } from '../../../src/digest/lint-prd-gaps.js';
 import { sampleSource, sampleView, sampleViewWithStage3 } from './prd-fixture.js';
 
@@ -48,7 +47,7 @@ describe('renderPrdHtml', () => {
     const v = sampleView() as Json;
     delete v.sections[2].blocks[0].baseline;
     const html = render(v);
-    expect(html).toContain('<div class="cell empty"><span>베이스라인</span></div>');
+    expect(html).toContain('<div class="cell empty"><span>기준값</span></div>');
     expect(html).toContain('재추출 필요');
   });
 
@@ -97,7 +96,7 @@ describe('renderPrdHtml', () => {
     const html = render(v);
     const scripts = html.match(/<script>[\s\S]*?<\/script>/g) ?? [];
     expect(scripts).toEqual([
-      `<script>${THEME_BOOT_JS}</script>`,
+      `<script>${PRD_THEME_BOOT_JS}</script>`,
       `<script>${PRD_VIEWER_JS}</script>`,
     ]);
     expect(html).not.toContain('<img');
@@ -127,13 +126,14 @@ describe('renderPrdHtml', () => {
     expect(html).toMatch(/<th scope="row">M2<\/th><td class="empty"><\/td><td>8%<\/td>/);
   });
 
-  it('gaps를 주면 코드별로 묶은 빈칸 패널을 본문 앞에 그린다', () => {
+  it('빈칸을 검수 탭으로 옮기고 질문을 표시한다', () => {
     const html = render(sampleView(), true);
-    expect(html).toContain('<section class="sec gaps" id="gaps">');
-    expect(html).toContain('href="#gaps"');
-    expect(html).toContain('베이스라인에 숫자가 없는 지표');
-    expect(html.indexOf('id="gaps"')).toBeLessThan(html.indexOf('id="s-problem"'));
-    expect(render(sampleView())).not.toContain('id="gaps"');
+    const review = html.slice(html.indexOf('id="panel-review"'));
+    expect(review).toContain('id="review-1"');
+    expect(review).toContain('현재 기준값은 얼마인가요?');
+    expect(review).toContain('href="#f-r1"');
+    expect(html).not.toContain('id="gaps"');
+    expect(html).toContain('class="badge review-count"');
   });
 });
 

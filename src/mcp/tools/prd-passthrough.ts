@@ -162,6 +162,8 @@ function handleRender(input: PrdInput, repoRoot: string): object {
       sourceSha256: c.source.sha256,
       coverage: c.lint.coverage,
       gaps,
+      prose: lintPrdProse(c.view, c.source),
+      issues: c.lint.issues,
     });
     const written = writeHtmlTo(outDir ?? store.dir(c.view.slug), html, {
       // 저장소 안의 index.html은 우리가 쓴 파일이라 표시가 없어도 덮는다
