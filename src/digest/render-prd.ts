@@ -1,3 +1,4 @@
+import { basename, isAbsolute, relative, resolve, win32 } from 'node:path';
 import type { PrdCoverage } from './lint-prd.js';
 import { GAP_TITLE, PRD_GAP_CODES, type PrdGap } from './lint-prd-gaps.js';
 import { PRD_CSS } from './prd-css.js';
@@ -17,6 +18,7 @@ import { THEME_BOOT_JS, THEME_BOOT_JS_SHA256 } from './viewer-js.js';
 
 export interface RenderPrdOptions {
   sourceSha256: string;
+  repoRoot?: string;
   coverage: PrdCoverage;
   /** 원문 빈칸. 주면 본문 앞에 패널로 그린다 */
   gaps?: readonly PrdGap[];
@@ -65,6 +67,16 @@ function blockContext(view: PrdView): BlockContext {
  */
 export function renderPrdHtml(view: PrdView, opts: RenderPrdOptions): string {
   const ctx = blockContext(view);
+  const sourcePath = view.meta.source;
+  const foreignAbsolute = win32.isAbsolute(sourcePath) && !isAbsolute(sourcePath);
+  const rel =
+    opts.repoRoot && !foreignAbsolute
+      ? relative(resolve(opts.repoRoot), resolve(opts.repoRoot, sourcePath))
+      : undefined;
+  const displaySource =
+    rel && !rel.startsWith('..') && !isAbsolute(rel)
+      ? rel
+      : basename(sourcePath.replace(/\\/g, '/'));
   const sections = view.sections
     .map(
       (s) =>
@@ -135,7 +147,7 @@ export function renderPrdHtml(view: PrdView, opts: RenderPrdOptions): string {
 <header class="head"><span class="theme-switch" role="group" aria-label="테마"><button type="button" data-theme-set="auto" aria-pressed="true">자동</button><button type="button" data-theme-set="light" aria-pressed="false">라이트</button><button type="button" data-theme-set="dark" aria-pressed="false">다크</button></span>
 <h1>${inlineMd(view.meta.title)}</h1>
 ${rows ? `<div class="meta">${rows}</div>` : ''}
-<p class="src-path">원문 ${esc(view.meta.source)} · ${esc(opts.sourceSha256.slice(0, 8))}</p>
+<p class="src-path">원문 ${esc(displaySource)} · ${esc(opts.sourceSha256.slice(0, 8))}</p>
 </header>
 ${gapsHtml}
 ${overview.html}

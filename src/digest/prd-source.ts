@@ -56,6 +56,7 @@ export type LineClass =
   | 'content'
   | 'blank'
   | 'frontmatter'
+  | 'tableHead'
   | 'tableSep'
   | 'tableEmptyHead'
   | 'headingOnly'
@@ -97,6 +98,7 @@ export function classifyLines(lines: readonly string[]): LineClass[] {
     if (line.trim() === '') out.push('blank');
     else if (TABLE_SEP.test(line)) out.push('tableSep');
     else if (TABLE_EMPTY.test(line)) out.push('tableEmptyHead');
+    else if (line.includes('|') && TABLE_SEP.test(lines[i + 1] ?? '')) out.push('tableHead');
     else if (HEADING.test(line)) out.push('headingOnly');
     else if (RULE.test(line)) out.push('rule');
     else if (line.replace(/<[^>]*>/g, '').trim() === '') out.push('htmlOnly');
