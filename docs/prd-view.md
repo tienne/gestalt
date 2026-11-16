@@ -43,10 +43,11 @@ HTML은 외부 파일을 불러오지 않는 한 장짜리라 `file://`로 바�
 | 블록 | 쓰는 자리 | 주요 칸 |
 |---|---|---|
 | `claim` | 한 문장으로 서는 주장 | `text`, `status`(`confirmed`, `assumed`, `open`) |
-| `requirement` | 요구사항 하나 | `title`, `why`(가설), `boundary`(안 하는 것), `phase`(`mvp`, `later`), `metrics`(연결 지표 id), `detail` |
+| `requirement` | 요구사항 하나 | `title`, `why`(가설), `boundary`(범위 밖이나 제약, 아직 정하지 않은 경계), `phase`(`mvp`, `later`), `metrics`(연결 지표 id), `detail` |
 | `metric` | 성공 지표 하나 | `metricId`, `name`, `role`, `denominator`, `baseline`, `target`, `measure` |
 | `decision` | 정한 것과 버린 안 | `decided`, `why`, `rejected[{ option, reason }]` |
 | `question` | 아직 안 정한 것 | `item`, `owner`, `due` |
+| `risk` | 리스크와 대응 | `text`, `response`(선택 문자열) |
 | `prose` | 맞는 블록이 없을 때 | `text` |
 | `compare` | AS-IS와 TO-BE, A안과 B안 비교 | `labels[왼쪽, 오른쪽]`, `rows[{ label, left, right }]` |
 | `scope` | 이번에 안 하는 것 목록 | `out` |
@@ -59,11 +60,24 @@ HTML은 외부 파일을 불러오지 않는 한 장짜리라 `file://`로 바�
 
 원문에 없는 칸은 필드를 빼서 비워 둔다. 화면에는 "원문에 없음"으로 회색 칸이 남는다. 비어 있다는 사실도 보여야 해서다.
 
+스키마 버전은 `1.1.0`이며 기존 `1.0.0` JSON도 그대로 받는다. 새 필드는 전부 선택이다.
+
+| 선택 필드 | 내용 |
+|---|---|
+| `requirement.parent` | 상위 requirement id. 상위 없이 하위가 있는 블록은 그룹, 그 하위는 기능이며 2단까지만 허용한다 |
+| `requirement.acceptance` | 수용 기준 `[{ text, src }]` |
+| `requirement.slots` | 개발 준비 칸. `precondition`, `trigger`, `behavior`, `result`, `exception`, `display`, `permission`, `businessRule`, `data` 키마다 `{ text, src }` |
+| `requirement.priority` | 원문에 적힌 중요도 문자열. 블록 src로 대조한다 |
+| `requirement.questions` | 연결된 question 블록 id 배열 |
+| `meta.roles`, `meta.platforms` | 원문에 적힌 사용자 역할과 플랫폼 `[{ text, src }]` |
+
+`acceptance`, `slots`, `meta.roles`, `meta.platforms`는 각 값의 src로 글과 숫자를 대조한다. `risk.response`와 `priority`는 블록 src로 대조하며 `meta.rows.value`도 원문과 비교한다. 원문에 없는 칸은 비워 둔다. 새 기능 필드는 이번 버전의 기존 카드에서 생략되며 risk는 기존 카드에 표시된다.
+
 문서 바깥 틀은 이렇다.
 
 ```json
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "1.1.0",
   "slug": "rental-reco",
   "meta": { "title": "...", "source": "docs/rental/PRD.md", "sourceSha256": "...", "rows": [{ "key": "오너", "value": "...", "src": [[9, 9]] }] },
   "sections": [{ "id": "problem", "title": "문제", "blocks": [] }],
@@ -93,7 +107,7 @@ HTML은 외부 파일을 불러오지 않는 한 장짜리라 `file://`로 바�
 
 **원문 대조.** 블록 글과 원문 범위를 NFKC로 정규화하고 마크다운 기호, 공백, 구두점을 지운 뒤 비교한다. 부분 문자열이거나 글자 bigram이 60% 넘게 겹치면 원문에서 온 글로 본다. 한국어는 조사가 자주 바뀌어서 단어가 아니라 글자로 비교한다. 숫자는 `summary` 블록에도 따로 대조한다.
 
-**빠진 줄(coverage).** 빈 줄, frontmatter, 표 구분선, 헤딩만 있는 줄을 뺀 내용 줄 가운데 어느 블록에도 `meta.rows`에도 `omitted`에도 안 걸린 줄의 비율을 센다. 10%를 넘으면 경고를 내고 30%를 넘으면 오류로 보고 렌더를 막는다. 빠진 구간은 `coverage.ranges`에 줄 범위와 첫 줄 미리보기로 실린다.
+**빠진 줄(coverage).** 빈 줄, frontmatter, 표 구분선과 머리글, 헤딩만 있는 줄을 뺀 내용 줄 가운데 어느 블록에도 `meta.rows`에도 `omitted`에도 안 걸린 줄의 비율을 센다. 10%를 넘으면 경고를 내고 30%를 넘으면 오류로 보고 렌더를 막는다. 빠진 구간은 `coverage.ranges`에 줄 범위와 첫 줄 미리보기로 실린다.
 
 오류(렌더를 막는다)
 
@@ -102,6 +116,8 @@ HTML은 외부 파일을 불러오지 않는 한 장짜리라 `file://`로 바�
 | `DUPLICATE_ID` | 섹션이나 블록 id가 겹친다 |
 | `DUPLICATE_METRIC_ID` | 같은 `metricId`가 둘 이상 |
 | `UNKNOWN_METRIC` | requirement가 없는 지표 id를 가리킨다 |
+| `UNKNOWN_PARENT`, `UNKNOWN_QUESTION` | 해당 종류의 블록이 없는 id를 가리킨다 |
+| `PARENT_CYCLE`, `REQUIREMENT_TOO_DEEP` | parent가 순환하거나 깊이가 2단을 넘는다 |
 | `SRC_OUT_OF_RANGE` | src가 원문 줄 수를 넘는다 |
 | `SRC_ON_BLANK` | src에 내용 줄이 하나도 없다 |
 | `COVERAGE_LOW` | 빠진 줄이 30% 초과 |
@@ -113,7 +129,7 @@ HTML은 외부 파일을 불러오지 않는 한 장짜리라 `file://`로 바�
 | `COVERAGE_GAP` | 빠진 줄이 10% 초과 |
 | `TEXT_NOT_IN_SOURCE` | `summary`가 아닌 블록 글이 src 범위에 없다 |
 | `NUMBER_NOT_IN_SOURCE` | 블록의 숫자가 src 범위에 없다 |
-| `METRIC_ID_NOT_IN_SOURCE` | `metricId`가 src 범위에 없다 |
+| `METRIC_ID_NOT_IN_SOURCE` | 원문 전체에 `M숫자` id가 있는데 해당 `metricId`는 src 범위에 없다 |
 | `SRC_TOO_WIDE` | `summary`가 아닌 블록이 내용 줄 25줄 넘게 잡는다 |
 | `SRC_COVERS_MOST` | 블록 하나가 문서 내용 줄의 40% 넘게 잡는다 |
 | `SECTION_TITLE_NOT_IN_SOURCE` | 섹션 제목이 원문 헤딩에 없다 |
@@ -126,7 +142,10 @@ HTML은 외부 파일을 불러오지 않는 한 장짜리라 `file://`로 바�
 
 | 코드 | 조건 |
 |---|---|
-| `BASELINE_NO_NUMBER` | 지표 베이스라인이 없거나 숫자가 없다 |
+| `BASELINE_NO_NUMBER` | 기준값이 없거나 재추출, 검수 대기, 측정 불가, 미정이다. 참고: 뒤 수치와 연월만 있는 값도 측정 수치로 안 본다 |
+| `TARGET_UNDECIDED` | 목표가 없거나 미정, 설정 대기다 |
+| `ACCEPTANCE_MISSING` | 기능에 수용 기준이 없다. 그룹이 없으면 모든 요구사항을 기능으로 본다 |
+| `SLOTS_INCOMPLETE` | 기능의 개발 준비 칸이 비었다. 빠진 키를 `missingSlots`로 한 건에 묶는다 |
 | `DUE_NOT_DATE` | 질문 기한이 없거나 날짜 꼴이 아니다. `2026-3-10`, `3/10`, `3월 10일`, `D-7`을 날짜로 본다 |
 | `TBD_PLACEHOLDER` | 글 칸에 `{{TBD...}}` 자리표시가 남았다 |
 | `METRIC_UNLINKED` | 어느 요구사항에도 안 걸린 지표 |
@@ -135,7 +154,22 @@ HTML은 외부 파일을 불러오지 않는 한 장짜리라 `file://`로 바�
 | `DECISION_UNCONFIRMED` | 결정 글에 "제안"이나 "확인 필요"가 있다 |
 | `OPEN_CLAIMS` | 상태가 미정인 주장. 여러 개여도 한 건으로 묶는다 |
 
-지표 연결 두 코드는 문서에 요구사항과 지표가 둘 다 있을 때만 본다.
+지표 연결 두 코드는 문서에 요구사항과 지표가 둘 다 있을 때만 본다. 요구사항 전부가 미연결이면 `REQUIREMENT_UNLINKED` 한 건으로 묶는다.
+
+모든 gaps 항목은 `question`에 블록 제목을 넣은 해요체 질문을 싣는다. 예를 들어 "대여 신청이 끝났다고 판단할 기준은 무엇인가요?", "재대여율의 목표는 얼마인가요?"처럼 다음 빈칸 인터뷰의 입력으로 쓸 수 있다. 질문을 생성해도 원문은 채우지 않는다.
+
+## 문장 진단
+
+`validate.prose`는 원문을 고치지 않는 `info` 진단이다. 코드마다 `count`에 전체 건수를, `samples`에 앞 3건을 담는다. 각 예시는 문장과 블록 id 또는 원문 줄 번호를 담고 AI 표현 탐지는 `ruleId`도 싣는다.
+
+| 코드 | 조건 |
+|---|---|
+| `REQ_NO_SUBJECT` | requirement 설명 첫 문장에 사용자, 관리자, 회원 등의 주어가 없다 |
+| `REQ_NO_BOUNDARY` | requirement에 boundary가 없다 |
+| `MODAL_AMBIGUOUS` | acceptance, slots.data, risk에 "할 수 있다", "될 수 있다" 같은 표현이 있다. result와 permission은 제외한다 |
+| `RISK_NO_RESPONSE` | risk에 response가 없다 |
+| `SENTENCE_LONG` | 원문 한 문장이 66자를 넘는다 |
+| `PROSE_AI_TELL` | humanize의 detect가 연결어미 뒤 쉼표, 가운뎃점 나열 등의 규칙을 찾는다 |
 
 ## 범위 밖
 

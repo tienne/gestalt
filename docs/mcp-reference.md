@@ -1443,7 +1443,8 @@ index.html      render가 쓴 HTML (outDir을 주면 그 폴더에 쓴다)
 // validate
 { ok, action: "validate", slug, errors: [{ path, severity, code, message, blockId? }], warnings: [...],
   coverage: { contentLines, coveredLines, omittedLines, uncoveredLines, uncoveredRatio, ranges: [{ from, to, preview }], truncated },
-  gaps: [{ code, message, blockIds, field? }], sourceSha256 }
+  gaps: [{ code, message, question, blockIds, field?, missingSlots? }],
+  prose: [{ code, severity: "info", count, samples: [{ sentence, blockId?, field?, line?, ruleId? }] }], sourceSha256 }
 
 // render
 { ok: true, action: "render", slug, htmlPath, jsonPath, warnings: [...], coverage, gaps: [...] }
