@@ -58,6 +58,7 @@ import type {
   JiraStatus,
   Order,
   OrderScope,
+  OrderStatus,
   StoredReport,
   Worker,
   WorkerKind,
@@ -1060,14 +1061,31 @@ async function settleOne(
   }
 }
 
-/** 이번 tick에 거둘 워커인지. 머지된 주문의 오르카 워크트리는 재개로 멈춘 앞 회차도 거둔다 */
-function isCleanupTarget(w: Worker, removeWorktree: boolean): boolean {
+/**
+ * 멈춘 워커를 거둘 주문 상태. parked는 끝 상태지만 사람이 PR과 워크트리를 쥐고 있을 수 있어 뺀다.
+ * 취소하면 그때 거둔다
+ */
+const RELEASE_STOPPED_ORDER_STATUSES: ReadonlySet<OrderStatus> = new Set([
+  'done',
+  'failed',
+  'cancelled',
+]);
+
+/**
+ * 이번 tick에 거둘 워커인지. 멈춘 워커는 주문이 done, failed, cancelled이거나 머지돼 워크트리까지
+ * 지울 때만 거둔다. 워크트리까지 지울 때는 주문 상태를 안 본다
+ */
+function isCleanupTarget(w: Worker, order: Order | undefined, removeWorktree: boolean): boolean {
   if (w.status === 'finished' || w.status === 'failed') return true;
-  return removeWorktree && w.status === 'stopped';
+  if (w.status !== 'stopped') return false;
+  if (removeWorktree) return true;
+  return order !== undefined && RELEASE_STOPPED_ORDER_STATUSES.has(order.status);
 }
 
 /**
  * 끝난 워커의 자원을 정리한다. 멈춘 워커는 재개가 그 dispatch id나 워크트리를 다시 쓸 수 있어 남긴다.
+ * 다만 주문이 done, failed, cancelled면 재개될 일이 없어 finished 워커와 같은 방식으로 거둔다. 안 거두면
+ * order remove가 멈춘 워커 때문에 계속 거절한다.
  *
  * removeMergedOrcaWorktrees를 켜면 머지된 주문의 오르카 워커는 워크트리까지 지운다. 재개로 갈린
  * 앞 회차는 stopped로 남는데 주문이 머지되면 다시 쓸 일이 없어 같이 거둔다. 머지 안 된 주문의
@@ -1092,7 +1110,7 @@ async function cleanupWorkers(
       deps.config.removeMergedOrcaWorktrees === true &&
       w.kind === 'orca-worktree' &&
       order?.mergedAt !== undefined;
-    if (!isCleanupTarget(w, removeWorktree)) continue;
+    if (!isCleanupTarget(w, order, removeWorktree)) continue;
     const mine = cleanupGates.filter((g) => g.payload?.workerId === w.id);
     if (mine.some((g) => g.status === 'open')) continue;
     if (mine.some((g) => g.decision === 'approved')) {
@@ -1110,14 +1128,14 @@ async function cleanupWorkers(
     });
   }
   // release마다 외부 명령 타임아웃이 걸려 있어 차례로 기다리면 tick이 워커 수만큼 길어진다.
-  // 워크트리 삭제만은 같은 레포의 git 락이 겹치지 않게 레포마다 차례로 돌린다
+  // 워크트리 삭제만은 같은 레포의 git 락이 겹치지 않게 레포마다 차례로 돌린다. git 워커는 늘 워크트리를 지운다
   const repoChains = new Map<string, Promise<void>>();
   const results = await Promise.allSettled(
     targets.map(({ worker, opts }) => {
       const run = async (): Promise<void> => {
         await deps.launchers[worker.kind]?.release(worker, opts);
       };
-      if (!opts.removeWorktree) return run();
+      if (!opts.removeWorktree && worker.kind !== 'git-worktree') return run();
       const repo = store.order(worker.orderId)?.repo ?? '';
       const next = (repoChains.get(repo) ?? Promise.resolve()).then(run, run);
       repoChains.set(repo, next);

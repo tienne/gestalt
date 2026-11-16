@@ -270,7 +270,7 @@ gestalt conductor order show <id> --json
 
 `status --all`은 끝난 주문 줄에 마지막 보고 요약을 100자까지 붙인다. `status --all --json`의 `lastSummary`에는 요약 전문이 실린다. 이전 진행 보고는 `order show`로 읽는다. 새 컨덕터 세션에서도 같은 결과를 볼 수 있다. 보고 본문을 저장하지 않던 옛 로그는 복원할 수 없어 빈 이력으로 보인다.
 
-끝난 주문(done, failed, cancelled)이 쌓여 보기 번거로우면 `gestalt conductor order remove <주문 id...> [--json]`으로 지운다. 저장소에 `order-removed` 이벤트를 덧붙이는 방식이라 로그 기록은 남지만 status와 `order show`에서는 더 못 본다. 주문의 워커와 체크포인트, 게이트, bypass 기록도 같이 빠진다. 열린 게이트가 있거나 워커가 아직 돌거나 멈춘 워커가 남은 주문은 거절한다. 멈춘 워커는 워크트리가 남아 있을 수 있어서 기록을 지우면 그 워크트리에서 컨덕터 명령을 막던 가드가 풀린다. tick과 같은 잠금을 잡고 지우니 tick이 도는 중이면 잠시 뒤 다시 부른다. 지운 주문의 출처(지라 티켓, PR, 큐 메시지)는 따로 기억해 두고 다음 tick이 같은 주문을 다시 만들지 않는다. 지운 하위 주문도 상위 주문의 하위 주문 상한에 그대로 센다. 워크트리와 브랜치는 건드리지 않으니 필요하면 따로 정리한다. 여러 id를 넘기면 지울 수 있는 것만 지우고 나머지는 이유와 함께 알려 준다. 하나도 못 지우면 exit 1이다.
+끝난 주문(done, failed, cancelled, parked)이 쌓여 보기 번거로우면 `gestalt conductor order remove <주문 id...> [--json]`으로 지운다. 저장소에 `order-removed` 이벤트를 덧붙이는 방식이라 로그 기록은 남지만 status와 `order show`에서는 더 못 본다. 주문의 워커와 체크포인트, 게이트, bypass 기록도 같이 빠진다. 열린 게이트가 있거나 워커가 아직 돌거나 멈춘 워커가 남은 주문은 거절한다. 멈춘 워커는 워크트리가 남아 있을 수 있어서 기록을 지우면 그 워크트리에서 컨덕터 명령을 막던 가드가 풀린다. 끝난 주문의 멈춘 워커는 tick 정리가 거두니 거절당하면 tick을 한 번 돌린 뒤 다시 부른다. 정리에 실패한 워커는 정리 실패 게이트를 처리해야 지울 수 있다. `parked` 주문의 멈춘 워커는 사람이 워크트리를 쥐고 있을 수 있어 tick이 거두지 않는다. 멈춘 워커가 남은 `parked` 주문은 먼저 취소하고 tick을 돌린 뒤 지운다. tick과 같은 잠금을 잡고 지우니 tick이 도는 중이면 잠시 뒤 다시 부른다. 지운 주문의 출처(지라 티켓, PR, 큐 메시지)는 따로 기억해 두고 다음 tick이 같은 주문을 다시 만들지 않는다. 지운 하위 주문도 상위 주문의 하위 주문 상한에 그대로 센다. 워크트리와 브랜치는 건드리지 않으니 필요하면 따로 정리한다. 여러 id를 넘기면 지울 수 있는 것만 지우고 나머지는 이유와 함께 알려 준다. 하나도 못 지우면 exit 1이다.
 
 효과를 재려면 `gestalt conductor metrics --since <날짜>`를 쓴다. 무엇을 비교하는지는 [효과 재기](#효과-재기)에 있다.
 
@@ -339,7 +339,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 6. **사람이 넘겨받은 PR**: `human-owned` 주문의 PR을 주문마다 `humanOwnedPollSec` 간격으로 gh로 본다. 규칙은 [주문 상태](#주문-상태)에 있다.
 7. **머지 뒤 처리**: 지라 상태를 옮기고 배포 결과를 확인한다.
 8. **슬랙**: 승인된 초안을 `slack-post`로 넘긴다.
-9. **정리**: 끝난 워커를 거둔다. git 워커는 워크트리를 지우고 오르카 워커는 터미널만 거둔다. `removeMergedOrcaWorktrees`를 켜면 머지된 주문의 오르카 워크트리까지 지운다. 규칙은 [워커 정리](#워커-정리)에 있다.
+9. **정리**: 끝난 워커와 끝난 주문에 남은 멈춘 워커를 거둔다. git 워커는 워크트리를 지우고 오르카 워커는 터미널만 거둔다. `removeMergedOrcaWorktrees`를 켜면 머지된 주문의 오르카 워크트리까지 지운다. 규칙은 [워커 정리](#워커-정리)에 있다.
 
 `pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝나서 상태를 자주 물어도 토큰이 늘지 않는다. 응답에는 숫자와 할 일만 담는다. 감시 주기마다 tick을 돌리고 할 일이 생겼을 때만 깨우는 건 [`wait`](#백그라운드-wait)가 한다.
 
@@ -434,11 +434,13 @@ gestalt conductor order add --repo acme/app --title "쿠폰 목록 하위 작업
 
 tick 마지막 단계는 `finished`나 `failed` 워커를 거두고 `released`로 바꾼다. 멈춘(`stopped`) 워커는 재개가 그 dispatch id나 워크트리를 다시 쓸 수 있어 남긴다.
 
-| 워커            | 거두는 범위                                                                   |
-| --------------- | ----------------------------------------------------------------------------- |
-| `git-worktree`  | `git worktree remove`로 워크트리를 지운다. 브랜치는 남는다                    |
-| `orca-worktree` | `orca orchestration worker-release`로 워커 터미널만 거둔다. 워크트리는 남는다 |
-| `subagent`      | 할 일 없음                                                                    |
+주문이 끝 상태(`done`, `failed`, `cancelled`)면 멈춘 워커도 같은 tick에 거둔다. 재개될 일이 없고 남겨 두면 `order remove`가 계속 거절해서다. 거두는 방식은 아래 표대로 `finished` 워커와 같다. 오르카 워커는 터미널만 거두고 워크트리는 남긴다. `removeMergedOrcaWorktrees`를 켠 머지된 주문이면 주문 상태와 상관없이 워크트리까지 지운다. 그 밖의 `parked` 주문은 사람이 PR과 워크트리를 쥐고 있을 수 있어 멈춘 워커를 거두지 않는다. 취소하면 그때 거둔다. `finished`나 `failed` 워커는 `parked` 주문이어도 그대로 거둔다.
+
+| 워커            | 거두는 범위                                                                               |
+| --------------- | ----------------------------------------------------------------------------------------- |
+| `git-worktree`  | `git worktree remove`로 워크트리를 지운다. 브랜치는 남는다. 같은 레포끼리는 차례로 지운다 |
+| `orca-worktree` | `orca orchestration worker-release`로 워커 터미널만 거둔다. 워크트리는 남는다             |
+| `subagent`      | 할 일 없음                                                                                |
 
 오르카는 settled 워커만 `worker-release`를 받는다. 워커가 컨덕터에만 보고하고 오르카에 `worker_done` 없이 나가면 dispatch가 `ready`로 남아 `dispatch_inactive`로 거절된다. 그때 `worker-show`의 `liveness`가 `exited`나 `gone`이면 `worker-stop`으로 dispatch를 끝난 상태(state `stopped`)로 바꾸고 `worker-release`를 다시 부른다. `exited`나 `gone`이 아니면(`live`거나 liveness를 모를 때) 멈추지 않고 정리 실패로 올린다.
 
