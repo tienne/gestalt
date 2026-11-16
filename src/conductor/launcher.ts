@@ -244,6 +244,9 @@ export function chooseWorkerKind(order: Order, opts: { orcaAvailable: boolean })
   return opts.orcaAvailable ? 'orca-worktree' : 'git-worktree';
 }
 
+/** PR을 만드는 스킬. 이 중 하나가 체인에 있으면 수정 전 캡처 지시를 싣는다 */
+const PR_SKILLS: ReadonlySet<string> = new Set(['ship', 'pr']);
+
 export interface ResumeContext {
   checkpoint: Checkpoint;
   reason: string;
@@ -323,6 +326,12 @@ export function buildWorkerPrompt(
   lines.push(
     `- ship이 GitHub PR을 만들면 Copilot 리뷰를 요청하기 전에 바로 \`${report} --status progress --skill ship --summary "draft PR 생성" --pr owner/name#번호\`로 보고한다. 컨덕터의 PR 감시가 이 보고로 처리 중인 PR을 알아본다. 늦으면 Copilot 코멘트를 남의 코멘트로 읽고 같은 PR에 주문을 하나 더 만든다.`,
   );
+  if (order.skillChain.some((s) => PR_SKILLS.has(s))) {
+    // 주문 설명이 단계를 직접 적으면 워커가 execute를 안 거쳐 수정 전 캡처 자리가 사라진다
+    lines.push(
+      '- 화면 파일(`pr` 스킬 5.5단계의 화면 변경 판정)을 고칠 주문이면 주문 설명이 단계를 직접 적었어도 코드를 고치기 전에 gestalt 플러그인의 `plugin/skills/_shared/before-screenshot.md`대로 수정 전 화면을 찍는다. 저장은 `shotTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-pr/shots/$(git rev-parse --abbrev-ref HEAD | tr \'/\' \'_\')"` 아래에 하고 `$shotTmp/manifest.json`을 남긴다. 레포 작업 트리나 다른 임시 경로에 두지 않는다. 검증에서 띄운 주소는 PR 단계에서 수정 후 캡처에 다시 쓰니 기억해 둔다.',
+    );
+  }
   if (order.scope === 'merge-through') {
     lines.push(
       `- 체인이 PR을 남기고 끝나면 바로 머지하고 \`${report} --status done --merged --pr owner/name#번호 --summary "머지 완료"\`로 보고한다.`,

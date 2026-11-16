@@ -154,6 +154,20 @@ describe('워커 지시서', () => {
     expect(approval).toContain('--summary "draft PR 생성"');
   });
 
+  it('PR을 만드는 체인이면 고치기 전 수정 전 화면 캡처와 저장 경로를 싣는다', () => {
+    const ship = buildWorkerPrompt(order({ id: 'ord-1' }), worker('ord-1', { id: 'wrk-1' }));
+    expect(ship).toContain('before-screenshot.md');
+    expect(ship).toContain('주문 설명이 단계를 직접 적었어도');
+    expect(ship).toContain('git rev-parse --git-common-dir');
+    expect(ship).toContain('$shotTmp/manifest.json');
+
+    const review = buildWorkerPrompt(
+      order({ id: 'ord-1', skillChain: ['review-loop'] }),
+      worker('ord-1', { id: 'wrk-1' }),
+    );
+    expect(review).not.toContain('before-screenshot.md');
+  });
+
   it('계정 이름 꼴이 아니면 지시서를 만들지 않는다', () => {
     expect(() =>
       buildWorkerPrompt(
