@@ -259,4 +259,8 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 .item-title{display:flex;gap:10px;align-items:center;margin:0 0 8px;font-size:16px}.item-title .ico{width:22px;height:22px;border-radius:6px;background:var(--bg);border:1px solid var(--line);display:grid;place-items:center;font-size:12px;color:var(--sub)}
 
 .metrics-doc{max-width:1100px}.metrics-doc .card{padding:24px}.metrics-table{min-width:880px;table-layout:fixed}.metrics-table th:first-child{width:25%}.metrics-table th[scope="row"]{white-space:normal}.metrics-table td{overflow-wrap:anywhere}.toc .req-folder{display:block;padding:6px 8px;color:var(--text);font-weight:600}
+
+.gaprow .w{min-width:0}.gaprow>div:last-child{max-width:40%;min-width:0;overflow-wrap:anywhere}
+#panel-decisions .blk-question .chips{display:none}
+#panel-spec .spec-cards:not([hidden])+.bottombar{display:none}
 `;
