@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   assertCanSpawn,
@@ -154,18 +154,55 @@ describe('워커 지시서', () => {
     expect(approval).toContain('--summary "draft PR 생성"');
   });
 
-  it('PR을 만드는 체인이면 고치기 전 수정 전 화면 캡처와 저장 경로를 싣는다', () => {
-    const ship = buildWorkerPrompt(order({ id: 'ord-1' }), worker('ord-1', { id: 'wrk-1' }));
-    expect(ship).toContain('before-screenshot.md');
-    expect(ship).toContain('주문 설명이 단계를 직접 적었어도');
-    expect(ship).toContain('git rev-parse --git-common-dir');
-    expect(ship).toContain('$shotTmp/manifest.json');
+  it.each([[['solve', 'ship']], [['ship']], [['pr']], [['execute', 'pr']]])(
+    '%j 체인이면 고치기 전에 수정 전 화면을 찍으라고 싣는다',
+    (skillChain) => {
+      const prompt = buildWorkerPrompt(
+        order({ id: 'ord-1', skillChain }),
+        worker('ord-1', { id: 'wrk-1' }),
+      );
+      expect(prompt).toContain('주문 설명이 단계를 직접 적었어도');
+      expect(prompt).toContain('$shotTmp/manifest.json');
+    },
+  );
 
-    const review = buildWorkerPrompt(
-      order({ id: 'ord-1', skillChain: ['review-loop'] }),
+  it.each([[['review-loop']], [['solve']], [['review']]])(
+    '%j 체인은 PR을 안 만들어 수정 전 캡처를 싣지 않는다',
+    (skillChain) => {
+      const prompt = buildWorkerPrompt(
+        order({ id: 'ord-1', skillChain }),
+        worker('ord-1', { id: 'wrk-1' }),
+      );
+      expect(prompt).not.toContain('before-screenshot.md');
+    },
+  );
+
+  it('수정 전 캡처 문서는 남의 레포에서도 열리는 절대 경로로 가리킨다', () => {
+    const prompt = buildWorkerPrompt(
+      order({ id: 'ord-1', skillChain: ['ship'] }),
       worker('ord-1', { id: 'wrk-1' }),
     );
-    expect(review).not.toContain('before-screenshot.md');
+    const doc = /`([^`]*before-screenshot\.md)`대로/.exec(prompt)?.[1];
+    expect(doc).toBeDefined();
+    expect(isAbsolute(doc!)).toBe(true);
+    expect(existsSync(doc!)).toBe(true);
+  });
+
+  it('shotTmp 경로 줄은 pr 스킬과 수정 전 캡처 문서의 줄과 같다', () => {
+    const prompt = buildWorkerPrompt(
+      order({ id: 'ord-1', skillChain: ['ship'] }),
+      worker('ord-1', { id: 'wrk-1' }),
+    );
+    for (const file of [
+      'plugin/skills/pr/SKILL.md',
+      'plugin/skills/_shared/before-screenshot.md',
+    ]) {
+      const line = readFileSync(file, 'utf-8')
+        .split('\n')
+        .find((l) => l.startsWith('shotTmp='));
+      expect(line, file).toBeDefined();
+      expect(prompt).toContain(line!);
+    }
   });
 
   it('계정 이름 꼴이 아니면 지시서를 만들지 않는다', () => {

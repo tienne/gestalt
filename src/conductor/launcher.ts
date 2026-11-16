@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { basename, delimiter, isAbsolute, join, relative, sep } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isAccountName } from './account-name.js';
 import { handleNeed, openOrReuse } from './gates.js';
 import { ISSUE_KEY_RE, isRefName, oneLine } from './intake.js';
@@ -244,8 +245,19 @@ export function chooseWorkerKind(order: Order, opts: { orcaAvailable: boolean })
   return opts.orcaAvailable ? 'orca-worktree' : 'git-worktree';
 }
 
-/** PR을 만드는 스킬. 이 중 하나가 체인에 있으면 수정 전 캡처 지시를 싣는다 */
+/** PR을 만드는 스킬. 이 중 하나가 체인에 있으면 수정 전 캡처 지시를 싣는다. intake.ts의 KNOWN_SKILLS에 PR을 만드는 스킬을 더하면 여기에도 넣는다 */
 const PR_SKILLS: ReadonlySet<string> = new Set(['ship', 'pr']);
+
+// 워커는 남의 레포에서 돌아 레포 상대 경로로는 이 문서를 못 연다. 소스(src/)와 빌드(dist/) 둘 다 두 단계 위에 plugin/이 있다
+const BEFORE_SCREENSHOT_DOC = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  'plugin',
+  'skills',
+  '_shared',
+  'before-screenshot.md',
+);
 
 export interface ResumeContext {
   checkpoint: Checkpoint;
@@ -328,9 +340,16 @@ export function buildWorkerPrompt(
   );
   if (order.skillChain.some((s) => PR_SKILLS.has(s))) {
     // 주문 설명이 단계를 직접 적으면 워커가 execute를 안 거쳐 수정 전 캡처 자리가 사라진다
+    const doc = existsSync(BEFORE_SCREENSHOT_DOC)
+      ? BEFORE_SCREENSHOT_DOC
+      : 'gestalt 플러그인의 plugin/skills/_shared/before-screenshot.md';
     lines.push(
-      '- 화면 파일(`pr` 스킬 5.5단계의 화면 변경 판정)을 고칠 주문이면 주문 설명이 단계를 직접 적었어도 코드를 고치기 전에 gestalt 플러그인의 `plugin/skills/_shared/before-screenshot.md`대로 수정 전 화면을 찍는다. 저장은 `shotTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-pr/shots/$(git rev-parse --abbrev-ref HEAD | tr \'/\' \'_\')"` 아래에 하고 `$shotTmp/manifest.json`을 남긴다. 레포 작업 트리나 다른 임시 경로에 두지 않는다. 검증에서 띄운 주소는 PR 단계에서 수정 후 캡처에 다시 쓰니 기억해 둔다.',
+      `- 화면 파일(\`pr\` 스킬 5.5단계의 화면 변경 판정)을 고칠 주문이면 주문 설명이 단계를 직접 적었어도 코드를 고치기 전에 \`${doc}\`대로 수정 전 화면을 찍는다.`,
     );
+    lines.push(
+      '- 수정 전 화면은 `shotTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-pr/shots/$(git rev-parse --abbrev-ref HEAD | tr \'/\' \'_\')"` 아래에 저장하고 `$shotTmp/manifest.json`을 남긴다. 레포 작업 트리나 다른 임시 경로에 두지 않는다.',
+    );
+    lines.push('- 검증에서 띄운 주소는 PR 단계에서 수정 후 캡처에 다시 쓰니 기억해 둔다.');
   }
   if (order.scope === 'merge-through') {
     lines.push(
