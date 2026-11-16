@@ -338,6 +338,29 @@ describe('런처', () => {
     expect((err as Error).message).not.toContain('/repos/app');
   });
 
+  it('git 런처는 워크트리를 --force 없이 지워 커밋 안 한 변경이 있으면 실패로 올린다', async () => {
+    const calls: string[][] = [];
+    let code = 0;
+    const runner: CommandRunner = async (_cmd, args) => {
+      calls.push(args);
+      return { code, stdout: '', stderr: code ? 'contains modified or untracked files' : '' };
+    };
+    const root = tempStateDir();
+    const l = new GitWorktreeLauncher({
+      worktreeRoot: join(root, 'wt'),
+      promptDir: join(root, 'prompts'),
+      repoPaths: { 'acme/app': '/repos/app' },
+      runner,
+    });
+    const h = join(root, 'wt', 'ord-1');
+    mkdirSync(h, { recursive: true });
+    const w = worker('ord-1', { id: 'wrk-1', kind: 'git-worktree', handle: h, status: 'stopped' });
+    await l.release(w);
+    expect(calls).toEqual([['-C', h, 'worktree', 'remove', h]]);
+    code = 1;
+    await expect(l.release(w)).rejects.toThrow(/worktree remove 실패\(1\)/);
+  });
+
   it('재개 때 워크트리 디렉토리만 사라졌으면 남은 브랜치를 -b 없이 다시 붙인다', async () => {
     const { calls, runner } = recorder('');
     const root = tempStateDir();

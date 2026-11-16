@@ -65,6 +65,7 @@ function fakeLauncher(kind: WorkerKind) {
   const started: LaunchSpec[] = [];
   const sent: { workerId: string; message: string }[] = [];
   const released: string[] = [];
+  const releaseOpts: ReleaseOptions[] = [];
   const launcher: Launcher = {
     kind,
     start: async (spec) => {
@@ -75,11 +76,12 @@ function fakeLauncher(kind: WorkerKind) {
       sent.push({ workerId: w.id, message });
       return undefined;
     },
-    release: async (w) => {
+    release: async (w, opts = {}) => {
       released.push(w.id);
+      releaseOpts.push(opts);
     },
   };
-  return { launcher, started, sent, released };
+  return { launcher, started, sent, released, releaseOpts };
 }
 
 function fakeJira() {
@@ -754,6 +756,30 @@ describe('컨덕터 tick', () => {
         expect(store.worker(id)!.status).toBe('released');
     });
 
+    it('git 워커는 옵션과 상관없이 같은 레포끼리 차례로 지운다', async () => {
+      const { store } = clockedStore();
+      store.addOrder(order({ id: 'ord-a', repo: 'acme/a', status: 'cancelled' }));
+      store.addOrder(order({ id: 'ord-b', repo: 'acme/a', status: 'failed' }));
+      addWorker(store, { id: 'wrk-a', orderId: 'ord-a', kind: 'git-worktree', status: 'stopped' });
+      addWorker(store, { id: 'wrk-b', orderId: 'ord-b', kind: 'git-worktree', status: 'finished' });
+      let active = 0;
+      let peak = 0;
+      const launcher: Launcher = {
+        kind: 'git-worktree',
+        start: async (spec) => ({ handle: `h-${spec.worker.id}` }),
+        send: async () => undefined,
+        release: async () => {
+          peak = Math.max(peak, ++active);
+          await new Promise((r) => setTimeout(r, 5));
+          active--;
+        },
+      };
+      const { deps: d } = deps({ launchers: { 'git-worktree': launcher } });
+      await tick(store, d, { force: true });
+      expect(peak).toBe(1);
+      for (const id of ['wrk-a', 'wrk-b']) expect(store.worker(id)!.status).toBe('released');
+    });
+
     it('지우기가 실패하면 정리 실패 게이트를 타고 승인되면 released로 둔다', async () => {
       const { store } = clockedStore();
       store.addOrder(order({ id: 'ord-1', status: 'done', mergedAt: '2026-01-01T00:00:00.000Z' }));
@@ -822,6 +848,7 @@ describe('컨덕터 tick', () => {
         expect(orca.released).toEqual(['wrk-0']);
         expect(git.released).toEqual(['wrk-1']);
         expect(sub.released).toEqual(['wrk-2']);
+        for (const l of [orca, git, sub]) expect(l.releaseOpts).toEqual([{}]);
         for (const i of [0, 1, 2]) expect(store.worker(`wrk-${i}`)!.status).toBe('released');
         store.removeOrder('ord-1');
         expect(store.order('ord-1')).toBeUndefined();
