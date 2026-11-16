@@ -185,7 +185,8 @@ export function hasBaselineNumber(value: string | undefined): boolean {
   if (!value || /재추출|검수 대기|측정 불가|미정/.test(value)) return false;
   const measured = value
     .split(/참고\s*[:：]/)[0]!
-    .replace(/\b\d{4}[-/.]\d{1,2}(?:[-/.]\d{1,2})?\b/g, '')
+    .replace(/\b\d{4}[-/](?:0?[1-9]|1[0-2])(?:[-/](?:0?[1-9]|[12]\d|3[01]))?\b/g, '')
+    .replace(/\b\d{4}\.(?:0?[1-9]|1[0-2])(?=\s*(?:기준|현재|$))/g, '')
     .replace(/\d{4}년\s*\d{1,2}월(?:\s*\d{1,2}일)?/g, '');
   return /\d/.test(measured);
 }

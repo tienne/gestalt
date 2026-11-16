@@ -203,12 +203,13 @@ describe('검증 보고서 회귀', () => {
     '참고: 8%',
     '2026-07',
     '2026/07',
+    '2026.07',
     '2026년 7월',
     undefined,
   ])('기준값 %s는 측정 수치가 아니다', (value) => {
     expect(hasBaselineNumber(value)).toBe(false);
   });
-  it.each(['0%', '2026-07 기준 12%', '12% 참고: 30%', '월 100건'])(
+  it.each(['0%', '2026-07 기준 12%', '12% 참고: 30%', '월 100건', '1500.25 건', '2026.10 건'])(
     '기준값 %s는 측정 수치다',
     (value) => {
       expect(hasBaselineNumber(value)).toBe(true);
