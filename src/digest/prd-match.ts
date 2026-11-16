@@ -1,4 +1,4 @@
-import type { PrdBlock } from './prd-schema.js';
+import { REQUIREMENT_SLOTS, type LineRange, type PrdBlock } from './prd-schema.js';
 
 /** 블록 글이 원문 범위와 이 비율 이상 글자 bigram이 겹치면 원문에서 온 글로 본다 */
 export const TEXT_MATCH_MIN = 0.6;
@@ -47,6 +47,7 @@ export interface VerbatimField {
   /** 블록 안의 필드 경로(detail.0 같은) */
   field: string;
   text: string;
+  src?: LineRange[];
 }
 
 /**
@@ -67,7 +68,17 @@ export function verbatimFields(block: PrdBlock): VerbatimField[] {
       add('title', block.title);
       add('why', block.why);
       add('boundary', block.boundary);
+      add('priority', block.priority);
+      block.acceptance?.forEach((a, k) => out.push({ field: `acceptance.${k}.text`, ...a }));
+      for (const key of REQUIREMENT_SLOTS) {
+        const slot = block.slots?.[key];
+        if (slot) out.push({ field: `slots.${key}.text`, ...slot });
+      }
       block.detail?.forEach((d, k) => add(`detail.${k}`, d));
+      break;
+    case 'risk':
+      add('text', block.text);
+      add('response', block.response);
       break;
     case 'metric':
       add('name', block.name);

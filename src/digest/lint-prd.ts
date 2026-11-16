@@ -1,3 +1,4 @@
+import { lintPrdReferences } from './lint-prd-references.js';
 import { numbersIn } from './lint-lens.js';
 import { matchesSource, normalizeForMatch, verbatimFields } from './prd-match.js';
 import { allBlocks, type LineRange, type PrdView } from './prd-schema.js';
@@ -64,7 +65,7 @@ const fmtRange = ([a, b]: LineRange) => (a === b ? `L${a}` : `L${a}-${b}`);
  * 보장하는 건 블록 글이 지목한 줄 근처에서 왔고 원문 내용 줄이 어딘가에 옮겨졌다는 것까지다
  */
 export function lintPrdView(view: PrdView, source: PrdSource): PrdLintResult {
-  const issues: PrdIssue[] = [];
+  const issues: PrdIssue[] = lintPrdReferences(view);
   const total = source.lines.length;
   const classes = classifyLines(source.lines);
   const isContent = (n: number) => classes[n - 1] === 'content';
@@ -98,9 +99,45 @@ export function lintPrdView(view: PrdView, source: PrdSource): PrdLintResult {
   };
 
   const covered = new Set<number>();
+  const checkText = (
+    text: string,
+    ranges: readonly LineRange[],
+    path: string,
+    summary = false,
+    blockId?: string,
+  ) => {
+    const original = rangeText(source, ranges);
+    if (!summary && !matchesSource(normalizeForMatch(text), normalizeForMatch(original))) {
+      push({
+        path,
+        severity: 'warning',
+        code: 'TEXT_NOT_IN_SOURCE',
+        message: `"${text.slice(0, 40)}"가 src 범위 원문에 없다. 줄 범위와 원문을 대조한다`,
+        blockId,
+      });
+    }
+    const sourceNumbers = new Set(numbersIn(original));
+    const missing = numbersIn(text).filter((n) => !sourceNumbers.has(n));
+    if (missing.length)
+      push({
+        path,
+        severity: 'warning',
+        code: 'NUMBER_NOT_IN_SOURCE',
+        message: `숫자 ${[...new Set(missing)].join(', ')}가 src 범위 원문에 없다`,
+        blockId,
+      });
+  };
   for (const [k, row] of view.meta.rows.entries()) {
-    checkRanges(row.src, `meta.rows.${k}.src`);
+    if (checkRanges(row.src, `meta.rows.${k}.src`))
+      checkText(row.value, row.src, `meta.rows.${k}.value`);
     for (const n of linesOf(row.src, total)) covered.add(n);
+  }
+  for (const key of ['roles', 'platforms'] as const) {
+    for (const [k, value] of (view.meta[key] ?? []).entries()) {
+      if (checkRanges(value.src, `meta.${key}.${k}.src`))
+        checkText(value.text, value.src, `meta.${key}.${k}.text`);
+      for (const n of linesOf(value.src, total)) covered.add(n);
+    }
   }
 
   // id와 지표 참조
@@ -197,40 +234,33 @@ export function lintPrdView(view: PrdView, source: PrdSource): PrdLintResult {
     }
 
     const text = rangeText(source, block.src);
-    const normSource = normalizeForMatch(text);
-    const fields = verbatimFields(block);
-    if (!block.summary) {
-      for (const f of fields) {
-        if (!matchesSource(normalizeForMatch(f.text), normSource)) {
+    for (const f of verbatimFields(block)) {
+      if (f.src) {
+        const fieldPath = `${path}.${f.field.replace(/\.text$/, '')}.src`;
+        if (!checkRanges(f.src, fieldPath, block.id)) continue;
+        const fieldLines = [...linesOf(f.src, total)];
+        for (const n of fieldLines) covered.add(n);
+        if (!fieldLines.some(isContent))
           push({
-            path: `${path}.${f.field}`,
-            severity: 'warning',
-            code: 'TEXT_NOT_IN_SOURCE',
-            message: `"${f.text.slice(0, 40)}"가 src 범위 원문에 없다. 줄 범위를 고치거나 줄여 쓴 글이면 summary: true를 단다`,
+            path: fieldPath,
+            severity: 'error',
+            code: 'SRC_ON_BLANK',
+            message: 'src에 내용 줄이 없다',
             blockId: block.id,
           });
-        }
       }
+      checkText(f.text, f.src ?? block.src, `${path}.${f.field}`, block.summary, block.id);
     }
-    const sourceNumbers = new Set(numbersIn(text));
-    for (const f of fields) {
-      const missing = numbersIn(f.text).filter((n) => !sourceNumbers.has(n));
-      if (missing.length > 0) {
-        push({
-          path: `${path}.${f.field}`,
-          severity: 'warning',
-          code: 'NUMBER_NOT_IN_SOURCE',
-          message: `숫자 ${[...new Set(missing)].join(', ')}가 src 범위 원문에 없다`,
-          blockId: block.id,
-        });
-      }
-    }
-    if (block.kind === 'metric' && !text.includes(block.metricId)) {
+    if (
+      block.kind === 'metric' &&
+      /\bM\d+\b/.test(source.lines.join('\n')) &&
+      !text.includes(block.metricId)
+    ) {
       push({
         path: `${path}.metricId`,
         severity: 'warning',
         code: 'METRIC_ID_NOT_IN_SOURCE',
-        message: `metricId "${block.metricId}"가 src 범위 원문에 없다. 원문에 id가 없으면 무시해도 된다`,
+        message: `metricId "${block.metricId}"가 src 범위 원문에 없다`,
         blockId: block.id,
       });
     }

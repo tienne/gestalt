@@ -36,6 +36,7 @@ function inlineFmt(s: string): string {
 
 export const KIND_LABEL: Record<BlockKind, string> = {
   claim: '주장',
+  risk: '리스크',
   requirement: '요구사항',
   metric: '지표',
   decision: '결정',
@@ -104,6 +105,12 @@ function body(block: PrdBlock, ctx: BlockContext): { html: string; tags: string[
           `<span class="badge ${block.status === 'open' ? 'warn' : block.status === 'confirmed' ? 'ok' : ''}">${CLAIM_LABEL[block.status]}</span>`,
         ],
         cls: [`st-${block.status}`],
+      };
+    case 'risk':
+      return {
+        html: `<p>${inlineMd(block.text)}</p>` + lbl('대응', block.response),
+        tags: [],
+        cls: [],
       };
     case 'requirement': {
       const metrics = (block.metrics ?? [])
