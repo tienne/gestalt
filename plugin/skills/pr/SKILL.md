@@ -180,7 +180,7 @@ PR을 작성하기 전에 세 가지를 확인합니다. 없으면 Enter / "없�
 
 **화면이 바뀌는 변경이면 4번 질문을 같은 묶음에 붙입니다.** 이 시점엔 아직 diff를 안 모았으니 [`../_shared/pr-base.md`](../_shared/pr-base.md) 4절 블록 뒤에 `git diff --name-only "$baseRef"...HEAD`만 붙여 파일 목록을 먼저 봅니다. 기준은 [5.5단계](#55단계-수정-전후-스크린샷-첨부)의 "화면 변경 판정"입니다. 해당하지 않으면 4번은 묻지 않습니다.
 
-**묻기 전에 미리 찍어 둔 수정 전 화면이 있는지 봅니다.** `execute`가 고치기 직전에 [`../_shared/before-screenshot.md`](../_shared/before-screenshot.md)대로 찍어 두었으면 5.5단계의 `$shotTmp/manifest.json`에 남아 있습니다.
+**묻기 전에 미리 찍어 둔 수정 전 화면이 있는지 봅니다.** `execute`나 컨덕터 워커가 고치기 직전에 [`../_shared/before-screenshot.md`](../_shared/before-screenshot.md)대로 찍어 두었으면 5.5단계의 `$shotTmp/manifest.json`에 남아 있습니다.
 
 - `pairs`가 있으면 4번을 묻지 않습니다. 그 화면들은 같은 주소와 뷰포트로 수정 후만 찍으면 되므로 `prIntent.screenshots`에 그대로 옮깁니다. 미리보기에서 사용자가 화면을 더하거나 뺄 수 있습니다.
 - `skipped`만 있으면 그 이유를 한 줄 보이고 4번을 그대로 묻습니다.
@@ -190,10 +190,11 @@ PR을 작성하기 전에 세 가지를 확인합니다. 없으면 Enter / "없�
 4. 수정 전/후 스크린샷을 붙일까요? 아래 중 하나로 알려주세요.
    - 이미지 파일: 전/후 경로 (예: ~/Desktop/before.png ~/Desktop/after.png)
    - 캡처할 주소: 전은 배포된 주소(stage, 운영), 후는 로컬 주소 (예: https://stage.example.com/list http://localhost:3000/list)
+   - 수정 후만: 수정 전 화면을 띄울 데가 없으면 후 주소나 파일만 (예: 수정 후만: http://localhost:3000/list)
    - 없음: 스크린샷 없이 올려요
 ```
 
-사용자 응답을 `prIntent = { purpose, notes, issueRef, screenshots }` 형태로 보관합니다. `screenshots`는 `{ pairs: [{ label, before, after }] }` 꼴이고 `before`와 `after`에는 파일 경로나 주소가 들어갑니다. 화면이 여럿이면 `pairs`가 여럿입니다.
+사용자 응답을 `prIntent = { purpose, notes, issueRef, screenshots }` 형태로 보관합니다. `screenshots`는 `{ pairs: [{ label, before, after }] }` 꼴이고 `before`와 `after`에는 파일 경로나 주소가 들어갑니다. 화면이 여럿이면 `pairs`가 여럿입니다. "수정 후만"으로 받은 쌍은 `before`를 비워 둡니다.
 
 - 각 항목별로 빈 응답·`"없음"`은 해당 항목을 비워 둡니다.
 - **전체 건너뛰기**: 사용자가 `"없음"` / `"스킵"` / `"바로 PR"` 등으로 (개별 질문이 아닌) 1단계 자체를 건너뛰겠다는 의사를 보이면, 1단계 전체를 건너뛰고 `prIntent`의 모든 항목을 비워 둔 채 2단계로 바로 진행합니다.
@@ -350,7 +351,7 @@ gestalt humanize-scan --file "$scanTmp/description.md" --register report
 
 `--register report`입니다. PR 본문은 서술체 문서라 룰북이 `report`에서 함께 보는 평서체와 합니다체의 혼용 검사까지 봐야 합니다. 코드펜스 안쪽은 항상 스캔에서 빠지지만 `>` 블록인용 제외는 `chat`에서만 켜지므로, 본문이 PR 본문 원문이나 이슈 문구를 인용하는 자리는 함께 스캔됩니다.
 
-윤문된 description을 **사용자에게 미리보기로 먼저 표시**합니다. `prIntent.screenshots`가 있으면 미리보기 아래에 붙일 이미지 쌍을 `label: before → after` 꼴로 한 줄씩 적습니다. 표식 자리에 무엇이 들어갈지 사용자가 여기서 봅니다.
+윤문된 description을 **사용자에게 미리보기로 먼저 표시**합니다. `prIntent.screenshots`가 있으면 미리보기 아래에 붙일 이미지 쌍을 `label: before → after` 꼴로 한 줄씩 적습니다. `before`가 빈 쌍은 `label: (수정 전 없음) → after`로 적습니다. 표식 자리에 무엇이 들어갈지 사용자가 여기서 봅니다.
 
 ### 5단계: 제출 확인 및 실행
 
@@ -411,7 +412,7 @@ echo "$shotTmp"
   - 전과 후는 **같은 뷰포트 크기**로 찍습니다. 크기가 다르면 비교가 안 됩니다. 모바일 웹이면 390×844, 아니면 1280×800을 기본으로 씁니다.
   - 로그인이 필요한 화면이면 사람이 로그인한 브라우저 세션을 씁니다. 자격 증명을 대신 입력하지 않습니다.
   - 후 화면 주소가 로컬이고 서버가 안 떠 있으면 멈추고 알립니다. 서버를 대신 띄우지 않습니다.
-- **전 화면을 띄울 주소가 없으면** base를 체크아웃해 서버를 따로 띄우지 않습니다. 사용자에게 전 이미지 파일을 받거나 후 화면만 붙일지 묻습니다.
+- **전 화면을 띄울 주소가 없으면** base를 체크아웃해 서버를 따로 띄우지 않습니다. 사용자에게 전 이미지 파일을 받거나 후 화면만 붙일지 묻습니다. 1단계 답이 이미 "수정 후만"이었으면(`before`가 빈 쌍) 다시 묻지 않고 후 화면만 찍습니다.
 
 캡처한 이미지에 실제 고객 정보(이름, 전화번호, 주소)가 보이면 올리기 전에 사용자에게 알리고 그대로 올릴지 묻습니다. stage 화면에도 실데이터가 섞여 있는 경우가 많습니다.
 

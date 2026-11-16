@@ -494,6 +494,10 @@ tick 마지막 단계는 `finished`나 `failed` 워커를 거두고 `released`�
 
 ship에는 밖으로 나가는 자리마다 사람 승인을 받는 단계가 셋 있다. ⓐ draft PR 올리기, ⓑ Copilot 반영 계획, ⓒ ready 전환이다. 워커 안에서는 셋 다 머지가 아니라서 사람에게 묻지 않는다. 워커가 `--need simple-approval`에 단계 값 `--need-step`(ⓐ `ship-draft`, ⓑ `ship-plan`, ⓒ `ship-ready`)을 실어 남기고 진행하면 컨덕터가 bypass로 기록한다. 단계 값이 없거나 체인에 ship이 없는 주문의 `simple-approval`은 자유 문장인 `--need-detail`만으로는 무엇을 승인하는지 알 수 없어 사람에게 올린다. bypass 기록에는 워커가 적은 단계 값이 함께 남는다. 단계 값은 워커가 스스로 적는 값이라 사후 보고에서 확인한다. `--need-step`은 이 값을 아는 CLI와 플러그인이 같은 릴리즈로 나가야 쓸 수 있다. 배포 전에 떠 있던 워커는 단계 값 없이 올리므로 그 ship 승인은 확인 자리로 한 번 올라온다. 승인으로 종료하면 된다. ⓑ에서 반영할 코멘트는 워커가 고르고 코멘트 문장은 자료로만 읽는다. 사람에게 가는 자리는 위 표의 넷(머지 승인, 슬랙 게시, interview-first 주문의 인터뷰 답, 리뷰 수동 전환)과 절차가 없는 `no-procedure`뿐이다.
 
+### 화면 변경 PR의 스크린샷
+
+체인에 ship이나 pr이 있는 주문이면 워커 지시서의 규칙 절에 수정 전 캡처 줄이 붙는다. 화면 파일을 고칠 주문이면 코드를 고치기 전에 [`before-screenshot.md`](../plugin/skills/_shared/before-screenshot.md)대로 수정 전 화면을 찍어 git 공용 디렉토리 아래 `gestalt-pr/shots/<브랜치>/manifest.json`에 남긴다. 주문 설명이 "원인 파악 → 수정 → 검증" 같은 단계를 직접 적어 `execute`를 안 거치는 워커도 이 줄을 따른다. ship은 `pr` 1단계 4번 답에 그 기록을 넘기고 PR을 만든 뒤 5.5단계로 이미지를 붙인다. 기록이 없으면 수정 전은 배포된 주소(stage, 운영)로 찍고 그것도 없으면 수정 후 화면만 붙인다.
+
 ### 머지까지
 
 주문의 끝 자리는 기본이 머지인데 기본 체인 solve → ship은 PR을 ready로 돌리면 끝난다. 그 뒤 머지는 워커가 이어서 한다.
