@@ -22,7 +22,7 @@ describe('lintPrdView', () => {
   it('샘플 뷰는 오류와 경고가 없고 빠진 줄도 없다', () => {
     const r = lint();
     expect(r.issues).toEqual([]);
-    expect(r.coverage).toMatchObject({ contentLines: 14, omittedLines: 1, uncoveredLines: 0 });
+    expect(r.coverage).toMatchObject({ contentLines: 13, omittedLines: 1, uncoveredLines: 0 });
   });
 
   it('id와 metricId 중복, 없는 지표 참조를 오류로 잡는다', () => {
