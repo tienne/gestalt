@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.145.0] - 2026-11-17
+
+### Added
+
+- **PRD 뷰에 기능명세서 칸과 문장 진단이 들어왔어요(#147).** 스키마 1.1.0에서 상하위 요구사항, 수용 기준, 개발 준비 칸, 중요도, 리스크 대응과 역할, 플랫폼을 옮길 수 있어요. 새 칸은 모두 선택이고 기존 1.0.0 JSON도 읽어요.
+  - 원문에서 빠진 수용 기준과 개발 준비 칸, 미정 목표를 기능별 질문으로 모아요. 질문에는 블록 제목을 넣고 내부 필드 경로 대신 칸 이름을 보여 줘요.
+  - 주체나 경계가 없는 요구사항, 모호한 표현, 대응 없는 리스크, 긴 문장과 AI 표현을 정보성 진단으로 알려 줘요. 원문은 고치지 않아요.
+  - 없는 상위 요구사항과 질문 참조, 상위 순환과 3단 깊이를 검사해요. 원문 대조와 표 집계, 지표 기준값과 날짜 판정, HTML 경로 표시도 보완했어요.
+
+### Fixed
+
+- **끝난 주문에 남은 멈춘 워커를 컨덕터가 정리해요(#145).** done, failed, cancelled 주문의 stopped 워커가 남아 `order remove`를 막던 문제를 고쳤어요. parked 주문은 사람이 PR과 워크트리를 보관할 수 있어 정리 대상에서 빼요.
+  - git 워커는 같은 레포끼리 차례로 정리해요. 커밋하지 않은 변경이 있으면 강제로 지우지 않고 실패로 알려 줘요.
+- **플러그인 획득 중 종료 신호가 겹쳐도 먼저 받은 TERM이나 HUP을 유지해요(#146).** 뒤늦은 SIGINT가 래퍼의 종료 신호를 덮어쓰지 않도록 했어요. 신호 도착 순서와 npm 자식에게 전달되는 신호를 테스트로 확인했어요.
+
 ## [0.144.0] - 2026-11-16
 
 ### Added
