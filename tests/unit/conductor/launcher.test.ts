@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   assertCanSpawn,
@@ -197,7 +198,10 @@ describe('워커 지시서', () => {
       'plugin/skills/pr/SKILL.md',
       'plugin/skills/_shared/before-screenshot.md',
     ]) {
-      const line = readFileSync(file, 'utf-8')
+      const line = readFileSync(
+        fileURLToPath(new URL(`../../../${file}`, import.meta.url)),
+        'utf-8',
+      )
         .split('\n')
         .find((l) => l.startsWith('shotTmp='));
       expect(line, file).toBeDefined();
