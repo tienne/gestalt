@@ -249,7 +249,7 @@ export function chooseWorkerKind(order: Order, opts: { orcaAvailable: boolean })
 const PR_SKILLS: ReadonlySet<string> = new Set(['ship', 'pr']);
 
 // 워커는 남의 레포에서 돌아 레포 상대 경로로는 이 문서를 못 연다. 소스(src/)와 빌드(dist/) 둘 다 두 단계 위에 plugin/이 있다
-const BEFORE_SCREENSHOT_DOC = resolve(
+export const BEFORE_SCREENSHOT_DOC = resolve(
   dirname(fileURLToPath(import.meta.url)),
   '..',
   '..',
