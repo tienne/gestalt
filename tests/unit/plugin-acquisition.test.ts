@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 
 const acquisitionUrl = pathToFileURL(resolve('plugin/scripts/acquisition.mjs')).href;
 const dirs: string[] = [];
@@ -80,7 +81,7 @@ try {
 }
 
 // 핸들러를 process.emit으로 직접 불러 신호 도착 순서를 고정한다.
-function cancelInOrder(signals: NodeJS.Signals[], withChild = false) {
+async function cancelInOrder(signals: NodeJS.Signals[], withChild = false) {
   const dir = mkdtempSync(join(tmpdir(), 'gestalt-acquisition-'));
   dirs.push(dir);
   const marker = join(dir, 'marker');
@@ -113,11 +114,15 @@ try {
 } finally {scope.dispose();}`,
   );
   // 러너는 획득 핸들러가 SIGTERM을 받아 버려서 timeout에는 KILL을 써야 끝난다.
-  const stdout = execFileSync(process.execPath, [runnerFile, withChild ? 'with-child' : ''], {
-    encoding: 'utf8',
-    timeout: 10000,
-    killSignal: 'SIGKILL',
-  });
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [runnerFile, withChild ? 'with-child' : ''],
+    {
+      encoding: 'utf8',
+      timeout: 10000,
+      killSignal: 'SIGKILL',
+    },
+  );
   return {
     signal: (JSON.parse(stdout) as { signal: NodeJS.Signals | null }).signal,
     childReceived: withChild ? readFileSync(marker, 'utf8').trim() : undefined,
@@ -131,15 +136,15 @@ describe('CLI acquisition cancellation order', { timeout: 15000 }, () => {
     [['SIGTERM', 'SIGINT'], 'SIGTERM'],
     [['SIGHUP', 'SIGINT'], 'SIGHUP'],
     [['SIGTERM', 'SIGHUP'], 'SIGHUP'],
-  ] as const)('keeps %j as %s', (order, expected) => {
-    expect(cancelInOrder([...order]).signal).toBe(expected);
+  ] as const)('keeps %j as %s', async (order, expected) => {
+    expect((await cancelInOrder([...order])).signal).toBe(expected);
   });
 
   it.each([
     [['SIGTERM', 'SIGINT'], 'SIGTERM'],
     [['SIGHUP', 'SIGINT'], 'SIGHUP'],
-  ] as const)('forwards %j to npm as %s and ignores the late INT', (order, expected) => {
-    const { signal, childReceived } = cancelInOrder([...order], true);
+  ] as const)('forwards %j to npm as %s and ignores the late INT', async (order, expected) => {
+    const { signal, childReceived } = await cancelInOrder([...order], true);
     expect(signal).toBe(expected);
     expect(childReceived).toBe(expected);
   });
