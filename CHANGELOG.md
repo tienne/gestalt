@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.144.0] - 2026-11-16
+
+### Added
+
+- **이미 있는 PRD 마크다운을 카드형 HTML 한 장으로 바꿔 보여 줘요(#143).** 새 스킬 `prd-view`와 MCP 도구 `ges_prd`가 들어왔어요.
+  - `ges_prd`는 guide, source, validate, render 액션을 Passthrough로 처리해요. 서버는 LLM을 부르지 않고 결과 HTML은 `.gestalt/prd-view` 아래에 저장해요. 인라인 스크립트는 해시를 CSP에 실었어요.
+  - 블록은 claim, requirement, metric, decision, question, prose 여섯 개에 compare, scope, quote, flow, stateMatrix, timeline, glossary, callout 여덟 개를 더해 열네 개예요.
+  - 블록마다 원문 줄 범위를 달아 원문과 대조해요. src 범위와 id 중복, 지표 참조를 검사하고 원문에서 옮기지 못한 내용 줄 비율이 높으면 경고나 오류를 내요.
+  - 원문 빈칸 검사가 베이스라인 숫자, 기한 날짜 꼴, TBD 자리표시, 지표 연결, 가상 화법, 미확정 결정과 주장을 gaps로 모아요. lint 경고와 따로 응답에 싣고 화면 앞쪽 패널에 그려요.
+  - 미확정 항목과 요구사항-지표 연결 표, 결정을 본문 앞에 모아 보여 줘요. audience가 두 종류 이상이면 목차에 대상별 보기 버튼이 생겨요.
+  - 링크 주소 안 백틱 치환과 모아 보기 링크 중첩, overview id 충돌을 고쳤고 심볼릭 링크인 outDir은 거절해요.
+
+### Fixed
+
+- **컨덕터 워커가 만든 PR에도 수정 전 화면 스크린샷이 붙어요(#144).** 주문 설명이 단계를 직접 적으면 워커가 execute를 거치지 않아 수정 전 화면을 찍을 자리가 없었어요. ship이 pr 1단계에 넘기는 답에도 스크린샷 4번이 없어서 `prIntent.screenshots`가 늘 비었고 5.5단계가 돌지 않았어요.
+  - 체인에 ship이나 pr이 있으면 워커 지시서 규칙 절에 `before-screenshot.md` 절차와 저장 경로를 실어요. 워커는 남의 레포에서 돌기 때문에 문서 경로는 패키지 위치에서 푼 절대 경로로 넘겨요.
+  - ship이 화면 변경 여부와 manifest 유무를 보고 4번 답을 골라요. 배포 주소가 없으면 수정 후 화면만 붙여요. 전에는 고친 뒤의 로컬 주소를 전 주소로 적어서 수정 후 화면이 수정 전 칸에 붙었어요.
+  - `verify:plugin`이 빌드본 launcher의 `BEFORE_SCREENSHOT_DOC` 경로가 실제로 있는지 확인해요. 빌드 깊이가 바뀌면 지시서가 조용히 예전 문구로 돌아가기 때문이에요.
+
 ## [0.143.0] - 2026-11-15
 
 ### Added
