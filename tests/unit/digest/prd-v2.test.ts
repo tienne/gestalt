@@ -131,6 +131,22 @@ describe('PRD 1.1 기능명세서 계약', () => {
   });
 });
 
+describe('독립 리뷰 회귀', () => {
+  it('그룹과 단독 최상위 기능이 섞여 있어도 단독 기능의 빈칸을 검사한다', () => {
+    const { view } = sampleV2();
+    view.sections[0]!.blocks.push({
+      id: 'solo',
+      kind: 'requirement',
+      title: '반납 알림',
+      src: [[4, 4]],
+    });
+    const gaps = collectPrdGaps(view);
+    for (const code of ['ACCEPTANCE_MISSING', 'SLOTS_INCOMPLETE']) {
+      expect(gaps.filter((g) => g.code === code).map((g) => g.blockIds)).toEqual([['solo']]);
+    }
+  });
+});
+
 describe('검증 보고서 회귀', () => {
   it('원문에 지표 id가 전혀 없을 때만 생성한 id 경고를 건너뛴다', () => {
     const parsed = parsePrdView(sampleView());

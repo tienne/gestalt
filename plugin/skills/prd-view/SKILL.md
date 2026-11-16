@@ -63,7 +63,7 @@ PRD 마크다운을 사람이 훑어보기 좋은 HTML 한 장으로 만든다. 
    - 원문에 없는 칸은 필드를 빼서 비워 둔다. 빈 문자열이나 "-"를 넣지 않는다. 원문에 "확인 필요"처럼 적혀 있으면 그 글자를 옮긴다.
    - 메타 표(오너, 일정, 링크 같은)는 `meta.rows`에 옮긴다. 원문에 있는 것만 옮긴다.
    - `schemaVersion`은 `1.1.0`으로 쓴다. 기존 `1.0.0` JSON도 허용한다. 모든 새 칸은 선택이며 원문에 없는 칸은 비워 둔다.
-   - `requirement.parent`는 상위 requirement id다. 상위가 없고 하위가 있는 블록은 그룹, 하위는 기능으로 두고 2단을 넘기지 않는다. `questions`는 연결된 question 블록 id 배열이다.
+   - `requirement.parent`는 상위 requirement id다. 상위가 없고 하위가 있는 블록은 그룹, 하위는 기능으로 두고 2단을 넘기지 않는다. 하위가 없는 최상위 요구사항도 단독 기능으로 본다. `questions`는 연결된 question 블록 id 배열이다.
    - `acceptance`는 수용 기준 `[{ text, src }]`, `slots`는 `precondition`, `trigger`, `behavior`, `result`, `exception`, `display`, `permission`, `businessRule`, `data` 키별 `{ text, src }`다. 각 값의 src를 따로 단다.
    - 중요도는 `priority` 문자열에, 리스크는 `risk.text`와 원문에 있을 때만 `response` 문자열에 옮긴다. `meta.roles`와 `meta.platforms`는 `[{ text, src }]`다.
    - 유저 스토리는 `title`에 I want, `why`에 So that을 옮긴다. 행위자는 `detail` 첫 줄에 칸 이름과 함께 적고 우선순위는 `priority`에 둔다. `boundary`는 범위 밖이나 제약, 아직 정하지 않은 경계다.

@@ -111,7 +111,7 @@ export function prdGuide() {
       '원문에 없는 내용을 지어내지 않는다. 블록 글은 src 줄에서 옮긴다. 줄여 쓴 블록은 summary: true를 단다',
       '원문에 없는 칸은 필드를 빼서 비워 둔다. 빈 문자열이나 "-"를 넣지 않는다. 원문이 "확인 필요" 같은 글자를 쓰면 그대로 옮긴다',
       '맞는 블록이 없을 때만 prose를 쓴다. prose와 callout은 원문 줄이 여럿이면 줄 사이에 \\n을 넣는다',
-      'requirement.parent는 상위 requirement id다. 상위가 없고 하위가 있는 블록은 그룹, 하위는 기능이며 깊이는 2단까지다. questions는 연결된 question 블록 id 배열이다',
+      'requirement.parent는 상위 requirement id다. 상위가 없고 하위가 있는 블록은 그룹, 하위는 기능이며 깊이는 2단까지다. 하위가 없는 최상위 요구사항도 단독 기능으로 본다. questions는 연결된 question 블록 id 배열이다',
       'acceptance는 [{ text, src }], slots는 precondition, trigger, behavior, result, exception, display, permission, businessRule, data를 키로 하고 값은 { text, src }다. 원문에 없는 칸은 비워 둔다',
       'priority는 원문 중요도 문자열, risk는 text와 선택 response 문자열이다. meta.roles와 meta.platforms는 원문에 있을 때만 [{ text, src }]로 옮긴다',
       'metric.baseline은 참고: 뒤 다른 실험이나 기간의 수치도 원문 그대로 옮긴다. 기준값으로 쓸 수 있는지는 gaps가 판단한다',

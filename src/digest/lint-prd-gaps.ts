@@ -69,10 +69,9 @@ export function collectPrdGaps(view: PrdView): PrdGap[] {
   const blocks = [...allBlocks(view)].map(({ block }) => block);
   const byId = new Map(blocks.map((block) => [block.id, block]));
   const requirements = blocks.filter((b) => b.kind === 'requirement');
-  const hasGroups = requirements.some((b) => b.parent);
   const parentIds = new Set(requirements.flatMap((b) => (b.parent ? [b.parent] : [])));
   for (const block of requirements) {
-    if (hasGroups && (!block.parent || parentIds.has(block.id))) continue;
+    if (parentIds.has(block.id)) continue;
     if (!block.acceptance?.length)
       gaps.push({ code: 'ACCEPTANCE_MISSING', message: '수용 기준이 없다', blockIds: [block.id] });
     const missingSlots = REQUIREMENT_SLOTS.filter((key) => !block.slots?.[key]);
