@@ -90,20 +90,15 @@ describe('모아 보기 렌더', () => {
     expect(html).not.toContain('모아 보기');
   });
 
-  it('미확정, 연결 표, 결정을 펼친 details로 그리고 원래 카드로 링크한다', () => {
+  it('미확정과 결정, 지표를 각 탭에서 보고 원래 블록으로 이동한다', () => {
     const html = render(parse());
-    expect(html).toContain('id="x-overview"');
-    for (const id of ['x-unresolved', 'x-req-metric', 'x-decisions']) {
-      expect(html).toContain(`<details open id="${id}">`);
-      expect(html).toContain(`href="#${id}"`);
-    }
-    expect(html).toContain('href="#b-q1"');
-    expect(html).toContain('href="#b-d1"');
-    expect(html).toContain('연결 지표 없음');
-    // 모아 보기는 본문 섹션보다 앞에 온다
-    expect(html.indexOf('id="x-overview"')).toBeLessThan(html.indexOf('id="s-problem"'));
+    expect(html).toContain('id="panel-decisions"');
+    expect(html).toContain('id="panel-metrics"');
+    expect(html).toContain('href="#d-q1"');
+    expect(html).toContain('href="#d-d1"');
+    expect(html).toContain('href="#f-r1"');
+    expect(html).not.toContain('id="x-overview"');
   });
-
   it('모아 보기에 옮겨 담는 글도 escape한다', () => {
     const v = sampleView() as Json;
     v.sections[4].blocks[0].item = '<img src=x onerror=alert(1)>';
@@ -138,7 +133,7 @@ describe('모아 보기와 본문 섹션 id', () => {
     v.sections[0].id = 'overview';
     const html = render(parse(v));
     const ids = [...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]!);
-    expect(ids.filter((id) => id === 'x-overview')).toHaveLength(1);
+    expect(ids.filter((id) => id === 'panel-decisions')).toHaveLength(1);
     expect(ids.filter((id) => id === 's-overview')).toHaveLength(1);
     expect(new Set(ids).size).toBe(ids.length);
   });
@@ -148,12 +143,13 @@ describe('모아 보기와 본문 섹션 id', () => {
     const q = (v.sections as Json[]).flatMap((s) => s.blocks as Json[]).find((b) => b.id === 'q1')!;
     q.item = `${q.item} [참고](https://example.com/a)`;
     const html = render(parse(v));
-    const overview = html.slice(
-      html.indexOf('id="x-overview"'),
-      html.indexOf('</section>', html.indexOf('id="x-overview"')),
+    const toc = html.slice(
+      html.indexOf('data-block-nav="b-q1"'),
+      html.indexOf('</a>', html.indexOf('data-block-nav="b-q1"')),
     );
-    expect(overview).toContain('[참고](https://example.com/a)');
-    expect(overview).not.toContain('href="https://example.com/a"');
+    expect(toc).toContain('<span title="https://example.com/a">참고</span>');
+    expect(toc).not.toContain('[참고]');
+    expect(toc).not.toContain('href="https://example.com/a"');
     // 본문 카드에서는 링크로 살아 있다
     expect(html).toContain('href="https://example.com/a"');
   });

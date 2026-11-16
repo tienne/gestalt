@@ -111,7 +111,11 @@ describe('ges_prd', () => {
     expect(v.warnings.map((w: Json) => w.code)).not.toContain('BASELINE_NO_NUMBER');
     const r = call(root, { action: 'render', slug: 'rental-reco' });
     expect(r.gaps).toEqual(v.gaps);
-    expect(readFileSync(r.htmlPath, 'utf8')).toContain('id="gaps"');
+    const html = readFileSync(r.htmlPath, 'utf8');
+    expect(html).toContain('id="panel-review"');
+    expect(html).toContain('id="review-1"');
+    expect(html).toContain('현재 기준값은 얼마인가요?');
+    expect(html).not.toContain('id="gaps"');
   });
 
   it('lint 오류가 있으면 RENDER_BLOCKED이고 파일을 만들지 않는다', () => {

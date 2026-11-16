@@ -1,3 +1,4 @@
+import { PRD_COPY as C } from './prd-copy.js';
 import {
   allBlocks,
   type Audience,
@@ -6,7 +7,7 @@ import {
   type PrdView,
 } from './prd-schema.js';
 import { AUDIENCES } from './prd-schema.js';
-import { esc } from './render-prd-blocks.js';
+import { esc, inlineLabel } from './render-prd-blocks.js';
 
 /**
  * 교차 뷰. 세션이 따로 쓰지 않고 렌더러가 블록 참조만으로 모은다.
@@ -74,17 +75,20 @@ export function deriveReqMetric(view: PrdView): ReqMetricMatrix | null {
 }
 
 // 카드로 가는 링크로 감싸므로 안에 마크다운 링크를 살리면 a가 중첩된다. 글자만 넣는다
-const anchor = (b: PrdBlock, text: string) => `<a href="#b-${esc(b.id)}">${esc(text)}</a>`;
+const anchor = (b: PrdBlock, text: string) => `<a href="#b-${esc(b.id)}">${inlineLabel(text)}</a>`;
 const where = (title: string) => `<span class="where">${esc(title)}</span>`;
 
 function unresolvedHtml(items: ReturnType<typeof deriveUnresolved>): string {
   return `<ul class="xlist">${items
     .map(({ block, sectionTitle }) => {
       const text = block.kind === 'question' ? block.item : block.text;
-      const tag = block.kind === 'question' ? '질문' : '미정 주장';
+      const tag = block.kind === 'question' ? C.questions : C.openClaim;
       const extra =
         block.kind === 'question'
-          ? [block.owner && `담당 ${esc(block.owner)}`, block.due && `기한 ${esc(block.due)}`]
+          ? [
+              block.owner && `${C.owner} ${esc(block.owner)}`,
+              block.due && `${C.due} ${esc(block.due)}`,
+            ]
               .filter(Boolean)
               .join(', ')
           : '';
@@ -99,25 +103,27 @@ function reqMetricHtml(m: ReqMetricMatrix): string {
     .map((r) => {
       const set = m.links.get(r.id)!;
       const cells = m.metrics
-        .map((x) => `<td>${set.has(x.metricId) ? '<span aria-label="연결">●</span>' : ''}</td>`)
+        .map(
+          (x) => `<td>${set.has(x.metricId) ? `<span aria-label="${C.linked}">●</span>` : ''}</td>`,
+        )
         .join('');
-      const flag = set.size === 0 ? ' <span class="badge warn">연결 지표 없음</span>' : '';
+      const flag = set.size === 0 ? ` <span class="badge warn">${C.unlinkedMetrics}</span>` : '';
       return `<tr><th scope="row">${anchor(r, r.title)}${flag}</th>${cells}</tr>`;
     })
     .join('');
   const orphan = m.unlinkedMetrics.length
-    ? `<tr class="orphan"><th scope="row"><span class="badge warn">연결 요구사항 없음</span></th>${m.metrics
+    ? `<tr class="orphan"><th scope="row"><span class="badge warn">${C.unlinkedRequirements}</span></th>${m.metrics
         .map((x) => `<td>${m.unlinkedMetrics.includes(x.metricId) ? '!' : ''}</td>`)
         .join('')}</tr>`
     : '';
-  return `<div class="xwrap"><table class="xmatrix"><thead><tr><th scope="col">요구사항</th>${head}</tr></thead><tbody>${rows}${orphan}</tbody></table></div>`;
+  return `<div class="xwrap"><table class="xmatrix"><thead><tr><th scope="col">${C.requirements}</th>${head}</tr></thead><tbody>${rows}${orphan}</tbody></table></div>`;
 }
 
 function decisionsHtml(items: ReturnType<typeof deriveDecisions>): string {
   return `<ul class="xlist">${items
     .map(
       ({ block, sectionTitle }) =>
-        `<li>${anchor(block, block.decided)}${block.rejected?.length ? ` <span class="where">버린 안 ${block.rejected.length}개</span>` : ''} ${where(sectionTitle)}</li>`,
+        `<li>${anchor(block, block.decided)}${block.rejected?.length ? ` <span class="where">${C.rejected} ${block.rejected.length}개</span>` : ''} ${where(sectionTitle)}</li>`,
     )
     .join('')}</ul>`;
 }
@@ -137,24 +143,24 @@ export function renderOverview(view: PrdView): OverviewParts {
   if (unresolved.length) {
     parts.push({
       id: 'x-unresolved',
-      title: `미확정 ${unresolved.length}`,
+      title: `${C.unresolved} ${unresolved.length}`,
       body: unresolvedHtml(unresolved),
     });
   }
   const matrix = deriveReqMetric(view);
   if (matrix)
-    parts.push({ id: 'x-req-metric', title: '요구사항과 지표', body: reqMetricHtml(matrix) });
+    parts.push({ id: 'x-req-metric', title: C.requirementsMetrics, body: reqMetricHtml(matrix) });
   const decisions = deriveDecisions(view);
   if (decisions.length) {
     parts.push({
       id: 'x-decisions',
-      title: `결정 ${decisions.length}`,
+      title: `${C.decision} ${decisions.length}`,
       body: decisionsHtml(decisions),
     });
   }
   if (parts.length === 0) return { html: '', toc: [] };
   return {
-    html: `<section class="sec overview" id="${OVERVIEW_SECTION_ID}"><h2>모아 보기</h2>${parts
+    html: `<section class="sec overview" id="${OVERVIEW_SECTION_ID}"><h2>${C.overview}</h2>${parts
       .map(
         (p) => `<details open id="${p.id}"><summary>${esc(p.title)}</summary>${p.body}</details>`,
       )

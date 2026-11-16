@@ -1,4 +1,15 @@
-import type { Audience, BlockKind, BlockOf, LineRange, PrdBlock } from './prd-schema.js';
+import {
+  AUDIENCE_LABEL,
+  CLAIM_LABEL,
+  KIND_LABEL,
+  PHASE_LABEL,
+  QUOTE_LABEL,
+  ROLE_LABEL,
+  TONE_LABEL,
+  PRD_COPY as C,
+} from './prd-copy.js';
+export { AUDIENCE_LABEL } from './prd-copy.js';
+import type { LineRange, PrdBlock } from './prd-schema.js';
 
 // research, architecture 렌더러처럼 각자 escape를 둔다. digest 쪽 e는 export되지 않는다
 export const esc = (s: string): string =>
@@ -17,10 +28,12 @@ export function inlineMd(s: string): string {
   // 링크를 먼저 바꿔 둬야 주소 안 백틱이 code 태그로 href에 끼지 않는다. 바꾼 태그는 자리표시로 빼 두었다가 되돌린다
   const links: string[] = [];
   const held = esc(s.replace(/\uE000/g, '')).replace(
-    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    /\[([^\]]+)\]\(([^)\s]+)\)/g,
     (_, label: string, href: string) => {
       links.push(
-        `<a href="${href}" rel="noopener noreferrer" target="_blank">${inlineFmt(label)}</a>`,
+        /^https?:\/\//i.test(href)
+          ? `<a href="${href}" rel="noopener noreferrer" target="_blank">${inlineFmt(label)}</a>`
+          : `<span title="${href}">${inlineFmt(label)}</span>`,
       );
       return `\uE000${links.length - 1}\uE000`;
     },
@@ -31,59 +44,9 @@ export function inlineMd(s: string): string {
 function inlineFmt(s: string): string {
   return s
     .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\r?\n/g, '<br>');
 }
-
-export const KIND_LABEL: Record<BlockKind, string> = {
-  claim: '주장',
-  risk: '리스크',
-  requirement: '요구사항',
-  metric: '지표',
-  decision: '결정',
-  question: '질문',
-  prose: '본문',
-  compare: '비교',
-  scope: '안 하는 것',
-  quote: '인용',
-  flow: '흐름',
-  stateMatrix: '상태 표',
-  timeline: '일정',
-  glossary: '용어',
-  callout: '강조',
-};
-
-const QUOTE_LABEL: Record<BlockOf<'quote'>['origin'], string> = {
-  voc: '실제 VOC',
-  virtual: '가상 화법',
-  unknown: '출처 모름',
-};
-const TONE_LABEL: Record<BlockOf<'callout'>['tone'], string> = {
-  info: '참고',
-  warn: '주의',
-  danger: '위험',
-};
-
-const CLAIM_LABEL: Record<BlockOf<'claim'>['status'], string> = {
-  confirmed: '확정',
-  assumed: '가정',
-  open: '미정',
-};
-const PHASE_LABEL: Record<NonNullable<BlockOf<'requirement'>['phase']>, string> = {
-  mvp: 'MVP',
-  later: '이후',
-};
-const ROLE_LABEL: Record<NonNullable<BlockOf<'metric'>['role']>, string> = {
-  primary: '주 지표',
-  secondary: '보조 지표',
-  guardrail: '가드레일',
-};
-export const AUDIENCE_LABEL: Record<Audience, string> = {
-  pm: 'PM',
-  dev: '개발',
-  design: '디자인',
-  qa: 'QA',
-  data: '데이터',
-};
 
 export const fmtSrc = (src: readonly LineRange[]) =>
   src.map(([a, b]) => (a === b ? `L${a}` : `L${a}-${b}`)).join(', ');
@@ -108,7 +71,11 @@ function body(block: PrdBlock, ctx: BlockContext): { html: string; tags: string[
       };
     case 'risk':
       return {
-        html: `<p>${inlineMd(block.text)}</p>` + lbl('대응', block.response),
+        html:
+          `<p>${inlineMd(block.text)}</p>` +
+          (block.response
+            ? lbl(C.response, block.response)
+            : `<span class="chip warn">${C.responseMissing}</span>`),
         tags: [],
         cls: [],
       };
@@ -123,9 +90,8 @@ function body(block: PrdBlock, ctx: BlockContext): { html: string; tags: string[
         .join('');
       return {
         html:
-          `<h3>${inlineMd(block.title)}</h3>` +
-          lbl('가설', block.why) +
-          lbl('안 하는 것', block.boundary) +
+          lbl(C.whyLabel, block.why) +
+          lbl(C.boundaryLabel, block.boundary) +
           (block.detail?.length
             ? `<ul>${block.detail.map((d) => `<li>${inlineMd(d)}</li>`).join('')}</ul>`
             : '') +
@@ -142,7 +108,7 @@ function body(block: PrdBlock, ctx: BlockContext): { html: string; tags: string[
       return {
         html:
           `<div class="metric-name"><span class="mid">${esc(block.metricId)}</span>${inlineMd(block.name)}</div>` +
-          `<div class="cells">${cell('분모', block.denominator)}${cell('베이스라인', block.baseline)}${cell('목표', block.target)}${cell('측정', block.measure)}</div>`,
+          `<div class="cells">${cell(C.denominator, block.denominator)}${cell(C.baseline, block.baseline)}${cell(C.target, block.target)}${cell(C.measure, block.measure)}</div>`,
         tags: block.role ? [`<span class="badge">${ROLE_LABEL[block.role]}</span>`] : [],
         cls: [],
       };
@@ -151,7 +117,7 @@ function body(block: PrdBlock, ctx: BlockContext): { html: string; tags: string[
       return {
         html:
           `<p><strong>${inlineMd(block.decided)}</strong></p>` +
-          lbl('이유', block.why) +
+          lbl(C.reason, block.why) +
           (block.rejected?.length
             ? `<ul class="rej">${block.rejected
                 .map(
@@ -165,8 +131,8 @@ function body(block: PrdBlock, ctx: BlockContext): { html: string; tags: string[
       };
     case 'question': {
       const chips = [
-        block.owner ? `<span class="chip">담당 ${esc(block.owner)}</span>` : '',
-        block.due ? `<span class="chip">기한 ${esc(block.due)}</span>` : '',
+        block.owner ? `<span class="chip">${C.owner} ${esc(block.owner)}</span>` : '',
+        block.due ? `<span class="chip">${C.due} ${esc(block.due)}</span>` : '',
       ].join('');
       return {
         html: `<p>${inlineMd(block.item)}</p>${chips ? `<div class="chips">${chips}</div>` : ''}`,
@@ -257,10 +223,18 @@ export function renderBlock(block: PrdBlock, ctx: BlockContext): string {
   const head = [
     `<span class="badge kind">${KIND_LABEL[block.kind]}</span>`,
     ...tags,
-    block.summary ? '<span class="badge sum">요약</span>' : '',
+    block.summary ? `<span class="badge sum">${C.summary}</span>` : '',
     ...aud.map((a) => `<span class="badge aud">${AUDIENCE_LABEL[a]}</span>`),
-    `<span class="src" title="원문 줄">${fmtSrc(block.src)}</span>`,
+    `<span class="src" title="${C.source}">${fmtSrc(block.src)}</span>`,
   ].join('');
   const classes = ['blk', `blk-${block.kind}`, ...cls].join(' ');
-  return `<article class="${classes}" id="b-${esc(block.id)}" data-kind="${block.kind}" data-aud="${aud.join(' ')}"><div class="tags">${head}</div>${html}</article>`;
+  return `<article class="${classes}" id="b-${esc(block.id)}" data-kind="${block.kind}" data-aud="${aud.join(' ')}"><h3 class="item-title"><span class="ico" aria-hidden="true">${block.kind === 'requirement' ? '▦' : block.kind === 'question' ? '?' : '◇'}</span>${block.kind === 'requirement' ? inlineMd(block.title) : KIND_LABEL[block.kind]}</h3><div class="tags">${head}</div>${html}</article>`;
+}
+
+/** 링크 안에 넣을 원문 서식. 중첩 링크는 주소를 title로 옮긴다. */
+export function inlineLabel(text: string): string {
+  return inlineMd(text).replace(
+    /<a href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g,
+    '<span title="$1">$2</span>',
+  );
 }
