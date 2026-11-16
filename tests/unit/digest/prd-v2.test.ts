@@ -116,7 +116,7 @@ describe('PRD 1.1 기능명세서 계약', () => {
     expect(gaps.filter((g) => g.code === 'ACCEPTANCE_MISSING')).toEqual([
       expect.objectContaining({
         blockIds: ['r1'],
-        question: '대여 신청이 끝났다고 판단할 기준은 무엇인가요?',
+        question: '"대여 신청"의 완료 기준은 무엇인가요?',
       }),
     ]);
     expect(gaps.filter((g) => g.code === 'SLOTS_INCOMPLETE')).toEqual([
@@ -145,6 +145,20 @@ describe('독립 리뷰 회귀', () => {
       expect(gaps.filter((g) => g.code === code).map((g) => g.blockIds)).toEqual([['solo']]);
     }
   });
+
+  it.each(['회원은 대여를 신청한다.', 'API'])(
+    '제목 %s를 인용해 조사를 붙이지 않고 질문한다',
+    (title) => {
+      const { view } = sampleV2();
+      const r = requirement(view);
+      r.title = title;
+      delete r.acceptance;
+      expect(collectPrdGaps(view).find((g) => g.code === 'ACCEPTANCE_MISSING')?.question).toBe(
+        `"${title}"의 완료 기준은 무엇인가요?`,
+      );
+      expect(r.title).toBe(title);
+    },
+  );
 });
 
 describe('검증 보고서 회귀', () => {
@@ -199,7 +213,7 @@ describe('검증 보고서 회귀', () => {
       expect.objectContaining({ blockIds: ['r1', 'r2'] }),
     ]);
     expect(gaps.filter((g) => g.code === 'TARGET_UNDECIDED')[0]?.question).toBe(
-      '7일 내 재대여율의 목표는 얼마인가요?',
+      '"7일 내 재대여율"의 목표는 얼마인가요?',
     );
   });
 

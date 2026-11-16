@@ -44,30 +44,29 @@ export function prdGapQuestion(
     .filter((b): b is PrdBlock => Boolean(b))
     .map(title);
   const name = names.slice(0, 3).join(', ') + (names.length > 3 ? ` 외 ${names.length - 3}개` : '');
-  const last = name.charCodeAt(name.length - 1);
-  const subject = last >= 0xac00 && last <= 0xd7a3 && (last - 0xac00) % 28 === 0 ? '가' : '이';
+  const label = `"${name}"`;
   switch (gap.code) {
     case 'ACCEPTANCE_MISSING':
-      return `${name}${subject} 끝났다고 판단할 기준은 무엇인가요?`;
+      return `${label}의 완료 기준은 무엇인가요?`;
     case 'SLOTS_INCOMPLETE':
-      return `${name}의 ${gap.missingSlots?.map((key) => SLOT_NAMES[key]).join(', ')} 칸에는 어떤 내용이 필요한가요?`;
+      return `${label}의 ${gap.missingSlots?.map((key) => SLOT_NAMES[key]).join(', ')} 칸에는 어떤 내용이 필요한가요?`;
     case 'BASELINE_NO_NUMBER':
-      return `${name}의 현재 기준값은 얼마인가요?`;
+      return `${label}의 현재 기준값은 얼마인가요?`;
     case 'TARGET_UNDECIDED':
-      return `${name}의 목표는 얼마인가요?`;
+      return `${label}의 목표는 얼마인가요?`;
     case 'DUE_NOT_DATE':
-      return `${name}의 결정 기한은 언제인가요?`;
+      return `${label}의 결정 기한은 언제인가요?`;
     case 'TBD_PLACEHOLDER':
-      return `${name}의 ${gap.field ?? '미정'} 칸에는 어떤 내용을 채우면 되나요?`;
+      return `${label}의 ${gap.field ?? '미정'} 칸에는 어떤 내용을 채우면 되나요?`;
     case 'METRIC_UNLINKED':
-      return `${name}의 변화는 어떤 요구사항과 연결되나요?`;
+      return `${label}의 변화는 어떤 요구사항과 연결되나요?`;
     case 'REQUIREMENT_UNLINKED':
-      return `${name}의 성과는 어떤 지표로 판단하나요?`;
+      return `${label}의 성과는 어떤 지표로 판단하나요?`;
     case 'QUOTE_VIRTUAL':
-      return `${name}의 근거가 되는 실제 사용자 목소리가 있나요?`;
+      return `${label}의 근거가 되는 실제 사용자 목소리가 있나요?`;
     case 'DECISION_UNCONFIRMED':
-      return `${name}의 결정은 확정됐나요?`;
+      return `${label}의 결정은 확정됐나요?`;
     case 'OPEN_CLAIMS':
-      return `${name}의 내용을 확정하려면 무엇을 확인해야 하나요?`;
+      return `${label}의 내용을 확정하려면 무엇을 확인해야 하나요?`;
   }
 }
