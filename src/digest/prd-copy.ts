@@ -13,6 +13,42 @@ export const SLOT_NAMES: Record<RequirementSlot, string> = {
   data: '데이터',
 };
 
+const FIELD_NAMES: Record<string, string> = {
+  text: '본문',
+  title: '제목',
+  detail: '설명',
+  why: '이유',
+  boundary: '경계',
+  priority: '중요도',
+  acceptance: '수용 기준',
+  name: '지표 이름',
+  denominator: '분모',
+  baseline: '현재 기준값',
+  target: '목표',
+  measure: '측정 방법',
+  decided: '결정',
+  rejected: '버린 안',
+  response: '대응',
+  item: '질문',
+  owner: '담당',
+  due: '기한',
+  labels: '비교 대상',
+  rows: '표의 행',
+  cols: '표의 열',
+  cells: '표 내용',
+  out: '범위 밖',
+  by: '인용 출처',
+  steps: '단계',
+  items: '일정',
+  terms: '용어',
+};
+
+function fieldLabel(field: string | undefined): string {
+  const [root, slot] = field?.split('.') ?? [];
+  if (root === 'slots') return SLOT_NAMES[slot as RequirementSlot] ?? '개발 준비';
+  return FIELD_NAMES[root ?? ''] ?? '내용';
+}
+
 function title(block: PrdBlock): string {
   switch (block.kind) {
     case 'requirement':
@@ -57,7 +93,7 @@ export function prdGapQuestion(
     case 'DUE_NOT_DATE':
       return `${label}의 결정 기한은 언제인가요?`;
     case 'TBD_PLACEHOLDER':
-      return `${label}의 ${gap.field ?? '미정'} 칸에는 어떤 내용을 채우면 되나요?`;
+      return `${label}의 ${fieldLabel(gap.field)} 칸에는 어떤 내용을 채우면 되나요?`;
     case 'METRIC_UNLINKED':
       return `${label}의 변화는 어떤 요구사항과 연결되나요?`;
     case 'REQUIREMENT_UNLINKED':

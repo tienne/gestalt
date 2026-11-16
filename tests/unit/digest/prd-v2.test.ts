@@ -159,6 +159,21 @@ describe('독립 리뷰 회귀', () => {
       expect(r.title).toBe(title);
     },
   );
+
+  it.each([
+    ['detail.0', '설명'],
+    ['acceptance.0.text', '수용 기준'],
+    ['slots.data.text', '데이터'],
+  ])('TBD의 %s 경로를 %s로 표현한다', (field, label) => {
+    const { view } = sampleV2();
+    const r = requirement(view);
+    if (field === 'detail.0') r.detail = ['{{TBD}}'];
+    if (field === 'acceptance.0.text') r.acceptance![0]!.text = '{{TBD}}';
+    if (field === 'slots.data.text') r.slots!.data!.text = '{{TBD}}';
+    const gap = collectPrdGaps(view).find((g) => g.code === 'TBD_PLACEHOLDER');
+    expect(gap?.field).toBe(field);
+    expect(gap?.question).toBe(`"대여 신청"의 ${label} 칸에는 어떤 내용을 채우면 되나요?`);
+  });
 });
 
 describe('검증 보고서 회귀', () => {
