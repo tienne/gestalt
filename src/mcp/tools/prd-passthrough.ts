@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { lintPrdView, prdLintErrors, prdLintWarnings } from '../../digest/lint-prd.js';
+import { lintPrdProse } from '../../digest/lint-prd-prose.js';
 import { collectPrdGaps } from '../../digest/lint-prd-gaps.js';
 import { prdGuide } from '../../digest/prd-guide.js';
 import { parsePrdView, type PrdView } from '../../digest/prd-schema.js';
@@ -131,6 +132,7 @@ function handleValidate(input: PrdInput, repoRoot: string): object {
     warnings: prdLintWarnings(c.lint.issues),
     coverage: c.lint.coverage,
     gaps: collectPrdGaps(c.view),
+    prose: lintPrdProse(c.view, c.source),
     sourceSha256: c.source.sha256,
   };
 }
@@ -156,6 +158,7 @@ function handleRender(input: PrdInput, repoRoot: string): object {
     const store = new PrdViewStore(repoRoot);
     const gaps = collectPrdGaps(c.view);
     const html = renderPrdHtml(c.view, {
+      repoRoot,
       sourceSha256: c.source.sha256,
       coverage: c.lint.coverage,
       gaps,
