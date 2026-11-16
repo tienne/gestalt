@@ -184,9 +184,11 @@ Phase 1은 이 브랜치를 처음 다루는 자리라 재사용할 게 없다. 
 | 상황 | 4번에 적는 답 |
 | --- | --- |
 | 화면 변경이고 `$shotTmp/manifest.json`에 `pairs`가 있다 | `manifest.json의 수정 전 화면을 쓴다` |
-| 화면 변경인데 manifest가 없거나 `skipped`뿐이다 | 검증에 쓴 주소(mock이나 dev)를 전/후 주소로 적는다. 예: `캡처할 주소: http://localhost:3000/list http://localhost:3000/list` |
-| 화면 변경인데 수정 전 화면을 띄울 수 없다 | `수정 후만 붙인다: <검증에 쓴 주소>` |
+| 화면 변경이고 manifest가 없거나 `skipped`뿐인데, 수정 전 코드가 떠 있는 배포 주소(stage, 운영)가 있다 | `캡처할 주소: <배포된 주소> <검증에 쓴 로컬 주소>`. 예: `캡처할 주소: https://stage.example.com/list http://localhost:3000/list` |
+| 화면 변경이고 manifest가 없거나 `skipped`뿐인데, 배포 주소도 없다 | `수정 후만: <검증에 쓴 로컬 주소>` |
 | 화면 변경이 아니다 | `없음` (이 줄에만) |
+
+고친 뒤의 로컬 주소를 전 주소로 적지 않는다. 이미 고친 코드라 수정 후 화면이 수정 전 칸에 붙는다. 배포 주소가 없다고 base를 체크아웃해 서버를 띄우지도 않는다([`pr` 스킬 5.5단계](../pr/SKILL.md#이미지-준비)).
 
 `$shotTmp`는 `pr` 스킬 5.5단계의 이미지 준비 절에 있는 경로다. 수정 전 캡처가 같은 경로에 남는다([`../_shared/before-screenshot.md`](../_shared/before-screenshot.md)).
 
@@ -706,7 +708,7 @@ GESTALT_PR=1 gh pr create --draft --base "<base>" --assignee @me \
 
 PR 번호를 `prNumber`, URL을 `prUrl`로 보관한다.
 
-**`pr` 스킬 1단계에서 스크린샷을 받았으면 바로 그 스킬의 5.5단계로 붙인다.** 본문을 `pr` 스킬을 거치지 않고 템플릿을 보며 직접 썼더라도 화면 변경이면 같다. 본문에 `<!-- gestalt:screenshots -->` 표식이 없으면 `pr` 스킬 4단계의 스크린샷 자리 규칙대로 넣고 5.5단계를 돈다. 직접 썼다는 이유로 스크린샷을 빼지 않는다. 본문의 `<!-- gestalt:screenshots -->` 표식 자리를 채우는 일이라 draft여도 그대로 돈다. 이미지는 레포에 커밋하지 않는다. 못 붙였으면 그 이유를 승인 단계 ⓒ 메시지에 한 줄 적고 Phase 4로 넘어간다.
+**`pr` 스킬 1단계에서 스크린샷을 받았으면 바로 그 스킬의 5.5단계로 붙인다.** 본문을 `pr` 스킬을 거치지 않고 템플릿을 보며 직접 썼더라도 화면 변경이면 같다. 본문에 `<!-- gestalt:screenshots -->` 표식이 없으면 `pr` 스킬 4단계의 스크린샷 자리 규칙대로 넣고 5.5단계를 돈다. 이때는 `pr` 1단계를 안 거쳐 `prIntent`가 없으므로 Phase 3의 4번 답을 고른 표대로 `prIntent.screenshots`를 직접 채워 넘긴다. manifest에 `pairs`가 있으면 그대로 옮긴다. 직접 썼다는 이유로 스크린샷을 빼지 않는다. 본문의 `<!-- gestalt:screenshots -->` 표식 자리를 채우는 일이라 draft여도 그대로 돈다. 이미지는 레포에 커밋하지 않는다. 못 붙였으면 그 이유를 승인 단계 ⓒ 메시지에 한 줄 적고 Phase 4로 넘어간다.
 
 ## Phase 4 — Copilot 리뷰 루프
 
