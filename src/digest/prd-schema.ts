@@ -7,7 +7,7 @@ import { idSchema, SLUG_PATTERN, textSchema } from './schema-base.js';
  * 블록마다 원문 줄 범위(src)를 달아서 원문에 없는 내용을 지어냈는지 lint가 대조한다
  */
 
-export const PRD_SCHEMA_VERSION = '1.0.0';
+export const PRD_SCHEMA_VERSION = '1.1.0';
 
 export const AUDIENCES = ['pm', 'dev', 'design', 'qa', 'data'] as const;
 export type Audience = (typeof AUDIENCES)[number];
@@ -20,6 +20,35 @@ export const lineRangeSchema = z
 export type LineRange = z.infer<typeof lineRangeSchema>;
 
 const srcSchema = z.array(lineRangeSchema).min(1).max(8);
+
+export const sourcedTextSchema = z.object({ text: textSchema, src: srcSchema });
+
+export const REQUIREMENT_SLOTS = [
+  'precondition',
+  'trigger',
+  'behavior',
+  'result',
+  'exception',
+  'display',
+  'permission',
+  'businessRule',
+  'data',
+] as const;
+export type RequirementSlot = (typeof REQUIREMENT_SLOTS)[number];
+
+const slotsSchema = z
+  .object({
+    precondition: sourcedTextSchema.optional(),
+    trigger: sourcedTextSchema.optional(),
+    behavior: sourcedTextSchema.optional(),
+    result: sourcedTextSchema.optional(),
+    exception: sourcedTextSchema.optional(),
+    display: sourcedTextSchema.optional(),
+    permission: sourcedTextSchema.optional(),
+    businessRule: sourcedTextSchema.optional(),
+    data: sourcedTextSchema.optional(),
+  })
+  .strict();
 
 const base = {
   id: idSchema,
@@ -41,6 +70,11 @@ const blockUnion = z.discriminatedUnion('kind', [
     ...base,
     kind: z.literal('requirement'),
     title: textSchema,
+    parent: idSchema.optional(),
+    acceptance: z.array(sourcedTextSchema).max(40).optional(),
+    slots: slotsSchema.optional(),
+    priority: textSchema.optional(),
+    questions: z.array(idSchema).max(40).optional(),
     why: textSchema.optional(),
     boundary: textSchema.optional(),
     phase: z.enum(PHASES).optional(),
@@ -75,6 +109,7 @@ const blockUnion = z.discriminatedUnion('kind', [
     owner: textSchema.optional(),
     due: textSchema.optional(),
   }),
+  z.object({ ...base, kind: z.literal('risk'), text: textSchema, response: textSchema.optional() }),
   z.object({ ...base, kind: z.literal('prose'), text: textSchema }),
   z.object({
     ...base,
@@ -158,10 +193,12 @@ export const sectionSchema = z.object({
 
 export const prdViewSchema = z
   .object({
-    schemaVersion: z.literal(PRD_SCHEMA_VERSION),
+    schemaVersion: z.enum(['1.0.0', PRD_SCHEMA_VERSION]),
     slug: z.string().regex(SLUG_PATTERN, 'slug는 영문 소문자, 숫자, -만 쓴다(64자까지)'),
     meta: z.object({
       title: textSchema,
+      roles: z.array(sourcedTextSchema).max(30).optional(),
+      platforms: z.array(sourcedTextSchema).max(30).optional(),
       /** 원문 경로. 도구에 sourcePath를 안 주면 이 값을 읽는다 */
       source: textSchema,
       sourceSha256: z
@@ -227,7 +264,13 @@ export const BLOCK_DOCS: Record<BlockKind, Omit<BlockDoc, 'kind'>> = {
     fields: {
       title: '무엇을 만드는지 한 줄',
       why: '가설이나 이유(원문에 있을 때만)',
-      boundary: '이번에 안 하는 것(원문에 있을 때만)',
+      boundary: '범위 밖이나 제약, 아직 정하지 않은 경계(원문에 있을 때만)',
+      parent: '상위 requirement id. 그룹과 기능 2단까지만 허용',
+      acceptance: '[{ text, src }] 원문 수용 기준',
+      slots:
+        '{ precondition?, trigger?, behavior?, result?, exception?, display?, permission?, businessRule?, data? }. 값은 { text, src }',
+      priority: '원문에 적힌 중요도 문자열',
+      questions: '연결된 question 블록 id 배열',
       phase: "'mvp' | 'later'",
       metrics: '연결된 metric 블록의 metricId 배열',
       detail: '본문 문장 배열',
@@ -255,6 +298,11 @@ export const BLOCK_DOCS: Record<BlockKind, Omit<BlockDoc, 'kind'>> = {
     stage: 1,
     purpose: '아직 안 정한 것, 확인할 것',
     fields: { item: '질문', owner: '담당', due: '기한' },
+  },
+  risk: {
+    stage: 1,
+    purpose: '리스크와 원문에 적힌 대응',
+    fields: { text: '리스크 문장', response: '대응 문자열(원문에 있을 때만)' },
   },
   prose: {
     stage: 1,

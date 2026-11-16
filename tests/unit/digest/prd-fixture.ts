@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sourceFromText, type PrdSource } from '../../../src/digest/prd-source.js';
-import { PRD_SCHEMA_VERSION } from '../../../src/digest/prd-schema.js';
+import { parsePrdView, PRD_SCHEMA_VERSION } from '../../../src/digest/prd-schema.js';
 
 /** 가상 서비스(도서 대여 앱 추천 영역) PRD. 줄 번호를 테스트가 직접 가리키니 줄을 바꾸면 sampleView도 고친다 */
 export const SAMPLE_PRD = `---
@@ -250,4 +250,97 @@ export function sampleViewWithStage3(): Record<string, any> {
   const v = sampleView() as Record<string, any>;
   v.sections.push(stage3Section());
   return v;
+}
+
+/** 기존 픽스처의 줄 번호는 유지하고 기능 트리 사례를 별도로 둔다 */
+export function sampleV2() {
+  const lines = [
+    '# 도서 대여',
+    '## 기능',
+    '도서 대여 기능',
+    '대여 신청',
+    '회원은 대여할 책을 선택한다.',
+    '배송은 포함하지 않는다.',
+    '중요도 P0',
+    '신청 뒤 대여 목록에 책 1권이 나타난다.',
+    '회원이 로그인했다.',
+    '대여 버튼을 누른다.',
+    '선택한 도서를 신청한다.',
+    '대여 목록을 볼 수 있다.',
+    '재고가 없으면 신청을 막는다.',
+    '신청 결과를 표시한다.',
+    '회원은 목록을 볼 수 있다.',
+    '회원당 3권까지 빌린다.',
+    '도서 번호를 저장한다.',
+    '성인 도서의 허용 여부',
+    '재고가 부족할 수 있다.',
+    '대기 목록을 제공한다.',
+    '회원',
+    '웹',
+  ];
+  const at = (text: string): [[number, number]] => [
+    [lines.indexOf(text) + 1, lines.indexOf(text) + 1],
+  ];
+  const sourced = (text: string) => ({ text, src: at(text) });
+  const source = sourceFromText('docs/rental/PRD.md', lines.join('\n'));
+  const raw = {
+    schemaVersion: PRD_SCHEMA_VERSION,
+    slug: 'rental-v2',
+    meta: {
+      title: '도서 대여',
+      source: source.path,
+      roles: [sourced('회원')],
+      platforms: [sourced('웹')],
+      rows: [],
+    },
+    sections: [
+      {
+        id: 'features',
+        title: '기능',
+        blocks: [
+          { id: 'group', kind: 'requirement', title: '도서 대여 기능', src: at('도서 대여 기능') },
+          {
+            id: 'r1',
+            kind: 'requirement',
+            title: '대여 신청',
+            src: [[4, 7]],
+            parent: 'group',
+            detail: ['회원은 대여할 책을 선택한다.'],
+            boundary: '배송은 포함하지 않는다.',
+            priority: 'P0',
+            questions: ['q1'],
+            acceptance: [sourced('신청 뒤 대여 목록에 책 1권이 나타난다.')],
+            slots: {
+              precondition: sourced('회원이 로그인했다.'),
+              trigger: sourced('대여 버튼을 누른다.'),
+              behavior: sourced('선택한 도서를 신청한다.'),
+              result: sourced('대여 목록을 볼 수 있다.'),
+              exception: sourced('재고가 없으면 신청을 막는다.'),
+              display: sourced('신청 결과를 표시한다.'),
+              permission: sourced('회원은 목록을 볼 수 있다.'),
+              businessRule: sourced('회원당 3권까지 빌린다.'),
+              data: sourced('도서 번호를 저장한다.'),
+            },
+          },
+          {
+            id: 'q1',
+            kind: 'question',
+            item: '성인 도서의 허용 여부',
+            src: at('성인 도서의 허용 여부'),
+          },
+          {
+            id: 'risk1',
+            kind: 'risk',
+            text: '재고가 부족할 수 있다.',
+            response: '대기 목록을 제공한다.',
+            src: [[19, 20]],
+          },
+        ],
+      },
+    ],
+    omitted: [],
+  };
+  const result = parsePrdView(raw);
+  if (!result.ok) throw new Error(result.issues.join('\n'));
+  return { source, view: result.value };
 }

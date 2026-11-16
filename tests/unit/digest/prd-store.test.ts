@@ -32,7 +32,7 @@ describe('PrdViewStore', () => {
   it('slugFromSource는 slug 패턴을 지키고 경로가 다르면 달라진다', () => {
     const a = slugFromSource('/a/PRD.md');
     expect(a).toMatch(SLUG_PATTERN);
-    expect(a.startsWith('prd-')).toBe(true);
+    expect(a.startsWith('a-')).toBe(true);
     expect(slugFromSource('/b/PRD.md')).not.toBe(a);
     expect(slugFromSource('/a/기획서.md')).toMatch(/^prd-[0-9a-f]{6}$/);
   });

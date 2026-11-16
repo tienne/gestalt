@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { collectPrdGaps, isDateLike, type PrdGapCode } from '../../../src/digest/lint-prd-gaps.js';
 import { lintPrdView, prdLintErrors } from '../../../src/digest/lint-prd.js';
-import { parsePrdView, type PrdView } from '../../../src/digest/prd-schema.js';
+import { REQUIREMENT_SLOTS, parsePrdView, type PrdView } from '../../../src/digest/prd-schema.js';
 import { sampleSource, sampleView, sampleViewWithStage3 } from './prd-fixture.js';
 
 type Json = Record<string, any>;
@@ -20,6 +20,12 @@ function cleanView(): Json {
   v.sections[0].blocks[1].status = 'confirmed';
   v.sections[1].blocks[1].metrics = ['M2'];
   v.sections[2].blocks[1].baseline = '5%';
+  for (const block of v.sections[1].blocks) {
+    block.acceptance = [{ text: block.title, src: block.src }];
+    block.slots = Object.fromEntries(
+      REQUIREMENT_SLOTS.map((key) => [key, { text: block.title, src: block.src }]),
+    );
+  }
   return v;
 }
 
@@ -32,6 +38,10 @@ describe('collectPrdGaps', () => {
     const gaps = collectPrdGaps(parse(sampleView()));
     expect(gaps.map((g) => [g.code, g.blockIds])).toEqual([
       ['BASELINE_NO_NUMBER', ['m2']],
+      ['ACCEPTANCE_MISSING', ['r1']],
+      ['ACCEPTANCE_MISSING', ['r2']],
+      ['SLOTS_INCOMPLETE', ['r1']],
+      ['SLOTS_INCOMPLETE', ['r2']],
       ['REQUIREMENT_UNLINKED', ['r2']],
       ['OPEN_CLAIMS', ['c2']],
     ]);

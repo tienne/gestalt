@@ -1,4 +1,11 @@
-import { allBlocks, type PrdBlock, type PrdView } from './prd-schema.js';
+import { prdGapQuestion } from './prd-copy.js';
+import {
+  REQUIREMENT_SLOTS,
+  allBlocks,
+  type PrdBlock,
+  type PrdView,
+  type RequirementSlot,
+} from './prd-schema.js';
 import { verbatimFields } from './prd-match.js';
 import { deriveReqMetric } from './render-prd-views.js';
 
@@ -9,6 +16,9 @@ import { deriveReqMetric } from './render-prd-views.js';
 
 export const PRD_GAP_CODES = [
   'BASELINE_NO_NUMBER',
+  'TARGET_UNDECIDED',
+  'ACCEPTANCE_MISSING',
+  'SLOTS_INCOMPLETE',
   'DUE_NOT_DATE',
   'TBD_PLACEHOLDER',
   'METRIC_UNLINKED',
@@ -21,6 +31,8 @@ export type PrdGapCode = (typeof PRD_GAP_CODES)[number];
 
 export interface PrdGap {
   code: PrdGapCode;
+  question: string;
+  missingSlots?: RequirementSlot[];
   message: string;
   /** 걸린 블록. OPEN_CLAIMS는 여러 블록을 한 건으로 묶는다 */
   blockIds: string[];
@@ -30,6 +42,9 @@ export interface PrdGap {
 
 export const GAP_TITLE: Record<PrdGapCode, string> = {
   BASELINE_NO_NUMBER: '베이스라인에 숫자가 없는 지표',
+  TARGET_UNDECIDED: '목표가 미정인 지표',
+  ACCEPTANCE_MISSING: '수용 기준이 없는 기능',
+  SLOTS_INCOMPLETE: '개발 준비 칸이 비어 있는 기능',
   DUE_NOT_DATE: '기한이 날짜가 아닌 질문',
   TBD_PLACEHOLDER: '채우지 않은 TBD 자리',
   METRIC_UNLINKED: '어느 요구사항에도 안 걸린 지표',
@@ -50,7 +65,24 @@ function decisionText(b: Extract<PrdBlock, { kind: 'decision' }>): string {
 }
 
 export function collectPrdGaps(view: PrdView): PrdGap[] {
-  const gaps: PrdGap[] = [];
+  const gaps: Array<Omit<PrdGap, 'question'>> = [];
+  const blocks = [...allBlocks(view)].map(({ block }) => block);
+  const byId = new Map(blocks.map((block) => [block.id, block]));
+  const requirements = blocks.filter((b) => b.kind === 'requirement');
+  const parentIds = new Set(requirements.flatMap((b) => (b.parent ? [b.parent] : [])));
+  for (const block of requirements) {
+    if (parentIds.has(block.id)) continue;
+    if (!block.acceptance?.length)
+      gaps.push({ code: 'ACCEPTANCE_MISSING', message: '수용 기준이 없다', blockIds: [block.id] });
+    const missingSlots = REQUIREMENT_SLOTS.filter((key) => !block.slots?.[key]);
+    if (missingSlots.length)
+      gaps.push({
+        code: 'SLOTS_INCOMPLETE',
+        message: `개발 준비 칸 ${missingSlots.length}개가 비어 있다`,
+        blockIds: [block.id],
+        missingSlots,
+      });
+  }
   const openClaims: string[] = [];
   for (const { block } of allBlocks(view)) {
     for (const f of verbatimFields(block)) {
@@ -65,10 +97,17 @@ export function collectPrdGaps(view: PrdView): PrdGap[] {
     }
     switch (block.kind) {
       case 'metric':
-        if (!block.baseline || !/\d/.test(block.baseline)) {
+        if (!hasBaselineNumber(block.baseline)) {
           gaps.push({
             code: 'BASELINE_NO_NUMBER',
             message: `${block.metricId} 베이스라인이 ${block.baseline ? `"${block.baseline}"` : '비어 있다'}`,
+            blockIds: [block.id],
+          });
+        }
+        if (!block.target || /미정|설정 대기|\{\{\s*TBD/i.test(block.target)) {
+          gaps.push({
+            code: 'TARGET_UNDECIDED',
+            message: '목표가 없거나 아직 정해지지 않았다',
             blockIds: [block.id],
           });
         }
@@ -116,13 +155,17 @@ export function collectPrdGaps(view: PrdView): PrdGap[] {
         });
       }
     }
-    for (const id of matrix.unlinkedRequirements) {
+    const unlinked = matrix.unlinkedRequirements;
+    if (unlinked.length && unlinked.length === matrix.requirements.length) {
       gaps.push({
         code: 'REQUIREMENT_UNLINKED',
-        message: '연결된 지표가 없다',
-        blockIds: [id],
+        message: `요구사항 ${unlinked.length}개 모두 지표 연결 없음`,
+        blockIds: unlinked,
       });
-    }
+    } else
+      for (const id of unlinked) {
+        gaps.push({ code: 'REQUIREMENT_UNLINKED', message: '연결된 지표가 없다', blockIds: [id] });
+      }
   }
   if (openClaims.length) {
     gaps.push({
@@ -132,5 +175,19 @@ export function collectPrdGaps(view: PrdView): PrdGap[] {
     });
   }
   // 코드 순서로 묶어 둬야 패널과 응답이 같은 순서로 읽힌다
-  return gaps.sort((a, b) => PRD_GAP_CODES.indexOf(a.code) - PRD_GAP_CODES.indexOf(b.code));
+  return gaps
+    .sort((a, b) => PRD_GAP_CODES.indexOf(a.code) - PRD_GAP_CODES.indexOf(b.code))
+    .map((gap) => ({ ...gap, question: prdGapQuestion(gap, byId) }));
+}
+
+/** 참고 수치와 연월은 해당 지표의 측정 기준값으로 쓰지 않는다 */
+export function hasBaselineNumber(value: string | undefined): boolean {
+  if (!value || /재추출|검수 대기|측정 불가|미정/.test(value)) return false;
+  const measured = value
+    .split(/참고\s*[:：]/)[0]!
+    .replace(/\b\d{4}[-/](?:0?[1-9]|1[0-2])(?:[-/](?:0?[1-9]|[12]\d|3[01]))?\b/g, '')
+    .replace(/\b\d{4}\.(?:0?[1-9]|1[0-2])\.(?:0?[1-9]|[12]\d|3[01])\b/g, '')
+    .replace(/\b\d{4}\.(?:0?[1-9]|1[0-2])(?=\s*(?:기준|현재|$))/g, '')
+    .replace(/\d{4}년\s*\d{1,2}월(?:\s*\d{1,2}일)?/g, '');
+  return /\d/.test(measured);
 }

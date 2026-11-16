@@ -62,13 +62,25 @@ PRD 마크다운을 사람이 훑어보기 좋은 HTML 한 장으로 만든다. 
    - 블록 글은 `src` 줄에서 옮긴다. 줄여 쓴 블록은 `summary: true`를 단다.
    - 원문에 없는 칸은 필드를 빼서 비워 둔다. 빈 문자열이나 "-"를 넣지 않는다. 원문에 "확인 필요"처럼 적혀 있으면 그 글자를 옮긴다.
    - 메타 표(오너, 일정, 링크 같은)는 `meta.rows`에 옮긴다. 원문에 있는 것만 옮긴다.
+   - `schemaVersion`은 `1.1.0`으로 쓴다. 기존 `1.0.0` JSON도 허용한다. 모든 새 칸은 선택이며 원문에 없는 칸은 비워 둔다.
+   - `requirement.parent`는 상위 requirement id다. 상위가 없고 하위가 있는 블록은 그룹, 하위는 기능으로 두고 2단을 넘기지 않는다. 하위가 없는 최상위 요구사항도 단독 기능으로 본다. `questions`는 연결된 question 블록 id 배열이다.
+   - `acceptance`는 수용 기준 `[{ text, src }]`, `slots`는 `precondition`, `trigger`, `behavior`, `result`, `exception`, `display`, `permission`, `businessRule`, `data` 키별 `{ text, src }`다. 각 값의 src를 따로 단다.
+   - 중요도는 `priority` 문자열에, 리스크는 `risk.text`와 원문에 있을 때만 `response` 문자열에 옮긴다. `meta.roles`와 `meta.platforms`는 `[{ text, src }]`다.
+   - 유저 스토리는 `title`에 I want, `why`에 So that을 옮긴다. 행위자는 `detail` 첫 줄에 칸 이름과 함께 적고 우선순위는 `priority`에 둔다. `boundary`는 범위 밖이나 제약, 아직 정하지 않은 경계다.
+   - `metric.baseline`은 "참고:" 뒤 다른 실험이나 기간의 수치도 원문 그대로 옮긴다. 기준값으로 쓸 수 있는지는 gaps가 판단한다. 원문 지표 id가 없으면 순서대로 M1부터 매긴다.
+   - `metric.role`이 원문 역할과 안 맞으면 가장 가까운 값을 고르고 원문 표현은 `name`이나 `measure`에 남긴다.
+   - 표의 첫 행 블록 src에는 머리글을 넣어도 된다. 굵은 글씨 한 줄짜리 소제목은 아래 블록 src에 붙인다. `prose`, `callout`은 원문 줄이 여럿이면 줄 사이에 `\n`을 넣는다.
+   - 리스크와 수용 기준은 전용 칸을 쓰고 담당자나 상태 열이 있는 일정표와 실행 계획 표는 `stateMatrix`로 옮긴다.
    - 변경 이력처럼 일부러 안 옮기는 구간은 `omitted`에 이유와 함께 적는다.
    - 미확정, 요구사항과 지표 연결, 결정 모아 보기는 렌더러가 만든다. 따로 섹션을 만들지 않는다.
    - `audience`는 원문이 대상을 밝힌 블록에만 단다.
    - `quote.origin`은 원문이 실제 유저 목소리라고 밝힌 것만 `voc`로 둔다. 기획자가 지어낸 화법이면 `virtual`, 원문이 안 밝혔으면 `unknown`이다.
 6. **검사.** `validate`를 부른다. `errors`는 반드시 고친다. `warnings`와 `coverage.ranges`를 읽고 빠진 구간에 블록을 더하거나 `omitted`로 이유를 적은 뒤 다시 검사한다. 세 번 돌려도 안 풀리는 경고는 그대로 두고 보고에 적는다.
+   - coverage는 src가 가리킨 줄을 센다. src를 넓게 잡으면 빠진 줄이 0%로 나오니 실제로 옮긴 줄만 단다. 표 머리글은 내용 줄에서 빠진다.
+   - 없는 parent/question 참조, parent 순환과 3단 깊이는 오류다.
 7. **렌더.** `render`를 부른다. `outDir`이 있으면 넘긴다. `OUT_FILE_EXISTS`가 나면 덮어써도 되는지 사용자에게 묻고 허락받았을 때만 `overwrite: true`로 다시 부른다.
-8. **보고.** `htmlPath`, 원문 내용 줄 가운데 옮긴 비율, 남은 경고를 짧게 알린다. `gaps`가 있으면 코드별 개수를 함께 알린다. `gaps`는 원문이 비어 있는 자리라 뷰를 고쳐 없애지 않는다.
+8. **보고.** `htmlPath`, 원문 내용 줄 가운데 옮긴 비율, 남은 경고를 짧게 알린다. `gaps`가 있으면 코드별 개수를 함께 알린다. `gaps`는 원문이 비어 있는 자리라 뷰를 고쳐 없애지 않는다. 모든 항목의 `question`에 블록 제목이 들어간 해요체 질문이 있다. 수용 기준 누락은 `ACCEPTANCE_MISSING`, 개발 준비 칸 누락은 `SLOTS_INCOMPLETE`로 기능마다 묶으며 목표가 없거나 미정이면 `TARGET_UNDECIDED`로 알린다.
+   - `validate.prose`는 `info` 문장 진단이다. `REQ_NO_SUBJECT`, `REQ_NO_BOUNDARY`, `MODAL_AMBIGUOUS`(acceptance, slots.data, risk만; result와 permission 제외), `RISK_NO_RESPONSE`, `SENTENCE_LONG`(66자 초과), `PROSE_AI_TELL`을 코드별 count와 앞 samples 3건으로 알린다. AI 표현 예시에는 규칙 id가 있다. 원문은 고치지 않는다.
 
 ## 입력값 검증
 

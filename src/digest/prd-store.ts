@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync, type Stats } from 'node:fs';
-import { basename, extname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { writeJsonAtomic } from '../core/json-file.js';
 import { SLUG_PATTERN } from './schema-base.js';
 
@@ -13,7 +13,8 @@ export const isValidPrdSlug = (slug: string | undefined): slug is string =>
 /** 원문 파일 이름을 영문 소문자와 하이픈으로 줄이고 경로 해시 6자를 붙인다. 같은 이름 PRD.md가 여럿이어도 안 겹친다 */
 export function slugFromSource(sourcePath: string): string {
   const abs = resolve(sourcePath);
-  const stem = basename(abs, extname(abs))
+  const name = basename(abs, extname(abs));
+  const stem = (/^(prd|readme|index)$/i.test(name) ? basename(dirname(abs)) : name)
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')

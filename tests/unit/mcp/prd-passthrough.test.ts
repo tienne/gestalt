@@ -29,6 +29,7 @@ describe('ges_prd', () => {
     const guide = call(root, { action: 'guide' });
     expect(guide.blocks.map((b: Json) => b.kind)).toContain('requirement');
     const { source, view } = guide.example;
+    expect(JSON.stringify(view)).not.toContain('"audience"');
     mkdirSync(join(root, 'docs', 'reading-club'), { recursive: true });
     writeFileSync(join(root, view.meta.source), source);
     const viewPath = join(root, 'example.json');
@@ -45,7 +46,7 @@ describe('ges_prd', () => {
     const r = call(root, { action: 'source', sourcePath: 'docs/rental/PRD.md', from: 12, to: 15 });
     expect(r).toMatchObject({ ok: true, totalLines: 42, from: 12, to: 15, nextFrom: null });
     expect(r.text.split('\n')[0]).toBe('12: ## 문제');
-    expect(r.suggestedSlug).toMatch(/^prd-[0-9a-f]{6}$/);
+    expect(r.suggestedSlug).toMatch(/^rental-[0-9a-f]{6}$/);
     expect(
       call(root, { action: 'source', sourcePath: 'docs/rental/PRD.md', from: 99 }).errors[0].code,
     ).toBe('RANGE_OUT_OF_BOUNDS');
@@ -57,7 +58,7 @@ describe('ges_prd', () => {
     writeSample(root);
     const r = call(root, { action: 'validate', slug: 'rental-reco' });
     expect(r).toMatchObject({ ok: true, slug: 'rental-reco', errors: [], warnings: [] });
-    expect(r.coverage.contentLines).toBe(14);
+    expect(r.coverage.contentLines).toBe(13);
     expect(r.sourceSha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -98,9 +99,15 @@ describe('ges_prd', () => {
     const v = call(root, { action: 'validate', slug: 'rental-reco' });
     expect(v.gaps.map((g: Json) => g.code)).toEqual([
       'BASELINE_NO_NUMBER',
+      'ACCEPTANCE_MISSING',
+      'ACCEPTANCE_MISSING',
+      'SLOTS_INCOMPLETE',
+      'SLOTS_INCOMPLETE',
       'REQUIREMENT_UNLINKED',
       'OPEN_CLAIMS',
     ]);
+    expect(v.prose.every((g: Json) => g.severity === 'info')).toBe(true);
+    expect(v.gaps.every((g: Json) => g.question.endsWith('요?'))).toBe(true);
     expect(v.warnings.map((w: Json) => w.code)).not.toContain('BASELINE_NO_NUMBER');
     const r = call(root, { action: 'render', slug: 'rental-reco' });
     expect(r.gaps).toEqual(v.gaps);
