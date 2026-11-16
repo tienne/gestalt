@@ -9,6 +9,9 @@ export function createAcquisition({ cwd, env }) {
   let current;
   let signal;
   const cancel = (received) => {
+    // TERM과 INT가 거의 같이 오면 핸들러가 보낸 순서대로 돈다는 보장이 없다.
+    // 이미 TERM이나 HUP을 받았으면 뒤늦은 INT로 종료 신호를 바꾸지 않는다.
+    if (received === 'SIGINT' && signal && signal !== 'SIGINT') return;
     signal = received;
     current?.cancel(received);
   };
