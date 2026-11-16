@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -79,6 +79,60 @@ try {
   }
 }
 
+// 핸들러를 process.emit으로 직접 불러 신호 도착 순서를 고정한다.
+function cancelInOrder(signals: NodeJS.Signals[], withChild = false) {
+  const dir = mkdtempSync(join(tmpdir(), 'gestalt-acquisition-'));
+  dirs.push(dir);
+  const marker = join(dir, 'marker');
+  const childFile = join(dir, 'child.mjs');
+  const runnerFile = join(dir, 'runner.mjs');
+  writeFileSync(
+    childFile,
+    `import fs from 'node:fs';
+for (const s of ['SIGTERM','SIGHUP','SIGINT']) process.on(s,()=>{fs.appendFileSync(${JSON.stringify(marker)},s+' ');process.exit(0);});
+fs.writeFileSync(${JSON.stringify(marker)},'');setInterval(()=>{},1000);`,
+  );
+  writeFileSync(
+    runnerFile,
+    `import fs from 'node:fs';
+import { createAcquisition } from ${JSON.stringify(acquisitionUrl)};
+const scope = createAcquisition({cwd:${JSON.stringify(dir)},env:process.env});
+const order = ${JSON.stringify(signals)};
+try {
+  if (${withChild}) {
+    const run = scope.run(process.execPath,[${JSON.stringify(childFile)}],10000);
+    while (!fs.existsSync(${JSON.stringify(marker)})) await new Promise((r)=>setTimeout(r,20));
+    for (const s of order) process.emit(s, s);
+    await run;
+  } else for (const s of order) process.emit(s, s);
+  console.log(JSON.stringify({signal:scope.signal ?? null}));
+} finally {scope.dispose();}`,
+  );
+  const stdout = execFileSync(process.execPath, [runnerFile], { encoding: 'utf8', timeout: 10000 });
+  return {
+    signal: (JSON.parse(stdout) as { signal: NodeJS.Signals | null }).signal,
+    childReceived: withChild ? readFileSync(marker, 'utf8').trim() : undefined,
+  };
+}
+
+describe('CLI acquisition cancellation order', { timeout: 15000 }, () => {
+  it.each([
+    [['SIGINT'], 'SIGINT'],
+    [['SIGINT', 'SIGTERM'], 'SIGTERM'],
+    [['SIGTERM', 'SIGINT'], 'SIGTERM'],
+    [['SIGHUP', 'SIGINT'], 'SIGHUP'],
+    [['SIGTERM', 'SIGHUP'], 'SIGHUP'],
+  ] as const)('keeps %j as %s', (order, expected) => {
+    expect(cancelInOrder([...order]).signal).toBe(expected);
+  });
+
+  it('forwards TERM to npm and ignores a late INT', () => {
+    const { signal, childReceived } = cancelInOrder(['SIGTERM', 'SIGINT'], true);
+    expect(signal).toBe('SIGTERM');
+    expect(childReceived).toBe('SIGTERM');
+  });
+});
+
 describe('CLI acquisition subprocess lifetime', { timeout: 15000 }, () => {
   it('reports a timed-out attempt as failure without marking user cancellation', async () => {
     const { result } = await runAcquisition('setInterval(()=>{},1000);', 200);
@@ -106,7 +160,7 @@ describe('CLI acquisition subprocess lifetime', { timeout: 15000 }, () => {
   it('bounds waiting when a descendant keeps both inherited pipes open', async () => {
     const { result } = await runAcquisition(
       `
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'inherit'});
 process.exit(1);`,
       2000,
