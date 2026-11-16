@@ -434,13 +434,13 @@ gestalt conductor order add --repo acme/app --title "쿠폰 목록 하위 작업
 
 tick 마지막 단계는 `finished`나 `failed` 워커를 거두고 `released`로 바꾼다. 멈춘(`stopped`) 워커는 재개가 그 dispatch id나 워크트리를 다시 쓸 수 있어 남긴다.
 
-주문이 끝 상태(`done`, `failed`, `cancelled`)면 멈춘 워커도 같은 tick에 거둔다. 재개될 일이 없고 남겨 두면 `order remove`가 계속 거절해서다. 거두는 방식은 아래 표대로 `finished` 워커와 같다. 오르카 워커는 터미널만 거두고 워크트리는 남긴다. `removeMergedOrcaWorktrees`를 켠 머지된 주문이면 지금처럼 워크트리까지 지운다. `parked` 주문은 사람이 PR과 워크트리를 쥐고 있을 수 있어 거두지 않는다. 취소하면 그때 거둔다.
+주문이 끝 상태(`done`, `failed`, `cancelled`)면 멈춘 워커도 같은 tick에 거둔다. 재개될 일이 없고 남겨 두면 `order remove`가 계속 거절해서다. 거두는 방식은 아래 표대로 `finished` 워커와 같다. 오르카 워커는 터미널만 거두고 워크트리는 남긴다. `removeMergedOrcaWorktrees`를 켠 머지된 주문이면 주문 상태와 상관없이 워크트리까지 지운다. 그 밖의 `parked` 주문은 사람이 PR과 워크트리를 쥐고 있을 수 있어 멈춘 워커를 거두지 않는다. 취소하면 그때 거둔다. `finished`나 `failed` 워커는 `parked` 주문이어도 그대로 거둔다.
 
-| 워커            | 거두는 범위                                                                   |
-| --------------- | ----------------------------------------------------------------------------- |
-| `git-worktree`  | `git worktree remove`로 워크트리를 지운다. 브랜치는 남는다                    |
-| `orca-worktree` | `orca orchestration worker-release`로 워커 터미널만 거둔다. 워크트리는 남는다 |
-| `subagent`      | 할 일 없음                                                                    |
+| 워커            | 거두는 범위                                                                               |
+| --------------- | ----------------------------------------------------------------------------------------- |
+| `git-worktree`  | `git worktree remove`로 워크트리를 지운다. 브랜치는 남는다. 같은 레포끼리는 차례로 지운다 |
+| `orca-worktree` | `orca orchestration worker-release`로 워커 터미널만 거둔다. 워크트리는 남는다             |
+| `subagent`      | 할 일 없음                                                                                |
 
 오르카는 settled 워커만 `worker-release`를 받는다. 워커가 컨덕터에만 보고하고 오르카에 `worker_done` 없이 나가면 dispatch가 `ready`로 남아 `dispatch_inactive`로 거절된다. 그때 `worker-show`의 `liveness`가 `exited`나 `gone`이면 `worker-stop`으로 dispatch를 끝난 상태(state `stopped`)로 바꾸고 `worker-release`를 다시 부른다. `exited`나 `gone`이 아니면(`live`거나 liveness를 모를 때) 멈추지 않고 정리 실패로 올린다.
 
