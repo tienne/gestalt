@@ -180,11 +180,14 @@ export function collectPrdGaps(view: PrdView): PrdGap[] {
     .map((gap) => ({ ...gap, question: prdGapQuestion(gap, byId) }));
 }
 
-/** 참고 수치와 연월은 해당 지표의 측정 기준값으로 쓰지 않는다 */
+/**
+ * 참고 수치와 연월은 해당 지표의 측정 기준값으로 쓰지 않는다.
+ * 콜론이 없으면 "참고" 바로 뒤가 숫자일 때만 자른다. "참고 문서" 같은 일반 문장을 건드리지 않으려는 것이라 "참고 약 12%"처럼 사이에 말이 끼면 잡지 않는다
+ */
 export function hasBaselineNumber(value: string | undefined): boolean {
   if (!value || /재추출|검수 대기|측정 불가|미정/.test(value)) return false;
   const measured = value
-    .split(/참고\s*[:：]/)[0]!
+    .split(/참고\s*(?:[:：]|(?=\d))/)[0]!
     .replace(/\b\d{4}[-/](?:0?[1-9]|1[0-2])(?:[-/](?:0?[1-9]|[12]\d|3[01]))?\b/g, '')
     .replace(/\b\d{4}\.(?:0?[1-9]|1[0-2])\.(?:0?[1-9]|[12]\d|3[01])\b/g, '')
     .replace(/\b\d{4}\.(?:0?[1-9]|1[0-2])(?=\s*(?:기준|현재|$))/g, '')

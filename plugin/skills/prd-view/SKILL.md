@@ -67,7 +67,7 @@ PRD 마크다운을 사람이 훑어보기 좋은 HTML 한 장으로 만든다. 
    - `acceptance`는 수용 기준 `[{ text, src }]`, `slots`는 `precondition`, `trigger`, `behavior`, `result`, `exception`, `display`, `permission`, `businessRule`, `data` 키별 `{ text, src }`다. 각 값의 src를 따로 단다.
    - 중요도는 `priority` 문자열에, 리스크는 `risk.text`와 원문에 있을 때만 `response` 문자열에 옮긴다. `meta.roles`와 `meta.platforms`는 `[{ text, src }]`다.
    - 유저 스토리는 `title`에 I want, `why`에 So that을 옮긴다. 행위자는 `detail` 첫 줄에 칸 이름과 함께 적고 우선순위는 `priority`에 둔다. `boundary`는 범위 밖이나 제약, 아직 정하지 않은 경계다.
-   - `metric.baseline`은 "참고:" 뒤 다른 실험이나 기간의 수치도 원문 그대로 옮긴다. 기준값으로 쓸 수 있는지는 gaps가 판단한다. 원문 지표 id가 없으면 순서대로 M1부터 매긴다.
+   - `metric.baseline`은 "참고:"나 "참고 12%"처럼 참고 뒤 다른 실험이나 기간의 수치도 원문 그대로 옮긴다. 기준값으로 쓸 수 있는지는 gaps가 판단한다. 원문 지표 id가 없으면 순서대로 M1부터 매긴다.
    - `metric.role`이 원문 역할과 안 맞으면 가장 가까운 값을 고르고 원문 표현은 `name`이나 `measure`에 남긴다.
    - 표의 첫 행 블록 src에는 머리글을 넣어도 된다. 굵은 글씨 한 줄짜리 소제목은 아래 블록 src에 붙인다. `prose`, `callout`은 원문 줄이 여럿이면 줄 사이에 `\n`을 넣는다.
    - 리스크와 수용 기준은 전용 칸을 쓰고 담당자나 상태 열이 있는 일정표와 실행 계획 표는 `stateMatrix`로 옮긴다.
