@@ -34,6 +34,7 @@ import {
   type UnresolvedQuestion,
 } from './types.js';
 import { suggestOne } from './did-you-mean.js';
+import { drillLevelOwners, shouldDrillDown } from './drilldown.js';
 
 /**
  * IR 전체를 거부하는 에러 코드. 문서(docs/architecture-view.md) 표가 이 배열과 같은지 테스트가 본다
@@ -145,7 +146,42 @@ export type ArchitectureValidationWarning =
   | ExcerptMismatchWarning
   | InfraPlacementWarning
   | SecretMaskedWarning
-  | IgnoredFileTrackedWarning;
+  | IgnoredFileTrackedWarning
+  | NodeTitlePathlikeWarning
+  | DisplayNameLanguageWarning
+  | LevelSummaryMissingWarning
+  | FlowStepDescriptionMissingWarning;
+
+/** 카드 제목(displayName이 없으면 label)이 경로나 파일 이름 꼴이다. 엔드포인트는 뺀다 */
+export interface NodeTitlePathlikeWarning {
+  code: 'NODE_TITLE_PATHLIKE';
+  message: string;
+  nodeIds: string[];
+}
+
+/** 설명 글 대부분이 한글인데 displayName에 한글이 없다 */
+export interface DisplayNameLanguageWarning {
+  code: 'DISPLAY_NAME_LANGUAGE';
+  message: string;
+  nodeIds: string[];
+}
+
+/** 드릴다운 레벨에 요약이 없다. root는 IR 최상위 summary, 나머지는 그 레벨을 여는 노드의 summary로 채운다 */
+export interface LevelSummaryMissingWarning {
+  code: 'LEVEL_SUMMARY_MISSING';
+  message: string;
+  levelIds: string[];
+  /** 요약이 빠진 레벨을 여는 노드. root는 여는 노드가 없어 들지 않는다 */
+  nodeIds: string[];
+}
+
+/** 흐름 단계에 description이 없다. 흐름마다 한 건씩 낸다 */
+export interface FlowStepDescriptionMissingWarning {
+  code: 'FLOW_STEP_DESCRIPTION_MISSING';
+  message: string;
+  flowId: string;
+  stepIds: string[];
+}
 
 /** 공개 레포에서 .gitignore에 넣은 산출물을 git이 이미 추적하고 있다. 파일이 몇 개든 한 건으로 낸다 */
 export interface IgnoredFileTrackedWarning {
@@ -1916,36 +1952,38 @@ export function validateArchitectureIr(
           drawnFlows,
         )
       : undefined;
-  return {
-    ok: true,
-    value: {
-      ir: {
-        ...ir,
-        edges,
-        ...(ir.flows !== undefined ? { flows: flowResult.flows } : {}),
-        ...(projectionResult !== undefined ? { projections: projectionResult.projections } : {}),
-      },
-      drawableNodeIds,
-      drawableEdgeIds,
-      drawableStepIds: flowResult.steps,
-      drawableTransitionIds: flowResult.transitions,
-      ...(projectionResult !== undefined
-        ? {
-            drawableMessageIds: projectionResult.messages,
-            drawableProjectionIds: projectionResult.drawable,
-          }
-        : {}),
-      autoUnresolved,
-      warnings: [
-        ...excerptWarnings,
-        ...descriptionWarnings(ir.nodes, drawableNodeIds),
-        ...infraPlacementWarnings(ir.nodes),
-        ...(projectionResult !== undefined
-          ? budgetWarnings(projectionResult.projections, projectionResult.drawable, drawnFlows)
-          : []),
-      ],
+  const value: ValidatedIr = {
+    ir: {
+      ...ir,
+      edges,
+      ...(ir.flows !== undefined ? { flows: flowResult.flows } : {}),
+      ...(projectionResult !== undefined ? { projections: projectionResult.projections } : {}),
     },
+    drawableNodeIds,
+    drawableEdgeIds,
+    drawableStepIds: flowResult.steps,
+    drawableTransitionIds: flowResult.transitions,
+    ...(projectionResult !== undefined
+      ? {
+          drawableMessageIds: projectionResult.messages,
+          drawableProjectionIds: projectionResult.drawable,
+        }
+      : {}),
+    autoUnresolved,
+    warnings: [
+      ...excerptWarnings,
+      ...descriptionWarnings(ir.nodes, drawableNodeIds),
+      ...infraPlacementWarnings(ir.nodes),
+      ...(projectionResult !== undefined
+        ? budgetWarnings(projectionResult.projections, projectionResult.drawable, drawnFlows)
+        : []),
+      ...nodeTitleWarnings(ir.nodes, drawableNodeIds),
+      ...flowStepDescriptionWarnings(flowResult.flows, drawnFlows.drawn, flowResult.steps),
+    ],
   };
+  // 레벨 판정은 그릴 노드가 정해진 뒤라야 해서 마지막에 붙인다
+  value.warnings.push(...levelSummaryWarnings(value));
+  return { ok: true, value };
 }
 
 // 노드마다 한 건씩 내면 큰 그림에서 응답이 그만큼 불어나 코드 하나에 묶는다
@@ -1963,6 +2001,157 @@ function descriptionWarnings(
       code: 'NODE_DESCRIPTION_MISSING',
       message: `description이 빈 노드 ${missing.length}개는 카드에 설명 줄이 없고 서랍에도 무엇인지가 안 나온다. 한 줄씩 채운다.`,
       nodeIds: missing,
+    },
+  ];
+}
+
+const HANGUL_RE = /[\uac00-\ud7a3]/;
+const PATH_EXTENSIONS = new Set([
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'json',
+  'jsonl',
+  'md',
+  'mdx',
+  'yml',
+  'yaml',
+  'toml',
+  'py',
+  'go',
+  'rs',
+  'java',
+  'kt',
+  'swift',
+  'rb',
+  'php',
+  'sh',
+  'sql',
+  'db',
+  'html',
+  'css',
+  'scss',
+  'vue',
+  'svelte',
+  'txt',
+  'env',
+  'lock',
+  'xml',
+  'proto',
+]);
+
+/** 공백과 한글이 없고 슬래시가 있거나 파일 확장자로 끝나거나 scheme:경로 꼴이면 경로로 본다 */
+export function isPathlikeTitle(title: string): boolean {
+  const t = title.trim();
+  if (t === '' || /\s/.test(t) || HANGUL_RE.test(t)) return false;
+  if (/[\\/]/.test(t)) return true;
+  if (/^[a-z][a-z0-9+.-]*:[^\s]+$/.test(t)) return true;
+  const ext = /\.([A-Za-z0-9]+)$/.exec(t);
+  if (ext === null || !PATH_EXTENSIONS.has(ext[1]!.toLowerCase())) return false;
+  // Next.js, Node.js처럼 대문자로 시작하는 프레임워크 이름은 파일이 아니다
+  return !/^[A-Z][A-Za-z]*\.js$/.test(t);
+}
+
+function sortedIds(ids: string[]): string[] {
+  return ids.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+// 노드마다 한 건씩 내면 응답이 불어나 코드마다 한 건으로 묶는다
+function nodeTitleWarnings(
+  nodes: readonly ArchitectureNode[],
+  drawableNodeIds: ReadonlySet<string>,
+): Array<NodeTitlePathlikeWarning | DisplayNameLanguageWarning> {
+  const drawn = nodes.filter((n) => drawableNodeIds.has(n.id));
+  const out: Array<NodeTitlePathlikeWarning | DisplayNameLanguageWarning> = [];
+  const pathlike = sortedIds(
+    drawn
+      .filter((n) => n.kind !== 'endpoint' && isPathlikeTitle(n.displayName ?? n.label))
+      .map((n) => n.id),
+  );
+  if (pathlike.length > 0) {
+    out.push({
+      code: 'NODE_TITLE_PATHLIKE',
+      message: `카드 제목이 경로나 파일 이름인 노드 ${pathlike.length}개는 무엇인지 안 읽힌다. 하는 일을 담은 displayName을 단다.`,
+      nodeIds: pathlike,
+    });
+  }
+  const described = drawn.filter((n) => hasCardDescription(n.description));
+  const korean = described.filter((n) => HANGUL_RE.test(n.description!)).length;
+  // 설명 글이 한글 쪽으로 기울어야 사용자 언어를 한국어로 본다
+  if (described.length > 0 && korean * 2 > described.length) {
+    const foreign = sortedIds(
+      drawn
+        .filter(
+          (n) =>
+            n.displayName !== undefined &&
+            n.displayName.trim() !== '' &&
+            !HANGUL_RE.test(n.displayName),
+        )
+        .map((n) => n.id),
+    );
+    if (foreign.length > 0) {
+      out.push({
+        code: 'DISPLAY_NAME_LANGUAGE',
+        message: `설명 글은 한글인데 displayName에 한글이 없는 노드 ${foreign.length}개가 있다. 사용자 언어로 옮겨 쓰고 옮기면 안 되는 고유명사면 그대로 둔다.`,
+        nodeIds: foreign,
+      });
+    }
+  }
+  return out;
+}
+
+function flowStepDescriptionWarnings(
+  flows: readonly ArchitectureFlow[],
+  drawnFlowIds: ReadonlySet<string>,
+  drawableStepIds: ReadonlySet<string>,
+): FlowStepDescriptionMissingWarning[] {
+  const out: FlowStepDescriptionMissingWarning[] = [];
+  for (const flow of [...flows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    if (!drawnFlowIds.has(flow.id)) continue;
+    const missing = flow.steps
+      .filter((st) => drawableStepIds.has(st.id) && !hasCardDescription(st.description))
+      .map((st) => st.id);
+    if (missing.length === 0) continue;
+    out.push({
+      code: 'FLOW_STEP_DESCRIPTION_MISSING',
+      message: `"${flow.title}" 흐름의 단계 ${missing.length}개에 description이 없어 단계 서랍에 거기서 하는 일이 안 나온다. 단계마다 한 문장을 단다.`,
+      flowId: flow.id,
+      stepIds: missing,
+    });
+  }
+  return out;
+}
+
+function levelSummaryWarnings(validated: ValidatedIr): LevelSummaryMissingWarning[] {
+  if (!shouldDrillDown(validated)) return [];
+  const nodeById = new Map(validated.ir.nodes.map((n) => [n.id, n]));
+  const levelIds: string[] = [];
+  const nodeIds: string[] = [];
+  for (const level of drillLevelOwners(validated)) {
+    const text =
+      level.kind === 'root'
+        ? validated.ir.summary
+        : level.ownerId !== undefined
+          ? nodeById.get(level.ownerId)?.summary
+          : undefined;
+    // 여는 노드가 IR에 없는 레벨(질문별 그림 같은)은 채울 자리가 없어 묻지 않는다
+    if (level.kind !== 'root' && (level.ownerId === undefined || !nodeById.has(level.ownerId))) {
+      continue;
+    }
+    if (hasCardDescription(text)) continue;
+    levelIds.push(level.levelId);
+    if (level.ownerId !== undefined) nodeIds.push(level.ownerId);
+  }
+  if (levelIds.length === 0) return [];
+  return [
+    {
+      code: 'LEVEL_SUMMARY_MISSING',
+      message: `요약이 없는 레벨 ${levelIds.length}개는 들어갔을 때 무엇을 보는 화면인지 안 나온다. root는 IR 최상위 summary, 나머지는 nodeIds 노드의 summary를 1~2문장으로 채운다.`,
+      levelIds,
+      nodeIds: [...new Set(nodeIds)],
     },
   ];
 }

@@ -240,8 +240,16 @@ describe('LIFECYCLE_OVER_BUDGET 경고 경계', () => {
   });
 
   it('lifecycle 그림이 없으면 경고 배열은 기존 코드만 담는다', () => {
+    // 작성 품질 경고는 lifecycle과 상관없이 붙는다
+    const existing = new Set([
+      'NODE_DESCRIPTION_MISSING',
+      'NODE_TITLE_PATHLIKE',
+      'DISPLAY_NAME_LANGUAGE',
+      'LEVEL_SUMMARY_MISSING',
+      'FLOW_STEP_DESCRIPTION_MISSING',
+    ]);
     for (const ir of [chainIr(8, false), webIr(), flowIr(), harnessIr()]) {
-      expect(codes(ir).every((c) => c === 'NODE_DESCRIPTION_MISSING')).toBe(true);
+      expect(codes(ir).every((c) => existing.has(c))).toBe(true);
     }
   });
 });

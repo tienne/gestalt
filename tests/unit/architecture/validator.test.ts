@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   ARCHITECTURE_VALIDATION_ERROR_CODES,
   SECRET_MASK,
+  isPathlikeTitle,
   maskIrSecrets,
   redactForSharing,
   stripPrivateExcerpts,
@@ -15,6 +16,13 @@ import {
   type Evidence,
 } from '../../../src/architecture/index.js';
 import { FAKE_PASSWORD, FAKE_TOKEN } from './fake-secrets.js';
+import {
+  deployIr,
+  flowIr,
+  harnessIr,
+  partnerIr,
+  webIr,
+} from '../../fixtures/architecture-legacy/irs.js';
 
 const tmpRoot = resolve('.gestalt-test', `architecture-validator-${randomUUID()}`);
 const repoRoot = join(tmpRoot, 'acme-web');
@@ -321,6 +329,36 @@ describe('redactForSharing', () => {
     expect(text).toContain(SECRET_MASK);
     expect(text).toContain('[계정 ID]');
     expect(ir).toEqual(snapshot);
+  });
+
+  it('노드 summary와 IR summary, note도 description처럼 가린다', () => {
+    const n: ArchitectureNode = {
+      ...node('a'),
+      summary: `계정 123456789012 의 키 ${FAKE_TOKEN}`,
+    };
+    const ir = makeIr([n]);
+    ir.summary = `계정 210987654321 전체 요약 ${FAKE_TOKEN}`;
+    ir.note = `배포 E2ABCDEFGHIJKL 일러두기 postgres://app:${FAKE_PASSWORD}@db:5432/app`;
+    const snapshot = structuredClone(ir);
+
+    const redacted = redactForSharing(ir);
+    expect(JSON.stringify(redacted)).not.toContain(FAKE_TOKEN);
+    expect(JSON.stringify(redacted)).not.toContain(FAKE_PASSWORD);
+    expect(redacted.nodes[0]!.summary).toContain('[계정 ID]');
+    expect(redacted.nodes[0]!.summary).toContain(SECRET_MASK);
+    expect(redacted.summary).toContain('[계정 ID]');
+    expect(redacted.summary).toContain(SECRET_MASK);
+    expect(redacted.note).not.toContain('E2ABCDEFGHIJKL');
+    expect(redacted.note).toContain(SECRET_MASK);
+    expect(ir).toEqual(snapshot);
+  });
+
+  it('summary와 note가 없으면 공유본에도 키가 안 생긴다', () => {
+    const ir = makeIr([node('a')]);
+    const redacted = redactForSharing(ir);
+    expect('summary' in redacted).toBe(false);
+    expect('note' in redacted).toBe(false);
+    expect('summary' in redacted.nodes[0]!).toBe(false);
   });
 });
 
@@ -634,5 +672,151 @@ describe('문서의 에러 코드 표', () => {
     expect([...documented].sort()).toEqual([...ARCHITECTURE_VALIDATION_ERROR_CODES].sort());
     expect(documented).toHaveLength(54);
     expect(section).toContain('아래 쉰넷은 IR 전체를 거부한다');
+  });
+});
+
+describe('작성 품질 경고 (카드 제목, 표시 이름 언어, 레벨 요약, 단계 설명)', () => {
+  function warningOf(ir: ArchitectureIr, code: string) {
+    const result = validateArchitectureIr(ir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return undefined;
+    return result.value.warnings.find((w) => w.code === code) as
+      | {
+          code: string;
+          nodeIds?: string[];
+          levelIds?: string[];
+          flowId?: string;
+          stepIds?: string[];
+        }
+      | undefined;
+  }
+  const titled = (
+    id: string,
+    label: string,
+    extra: Partial<ArchitectureNode> = {},
+  ): ArchitectureNode => ({ ...node(id), label, description: '하는 일이에요.', ...extra });
+
+  it('isPathlikeTitle은 경로와 파일 이름, scheme:경로를 잡고 사람 이름과 프레임워크 이름은 거른다', () => {
+    for (const t of [
+      'src/interview/engine.ts',
+      'memory.json',
+      'sqlite:.gestalt/events.db',
+      'SKILL.md',
+      'C:\\dir\\a.ts',
+    ]) {
+      expect(isPathlikeTitle(t), t).toBe(true);
+    }
+    for (const t of [
+      '주문 서버',
+      'OrderService',
+      'Next.js',
+      'Node.js',
+      'v1.2',
+      '로그인/회원가입',
+      '',
+    ]) {
+      expect(isPathlikeTitle(t), t).toBe(false);
+    }
+  });
+
+  it('displayName이 없고 label이 경로인 노드를 잡고 엔드포인트와 표시 이름을 단 노드는 뺀다', () => {
+    const ir = makeIr([
+      titled('b-file', 'src/b.ts'),
+      titled('a-file', 'memory.json'),
+      titled('named', 'src/c.ts', { displayName: '기억 저장' }),
+      titled('ep', 'GET /items', { kind: 'endpoint' }),
+      titled('plain', 'OrderService'),
+    ]);
+    const w = warningOf(ir, 'NODE_TITLE_PATHLIKE');
+    expect(w?.nodeIds).toEqual(['a-file', 'b-file']);
+  });
+
+  it('displayName 자체가 경로면 그것도 잡는다', () => {
+    const w = warningOf(
+      makeIr([titled('x', 'x', { displayName: 'lib/x.ts' })]),
+      'NODE_TITLE_PATHLIKE',
+    );
+    expect(w?.nodeIds).toEqual(['x']);
+  });
+
+  it('설명 글이 대부분 한글이면 한글 없는 displayName을 잡는다', () => {
+    const ir = makeIr([
+      titled('en', 'svc', { displayName: 'Order Service' }),
+      titled('ko', 'svc2', { displayName: '주문 서버' }),
+      titled('none', 'svc3'),
+    ]);
+    expect(warningOf(ir, 'DISPLAY_NAME_LANGUAGE')?.nodeIds).toEqual(['en']);
+  });
+
+  it('설명 글이 대부분 영어면 표시 이름 언어를 묻지 않는다', () => {
+    const ir = makeIr([
+      titled('en', 'svc', { displayName: 'Order Service', description: 'Handles orders.' }),
+      titled('en2', 'svc2', { displayName: 'Cart', description: 'Keeps the cart.' }),
+    ]);
+    expect(warningOf(ir, 'DISPLAY_NAME_LANGUAGE')).toBeUndefined();
+  });
+
+  it('그려지는 흐름의 설명 없는 단계를 흐름마다 한 건씩 낸다', () => {
+    const ir = makeIr([titled('a', 'a')]);
+    ir.flows = [
+      {
+        id: 'f1',
+        title: '결제',
+        actors: [{ id: 'u', label: '고객', kind: 'person' }],
+        steps: [
+          { id: 's1', actor: 'u', label: '담기', evidence: [codeEv()] },
+          {
+            id: 's2',
+            actor: 'u',
+            label: '결제',
+            evidence: [codeEv()],
+            description: '카드로 낸다.',
+          },
+          { id: 's3', actor: 'u', label: '근거 없음', evidence: [] },
+        ],
+        transitions: [],
+      },
+    ];
+    const w = warningOf(ir, 'FLOW_STEP_DESCRIPTION_MISSING');
+    expect(w?.flowId).toBe('f1');
+    // 근거 없어 안 그려지는 단계는 묻지 않는다
+    expect(w?.stepIds).toEqual(['s1']);
+  });
+
+  it('드릴다운 그림에서 요약 없는 레벨과 그 레벨을 여는 노드를 알린다', () => {
+    const svc: ArchitectureNode = {
+      ...titled('svc', 'shop'),
+      kind: 'service',
+      displayName: '가게',
+    };
+    const child = { ...titled('home', 'home'), parent: 'svc' };
+    const ir = makeIr([svc, child]);
+    const w = warningOf(ir, 'LEVEL_SUMMARY_MISSING');
+    expect(w?.levelIds).toEqual(expect.arrayContaining(['root']));
+    expect(w?.nodeIds).toContain('svc');
+
+    const filled = makeIr([{ ...svc, summary: '가게 서비스예요.' }, child]);
+    filled.summary = '가게 하나를 그린 그림이에요.';
+    expect(warningOf(filled, 'LEVEL_SUMMARY_MISSING')).toBeUndefined();
+  });
+
+  it('summary와 note가 없는 예전 픽스처는 경고만 받고 막히지 않는다', () => {
+    for (const ir of [webIr(), flowIr(), harnessIr(), deployIr(), partnerIr()]) {
+      const result = validateArchitectureIr(ir, { checkFiles: false });
+      expect(result.ok, ir.view).toBe(true);
+      if (!result.ok) continue;
+      // 경고는 코드마다 한 건이다. 흐름 단계 경고만 흐름마다 한 건이다
+      const codes = result.value.warnings
+        .map((w) => w.code)
+        .filter((c) => c !== 'FLOW_STEP_DESCRIPTION_MISSING');
+      expect(new Set(codes).size).toBe(codes.length);
+    }
+  });
+
+  it('드릴다운이 없는 평면 그림은 레벨 요약을 묻지 않고 예전 IR도 ok다', () => {
+    const result = validateArchitectureIr(makeIr([titled('a', 'a')]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.warnings.map((w) => w.code)).not.toContain('LEVEL_SUMMARY_MISSING');
   });
 });
