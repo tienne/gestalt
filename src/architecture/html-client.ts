@@ -461,7 +461,8 @@ const SEQ_FUNCS = `  var seqBar = byId('seq-bar');
     showStep(Number(b.getAttribute('data-n')));
   });
   // 다른 탭에 가 있는 동안 단계가 혼자 넘어가 있지 않게 멈춘다
-  doc.addEventListener('visibilitychange', function () { if (doc.hidden) seqStop(); });
+  onGlobal(doc, 'visibilitychange', function () { if (doc.hidden) seqStop(); });
+  cleanups.push(function () { if (seqTimer) clearInterval(seqTimer); seqTimer = 0; });
 `;
 const SEQ_FIT = `
     var sq = seqInset();
@@ -503,6 +504,12 @@ export const THEME_BOOT_SCRIPT = `(function () {
 })();`;
 
 /**
+ * client 스크립트가 window에 등록하는 이름. 라이브 스크립트가 이 이름으로 dispose와 state를 찾는다.
+ * dispose는 window와 document 리스너, 순서도 타이머를 떼고 state는 지금 레벨과 선택 노드를 돌려준다
+ */
+export const CLIENT_HANDLE = '__gestaltArch';
+
+/**
  * 페이지 동작 전부. 화면 이동, 확대와 이동, 서랍, 검색, 팝오버, 두 항목 화면을 맡는다.
  * 문자열은 전부 textContent로만 넣는다. 근거 문자열은 외부 출처에서 온 값이라 HTML로 해석하면 스크립트가 실행될 수 있다.
  * 템플릿 문자열 안이라 정규식과 문자열의 백슬래시는 두 번 적어야 브라우저에 한 번 남는다.
@@ -512,6 +519,15 @@ export function renderClientScript(c: ClientConstants): string {
 (function () {
   var doc = document;
   var root = doc.documentElement;
+  // window와 document에 붙인 리스너와 타이머는 cleanups에 모아 dispose 한 번으로 뗀다.
+  // 라이브 갱신이 body를 바꾼 뒤 이 스크립트를 다시 돌릴 때 앞 실행의 리스너가 겹치지 않게 하려는 것이다
+  var CLIENT_HANDLE = '${CLIENT_HANDLE}';
+  if (window[CLIENT_HANDLE]) window[CLIENT_HANDLE].dispose();
+  var cleanups = [];
+  function onGlobal(target, type, fn) {
+    target.addEventListener(type, fn);
+    cleanups.push(function () { target.removeEventListener(type, fn); });
+  }
   var data = JSON.parse(doc.getElementById('ir').textContent);
   var KIND_SHORT = ${JSON.stringify(c.kindShort)};
   var HOST_SHORT = ${JSON.stringify(c.hostShort)};
@@ -654,7 +670,7 @@ ${FOCUS_SOURCE}
   });
   if (window.matchMedia) {
     var mq = window.matchMedia('(prefers-color-scheme: dark)');
-    if (mq.addEventListener) mq.addEventListener('change', syncTheme);
+    if (mq.addEventListener) onGlobal(mq, 'change', syncTheme);
   }
   syncTheme();
 
@@ -2225,7 +2241,7 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     else if (e.key === 'Escape') { e.stopPropagation(); search.value = ''; runSearch(false); search.blur(); }
     else if (e.key === 'Tab') closeResults();
   });
-  window.addEventListener('resize', function () { if (resultsOpen()) placeResults(); });
+  onGlobal(window, 'resize', function () { if (resultsOpen()) placeResults(); });
 
   // 범례와 질문 팝오버
   var pops = [];
@@ -2296,13 +2312,13 @@ ${c.views ? VIEW_POP : ''}  // 흐름 단추는 서비스 아래 레벨에서만
       flowPop.focus();
     });
   }
-  doc.addEventListener('pointerdown', function (e) {
+  onGlobal(doc, 'pointerdown', function (e) {
     if (!productMenu.hidden && !(e.target.closest && e.target.closest('.pmenu, .pb.more'))) closeProducts(false);
     if (!anyPop()) return;
     if (e.target.closest && (e.target.closest('.pop') || e.target.closest('[aria-controls]'))) return;
     closePops(false);
   });
-  window.addEventListener('resize', function () {
+  onGlobal(window, 'resize', function () {
     pops.forEach(function (p) { if (!p.pop.hidden) placePop(p.btn, p.pop); });
 ${c.sequences ? '    seqPlaceSteps();\n' : ''}  });
   function goToNode(id) {
@@ -2332,7 +2348,7 @@ ${c.sequences ? '    seqPlaceSteps();\n' : ''}  });
   stage.addEventListener('pointerdown', hideHint, { once: true });
   stage.addEventListener('wheel', hideHint, { once: true, passive: true });
 
-  doc.addEventListener('keydown', function (e) {
+  onGlobal(doc, 'keydown', function (e) {
     if (e.key === 'Escape') {
 ${c.sequences ? '      seqStop();\n' : ''}      if (!productMenu.hidden) { closeProducts(true); return; }
       if (anyPop()) { closePops(true); return; }
@@ -2448,9 +2464,17 @@ ${c.sequences ? SEQ_KEYS : ''}    if (e.key === '/') { e.preventDefault(); searc
     });
   }
 
-  window.addEventListener('hashchange', route);
+  onGlobal(window, 'hashchange', route);
   route();
   ready = true;
+  var handle = {
+    dispose: function () {
+      while (cleanups.length) cleanups.pop()();
+      if (window[CLIENT_HANDLE] === handle) delete window[CLIENT_HANDLE];
+    },
+    state: function () { return { level: current, node: selectedId, focus: focusId }; }
+  };
+  window[CLIENT_HANDLE] = handle;
 })();
 `;
 }
