@@ -13,6 +13,8 @@ export interface RecentEvent {
   type: 'checkpoint' | 'report' | 'waiting' | 'bypass' | 'gate-opened' | 'gate-resolved';
   orderId?: string;
   summary: string;
+  /** waiting의 대기 기한(ISO). 시각은 문장에 넣지 않고 그리는 쪽이 자기 시간대로 적는다 */
+  until?: string;
 }
 
 export const RECENT_EVENTS_LIMIT = 50;
@@ -41,15 +43,6 @@ function readTailLines(path: string, bytes: number): string[] {
   }
 }
 
-/** 사람이 읽는 줄이라 대기 기한은 이 맥의 HH:MM으로 줄인다. 못 읽는 값은 그대로 둔다 */
-function clock(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return iso;
-  const d = new Date(t);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
 function summarize(e: ConductorEvent, s: Readonly<ConductorSnapshot>): RecentEvent | undefined {
   switch (e.type) {
     case 'checkpoint-saved': {
@@ -69,9 +62,13 @@ function summarize(e: ConductorEvent, s: Readonly<ConductorSnapshot>): RecentEve
       const orderId = s.workers[r.workerId]?.orderId;
       const base = { at: e.at, ...(orderId ? { orderId } : {}) };
       if (r.status === 'waiting') {
-        const reason = r.wait?.reason ?? r.summary;
-        const until = r.wait?.until ? ` · ~${clock(r.wait.until)}` : '';
-        return { ...base, type: 'waiting', summary: oneLine(`${reason}${until}`, SUMMARY_MAX) };
+        const until = r.wait?.until;
+        return {
+          ...base,
+          type: 'waiting',
+          summary: oneLine(r.wait?.reason ?? r.summary, SUMMARY_MAX),
+          ...(until ? { until } : {}),
+        };
       }
       const skill = r.skill ? ` · ${r.skill}` : '';
       return {

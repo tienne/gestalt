@@ -278,6 +278,45 @@ describe('gestalt conductor', () => {
     expect(status['conductor']).not.toHaveProperty('compactions');
   });
 
+  it('대기 이벤트는 기한을 문장에 굳히지 않고 주문의 waiting.until과 같은 ISO로 싣는다', () => {
+    const stateDir = tempStateDir();
+    const store = ConductorStore.open(stateDir);
+    const o = order({ status: 'running' });
+    store.addOrder(o);
+    const until = '2026-11-01T02:10:00.000Z';
+    const w = worker(o.id, {
+      waiting: { reason: 'CI 대기', since: '2026-11-01T01:51:00.000Z', until },
+    });
+    store.startWorker(w);
+    store.updateOrder(o.id, { workerId: w.id });
+    store.append({
+      type: 'report-applied',
+      at: '2026-11-01T01:51:00.000Z',
+      name: 'r1.json',
+      report: {
+        workerId: w.id,
+        status: 'waiting',
+        summary: '기다려요',
+        refs: [],
+        wait: { reason: 'CI 대기', until },
+      },
+    });
+
+    conductorStatusCommand({ stateDir, json: true });
+    const status = last();
+    const row = (status['orders'] as Record<string, unknown>[])[0]!;
+    const [event] = status['recentEvents'] as Record<string, unknown>[];
+    expect(event).toEqual({
+      at: '2026-11-01T01:51:00.000Z',
+      type: 'waiting',
+      orderId: o.id,
+      summary: 'CI 대기',
+      until,
+    });
+    expect(event!['until']).toBe((row['waiting'] as { until: string }).until);
+    expect(event!['summary']).not.toMatch(/\d\d:\d\d/);
+  });
+
   it('status JSON은 끊긴 워커와 살아 있는 컨덕터 세션의 컴팩트 횟수를 싣고 지운 주문의 이벤트는 뺀다', () => {
     const stateDir = tempStateDir();
     const store = ConductorStore.open(stateDir);
