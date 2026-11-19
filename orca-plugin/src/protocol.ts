@@ -19,6 +19,33 @@ export const TERMINAL_ORDER_STATUSES: readonly string[] = ['done', 'failed', 'ca
 
 export type Bypass = { need: string; action: string; at: string }
 
+/** 주문의 마지막 체크포인트. 워커가 어느 스킬의 어느 단계에 있는지 */
+export type CheckpointView = {
+  skill: string
+  phase?: string
+  round?: number
+  next: string
+  completedSkills: string[]
+  savedAt: string
+}
+
+/** 워커가 status waiting으로 알린 대기 */
+export type WaitingView = { reason: string; since: string; until?: string }
+
+/** 컨덕터 칸에 쓰는 값. 컨덕터가 안 주는 칸은 비어 있고 화면도 그 칸을 뺀다 */
+export type ConductorInfo = {
+  pollIntervalSec?: number
+  maxWorkers?: number
+  activeWorkers?: number
+  queuedOrders?: number
+  prWatchRepos?: string[]
+  disconnectedWorkers?: number
+  compactions?: number
+}
+
+/** CLI가 이벤트 로그에서 고른 한 줄. summary에 바깥에서 온 글이 섞여 있으니 텍스트로만 그린다 */
+export type EventView = { at: string; type: string; orderId?: string; summary: string }
+
 export type OrderView = {
   id: string
   status: string
@@ -28,6 +55,7 @@ export type OrderView = {
   updatedAt?: string
   worker?: string
   workerKind?: string
+  workerStatus?: string
   pr?: string
   issue?: string
   bypasses: Bypass[]
@@ -42,6 +70,13 @@ export type OrderView = {
   workspaceId?: string
   worktreePath?: string
   branch?: string
+  /** 아래는 컨덕터 터미널 화면이 쓴다. 옛 CLI에는 없다 */
+  skillChain?: string[]
+  checkpoint?: CheckpointView
+  waiting?: WaitingView
+  account?: string
+  rateLimitedAt?: string
+  rateLimitResetsAt?: string
 }
 
 export type GateView = {
@@ -65,6 +100,9 @@ export type ConductorView = {
   projects?: Record<string, string>
   /** 워커가 붙은 주문에 workerKind가 없다. 워크트리를 못 이어 주문을 눌러도 워커로 못 가는 옛 CLI다 */
   outdatedCli?: boolean
+  /** 옛 CLI에는 없다 */
+  conductor?: ConductorInfo
+  recentEvents?: EventView[]
   refreshedAt: number
 }
 
