@@ -151,6 +151,8 @@ gestalt digest ingest '<source>' --repo-root '<repoRoot>' [--lang '<code>'] [--s
 
 **영상과 PDF를 같이 받으면** `--slides '<pdf>'`를 붙인다. 성공하면 출력의 슬라이드 출처 ID(`slides-…`), 텍스트 경로와 원문 정보 경로를 Step 2와 Step 3.5에 넘긴다. 실패하면 사용자에게 이유를 바로 알리고 이번에는 영상으로만 작성한다. 실패한 PDF에는 출처를 만들지 않는다.
 
+슬라이드 `source.json`의 `pages[].textMethod`와 수집 경고에서 OCR 및 미추출 쪽을 확인한다. OCR 문단으로 대목을 찾고 숫자나 수식을 인용할 때는 해당 원문 쪽 그림을 직접 대조한다.
+
 `slides`를 명시한 호출은 기존 영상 리포트가 있어도 새로 쓴다. 기존 `slug`에 새 PDF를 붙일 때는 원래 영상 입력을 같이 받는다. PDF 없이 기존 `slug`를 이어 쓸 때는 영상 폴더의 `slides-status.json`을 확인한다. 유효한 `slides-<24자리 소문자 16진수>` 문자열이면 그 하위 폴더의 `transcript.json`과 `source.json`을 읽어 쓴다. `"failed"`면 이전 PDF를 이번 입력처럼 쓰지 않는다.
 
 유튜브가 403을 내면 ingest가 다른 클라이언트로 한 번 더 시도한다. 그래도 실패하면 오류를 그대로 보여주고 멈춘다. 쿠키나 로그인을 대신 넣지 않는다.

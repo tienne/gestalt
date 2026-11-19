@@ -36,9 +36,11 @@ function* walk(bullets: Bullet[], prefix: string): Generator<Walked> {
   }
 }
 
-function unitText(transcript: Transcript, cite: Cite): string {
+function numericUnitText(transcript: Transcript, cite: Cite, source: LensSource | null): string {
+  const ocrPages = new Set(source?.pages.filter((p) => p.textMethod === 'ocr').map((p) => p.n));
   return transcript.segments
     .slice(cite.from, cite.to + 1)
+    .filter((segment) => segment.page === undefined || !ocrPages.has(segment.page))
     .map((s) => s.text)
     .join(' ');
 }
@@ -63,10 +65,10 @@ function allowedNumbers(
       table.rows[0]?.forEach(add);
       table.rows[ev.row]?.forEach(add);
     } else {
-      add(unitText(transcript, ev.cite));
+      add(numericUnitText(transcript, ev.cite, source));
     }
   }
-  for (const c of extra) add(unitText(transcript, c));
+  for (const c of extra) add(numericUnitText(transcript, c, source));
   return allowed;
 }
 
@@ -223,7 +225,8 @@ function checkDoubts(
         });
         const noteNumbers = numbersIn(d.note);
         const citesNumbers = d.evidence.some(
-          (ev) => !isCellRef(ev) && numbersIn(unitText(transcript, ev.cite)).length > 0,
+          (ev) =>
+            !isCellRef(ev) && numbersIn(numericUnitText(transcript, ev.cite, source)).length > 0,
         );
         const pinned =
           cellValues.some((v) => noteNumbers.includes(v)) ||

@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { lintDigest, lintErrors } from '../../../src/digest/lint.js';
 import { mergeExtension, mergeReport } from '../../../src/digest/merge.js';
+import { renderDigestHtml } from '../../../src/digest/render-html.js';
+import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { renderToFiles } from '../../../src/digest/render.js';
 import { readSlideContext } from '../../../src/digest/slides.js';
 import { DigestStore } from '../../../src/digest/store.js';
@@ -121,6 +123,22 @@ describe('발표 영상과 슬라이드 PDF', () => {
     expect(lintErrors(lintDigest(oneSided, video, { slides }))).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'COMPARISON_SOURCES' })]),
     );
+  });
+
+  it('OCR 슬라이드의 출처 칩과 마크다운을 해당 원문 쪽에 연결한다', () => {
+    const video = sampleTranscript();
+    const pdf = deck();
+    pdf.source.pages[1]!.textMethod = 'ocr';
+    pdf.source.pages[2]!.textMethod = 'unread';
+    const slides = new Map([[id, pdf]]);
+    const digest = addComparison();
+    expect(lintErrors(lintDigest(digest, video, { slides }))).toEqual([]);
+    const { html } = renderDigestHtml(digest, video, { slides });
+    expect(html).toContain('슬라이드 p.2 (OCR)');
+    expect(html).toContain('글자를 읽지 못한 PDF 쪽: 3');
+    const md = renderDigestMarkdown(digest, video, { slides });
+    expect(md).toContain('슬라이드 p.2 (OCR), 문단 2');
+    expect(md).toContain('.pdf#page=2');
   });
 
   it('재수집해도 이전 출처를 보존하고 PDF 수집 실패 후 영상만 렌더할 수 있다', async () => {

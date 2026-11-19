@@ -67,6 +67,8 @@ gestalt digest export <slug> --md --report <key>  # 첫 리포트가 아닌 리�
 
 `/video-digest source=<영상> slides=<PDF>`로 영상과 발표 자료를 한 리포트로 읽을 수 있다. 파일 경로나 주소를 넘긴다. CLI에서 수집만 하려면 `gestalt digest ingest <영상> --slides <PDF> --json`을 쓴다. JSON의 `slides.source`가 출처 ID다. `slides.transcriptPath`와 `slides.sourcePath`에서 PDF의 추출 문단과 원문 위치를 확인할 수 있다.
 
+슬라이드에서 글을 뽑지 못한 쪽은 Lens와 같은 Tesseract OCR 경로를 쓴다. OCR 인용에는 표시가 붙고 슬라이드 창에서 해당 원문 쪽과 추출 문단을 함께 볼 수 있다. 숫자와 수식은 원문 그림을 열어 대조한다.
+
 겹치는 설명은 한 번 쓴다. 슬라이드만 뒷받침하는 근거나 발표 중 정정한 수치를 해당 주제에 붙인다. 영상 출처는 재생 시각을, 슬라이드 출처는 해당 쪽과 문단을 연다. 두 자료가 어긋난 대목에는 양쪽 출처가 나란히 나온다. PDF 수집 실패는 CLI와 다시 렌더한 뷰어에서 알리며 영상만으로 요약을 이어갈 수 있다.
 
 직접 리포트 JSON을 쓸 때는 PDF에 근거한 불릿과 확장 블록의 `cite`에 `source` ID를 붙인다. 번호는 PDF의 0부터 시작하는 문단 번호다. 영상 기준의 섹션 범위와 도식에는 기존 번호만 쓴다. 불일치가 있으면 불릿의 `comparison`에 `note`, `video: { cite, quote? }`, `slides: { cite, quote? }`를 적는다. 선택 인용문은 각 출처의 지정 범위와 대조한다. 슬라이드 수집에는 [읽기 렌즈의 PDF 도구](./lens.md#사전-준비와-막힘)가 필요하다.

@@ -26,8 +26,10 @@ import {
   LENS_SOURCE_SCHEMA_VERSION,
   lensSourcePath,
   lensSourceSchema,
+  pdfTextNotices,
   type LensSource,
 } from '../digest/lens-source.js';
+import { MIN_WORD_CONFIDENCE } from '../digest/ocr.js';
 import { moveStaleDigest } from '../digest/ingest.js';
 import { parseTranscript, type LensKind, type Transcript } from '../digest/schema.js';
 import { DigestStore, isValidSlug, slugFromMeta } from '../digest/store.js';
@@ -104,6 +106,7 @@ interface PdfExtract {
   /** 첫 쪽에서 글자가 가장 큰 줄들. 메타데이터 제목이 없는 논문(arXiv 대부분)에 쓴다 */
   layoutTitle?: string;
   pageCount: number;
+  ocrUnavailable?: boolean;
   pages: LensSource['pages'];
   units: Array<{
     i: number;
@@ -428,7 +431,7 @@ async function ingestPdf(
       run,
       opts.python ?? lensPython(),
       PDF_EXTRACT_PY,
-      [pdfPath, out, String(PDF_MAX_PAGES)],
+      [pdfPath, out, String(PDF_MAX_PAGES), String(MIN_WORD_CONFIDENCE)],
       work,
       EXTRACT_TIMEOUT_MS,
     );
@@ -444,10 +447,12 @@ async function ingestPdf(
     throw e;
   }
   const x = lastJsonLine<PdfExtract>(stdout, 'PDF 추출');
+  const warnings = pdfTextNotices(x.pages);
+  if (x.ocrUnavailable && x.pages.some((p) => p.textMethod === 'unread')) {
+    warnings.push('Tesseract가 없어요. 설치한 뒤 PDF를 다시 수집하면 OCR을 시도해요.');
+  }
   if (x.units.length === 0) {
-    throw new Error(
-      'PDF에서 글자를 하나도 못 뽑았어요. 스캔한 PDF면 OCR을 거친 파일로 다시 돌려 주세요.',
-    );
+    throw new Error(['PDF에서 글자를 하나도 못 뽑았어요.', ...warnings].join(' '));
   }
   const firstHeading = x.units.find((u) => u.page === 1 && u.role === 'heading')?.text;
   const title = (x.title || x.layoutTitle || firstHeading || basename(input, '.pdf'))
@@ -461,7 +466,6 @@ async function ingestPdf(
   replaceAssets(out, dir, ['pages', 'figures', 'tables']);
   cpSync(pdfPath, join(dir, 'cache', 'source.pdf'));
 
-  const warnings: string[] = [];
   const loose = x.tables.filter((t) => t.grid === 'loose').map((t) => t.id);
   if (loose.length > 0) {
     warnings.push(

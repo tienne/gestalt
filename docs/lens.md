@@ -173,6 +173,8 @@ LLM을 부르지 않는 명령이라 이 기능만을 위한 API 키 설정은 �
 
 원문 추출은 파이썬 패키지(pdfplumber, trafilatura, faster-whisper, sherpa-onnx)로 한다. 시스템 파이썬의 pip가 오래된 머신이 있어서 렌즈 전용 가상환경을 권한다.
 
+텍스트 계층에서 글을 뽑지 못한 PDF 쪽은 Tesseract로 읽는다. Tesseract를 설치하면 OCR 문단을 검색하거나 인용해 해당 원문 쪽을 열 수 있다. 수집 출력과 원문 창의 쪽 목록에서 OCR 적용과 미추출 여부를 확인할 수 있다. OCR을 쓸 수 없거나 읽히지 않는 쪽이 섞여 있으면 읽힌 쪽으로 계속 진행한다. 수치와 수식은 원문 쪽 그림에서 확인한다. Lens의 수치 검사는 OCR 문자열을 확인 근거로 쓰지 않는다.
+
 ```bash
 python3 -m venv ~/.local/share/gestalt/lens-venv
 ~/.local/share/gestalt/lens-venv/bin/python -m pip install --upgrade pip

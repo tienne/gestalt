@@ -1,3 +1,4 @@
+import { pdfTextNotices } from './lens-source.js';
 import { slideLabel } from './render-slides.js';
 import { SLIDES_FAILED_NOTICE, type SlideContext } from './slides.js';
 import type { Extension } from './blocks.js';
@@ -52,6 +53,7 @@ export function renderDigestMarkdown(
   const cite = mdCiter(transcript, opts.slides);
   const out = mdHeader(transcript);
   if (opts.slidesFailed) out.push(`> ${SLIDES_FAILED_NOTICE}`, '');
+  for (const notice of pdfTextNotices(opts.source?.pages ?? [])) out.push(`> ${notice}`, '');
 
   const report = opts.report ?? digest.reports[0]!;
   // 리포트가 하나뿐이고 옵션도 기본이면 1차 출력과 같게 둔다

@@ -1,11 +1,15 @@
 import { createHash } from 'node:crypto';
+import { pdfTextNotices } from './lens-source.js';
 import { unitLabel } from './render-lens.js';
 import type { Cite } from './schema.js';
 import type { SlideSource } from './slides.js';
 import { escapeXml as e } from './svg.js';
 
-export const slideLabel = (deck: SlideSource, key: number) =>
-  `슬라이드 ${unitLabel(deck.transcript, key)}`;
+export function slideLabel(deck: SlideSource, key: number): string {
+  const n = deck.transcript.segments[key]?.page;
+  const ocr = deck.source.pages.some((p) => p.n === n && p.textMethod === 'ocr');
+  return `슬라이드 ${unitLabel(deck.transcript, key)}${ocr ? ' (OCR)' : ''}`;
+}
 
 export function slideCiteHtml(cite: Cite, deck: SlideSource): string {
   const label = slideLabel(deck, cite.key);
@@ -36,12 +40,15 @@ export function slideDialogHtml(id: string, deck: SlideSource, omitCrops?: boole
       return `<section data-slide-page="${page}" hidden><h3>${page > 0 ? `${page}쪽` : '추출 텍스트'}</h3><div class="slide-original">${image}<ol aria-label="추출 문단">${lines}</ol></div></section>`;
     })
     .join('');
+  const status = pdfTextNotices(deck.source.pages)
+    .map((notice) => `<p class="src-note">${e(notice)}</p>`)
+    .join('');
   const url = deck.transcript.meta.url;
   const open =
     url && /^https?:\/\//.test(url)
-      ? ` <a href="${e(url)}" target="_blank" rel="noopener noreferrer">PDF 열기</a>`
+      ? ` <a class="slide-open-original" href="${e(url)}" target="_blank" rel="noopener noreferrer">PDF 열기</a>`
       : '';
-  return `<dialog class="slide-dialog" id="${e(id)}" aria-labelledby="${e(id)}-title"><header><h2 id="${e(id)}-title">${e(deck.transcript.meta.title)}</h2><div>${open} <button type="button" class="slide-close" autofocus>닫기</button></div></header>${sections}</dialog>`;
+  return `<dialog class="slide-dialog" id="${e(id)}" aria-labelledby="${e(id)}-title"><header><h2 id="${e(id)}-title">${e(deck.transcript.meta.title)}</h2><div>${open} <button type="button" class="slide-close" autofocus>닫기</button></div></header>${status}${sections}</dialog>`;
 }
 
 export const SLIDE_CSS = `
@@ -86,6 +93,10 @@ export const SLIDE_VIEWER_JS = `
     var unit = deck.querySelector('[data-slide-unit="' + button.dataset.slideKey + '"]');
     if (!unit) return;
     var page = unit.closest('[data-slide-page]');
+    var original = deck.querySelector('.slide-open-original');
+    if (original && Number(page.dataset.slidePage) > 0) {
+      original.href = original.href.split('#')[0] + '#page=' + page.dataset.slidePage;
+    }
     deck.querySelectorAll('[data-slide-page]').forEach(function(section){ section.hidden = section !== page; });
     deck.querySelectorAll('.is-slide-key').forEach(function(line){ line.classList.remove('is-slide-key'); });
     unit.classList.add('is-slide-key');
