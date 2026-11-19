@@ -348,6 +348,78 @@ test('worker.open은 주문의 워크트리를 찾아 연다', async () => {
   })
 })
 
+function liveHost(dir: string, results: Record<string, unknown>, capabilities?: string[]) {
+  return mockHost({
+    settings: { gestaltPath: FAKE, stateDir: dir },
+    ...(capabilities ? { capabilities } : {}),
+    results: { 'workspace.list': WORKSPACES, 'workspace.open': { opened: true }, ...results }
+  })
+}
+
+const AGENTS = {
+  agents: [
+    { terminalId: 'term-shell', title: 'zsh', agent: null, state: 'done', stateStartedAt: 5 },
+    { terminalId: 'term-worker', title: 'ord-a', agent: 'claude', state: 'working', stateStartedAt: 1, task: { title: 'ord-a 검색 문구' } }
+  ]
+}
+
+test('worker.open은 워커 에이전트의 터미널로 바로 간다', async () => {
+  const s = store(STATUS)
+  const h = liveHost(s.dir, { 'agents.list': AGENTS, 'terminal.focus': { focused: true } })
+  await run(s, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    assert.deepEqual(await worker.request('worker.open', { orderId: 'ord-a' }), { opened: true })
+    assert.deepEqual(h.callsOf('agents.list'), [{ workspaceId: 'ws-a' }])
+    assert.deepEqual(h.callsOf('terminal.focus'), [{ terminalId: 'term-worker' }])
+    assert.deepEqual(h.callsOf('workspace.open'), [])
+  })
+})
+
+test('agent:read를 승인하지 않았으면 워크트리 첫 터미널로 가고 그것도 안 되면 워크트리만 연다', async () => {
+  const s = store(STATUS)
+  const h = liveHost(
+    s.dir,
+    { 'terminal.list': { terminals: [{ id: 'term-1' }], truncated: false }, 'terminal.focus': { focused: false } },
+    ['notifications:show', 'workspace:read', 'workspace:write', 'settings:own', 'storage:own']
+  )
+  await run(s, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    assert.deepEqual(await worker.request('worker.open', { orderId: 'ord-a' }), { opened: true })
+    assert.deepEqual(h.callsOf('terminal.focus'), [{ terminalId: 'term-1' }])
+    assert.deepEqual(h.callsOf('workspace.open'), [{ workspaceId: 'ws-a' }])
+  })
+})
+
+test('worker.detail은 에이전트 상태와 터미널 마지막 줄을 읽는다', async () => {
+  const s = store(STATUS)
+  const lines = [...Array.from({ length: 30 }, (_, i) => `line ${i}`), 'x'.repeat(500), '', '  ']
+  const h = liveHost(s.dir, { 'agents.list': AGENTS, 'terminal.read': { lines, truncated: false } })
+  await run(s, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    const live = await worker.request('worker.detail', { orderId: 'ord-a' })
+    assert.equal(live.found, true)
+    assert.deepEqual(live.agent, { kind: 'claude', title: 'ord-a', state: 'working', since: 1, task: 'ord-a 검색 문구' })
+    assert.equal(live.terminalId, 'term-worker')
+    assert.equal(live.lines?.length, 24)
+    assert.equal(live.lines?.[0], 'line 7')
+    assert.equal(live.lines?.at(-1), `${'x'.repeat(400)}…`)
+    assert.deepEqual(h.callsOf('terminal.read'), [{ terminalId: 'term-worker', maxLines: 80 }])
+    assert.equal((await worker.request('worker.detail', { orderId: 'ord-b' })).found, false)
+  })
+})
+
+test('worker.detail은 터미널을 못 읽어도 읽은 데까지 돌려준다', async () => {
+  const s = store(STATUS)
+  const h = liveHost(s.dir, { 'agents.list': AGENTS }, ['notifications:show', 'workspace:read', 'workspace:write', 'settings:own', 'storage:own', 'agent:read'])
+  await run(s, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    const live = await worker.request('worker.detail', { orderId: 'ord-a' })
+    assert.equal(live.agent?.state, 'working')
+    assert.equal(live.lines, undefined)
+    assert.match(live.error ?? '', /터미널을 못 읽었어요/)
+  })
+})
+
 test('새로고침 명령은 상태 표시줄 문구를 돌려준다', async () => {
   const s = store(STATUS)
   await run(s, host(s.dir), async (worker) => {

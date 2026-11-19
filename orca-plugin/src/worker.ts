@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CliError, runGestalt } from './cli'
 import { MobileServer } from './mobile-server'
-import type { ConductorView, GateResolveInput, GateResolveResult, GateView, OrderRemoveResult } from './protocol'
+import type { AgentState, ConductorView, GateResolveInput, GateResolveResult, GateView, OrderRemoveResult, WorkerLive } from './protocol'
 import {
   diffGates,
   emptyView,
@@ -35,6 +35,40 @@ const MAX_REMOVE = 200
 type Config = { command: string; stateDir: string; mobilePort: number }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+type AgentRow = {
+  terminalId: string | null
+  title: string | null
+  agent: string | null
+  state: AgentState
+  stateStartedAt: number
+  task?: { title: string } | null
+}
+
+const AGENT_RANK: Record<string, number> = { working: 0, blocked: 0, waiting: 1, done: 2 }
+
+/** 터미널이 있는 에이전트 중 작업을 받은 것, 아직 도는 것, 최근에 바뀐 것 순으로 고른다 */
+export function pickAgent(agents: readonly AgentRow[]): AgentRow | undefined {
+  return agents
+    .filter((a) => a.terminalId)
+    .sort(
+      (a, b) =>
+        Number(!a.task) - Number(!b.task) ||
+        (AGENT_RANK[a.state] ?? 3) - (AGENT_RANK[b.state] ?? 3) ||
+        b.stateStartedAt - a.stateStartedAt
+    )[0]
+}
+
+/** 터미널에서 읽는 줄 수. 끝의 빈 줄을 걷고 나면 TAIL_SHOW줄만 보여 준다 */
+const TAIL_READ = 80
+const TAIL_SHOW = 24
+const LINE_MAX = 400
+
+export function tailLines(lines: readonly string[]): string[] {
+  let end = lines.length
+  while (end > 0 && !lines[end - 1]!.trim()) end--
+  return lines.slice(Math.max(0, end - TAIL_SHOW), end).map((l) => (l.length > LINE_MAX ? `${l.slice(0, LINE_MAX)}…` : l))
+}
 
 /** CLI가 stateDir을 안 알려 주는 옛 버전일 때만 쓴다. 설정 파일의 stateDir은 못 읽는다 */
 function defaultStateDir(): string {
@@ -349,23 +383,82 @@ class Conductor {
     }
   }
 
-  async openWorker(orderId: string): Promise<{ opened: boolean; error?: string }> {
+  private async workspaceOf(orderId: string): Promise<{ workspaceId: string } | { error: string }> {
     const order = this.raw?.orders.find((o) => o.id === orderId)
-    if (!order) return { opened: false, error: '모르는 주문이에요' }
+    if (!order) return { error: '모르는 주문이에요' }
     let workspaces: Workspace[]
     try {
       workspaces = (await this.orca.host.call('workspace.list')).workspaces
     } catch (e) {
-      return { opened: false, error: message(e) }
+      return { error: message(e) }
     }
     const workspaceId = findWorkspace(order, workspaces)?.id
-    if (!workspaceId) return { opened: false, error: '이 주문의 워크트리를 오르카에서 못 찾았어요' }
+    return workspaceId ? { workspaceId } : { error: '이 주문의 워크트리를 오르카에서 못 찾았어요' }
+  }
+
+  /**
+   * 워크트리에서 워커 에이전트가 도는 터미널을 고른다. agent:read를 아직 승인하지 않았거나
+   * 에이전트를 못 찾으면 워크트리의 첫 터미널로 물러난다
+   */
+  private async workerTerminal(workspaceId: string): Promise<{ agent?: AgentRow; terminalId?: string; errors: string[] }> {
+    const errors: string[] = []
+    let agent: AgentRow | undefined
+    if (this.orca.host.has('agents.list')) {
+      try {
+        agent = pickAgent((await this.orca.host.call('agents.list', { workspaceId })).agents)
+      } catch (e) {
+        errors.push(`에이전트 상태를 못 읽었어요. ${message(e)}`)
+      }
+    }
+    let terminalId = agent?.terminalId ?? undefined
+    if (!terminalId && this.orca.host.has('terminal.list')) {
+      try {
+        terminalId = (await this.orca.host.call('terminal.list', { workspaceId })).terminals[0]?.id
+      } catch (e) {
+        errors.push(`터미널 목록을 못 읽었어요. ${message(e)}`)
+      }
+    }
+    return { ...(agent ? { agent } : {}), ...(terminalId ? { terminalId } : {}), errors }
+  }
+
+  async openWorker(orderId: string): Promise<{ opened: boolean; error?: string }> {
+    const ws = await this.workspaceOf(orderId)
+    if ('error' in ws) return { opened: false, error: ws.error }
+    if (this.orca.host.has('terminal.focus')) {
+      const { terminalId } = await this.workerTerminal(ws.workspaceId)
+      try {
+        if (terminalId && (await this.orca.host.call('terminal.focus', { terminalId })).focused) return { opened: true }
+      } catch {
+        // 터미널을 못 잡으면 워크트리라도 연다
+      }
+    }
     try {
-      await this.orca.host.call('workspace.open', { workspaceId })
+      await this.orca.host.call('workspace.open', { workspaceId: ws.workspaceId })
       return { opened: true }
     } catch (e) {
       return { opened: false, error: message(e) }
     }
+  }
+
+  async workerDetail(orderId: string): Promise<WorkerLive> {
+    const ws = await this.workspaceOf(orderId)
+    if ('error' in ws) return { found: false, error: ws.error }
+    const { agent, terminalId, errors } = await this.workerTerminal(ws.workspaceId)
+    const out: WorkerLive = { found: true }
+    if (agent)
+      out.agent = { kind: agent.agent, title: agent.title, state: agent.state, since: agent.stateStartedAt, task: agent.task?.title ?? null }
+    if (terminalId) {
+      out.terminalId = terminalId
+      if (this.orca.host.has('terminal.read')) {
+        try {
+          out.lines = tailLines((await this.orca.host.call('terminal.read', { terminalId, maxLines: TAIL_READ })).lines)
+        } catch (e) {
+          errors.push(`터미널을 못 읽었어요. ${message(e)}`)
+        }
+      }
+    }
+    if (errors.length > 0) out.error = errors.join(' ')
+    return out
   }
 
   private closeWatcher(): void {
@@ -403,6 +496,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
   orca.panels.handle('gate.resolve', (input) => conductor.resolveGate(input))
   orca.panels.handle('worker.open', (input) => conductor.openWorker(input.orderId))
+  orca.panels.handle('worker.detail', (input) => conductor.workerDetail(input.orderId))
   orca.panels.handle('order.remove', (input) => conductor.removeOrders(input.orderIds))
   orca.commands.register('conductor.refresh', async () => {
     await conductor.refresh()

@@ -130,6 +130,23 @@ export type OrderRemoveResult = {
   error?: string
 }
 
+export type AgentState = 'working' | 'blocked' | 'waiting' | 'done'
+
+/**
+ * 데스크톱 터미널 화면에서 카드를 펼치면 워커가 오르카에서 읽어 오는 것.
+ * 터미널 출력에는 토큰이나 경로가 섞일 수 있어서 인증 없는 폰 페이지에는 싣지 않는다
+ */
+export type WorkerLive = {
+  /** 주문의 워크트리를 오르카에서 찾았는지 */
+  found: boolean
+  agent?: { kind: string | null; title: string | null; state: AgentState; since: number; task: string | null }
+  terminalId?: string
+  /** 워커 터미널의 마지막 줄들. 오래된 줄부터 */
+  lines?: string[]
+  /** 일부를 못 읽었으면 그 이유 */
+  error?: string
+}
+
 declare module 'orca' {
   interface PluginRequests {
     /** 워커가 마지막으로 읽은 상태. 아직 없으면 지금 읽는다 */
@@ -140,8 +157,10 @@ declare module 'orca' {
     'gate.resolve': { input: GateResolveInput; output: GateResolveResult }
     /** `gestalt conductor order remove`로 끝난 주문을 지운다. 패널이 확인 단계를 거친 뒤에만 보낸다 */
     'order.remove': { input: { orderIds: string[] }; output: OrderRemoveResult }
-    /** 주문을 맡은 워커의 오르카 워크트리를 연다 */
+    /** 주문을 맡은 워커의 터미널로 간다. 터미널을 못 찾으면 워크트리만 연다 */
     'worker.open': { input: { orderId: string }; output: { opened: boolean; error?: string } }
+    /** 주문을 맡은 워커의 에이전트 상태와 터미널 마지막 줄을 읽는다 */
+    'worker.detail': { input: { orderId: string }; output: WorkerLive }
   }
   interface PluginPanelEvents {
     'conductor.changed': ConductorView

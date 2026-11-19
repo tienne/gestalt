@@ -99,6 +99,8 @@
     { "kind": "notifications:show" },
     { "kind": "workspace:read" },
     { "kind": "workspace:write" },
+    { "kind": "agent:read" },
+    { "kind": "terminal:read" },
     { "kind": "settings:own" },
     { "kind": "storage:own" }
   ]
