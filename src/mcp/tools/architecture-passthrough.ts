@@ -399,13 +399,43 @@ function handleValidate(input: ArchitectureInput, repoRoot: string): object {
   const result = validate(prepared.ir, repoRoot, input.checkFiles, moveFinderFor(prev));
   if (!result.ok) return asFailure(result);
   const { drawableNodeIds, drawableEdgeIds, autoUnresolved, warnings } = result.value;
+  const stats = computeStats(result.value);
+  const signals = loopSignals(prepared.ir.view, stats);
   return {
     ok: true,
     errors: [],
     autoUnresolved,
     ...(warnings.length > 0 ? { warnings } : {}),
     drawable: { nodeIds: [...drawableNodeIds].sort(), edgeIds: [...drawableEdgeIds].sort() },
+    stats,
+    ...(signals.length > 0 ? { signals } : {}),
   };
+}
+
+/** 엔드포인트를 부르는 화면이 이보다 적으면 호출 사슬을 덜 따라간 것으로 본다 */
+export const SCREEN_ENDPOINT_RATIO_THRESHOLD = 0.6;
+
+export interface LoopSignal {
+  code: 'SCREEN_ENDPOINT_RATIO_LOW';
+  value: number;
+  threshold: number;
+  hint: string;
+}
+
+// 세션이 validate를 한 번 더 돌지 정할 수 있게 문턱을 넘은 수치만 싣는다
+function loopSignals(view: string, stats: ReturnType<typeof computeStats>): LoopSignal[] {
+  const ratio = stats.screenToEndpointRatio;
+  if (view !== 'screen-chain' || ratio === null || ratio >= SCREEN_ENDPOINT_RATIO_THRESHOLD) {
+    return [];
+  }
+  return [
+    {
+      code: 'SCREEN_ENDPOINT_RATIO_LOW',
+      value: ratio,
+      threshold: SCREEN_ENDPOINT_RATIO_THRESHOLD,
+      hint: '엔드포인트를 부르는 화면이 적어요. 엔드포인트가 안 붙은 화면부터 호출 사슬을 다시 따라가요.',
+    },
+  ];
 }
 
 async function handleRender(
@@ -538,6 +568,9 @@ function withRepoHeads(repos: ArchitectureIr['repos'], repoRoot: string): Archit
 function mergeSummary(report: PreviousMergeReport) {
   return {
     descriptionCarried: report.descriptionCarried.length,
+    // 0이면 키를 안 넣는다. summary를 안 쓰는 예전 흐름의 응답이 그대로다
+    ...(report.summaryCarried.length > 0 ? { summaryCarried: report.summaryCarried.length } : {}),
+    ...(report.topLevelCarried.length > 0 ? { topLevelCarried: report.topLevelCarried } : {}),
     ...(report.relabeled.length > 0 ? { relabeled: report.relabeled } : {}),
     ...(report.flowsCarried.length > 0 ? { flowsCarried: report.flowsCarried } : {}),
     ...(report.flowsDropped.length > 0 ? { flowsDropped: report.flowsDropped } : {}),

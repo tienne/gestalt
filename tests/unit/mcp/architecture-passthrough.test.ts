@@ -155,6 +155,49 @@ describe('ges_architecture validate', () => {
     expect((result['autoUnresolved'] as unknown[]).length).toBe(1);
   });
 
+  it('통과하면 render와 같은 stats를 싣고 문턱 안이면 signals를 안 싣는다', async () => {
+    const result = await call({ action: 'validate', ir: makeIr() });
+    expect(result['ok']).toBe(true);
+    expect(result['stats']).toMatchObject({
+      nodes: 3,
+      edges: 2,
+      drawnEdges: 2,
+      screenToEndpointRatio: 1,
+      endpointMatchRatio: 1,
+    });
+    expect(result).not.toHaveProperty('signals');
+  });
+
+  it('엔드포인트를 부르는 화면이 60%가 안 되면 SCREEN_ENDPOINT_RATIO_LOW를 싣는다', async () => {
+    const ir = makeIr();
+    ir.nodes.push(node('n-about', 'screen', 'About', 1), node('n-faq', 'screen', 'Faq', 1));
+    const result = await call({ action: 'validate', ir });
+    expect(result['ok']).toBe(true);
+    const signals = result['signals'] as Array<Record<string, unknown>>;
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toMatchObject({ code: 'SCREEN_ENDPOINT_RATIO_LOW', threshold: 0.6 });
+    expect(signals[0]!['value']).toBeCloseTo(1 / 3);
+    expect(typeof signals[0]!['hint']).toBe('string');
+  });
+
+  it('screen-chain이 아니면 화면 비율 신호를 안 싣는다', async () => {
+    const ir = makeIr();
+    ir.nodes.push(node('n-about', 'screen', 'About', 1), node('n-faq', 'screen', 'Faq', 1));
+    const result = await call({ action: 'validate', ir: { ...ir, view: 'deploy-path' } });
+    expect(result['ok']).toBe(true);
+    expect(result).not.toHaveProperty('signals');
+  });
+
+  it('작성 품질 경고를 warnings로 돌려주고 막지 않는다', async () => {
+    const ir = makeIr();
+    ir.nodes[2]!.label = 'src/orders/orders.module.ts';
+    const result = await call({ action: 'validate', ir });
+    expect(result['ok']).toBe(true);
+    const warnings = result['warnings'] as Array<{ code: string; nodeIds?: string[] }>;
+    const pathlike = warnings.find((w) => w.code === 'NODE_TITLE_PATHLIKE');
+    expect(pathlike?.nodeIds).toEqual(['n-orders-module']);
+  });
+
   it('형식이 깨진 IR은 IR_PARSE_ERROR', async () => {
     const result = await call({ action: 'validate', ir: { view: 'screen-chain' } });
     expect(result['ok']).toBe(false);
@@ -991,6 +1034,36 @@ describe('ges_architecture render의 커밋 해시와 승계 보고', () => {
     const second = await call({ action: 'render', ir: makeIr() });
     expect(second['merge']).toMatchObject({ descriptionCarried: 1 });
     expect(savedIr(second).nodes.find((n) => n.id === 'n-home')?.description).toBe('첫 화면');
+  });
+
+  it('summary와 note를 빼고 다시 그리면 이어받고 응답에 승계 수를 싣는다', async () => {
+    const first = makeIr();
+    first.summary = '주문 화면에서 서버까지 그린 그림이에요.';
+    first.note = '결제 쪽은 빠져 있어요.';
+    first.nodes[2]!.summary = '주문 요청을 받는 서버 모듈이에요.';
+    await call({ action: 'render', ir: first });
+
+    const second = await call({ action: 'render', ir: makeIr() });
+    expect(second['merge']).toMatchObject({
+      summaryCarried: 1,
+      topLevelCarried: ['summary', 'note'],
+    });
+    const saved = savedIr(second);
+    expect(saved.summary).toBe(first.summary);
+    expect(saved.note).toBe(first.note);
+    expect(saved.nodes.find((n) => n.id === 'n-orders-module')?.summary).toBe(
+      '주문 요청을 받는 서버 모듈이에요.',
+    );
+  });
+
+  it('summary를 안 쓰는 예전 IR을 다시 그리면 승계 키가 응답에 안 생긴다', async () => {
+    const first = makeIr();
+    first.nodes[0]!.description = '첫 화면';
+    await call({ action: 'render', ir: first });
+    const second = await call({ action: 'render', ir: makeIr() });
+    expect(second['ok']).toBe(true);
+    expect(second['merge']).not.toHaveProperty('summaryCarried');
+    expect(second['merge']).not.toHaveProperty('topLevelCarried');
   });
 
   it('status는 저장 head와 지금 HEAD를 비교해 바뀐 근거 파일을 알려 준다', async () => {
