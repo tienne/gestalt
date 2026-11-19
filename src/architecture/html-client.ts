@@ -1442,6 +1442,7 @@ ${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
     syncFlowBtn();
 ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
     runSearch(false);
+    renderOverview();
   }
 
   // 두 항목 화면. 쌍마다 미리 그리면 노드 수의 제곱만큼 늘어서 브라우저에서 그린다.
@@ -2042,9 +2043,11 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
       pendingSelect = null;
       focusCard(id);
     }
+    // 짝이나 묶음 주소로 바로 들어오면 renderLevel을 안 거친다. 개요는 그때도 채운다
+    if (!overviewBody.firstChild) renderOverview();
   }
 
-  // 검색. 지금 보이는 화면의 카드만 찾는다
+  // 검색. 지금 보이는 화면의 카드는 캔버스에서 강조한다. 드릴다운이면 모든 레벨의 카드를 목록으로도 띄운다
   var hits = [];
   var hitAt = -1;
   function runSearch(move) {
@@ -2055,6 +2058,7 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     hits = [];
     hitAt = -1;
     var q = search.value.trim().toLowerCase();
+    renderResults(q);
     if (!q || !active) { searchCount.textContent = ''; return; }
     active.querySelectorAll('.node').forEach(function (c) {
       var n = nodes[c.getAttribute('data-node-id')];
@@ -2078,11 +2082,150 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     centerOn(c, 0.8);
     searchCount.textContent = (hitAt + 1) + '/' + hits.length;
   }
+
+  // 개요 패널. 루트는 그림 요약과 일러두기, 레인과 종류별 카드 수, 열린 질문과 설명 없는 카드 수를 보인다.
+  // 안쪽 레벨은 그 레벨 요약이나 레벨을 연 카드의 설명과 레인별 카드 수를 보인다
+  var overview = byId('overview');
+  var overviewBody = byId('overview-body');
+  if (overview && window.innerWidth > 560) overview.open = true;
+  function statList(rows) {
+    var dl = el('dl', 'ov-stats');
+    rows.forEach(function (r) {
+      dl.appendChild(el('dt', null, r[0]));
+      dl.appendChild(el('dd', null, String(r[1])));
+    });
+    return dl;
+  }
+  function renderOverview() {
+    if (!overview) return;
+    overviewBody.textContent = '';
+    var l = levels[current];
+    var cut = current.indexOf(':');
+    var owner = l && (l.focusId || (cut > 0 ? current.slice(cut + 1) : ''));
+    var sum = l && l.summary ? l.summary : current !== 'root' && hasDesc(nodes[owner]) ? nodes[owner].description : '';
+    if (sum) overviewBody.appendChild(el('p', 'ov-sum', sum));
+    if (current === 'root' && data.note) overviewBody.appendChild(el('p', 'ov-note', data.note));
+    var lanes = [];
+    if (active) active.querySelectorAll('.lane-title[data-lane-id]').forEach(function (t) {
+      var n = t.querySelector('.n');
+      if (n && t.firstChild) lanes.push([t.firstChild.textContent, n.textContent]);
+    });
+    if (lanes.length) {
+      overviewBody.appendChild(el('p', 'ov-h', '레인별 카드'));
+      overviewBody.appendChild(statList(lanes));
+    }
+    if (current !== 'root') return;
+    var kinds = {};
+    var missing = 0;
+    data.nodes.forEach(function (n) {
+      var k = kindText(n.kind);
+      kinds[k] = (kinds[k] || 0) + 1;
+      if (!hasDesc(n)) missing++;
+    });
+    var kindRows = Object.keys(kinds).sort(function (a, b) { return kinds[b] - kinds[a] || (a < b ? -1 : 1); }).map(function (k) { return [k, kinds[k]]; });
+    overviewBody.appendChild(el('p', 'ov-h', '종류별 카드'));
+    overviewBody.appendChild(statList(kindRows));
+    overviewBody.appendChild(el('p', 'ov-h', '살펴볼 것'));
+    overviewBody.appendChild(statList([['열린 질문', (data.unresolved || []).length], ['설명 없는 카드', missing]]));
+  }
+
+  // 모든 레벨 검색 목록. 지금 레벨에 선 카드를 먼저 두고 나머지는 카드가 안에 선 첫 레벨로 보낸다
+  var nodeLevels = data.nodeLevels || null;
+  var searchList = byId('search-list');
+  var SEARCH_MAX = 50;
+  var results = [];
+  var resultAt = -1;
+  function resultsOpen() { return !!searchList && !searchList.hidden; }
+  function placeResults() {
+    var r = search.parentNode.getBoundingClientRect();
+    searchList.style.top = Math.round(r.bottom + 6) + 'px';
+    var w = Math.max(r.width, Math.min(360, window.innerWidth - 16));
+    searchList.style.width = Math.round(w) + 'px';
+    searchList.style.left = Math.round(Math.max(8, Math.min(r.left, window.innerWidth - w - 8))) + 'px';
+  }
+  function closeResults() {
+    if (!resultsOpen()) return;
+    searchList.hidden = true;
+    search.setAttribute('aria-expanded', 'false');
+    search.removeAttribute('aria-activedescendant');
+    resultAt = -1;
+  }
+  function renderResults(q) {
+    if (!searchList || !nodeLevels) return;
+    searchList.textContent = '';
+    results = [];
+    resultAt = -1;
+    search.removeAttribute('aria-activedescendant');
+    if (!q) { closeResults(); return; }
+    var here = [];
+    var there = [];
+    Object.keys(nodeLevels).forEach(function (id) {
+      var n = nodes[id];
+      if (!n || envHidden(id)) return;
+      if (((n.displayName || '') + ' ' + n.label).toLowerCase().indexOf(q) < 0) return;
+      var at = nodeLevels[id];
+      if (at.indexOf(current) >= 0) here.push({ id: id, level: current });
+      else if (at.length) there.push({ id: id, level: at[0] });
+    });
+    function byName(a, b) {
+      var x = label(a.id).toLowerCase();
+      var y = label(b.id).toLowerCase();
+      return x < y ? -1 : x > y ? 1 : a.id < b.id ? -1 : 1;
+    }
+    results = here.sort(byName).concat(there.sort(byName)).slice(0, SEARCH_MAX);
+    if (!results.length) {
+      var none = el('li', 'empty', '모든 레벨에서 못 찾았어요');
+      none.setAttribute('role', 'option');
+      none.setAttribute('aria-disabled', 'true');
+      searchList.appendChild(none);
+    }
+    results.forEach(function (r, i) {
+      var li = el('li');
+      li.id = 'search-opt-' + i;
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-selected', 'false');
+      li.appendChild(el('span', 'nm', label(r.id)));
+      li.appendChild(el('span', 'lv', r.level === current ? '이 화면' : levels[r.level] ? levels[r.level].title : r.level));
+      li.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      li.addEventListener('click', function () { chooseResult(i); });
+      searchList.appendChild(li);
+    });
+    searchList.hidden = false;
+    search.setAttribute('aria-expanded', 'true');
+    placeResults();
+  }
+  function moveResult(dir) {
+    if (!results.length) return;
+    var prev = byId('search-opt-' + resultAt);
+    if (prev) prev.setAttribute('aria-selected', 'false');
+    resultAt = resultAt < 0 ? (dir > 0 ? 0 : results.length - 1) : (resultAt + dir + results.length) % results.length;
+    var li = byId('search-opt-' + resultAt);
+    li.setAttribute('aria-selected', 'true');
+    search.setAttribute('aria-activedescendant', li.id);
+    li.scrollIntoView({ block: 'nearest' });
+  }
+  function chooseResult(i) {
+    var r = results[i];
+    if (!r) return;
+    search.value = '';
+    runSearch(false);
+    if (r.level === current && active && cardMap(active)[r.id]) { focusCard(r.id); return; }
+    pendingSelect = r.id;
+    showLevel(r.level);
+  }
+
   search.addEventListener('input', function () { runSearch(true); });
+  search.addEventListener('focus', function () { if (search.value.trim()) renderResults(search.value.trim().toLowerCase()); });
+  search.addEventListener('blur', closeResults);
   search.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') { e.preventDefault(); stepSearch(e.shiftKey ? -1 : 1); }
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && resultsOpen()) { e.preventDefault(); moveResult(e.key === 'ArrowDown' ? 1 : -1); }
+    else if (e.key === 'Enter' && resultAt >= 0) { e.preventDefault(); chooseResult(resultAt); }
+    else if (e.key === 'Enter') { e.preventDefault(); stepSearch(e.shiftKey ? -1 : 1); }
+    else if (e.key === 'Escape' && resultsOpen()) { e.stopPropagation(); closeResults(); }
     else if (e.key === 'Escape') { e.stopPropagation(); search.value = ''; runSearch(false); search.blur(); }
+    else if (e.key === 'Tab') closeResults();
   });
+  window.addEventListener('resize', function () { if (resultsOpen()) placeResults(); });
 
   // 범례와 질문 팝오버
   var pops = [];
@@ -2197,6 +2340,8 @@ ${c.sequences ? '      seqStop();\n' : ''}      if (!productMenu.hidden) { close
       releaseFocus();
       return;
     }
+    // ⌘K와 Ctrl+K는 입력칸 안에서도 검색으로 간다. 브라우저 주소창 검색보다 먼저 받는다
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); search.focus(); search.select(); return; }
     var t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -2239,7 +2384,9 @@ ${c.sequences ? SEQ_KEYS : ''}    if (e.key === '/') { e.preventDefault(); searc
       t.classList.toggle('env-off', n === 0);
       var count = t.querySelector('.n');
       if (count) count.textContent = n;
-      if (t.hasAttribute('data-lane-id')) t.setAttribute('aria-label', laneAria(t.firstChild.textContent, n));
+      // 바깥 맥락 레인은 접어 둔 장수("외 N개")를 aria에도 이어 붙인다
+      var more = t.querySelector('.more');
+      if (t.hasAttribute('data-lane-id')) t.setAttribute('aria-label', laneAria(t.firstChild.textContent, n) + (more ? ', 밖에 ' + more.textContent.slice(2) + ' 더' : ''));
     });
   }
   // 고른 환경은 주소 해시 뒤 ?env=prod,dev로 싣는다. 주소를 보내면 받은 사람도 같은 환경으로 본다.

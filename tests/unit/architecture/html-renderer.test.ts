@@ -561,6 +561,116 @@ describe('renderDrilldownHtml', () => {
   });
 });
 
+describe('renderDrilldownHtml — 레벨 밖 맥락', () => {
+  // ep를 열 개 화면이 부르고 mod가 받는다. mod는 표 하나를 쓰고 mod2가 받는 ep2를 부른다. 부르는 쪽이 상한(8)을 넘는다
+  function outsideIr(): ArchitectureIr {
+    const screens = Array.from({ length: 10 }, (_, i) => `s-${String(i).padStart(2, '0')}`);
+    const n = (id: string, kind: ArchitectureNode['kind']): ArchitectureNode => ({
+      id,
+      kind,
+      label: id,
+      repo: 'web',
+      evidence: [codeEv],
+    });
+    const e = (
+      id: string,
+      from: string,
+      to: string,
+      kind: ArchitectureEdge['kind'],
+    ): ArchitectureEdge => ({
+      id,
+      from,
+      to,
+      kind,
+      evidence: [codeEv],
+      lineStyle: 'solid',
+    });
+    return {
+      ...makeIr(),
+      nodes: [
+        ...screens.map((s) => n(s, 'screen')),
+        n('ep', 'endpoint'),
+        n('mod', 'app_module'),
+        n('tbl', 'db_table'),
+        n('ep2', 'endpoint'),
+        n('mod2', 'app_module'),
+      ],
+      edges: [
+        ...screens.map((s) => e(`c-${s}`, s, 'ep', 'calls')),
+        e('h1', 'ep', 'mod', 'handles'),
+        e('rw1', 'mod', 'tbl', 'reads_writes'),
+        e('k2', 'mod', 'ep2', 'calls'),
+        e('h2', 'ep2', 'mod2', 'handles'),
+      ],
+      unresolved: [],
+    };
+  }
+
+  async function serverSection(): Promise<string> {
+    const result = validateArchitectureIr(outsideIr(), { checkFiles: false });
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    const html = renderDrilldownHtml(result.value, await computeDrilldown(result.value), {
+      audience: 'private',
+    });
+    const at = html.indexOf('<section class="level" data-level-id="server:mod"');
+    expect(at).toBeGreaterThan(-1);
+    return html.slice(at, html.indexOf('</section>', at));
+  }
+
+  it('server 레벨에 부르는 쪽과 받는 쪽 레인을 점선 레인으로 그린다', async () => {
+    const sec = await serverSection();
+    expect(sec).toContain('data-lane-id="outside_from"');
+    expect(sec).toContain('data-lane-id="outside_to"');
+    expect(sec.match(/<rect class="lane outside"/g)?.length).toBe(2);
+  });
+
+  it('바깥 카드에 outside 클래스와 "이 레벨 밖" 낭독을 붙인다', async () => {
+    const sec = await serverSection();
+    expect(sec).toMatch(/class="node [^"]*\boutside\b[^"]*" data-node-id="ep2"/);
+    expect(sec).toMatch(/data-node-id="s-00"[^>]*aria-label="[^"]*, 이 레벨 밖"/);
+    for (const id of ['mod', 'ep', 'tbl']) {
+      expect(sec).not.toMatch(
+        new RegExp(`class="node [^"]*\\boutside\\b[^"]*" data-node-id="${id}"`),
+      );
+    }
+  });
+
+  it('상한을 넘긴 바깥 카드 수를 레인 제목에 "외 N개"로 적고 낭독에도 싣는다', async () => {
+    const sec = await serverSection();
+    expect(sec).toContain(
+      '<span class="more" title="연결이 적은 바깥 카드 2개는 접어 뒀어요">외 2개</span>',
+    );
+    expect(sec).toMatch(/data-lane-id="outside_from"[^>]*aria-label="[^"]*, 밖에 2개 더"/);
+    expect(sec.match(/class="more"/g)?.length).toBe(1);
+  });
+
+  it('전체 검색 색인(nodeLevels)에 레벨에 선 카드를 전부 싣고 안에 선 레벨을 바깥 맥락 레벨보다 앞에 둔다', async () => {
+    const result = validateArchitectureIr(outsideIr(), { checkFiles: false });
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    const drill = await computeDrilldown(result.value);
+    const html = renderDrilldownHtml(result.value, drill, { audience: 'private' });
+    const start = html.indexOf('<script id="ir"');
+    const body = html.slice(html.indexOf('>', start) + 1);
+    const data = JSON.parse(body.slice(0, body.indexOf('</script>'))) as {
+      nodeLevels: Record<string, string[]>;
+    };
+    // 어떤 레벨에도 안 서는 카드(서비스 없는 화면 s-08, s-09)는 찾아도 갈 곳이 없어 싣지 않는다
+    const drawn = [...new Set(drill.levels.flatMap((l) => l.nodeIds))].sort();
+    expect(Object.keys(data.nodeLevels)).toEqual(drawn);
+    // 서버 모듈은 루트와 자기 레벨에 서고 mod2 레벨에는 부르는 쪽 바깥 카드로 선다
+    expect(data.nodeLevels.mod).toEqual(['root', 'server:mod', 'server:mod2']);
+    // ep2는 server:mod2 안에 서고 server:mod에는 바깥 카드로 선다. 안에 선 레벨이 먼저 온다
+    expect(data.nodeLevels.ep2).toEqual(['server:mod2', 'server:mod']);
+    for (const [id, ids] of Object.entries(data.nodeLevels)) {
+      for (const levelId of ids) {
+        expect(drill.levels.find((l) => l.id === levelId)?.nodeIds, `${id} @ ${levelId}`).toContain(
+          id,
+        );
+      }
+    }
+  });
+});
+
 describe('renderArchitectureHtml — 제품 띠', () => {
   it('그룹이 둘 이상이면 띠마다 구분선과 이름을 달고 카드에 띠 번호를 단다', async () => {
     const ir = makeIr();
@@ -662,7 +772,7 @@ describe('카드 설명 줄과 클릭 대상 속성', () => {
     expect(cardTag(html, 'detail')).not.toContain('\n   ');
   });
 
-  it('카드 style의 height는 layout이 낸 높이와 같고 설명이 있으면 18 더 높다', async () => {
+  it('카드 style의 height는 layout이 낸 높이와 같고 설명이 있으면 19 더 높다', async () => {
     const plain = await renderWithDescriptions({});
     const withDesc = await renderWithDescriptions({ home: '짧은 설명이에요.' });
     const heightOf = (html: string, id: string): number =>
@@ -670,7 +780,7 @@ describe('카드 설명 줄과 클릭 대상 속성', () => {
     const layoutH = (l: LayoutResult, id: string): number =>
       l.nodes.find((n) => n.id === id)!.height;
     expect(heightOf(withDesc.html, 'home')).toBe(layoutH(withDesc.layout, 'home'));
-    expect(heightOf(withDesc.html, 'home')).toBe(heightOf(plain.html, 'home') + 18);
+    expect(heightOf(withDesc.html, 'home')).toBe(heightOf(plain.html, 'home') + 19);
     expect(heightOf(withDesc.html, 'api')).toBe(heightOf(plain.html, 'api'));
   });
 

@@ -27,6 +27,7 @@ import {
   ROOT_LEVEL_ID,
   type DrillEdge,
   type DrillLevel,
+  type DrillOutside,
   type Drilldown,
 } from './drilldown.js';
 import {
@@ -203,7 +204,7 @@ const FLOW_TEXT = {
 };
 
 const HINT_DRILL =
-  '카드나 선, 칸 제목을 누르면 설명과 출처가 보여요. 더블클릭하거나 상세보기를 누르면 한 단계 안으로 들어가고 뒤로가기로 돌아와요. 전체 화면에서 Shift나 ⌘를 누른 채 두 항목을 고르면 그 사이 경로를 보여줘요.';
+  '카드나 선, 칸 제목을 누르면 설명과 출처가 보여요. 더블클릭하거나 상세보기를 누르면 한 단계 안으로 들어가고 뒤로가기로 돌아와요. 전체 화면에서 Shift나 ⌘를 누른 채 두 항목을 고르면 그 사이 경로를 보여줘요. /나 ⌘K로 모든 레벨에서 이름을 찾아요.';
 const HINT_FLAT =
   '카드나 선, 칸 제목을 누르면 설명과 출처가 보여요. 끌어서 옮기고 ⌘나 Ctrl을 누른 채 휠을 굴리면 크게 볼 수 있어요.';
 
@@ -483,7 +484,7 @@ function renderCard(
   focus: boolean,
   facts: ServiceFacts | undefined,
   band: number | undefined,
-  micro: { host: boolean; frame?: string },
+  micro: { host: boolean; frame?: string; outside?: boolean },
   flows = 0,
   products: readonly string[] = [],
   productIds: readonly number[] = [],
@@ -499,8 +500,10 @@ function renderCard(
   if (products.length > 1) cls.push('shared');
   if (enterable) cls.push('enterable');
   if (focus) cls.push('is-focus');
+  if (micro.outside === true) cls.push('outside');
   const aria =
     `${name}, ${chipTextOverride(node) ?? NODE_KIND_TEXT[dk]}${guess ? `, ${INFERRED_BADGE} 이름` : ''}` +
+    (micro.outside === true ? ', 이 레벨 밖' : '') +
     (platforms.length > 0 ? `, ${platforms.join(', ')}` : '') +
     (flows > 0 ? `, 사용자 흐름 ${flows}개` : '') +
     (products.length > 1 ? `, 같이 쓰는 제품 ${products.join(', ')}` : '');
@@ -653,6 +656,8 @@ interface CanvasSpec {
   viewStrip?: ViewCard[];
   /** 같은 줄 맨 앞에 놓는 인프라 레벨 입구. 인프라 레벨이 있을 때만 있다 */
   infraCard?: InfraCard;
+  /** service와 server 레벨의 바깥 맥락. 바깥 카드는 점선 테두리로 긋고 넘친 장수를 레인 제목에 적는다 */
+  outside?: DrillOutside;
 }
 
 interface InfraCard {
@@ -784,6 +789,8 @@ function frameLabelText(label: string, frameWidth: number): string {
   );
 }
 
+const OUTSIDE_LANES: ReadonlySet<string> = new Set(['outside_from', 'outside_to']);
+
 /** 레벨 하나. 레인 띠와 선은 SVG, 카드는 그 위에 겹친 HTML이다. 좌표는 전부 서버가 박는다 */
 function renderLevelSection(spec: CanvasSpec): string {
   const open = `<section class="level" data-level-id="${escapeHtml(spec.levelId)}" aria-label="${escapeHtml(spec.title)}"`;
@@ -830,20 +837,34 @@ function renderLevelSection(spec: CanvasSpec): string {
     )
     .join('');
   const { width, height } = canvas;
+  const outsideIds = new Set([...(spec.outside?.from ?? []), ...(spec.outside?.to ?? [])]);
   const laneRects = layout.lanes
     .map(
       (l) =>
-        `<rect class="lane" x="${round2(l.x + CANVAS_PAD_X)}" y="${LANE_INSET_Y}" width="${l.width}" ` +
+        `<rect class="${OUTSIDE_LANES.has(l.id) && outsideIds.size > 0 ? 'lane outside' : 'lane'}" x="${round2(l.x + CANVAS_PAD_X)}" y="${LANE_INSET_Y}" width="${l.width}" ` +
         `height="${round2(height - LANE_INSET_Y * 2)}" rx="14"/>`,
     )
     .join('');
+  const hiddenOf = (laneId: string): number =>
+    laneId === 'outside_from'
+      ? (spec.outside?.hiddenFrom ?? 0)
+      : laneId === 'outside_to'
+        ? (spec.outside?.hiddenTo ?? 0)
+        : 0;
   const laneTitles = layout.lanes
-    .map(
-      (l) =>
-        `<div class="lane-title" data-lane-id="${escapeHtml(l.id)}" role="button" tabindex="0" aria-label="${escapeHtml(laneAria(l.title, l.count))}" ` +
+    .map((l) => {
+      const more = hiddenOf(l.id);
+      const aria = laneAria(l.title, l.count) + (more > 0 ? `, 밖에 ${more}개 더` : '');
+      return (
+        `<div class="lane-title" data-lane-id="${escapeHtml(l.id)}" role="button" tabindex="0" aria-label="${escapeHtml(aria)}" ` +
         `style="left:${round2(l.x + CANVAS_PAD_X)}px;top:${LANE_INSET_Y + 10}px;width:${l.width}px">` +
-        `${escapeHtml(l.title)}<span class="n">${l.count}</span></div>`,
-    )
+        `${escapeHtml(l.title)}<span class="n">${l.count}</span>` +
+        (more > 0
+          ? `<span class="more" title="연결이 적은 바깥 카드 ${more}개는 접어 뒀어요">외 ${more}개</span>`
+          : '') +
+        `</div>`
+      );
+    })
     .join('');
   const { regionRects, regionTitles } = renderBands(layout, width);
   const links = edges
@@ -867,6 +888,7 @@ function renderLevelSection(spec: CanvasSpec): string {
         layout.regions?.bandOf[n.id],
         {
           host: n.kind === 'micro_app' && spec.microHosts.has(n.id),
+          ...(outsideIds.has(n.id) ? { outside: true } : {}),
           ...(frameOf.has(n.id) || frameOf.has(n.parent ?? '')
             ? { frame: frameOf.get(n.id) ?? frameOf.get(n.parent!)! }
             : {}),
@@ -2551,7 +2573,15 @@ function renderBar(
         `title="질문 하나에 답하는 그림 보기">${iconUse('u-flow')}<span class="label">질문별 그림</span></button>`
       : '') +
     renderEnvPicker(envs) +
-    `<label class="search">${iconUse('u-search')}<input id="search" type="search" placeholder="이름으로 찾기" aria-label="이름으로 찾기" autocomplete="off" spellcheck="false"><span id="search-count" class="count" aria-live="polite"></span></label>` +
+    `<label class="search">${iconUse('u-search')}<input id="search" type="search" placeholder="이름으로 찾기" aria-label="이름으로 찾기" autocomplete="off" spellcheck="false"` +
+    (drill
+      ? ` title="이름으로 찾기 (/ 또는 ⌘K)" role="combobox" aria-expanded="false" aria-controls="search-list" aria-autocomplete="list"`
+      : '') +
+    `><span id="search-count" class="count" aria-live="polite"></span></label>` +
+    // 드릴다운은 모든 레벨에서 찾는다. 목록은 툴바 아래에 띄우고 자리는 스크립트가 검색창에 맞춘다
+    (drill
+      ? '<ul id="search-list" class="search-list" role="listbox" aria-label="모든 레벨에서 찾은 카드" hidden></ul>'
+      : '') +
     `<div class="seg" role="group" aria-label="크기">` +
     `<button type="button" class="btn icon" id="zoom-out" aria-label="작게 보기" title="작게 보기 (-)">${iconUse('u-minus')}</button>` +
     `<span id="zoom-level" class="zoom-level" aria-live="polite">100%</span>` +
@@ -2599,7 +2629,11 @@ function clientScriptFor(
       ...pick(EDGE_KIND_ABOUT, [...Object.keys(vocab.edgeKinds), 'contains']),
     },
     evidenceText: EVIDENCE_TYPE_TEXT,
-    laneTitles: pick(LANE_TITLES, Object.keys(vocab.lanes)) as typeof LANE_TITLES,
+    // 바깥 맥락 레인은 팩과 무관하게 service와 server 레벨에 선다. 포커스 화면이 제목을 찾을 수 있게 늘 싣는다
+    laneTitles: pick(
+      LANE_TITLES,
+      new Set([...Object.keys(vocab.lanes), ...OUTSIDE_LANES]),
+    ) as typeof LANE_TITLES,
     laneAbout: pick(LANE_ABOUT, Object.keys(vocab.lanes)),
     stageLaneAbout: STAGE_LANE_ABOUT,
     inferredBadge: INFERRED_BADGE,
@@ -2752,6 +2786,8 @@ function renderPage({
       `<button type="button" id="hint-close" aria-label="안내 닫기">${iconUse('u-close')}</button></p>` +
       (hasSequences ? `\n${renderSequenceUi(sequences)}` : ''),
     '<details id="sheet" class="sheet" hidden><summary id="sheet-title">세부 연결</summary><div id="sheet-body" class="scroll"></div></details>',
+    // 개요는 스크립트가 레벨마다 채운다. 좁은 화면에서는 접어 둬서 카드를 가리지 않는다
+    '<details id="overview" class="overview"><summary>개요</summary><div id="overview-body" class="ov-body"></div></details>',
     '<aside id="drawer" class="drawer" role="dialog" aria-modal="false" aria-labelledby="drawer-title" aria-hidden="true" inert>' +
       `<button type="button" id="drawer-close" class="btn icon dr-close" aria-label="닫기">${iconUse('u-close')}</button>` +
       '<div id="panel" class="panel" aria-live="polite"></div></aside>',
@@ -2811,6 +2847,33 @@ export function renderArchitectureHtml(
     ...docCoverSpec(payload.nodes, payload.docOverlay),
   });
   return renderPage({ audience: opts.audience, ir, payload, sections: section, drill: false });
+}
+
+/**
+ * 전체 검색 색인. 노드 id → 그 카드가 놓인 레벨 id 목록이다. 카드가 안에 선 레벨을 먼저 두고
+ * 바깥 맥락으로만 선 레벨은 뒤에 둔다. 검색 결과를 고르면 클라이언트가 첫 레벨로 간다
+ */
+function nodeLevelIndex(
+  levels: readonly DrillLevel[],
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+): Record<string, string[]> {
+  const inside = new Map<string, string[]>();
+  const outside = new Map<string, string[]>();
+  for (const l of levels) {
+    const out = new Set([...(l.outside?.from ?? []), ...(l.outside?.to ?? [])]);
+    for (const id of l.nodeIds) {
+      if (!nodeById.has(id)) continue;
+      const into = out.has(id) ? outside : inside;
+      const list = into.get(id);
+      if (list === undefined) into.set(id, [l.id]);
+      else list.push(l.id);
+    }
+  }
+  const index: Record<string, string[]> = {};
+  for (const id of [...new Set([...inside.keys(), ...outside.keys()])].sort(compareStr)) {
+    index[id] = [...(inside.get(id) ?? []), ...(outside.get(id) ?? [])];
+  }
+  return index;
 }
 
 /**
@@ -2876,6 +2939,7 @@ export function renderDrilldownHtml(
       edges: l.edges,
     })),
     enter: drilldown.enter,
+    nodeLevels: nodeLevelIndex(levels, nodeById),
     // 공유본이면 ir이 가린 사본이라 일러두기도 가린 글자로 실린다
     ...(ir.note !== undefined && ir.note.trim() !== '' ? { note: ir.note } : {}),
   };
@@ -2985,6 +3049,7 @@ export function renderDrilldownHtml(
             edges: l.edges,
             layout: l.layout,
             enter: drilldown.enter,
+            ...(l.outside !== undefined ? { outside: l.outside } : {}),
             ...(l.focusId !== undefined ? { focusId: l.focusId } : {}),
             hidden: l.id !== ROOT_LEVEL_ID,
             services: base.services,
