@@ -3,8 +3,8 @@
 // 주문 제목이나 게이트 사유는 지라나 PR에서 온 바깥 글이라 전부 esc를 거친다.
 import { esc } from './html'
 import { ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
-import type { ConductorView, EventView } from './protocol'
-import { clock, duration, eventText, gateLabel, terminalModel, type Card, type TerminalModel } from './terminal-model'
+import type { AgentState, ConductorView, EventView, WorkerLive } from './protocol'
+import { clock, duration, eventText, gateLabel, terminalModel, waitText, type Card, type TerminalModel } from './terminal-model'
 
 export type TerminalMarkupOptions = {
   now: number
@@ -14,6 +14,10 @@ export type TerminalMarkupOptions = {
   private: boolean
   loadError?: string | null
   openError?: string | null
+  /** 상세를 펼쳐 둔 주문. 웹 페이지는 폴링 스크립트가 data-key로 펼침을 지키니 안 넘긴다 */
+  open?: ReadonlySet<string>
+  /** 펼친 카드에 붙일 워커 터미널. interactive일 때만 그린다 */
+  live?: Readonly<Record<string, WorkerLive | 'loading'>>
 }
 
 type Part = string | false | null | undefined
@@ -48,12 +52,53 @@ function conductorBox(v: ConductorView, m: TerminalModel, now: number): string {
   )
 }
 
-function card(c: Card, interactive: boolean): string {
+const dkv = (k: string, v: string) => div('dkv', span('muted', k), span('', v))
+
+const AGENT_STATE: Record<AgentState, string> = { working: '작업 중', blocked: '권한 대기', waiting: '입력 대기', done: '끝남' }
+
+function liveBlock(o: Card['order'], live: WorkerLive | 'loading' | undefined, now: number): string {
+  if (!o.workspaceId) return div('muted', '오르카 워크트리 워커가 아니라 터미널을 못 읽어요.')
+  if (!live || live === 'loading') return div('muted', '워커 터미널을 읽는 중')
+  if (!live.found) return div('muted', esc(live.error ?? '이 주문의 워크트리를 오르카에서 못 찾았어요.'))
+  const a = live.agent
+  return join(
+    a && dkv('에이전트', `${a.kind ?? '에이전트'} · ${AGENT_STATE[a.state] ?? a.state} · ${duration(a.since, now)}째`),
+    a?.task && dkv('작업', a.task),
+    live.lines && live.lines.length > 0
+      ? `<pre class="tail" data-tail="${esc(o.id)}">${esc(live.lines.join('\n'))}</pre>`
+      : live.terminalId && !live.error && div('muted', '터미널 출력이 아직 없어요.'),
+    live.error && div('muted', esc(live.error)),
+    `<button class="go" data-go="${esc(o.id)}">${live.terminalId ? '터미널로 이동' : '워크트리로 이동'}</button>`
+  )
+}
+
+/** 카드 아래 펼치는 상세. 컨덕터가 아는 것은 어느 화면에서나, 워커 터미널은 데스크톱에서만 */
+function detail(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
   const o = c.order
+  const cp = o.checkpoint
+  const events = (v.recentEvents ?? []).filter((e) => e.orderId === o.id).slice(-5)
+  const body = join(
+    o.worker && dkv('워커', [o.worker, o.workerKind, o.workerStatus].filter(Boolean).join(' · ')),
+    cp && dkv('체크포인트', `${cp.skill}${cp.phase ? ` → ${cp.phase}` : ''}${cp.round ? ` r${cp.round}` : ''}${cp.savedAt ? ` · ${clock(cp.savedAt)} 저장` : ''}`),
+    cp?.next && dkv('다음', cp.next),
+    o.waiting && dkv('대기', `${waitText(o.waiting.reason, o.waiting.until)} · ${clock(o.waiting.since)}부터`),
+    o.branch && dkv('브랜치', o.branch),
+    opts.private && o.worktreePath && dkv('경로', o.worktreePath),
+    ...v.gates.filter((g) => g.orderId === o.id).map((g) => dkv(gateLabel(g.type), g.reason)),
+    events.length > 0 && div('d-ev', div('muted', '최근 이벤트'), ...events.map(detailEvent)),
+    opts.interactive && div('live', liveBlock(o, opts.live?.[o.id], opts.now))
+  )
+  const open = opts.open?.has(o.id) ? ' open' : ''
+  return `<details class="more" data-key="${esc(`ord:${o.id}`)}"${open}><summary>상세</summary>${div('d', body)}</details>`
+}
+
+function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
+  const o = c.order
+  const interactive = opts.interactive
   const canOpen = interactive && Boolean(o.workspaceId)
   const pct = c.progress === null ? null : Math.round(c.progress * 100)
   const attrs = interactive
-    ? ` data-order="${esc(o.id)}" tabindex="0"${canOpen ? ' data-open title="두 번 누르면 워크트리로 가요"' : ''}`
+    ? ` data-order="${esc(o.id)}" tabindex="0"${canOpen ? ' data-open title="두 번 누르면 워커 터미널로 가요"' : ''}`
     : ''
   const body = join(
     div('t', esc(`${o.id} · ${o.title}`)),
@@ -64,7 +109,8 @@ function card(c: Card, interactive: boolean): string {
     c.next && div('muted ell', esc(`next › ${c.next}`)),
     c.bypass && div('muted ell', esc(`bypass › ${c.bypass}`)),
     c.children.length > 0 &&
-      div('children', ...c.children.map((k) => div('child', span('ell', `${k.id} ${k.title}`), span('', k.status))))
+      div('children', ...c.children.map((k) => div('child', span('ell', `${k.id} ${k.title}`), span('', k.status)))),
+    detail(c, v, opts)
   )
   return `<div class="w ${c.kind}${canOpen ? ' openable' : ''}"${attrs}>${body}</div>`
 }
@@ -95,6 +141,9 @@ const EVENT_TONE: Record<string, string> = {
 }
 
 const EVENT_LABEL: Record<string, string> = { 'gate-opened': 'gate', 'gate-resolved': 'gate ✓' }
+
+const detailEvent = (e: EventView) =>
+  div('r', span('muted', clock(e.at)), span(EVENT_TONE[e.type] ?? '', EVENT_LABEL[e.type] ?? e.type), span('', e.type === 'waiting' && e.until ? waitText(e.summary, e.until, ' · ') : e.summary))
 
 const eventRow = (e: EventView) =>
   div('r', span('muted', clock(e.at, true)), span(EVENT_TONE[e.type] ?? '', EVENT_LABEL[e.type] ?? e.type), span('ell', eventText(e)))
@@ -138,7 +187,7 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
       conductorBox(v, m, opts.now),
       div(
         '',
-        m.cards.length > 0 ? div('workers', ...m.cards.map((c) => card(c, opts.interactive))) : div('box muted', '진행 중인 주문이 없어요.'),
+        m.cards.length > 0 ? div('workers', ...m.cards.map((c) => card(c, v, opts))) : div('box muted', '진행 중인 주문이 없어요.'),
         div('flow', '──────── ● ──────── 결과 보고 → tick ──────── ● ────────'),
         gateBoxes(m, v)
       )
@@ -177,7 +226,7 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kv { display: flex; justify-content: space-between; gap: 8px; }
 .sep { height: 10px; }
-.workers { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.workers { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; align-items: start; }
 .w { border: 1px solid var(--t-line); padding: 8px 9px; min-width: 0; outline: none; }
 .w.openable { cursor: pointer; }
 .w:focus-visible { box-shadow: 0 0 0 1px var(--t-fg); }
@@ -202,6 +251,19 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .child { display: flex; justify-content: space-between; gap: 8px; color: var(--t-dim); }
 .child::before { content: '└ '; color: var(--t-line); }
 .child .ell { flex: 1; min-width: 0; }
+.more { margin-top: 6px; border-top: 1px dashed var(--t-line); padding-top: 4px; }
+.more > summary { cursor: pointer; color: var(--t-dim); list-style: none; width: max-content; }
+.more > summary::-webkit-details-marker { display: none; }
+.more > summary::before { content: '▸ '; } .more[open] > summary::before { content: '▾ '; }
+.d { display: grid; gap: 2px; margin-top: 4px; }
+.dkv { display: grid; grid-template-columns: 72px 1fr; gap: 8px; }
+.dkv > span:last-child, .d-ev .r > span:last-child { overflow-wrap: anywhere; }
+.d-ev { margin-top: 4px; }
+.d-ev .r { display: grid; grid-template-columns: 40px 76px 1fr; gap: 6px; }
+.live { margin-top: 6px; border-top: 1px dashed var(--t-line); padding-top: 4px; display: grid; gap: 2px; }
+.tail { margin: 4px 0 0; padding: 6px 8px; background: #0e1015; border: 1px solid var(--t-line); max-height: 200px; overflow: auto; white-space: pre; font: inherit; font-size: 11px; color: var(--t-fg); }
+.go { justify-self: start; margin-top: 6px; font: inherit; font-weight: 700; color: var(--t-bg); background: var(--t-orange); border: 0; padding: 2px 10px; cursor: pointer; }
+.go:focus-visible { outline: 1px solid var(--t-fg); outline-offset: 2px; }
 .flow { display: flex; justify-content: center; color: var(--t-dim); margin: 6px 0; font-size: 11px; white-space: nowrap; overflow: hidden; }
 .gates { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 .gbox { border: 1px solid var(--t-yellow); padding: 6px 12px; text-align: center; max-width: 340px; }

@@ -205,6 +205,8 @@ test('웹 터미널은 보기 전용이라 카드 이동이 없고 바깥 글은
   lacks(html, 'data-open')
   lacks(html, 'data-order')
   lacks(html, 'tabindex')
+  lacks(html, '<button')
+  has(html, 'data-key="ord:ord-a"')
   const failed = terminalFragment(view({ state: 'error', error: 'spawn /Users/someone/bin/gestalt ENOENT' }), NOW)
   has(failed, 'gestalt CLI가 실패했어요')
   lacks(failed, '/Users/someone')
