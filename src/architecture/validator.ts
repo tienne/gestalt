@@ -10,6 +10,7 @@ import { deriveEr, erCounts, erOverBudget, isUnconfirmedFk } from './er-layout.j
 import { deriveLifecycle, lifecycleCounts, lifecycleOverBudget } from './lifecycle-layout.js';
 import { resolveInfraPlacement } from './infra-placement.js';
 import { indexMicroApps } from './micro-app.js';
+import { maskIrSecrets } from './secret-mask.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, packById } from './packs/index.js';
 import { KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
 import {
@@ -109,7 +110,23 @@ export type ArchitectureValidationWarning =
   | DescriptionWarning
   | BudgetWarning
   | ExcerptMismatchWarning
-  | InfraPlacementWarning;
+  | InfraPlacementWarning
+  | SecretMaskedWarning;
+
+/** 산출물에 싣기 전에 비밀값을 가린 자리. 위치만 담고 값이나 값의 일부는 담지 않는다 */
+export interface SecretMaskedWarning {
+  code: 'SECRET_MASKED';
+  message: string;
+  nodeId?: string;
+  edgeId?: string;
+  flowId?: string;
+  projectionId?: string;
+  questionId?: string;
+  stageId?: string;
+  groupId?: string;
+  repoId?: string;
+  field: string;
+}
 
 /** 노드에 적은 provider나 region이 placedIn, parent, account에서 물려받을 값과 다르다. 그림은 노드에 적은 값을 따른다 */
 export interface InfraPlacementWarning {
@@ -2050,7 +2067,7 @@ function maskNodeText(node: ArchitectureNode): ArchitectureNode {
 
 /**
  * 공유용 사본. 입력은 바꾸지 않는다.
- * private 근거는 type과 visibility만 남긴다. live 근거는 public이어도 명령과 리소스 식별자에 계정 ID나
+ * private 근거는 type과 visibility만 남긴다. 계정 ID를 가린 뒤 남은 글자 칸의 비밀값도 가린다. live 근거는 public이어도 명령과 리소스 식별자에 계정 ID나
  * 리소스 ID가 담기므로 조회 시각만 남긴다. 노드 이름과 질문 글자의 계정 ID 꼴 숫자도 가린다
  */
 export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
@@ -2066,7 +2083,7 @@ export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
       ? ({ type: ev.type, visibility: ev.visibility } as Evidence)
       : { ...ev };
   });
-  return {
+  return maskIrSecrets({
     ...redacted,
     nodes: redacted.nodes.map(maskNodeText),
     edges: redacted.edges.map(maskDocLink),
@@ -2081,7 +2098,7 @@ export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
       ? { groups: redacted.groups.map((g) => ({ ...g, name: maskSharedText(g.name) })) }
       : {}),
     unresolved: redacted.unresolved.map(maskSharedQuestion),
-  };
+  }).ir;
 }
 
 /** 공유본의 질문. 저장된 질문과 그릴 때 만든 자동 질문이 같은 규칙으로 가려지게 한 곳에 둔다 */

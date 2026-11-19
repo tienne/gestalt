@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { readJsonOrQuarantine, writeJsonAtomic } from '../core/json-file.js';
 import { deriveBlueprint } from './blueprint-layout.js';
 import { parseArchitectureIr } from './ir-schema.js';
+import { maskIrSecrets } from './secret-mask.js';
 import type {
   ArchitectureEdge,
   ArchitectureIr,
@@ -53,10 +54,10 @@ export class ArchitectureStore {
     return parsed.ok ? parsed.value : null;
   }
 
-  /** private 근거의 excerpt는 디스크에 남기지 않는다. 저장한 경로를 돌려준다 */
+  /** private 근거의 excerpt와 글자 칸의 비밀값은 디스크에 남기지 않는다. 저장한 경로를 돌려준다 */
   save(ir: ArchitectureIr): string {
     const path = this.irPath(ir.view);
-    writeJsonAtomic(path, stripPrivateExcerpts(ir));
+    writeJsonAtomic(path, forDisk(ir));
     return path;
   }
 
@@ -70,7 +71,7 @@ export class ArchitectureStore {
    * 이번 IR에 없는 같은 그림의 옛 파일은 지운다. 저장한 경로를 돌려준다
    */
   saveViews(ir: ArchitectureIr): string[] {
-    const stripped = stripPrivateExcerpts(ir);
+    const stripped = forDisk(ir);
     const paths = (stripped.projections ?? []).map((pr) => {
       const path = this.viewPath(ir.view, pr.id);
       writeJsonAtomic(path, projectionSlice(stripped, pr));
@@ -106,6 +107,10 @@ export class ArchitectureStore {
     writeTextAtomic(path, html);
     return path;
   }
+}
+
+function forDisk(ir: ArchitectureIr): ArchitectureIr {
+  return maskIrSecrets(stripPrivateExcerpts(ir)).ir;
 }
 
 export interface ProjectionSlice {

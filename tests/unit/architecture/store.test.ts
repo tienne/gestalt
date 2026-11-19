@@ -10,6 +10,7 @@ import {
   type ArchitectureIr,
   type ArchitectureNode,
 } from '../../../src/architecture/index.js';
+import { FAKE_PASSWORD, FAKE_TOKEN } from './fake-secrets.js';
 
 let repoRoot: string;
 
@@ -96,6 +97,44 @@ describe('ArchitectureStore', () => {
     expect(raw).toContain('PUBLIC-TEXT');
     // 넘긴 IR 자체는 건드리지 않는다
     expect(ir.nodes[0]!.evidence[0]!.excerpt).toBe('SECRET-TEXT');
+  });
+
+  it('저장 IR과 투영 파일에 비밀값이 남지 않는다', () => {
+    const store = new ArchitectureStore(repoRoot);
+    const ir = makeIr({
+      nodes: [
+        node('n1', 'Home', {
+          description: `postgres://app:${FAKE_PASSWORD}@db:5432/app`,
+          evidence: [
+            {
+              type: 'code',
+              location: 'acme-web:src/a.ts:1',
+              visibility: 'public',
+              excerpt: `const token = "${FAKE_TOKEN}";`,
+            },
+          ],
+        }),
+      ],
+      projections: [
+        {
+          id: 'p1',
+          shape: 'sequence',
+          title: '흐름',
+          question: `키 ${FAKE_TOKEN}`,
+          messages: [
+            { id: 'm1', from: 'n1', to: 'n1', label: 'x', evidence: [], lineStyle: 'solid' },
+          ],
+        },
+      ],
+    });
+    const raw = readFileSync(store.save(ir), 'utf-8');
+    const views = store.saveViews(ir).map((p) => readFileSync(p, 'utf-8'));
+    for (const text of [raw, ...views]) {
+      expect(text).not.toContain(FAKE_TOKEN);
+      expect(text).not.toContain(FAKE_PASSWORD);
+    }
+    expect(views).toHaveLength(1);
+    expect(ir.nodes[0]!.evidence[0]!.excerpt).toContain(FAKE_TOKEN);
   });
 
   it('없는 뷰를 load하면 null', () => {

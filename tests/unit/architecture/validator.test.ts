@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  SECRET_MASK,
+  maskIrSecrets,
   redactForSharing,
   stripPrivateExcerpts,
   validateArchitectureIr,
@@ -11,6 +13,7 @@ import {
   type ArchitectureNode,
   type Evidence,
 } from '../../../src/architecture/index.js';
+import { FAKE_PASSWORD, FAKE_TOKEN } from './fake-secrets.js';
 
 const tmpRoot = resolve('.gestalt-test', `architecture-validator-${randomUUID()}`);
 const repoRoot = join(tmpRoot, 'acme-web');
@@ -299,6 +302,94 @@ describe('redactForSharing', () => {
     expect(redacted.nodes[0]!.evidence[1]).toEqual({ type: 'doc', visibility: 'private' });
     expect(JSON.stringify(redacted)).not.toContain('notes/internal.md');
     expect(ir).toEqual(snapshot);
+  });
+
+  it('계정 ID 가림 뒤에 글자 칸의 비밀값도 가린다', () => {
+    const pub: Evidence = { ...codeEv(), excerpt: `const token = "${FAKE_TOKEN}";` };
+    const n: ArchitectureNode = {
+      ...node('a', [pub]),
+      description: `계정 123456789012 에서 postgres://app:${FAKE_PASSWORD}@db:5432/app 로 붙는다`,
+    };
+    const ir = makeIr([n]);
+    ir.unresolved = [{ id: 'q1', subject: { nodeId: 'a' }, question: `키 ${FAKE_TOKEN} 맞나요?` }];
+    const snapshot = structuredClone(ir);
+
+    const text = JSON.stringify(redactForSharing(ir));
+    expect(text).not.toContain(FAKE_TOKEN);
+    expect(text).not.toContain(FAKE_PASSWORD);
+    expect(text).toContain(SECRET_MASK);
+    expect(text).toContain('[계정 ID]');
+    expect(ir).toEqual(snapshot);
+  });
+});
+
+describe('maskIrSecrets', () => {
+  it('글자 칸마다 가리고 hits에는 위치만 담는다', () => {
+    const n: ArchitectureNode = {
+      ...node('a', [{ ...codeEv(), excerpt: `token: "${FAKE_TOKEN}"` }]),
+      displayName: FAKE_TOKEN,
+      columns: [{ name: 'id', type: `varchar ${FAKE_TOKEN}` }],
+    };
+    const ir = makeIr([n], [edge('e1', 'a', 'a', [{ ...codeEv(), excerpt: FAKE_TOKEN }])]);
+    ir.flows = [
+      {
+        id: 'f1',
+        title: '결제',
+        actors: [{ id: 'u', label: '고객', kind: 'person' }],
+        steps: [{ id: 's1', actor: 'u', label: FAKE_TOKEN, evidence: [] }],
+        transitions: [],
+      },
+    ];
+    ir.projections = [
+      {
+        id: 'p1',
+        shape: 'sequence',
+        title: '흐름',
+        question: FAKE_TOKEN,
+        messages: [
+          {
+            id: 'm1',
+            from: 'a',
+            to: 'a',
+            label: FAKE_TOKEN,
+            evidence: [],
+            lineStyle: 'solid',
+          },
+        ],
+      },
+    ];
+    ir.unresolved = [{ id: 'q1', subject: { nodeId: 'a' }, question: '?', answer: FAKE_TOKEN }];
+    ir.stages = [{ id: 'st', label: FAKE_TOKEN }];
+    ir.groups = [{ id: 'g', name: FAKE_TOKEN, members: ['a'] }];
+    const snapshot = structuredClone(ir);
+
+    const { ir: masked, hits } = maskIrSecrets(ir);
+    expect(JSON.stringify(masked)).not.toContain(FAKE_TOKEN);
+    expect(JSON.stringify(hits)).not.toContain(FAKE_TOKEN);
+    expect(JSON.stringify(hits)).not.toContain(FAKE_TOKEN.slice(4, 12));
+    expect(hits).toEqual(
+      expect.arrayContaining([
+        { nodeId: 'a', field: 'displayName' },
+        { nodeId: 'a', field: 'evidence[0].excerpt' },
+        { nodeId: 'a', field: 'columns[0].type' },
+        { edgeId: 'e1', field: 'evidence[0].excerpt' },
+        { flowId: 'f1', field: 'steps[s1].label' },
+        { projectionId: 'p1', field: 'question' },
+        { projectionId: 'p1', field: 'messages[m1].label' },
+        { questionId: 'q1', field: 'answer' },
+        { stageId: 'st', field: 'label' },
+        { groupId: 'g', field: 'name' },
+      ]),
+    );
+    expect(hits).toHaveLength(10);
+    expect(ir).toEqual(snapshot);
+  });
+
+  it('비밀값이 없으면 같은 객체를 돌려준다', () => {
+    const ir = makeIr([node('a', [{ ...codeEv(), excerpt: 'export default Home' }])]);
+    const r = maskIrSecrets(ir);
+    expect(r.ir).toBe(ir);
+    expect(r.hits).toEqual([]);
   });
 });
 
