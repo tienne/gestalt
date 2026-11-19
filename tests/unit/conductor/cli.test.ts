@@ -30,7 +30,8 @@ import {
   conductorWorkerReportCommand,
 } from '../../../src/cli/commands/conductor.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
-import { cleanupStateDirs, tempStateDir, worker } from './fixtures.js';
+import { claimWaitOwner } from '../../../src/conductor/wait.js';
+import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
 
 let out: string[] = [];
 let err: string[] = [];
@@ -571,6 +572,106 @@ describe('gestalt conductor', () => {
     expect(existsSync(join(stateDir, 'wait-seen.json'))).toBe(false);
   });
 
+  it('tick 도중 소유권이 바뀌면 새 wait만 결과를 한 번 받는다', async () => {
+    const stateDir = tempStateDir();
+    const queueDir = join(stateDir, 'queue');
+    mkdirSync(queueDir);
+    writeFileSync(join(queueDir, 'no-title.json'), JSON.stringify({ repo: 'acme/app' }));
+    const store = ConductorStore.open(stateDir);
+    store.addOrder(
+      order({ id: 'ord-success', status: 'merged', issueKey: 'APP-7', issueType: 'bug' }),
+    );
+    store.addOrder(
+      order({
+        id: 'ord-expired',
+        status: 'merged',
+        issueKey: 'APP-8',
+        issueType: 'bug',
+        mergedAt: '2000-01-01T00:00:00Z',
+      }),
+    );
+    conductorDeployReportCommand({ stateDir, order: 'ord-success', status: 'success' });
+    const reportFile = join(stateDir, 'wait-last.json');
+    writeFileSync(reportFile, '{"앞선":"보고서"}');
+    const flushSnapshot = ConductorStore.prototype.flushSnapshot;
+    vi.spyOn(ConductorStore.prototype, 'flushSnapshot').mockImplementationOnce(function (
+      this: ConductorStore,
+    ) {
+      claimWaitOwner(stateDir, randomUUID());
+      flushSnapshot.call(this);
+    });
+
+    await conductorWaitCommand({ stateDir, json: true, maxWaitSec: 60, prWatch: false });
+
+    expect(ConductorStore.open(stateDir).openGates()).toHaveLength(1);
+    expect(last()).toMatchObject({ reason: 'superseded', ticks: 1 });
+    expect(last()).not.toHaveProperty('reportFile');
+    expect(readFileSync(reportFile, 'utf-8')).toBe('{"앞선":"보고서"}');
+    expect(existsSync(join(stateDir, 'wait-seen.json'))).toBe(false);
+    const carryDir = join(stateDir, 'wait-carry');
+    expect(readdirSync(carryDir)).toHaveLength(1);
+    const seenFile = join(stateDir, 'wait-seen.json');
+    writeFileSync(seenFile, JSON.stringify(['전에 본 경고']));
+
+    await conductorWaitCommand({ stateDir, json: true, maxWaitSec: 1, prWatch: false });
+    expect(last()).toMatchObject({
+      reason: 'attention',
+      reasons: ['hostActions', 'gatesOpened', 'warnings'],
+      ticks: 0,
+      tick: {
+        counts: { openGates: 1 },
+        hostActions: [{ type: 'jira-transition', issueKey: 'APP-7', to: 'In-QA' }],
+        warnings: [expect.stringContaining('ord-expired')],
+      },
+    });
+    expect(readdirSync(carryDir)).toEqual([]);
+    expect(JSON.parse(readFileSync(seenFile, 'utf-8'))).toEqual([
+      '전에 본 경고',
+      expect.stringContaining('ord-expired'),
+    ]);
+
+    const idle = { json: true, stateDir, maxWaitSec: 1, prWatch: false };
+    let clock = 0;
+    await conductorWaitCommand(idle, {
+      now: () => clock,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+    });
+    expect(last()).toMatchObject({ reason: 'timeout' });
+    expect(last()).not.toHaveProperty('tick');
+  });
+
+  it('큰 넘김 결과의 경로는 다음 wait가 공용 보고서를 갱신해도 바뀌지 않는다', async () => {
+    const stateDir = tempStateDir();
+    const queueDir = join(stateDir, 'queue');
+    mkdirSync(queueDir);
+    for (let i = 0; i < 40; i++)
+      writeFileSync(join(queueDir, `${'x'.repeat(200)}-${i}.json`), '{"repo"');
+    const flushSnapshot = ConductorStore.prototype.flushSnapshot;
+    vi.spyOn(ConductorStore.prototype, 'flushSnapshot').mockImplementationOnce(function (
+      this: ConductorStore,
+    ) {
+      claimWaitOwner(stateDir, randomUUID());
+      flushSnapshot.call(this);
+    });
+    const opts = { stateDir, json: true, maxWaitSec: 1, prWatch: false };
+    await conductorWaitCommand(opts);
+    expect(last()).toMatchObject({ reason: 'superseded' });
+    await conductorWaitCommand(opts);
+    expect(last()).toMatchObject({ reason: 'attention', ticks: 0 });
+    expect(last()).not.toHaveProperty('tick');
+    const carriedFile = last().reportFile as string;
+    const carriedReport = readFileSync(carriedFile, 'utf-8');
+
+    writeFileSync(join(queueDir, 'new.json'), '{"repo"');
+    await conductorWaitCommand(opts);
+    expect(last()).toMatchObject({ reason: 'attention', ticks: 1 });
+    expect(last().reportFile).toBe(resolve(stateDir, 'wait-last.json'));
+    expect(readFileSync(last().reportFile as string, 'utf-8')).not.toBe(carriedReport);
+    expect(readFileSync(carriedFile, 'utf-8')).toBe(carriedReport);
+  });
+
   it('wait가 도는 사이 인계하면 다음 tick에서 거절해 끝난다', async () => {
     const stateDir = tempStateDir();
     vi.stubEnv('CLAUDE_CODE_SESSION_ID', randomUUID());
@@ -877,6 +978,26 @@ describe('컨덕터 세션은 하나만', () => {
     expect(existsSync(join(stateDir, 'sessions', b, 'session.json'))).toBe(false);
     // 원래 세션은 계속 돈다
     await tickAs(stateDir, a);
+  });
+
+  it('세션 id가 없는 wait는 살아 있는 컨덕터의 소유 표식을 가져가지 못한다', async () => {
+    const stateDir = tempStateDir();
+    const sessionId = randomUUID();
+    await tickAs(stateDir, sessionId);
+    const owner = claimWaitOwner(stateDir, sessionId);
+    expect(JSON.parse(readFileSync(join(stateDir, 'wait.owner'), 'utf-8'))).toMatchObject({
+      sessionId,
+    });
+    vi.stubEnv('CLAUDE_CODE_SESSION_ID', undefined);
+    try {
+      await expect(
+        conductorWaitCommand({ stateDir, takeOver: true, maxWaitSec: 1, prWatch: false }),
+      ).rejects.toThrow('exit 1');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(err.at(-1)).toContain(sessionId);
+    expect(owner.stillOwner()).toBe(true);
   });
 
   it('--take-over로 넘겨받으면 원래 세션의 tick을 거절한다', async () => {

@@ -1,9 +1,15 @@
+import { execFile } from 'node:child_process';
+import { resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { TickReport } from '../../../src/conductor/engine.js';
 import {
   attentionReasons,
   claimWaitOwner,
+  consumeWaitCarry,
+  mergeWaitCarry,
   readSeen,
+  saveWaitCarry,
   waitForAttention,
   writeSeen,
   type WaitTickOutcome,
@@ -239,5 +245,112 @@ describe('wait 소유 표식과 본 목록', () => {
     expect([...seen]).toEqual(['오류 B']);
     const again = { report: report({ errors: ['오류 A'] }), handoffClose: [] };
     expect(attentionReasons(again, seen)).toEqual(['errors']);
+  });
+});
+
+describe('wait 결과 넘김', () => {
+  it('두 wait가 같은 파일 목록으로 rename을 경합해도 한쪽만 실행 요청을 받는다', async () => {
+    const stateDir = resolve(tempStateDir());
+    const action = { type: 'jira-transition' as const, issueKey: 'APP-1', to: 'In-QA' as const };
+    saveWaitCarry(
+      stateDir,
+      { report: report({ hostActions: [action] }), handoffClose: [] },
+      ['hostActions'],
+      new Set(),
+    );
+
+    const program = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { join } from 'node:path';
+      const [dir, me, other] = process.argv.slice(1);
+      const list = fs.readdirSync;
+      fs.readdirSync = (path, ...args) => {
+        const names = list(path, ...args);
+        if (path === join(dir, 'wait-carry')) {
+          fs.writeFileSync(join(dir, me), '');
+          const limit = Date.now() + 5000;
+          while (!fs.existsSync(join(dir, other))) {
+            if (Date.now() > limit) throw new Error('second wait did not list the file');
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+          }
+        }
+        return names;
+      };
+      syncBuiltinESMExports();
+      const { consumeWaitCarry } = await import('./src/conductor/wait.ts');
+      consumeWaitCarry(dir, (items) => console.log(JSON.stringify(items.flatMap((i) => i.outcome.report.hostActions))));
+    `;
+    const run = promisify(execFile);
+    const results = await Promise.all([
+      run(process.execPath, [
+        '--import',
+        'tsx',
+        '--input-type=module',
+        '-e',
+        program,
+        stateDir,
+        'a',
+        'b',
+      ]),
+      run(process.execPath, [
+        '--import',
+        'tsx',
+        '--input-type=module',
+        '-e',
+        program,
+        stateDir,
+        'b',
+        'a',
+      ]),
+    ]);
+    expect(results.flatMap(({ stdout }) => JSON.parse(stdout))).toEqual([action]);
+    consumeWaitCarry(stateDir, (next) => expect(next).toEqual([]));
+  }, 12_000);
+
+  it('결과를 오래된 순으로 합치고 앞 세션의 인계는 기록으로만 전달한다', () => {
+    const stateDir = tempStateDir();
+    const hostAction = (issueKey: string) => ({
+      type: 'jira-transition' as const,
+      issueKey,
+      to: 'In-QA' as const,
+    });
+    const save = (at: string, issue: string, handoff?: WaitTickOutcome['handoff']) =>
+      saveWaitCarry(
+        stateDir,
+        {
+          report: report({
+            at,
+            hostActions: [hostAction(issue)],
+            errors: ['이미 본 오류'],
+            warnings: [issue],
+          }),
+          handoffClose: [],
+          ...(handoff ? { handoff } : {}),
+        },
+        handoff ? ['hostActions', 'handoff', 'warnings'] : ['hostActions', 'warnings'],
+        new Set(['이미 본 오류']),
+      );
+    const oldHandoff = { sessionId: 'old', due: true, compactions: 2, thresholdPercent: 70 };
+    save('2026-11-15T00:01:00.000Z', 'APP-2');
+    save('2026-11-15T00:00:00.000Z', 'APP-1', oldHandoff);
+    const now = {
+      report: report({ at: '2026-11-15T00:00:30.000Z', hostActions: [hostAction('APP-3')] }),
+      handoffClose: [],
+    };
+    consumeWaitCarry(stateDir, (items) => {
+      const merged = mergeWaitCarry(
+        { reason: 'attention', reasons: ['hostActions'], ticks: 1, elapsedMs: 1, last: now },
+        items,
+        'new',
+      );
+      expect(merged.reasons).toEqual(['hostActions', 'warnings', 'carriedHandoff']);
+      expect(merged.last?.report.hostActions).toEqual(['APP-1', 'APP-3', 'APP-2'].map(hostAction));
+      expect(merged.last?.report.at).toBe('2026-11-15T00:01:00.000Z');
+      expect(merged.last?.report.warnings).toEqual(['APP-1', 'APP-2']);
+      expect(merged.last?.report.errors).toEqual([]);
+      expect(merged.last?.handoff).toBeUndefined();
+      expect(merged.last?.carriedHandoffs).toEqual([oldHandoff]);
+    });
   });
 });

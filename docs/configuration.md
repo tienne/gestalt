@@ -77,6 +77,8 @@ interface GestaltConfig {
     staleAfterSec: number; // 소식이 이만큼(초) 없으면 끊긴 워커로 본다, 기본 1800
     rateLimitEscalateAfterSec: number; // 오르카 워커가 세션 한도에 걸린 채 이만큼(초) 지나면 사람에게 올린다, 기본 21600
     waitingEscalateAfterSec: number; // 대기를 알린 워커가 이만큼(초) 넘게 기다리면 사람에게 올린다, 기본 21600
+    deployWaitMaxSec: number; // 머지 뒤 배포 신호를 기다리는 상한(초), 기본 86400
+    orcaReleaseRetryMaxSec: number; // 살아 있는 오르카 워커의 release 재시도 상한(초), 기본 7200
     defaultScope: 'merge-through' | 'approval' | 'interview-first'; // 기본 approval
     resultMaxChars: number; // 워커 결과 요약 글자 수 상한, 기본 2000
     stateDir?: string; // 실행 상태 저장소, 기본 ~/.gestalt/conductor
@@ -287,7 +289,7 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 }
 ```
 
-머지 승인 범위와 워커 에이전트, 상태 저장소, 계정, 레포 경로, PR 감시 대상, 오르카 워크트리 삭제 여부, 인계 세션의 모델과 추론 수준, 이전 지휘자 탭을 닫는 시간은 사용자 전역 `~/.gestalt/conductor.json`에만 적는다. `GESTALT_HOME`을 바꿨으면 그 아래 `.gestalt/conductor.json`이다. 이 파일은 `conductor` 블록 없이 칸을 바로 적고 조율 값도 함께 둘 수 있다. 같은 칸이 두 파일에 다 있으면 이 파일이 앞선다.
+머지 승인 범위와 워커 에이전트, 상태 저장소, 계정, 레포 경로, PR 감시 대상, 오르카 워크트리 삭제 여부, 인계 세션의 모델과 추론 수준, 이전 지휘자 탭을 닫는 시간, 배포 신호 대기와 오르카 release 재시도 상한은 사용자 전역 `~/.gestalt/conductor.json`에만 적는다. `GESTALT_HOME`을 바꿨으면 그 아래 `.gestalt/conductor.json`이다. 이 파일은 `conductor` 블록 없이 칸을 바로 적고 조율 값도 함께 둘 수 있다. 같은 칸이 두 파일에 다 있으면 이 파일이 앞선다.
 
 ```json
 {
@@ -299,6 +301,8 @@ Desktop/IDE의 이름은 캡처하지 않았다.
   "repoPaths": { "acme/widget-kit": "/path/to/widget-kit" },
   "prWatchRepos": ["acme/widget-kit"],
   "removeMergedOrcaWorktrees": true,
+  "deployWaitMaxSec": 86400,
+  "orcaReleaseRetryMaxSec": 7200,
   "handoffEffort": "high",
   "handoffCloseAfterSec": 600
 }
@@ -316,6 +320,8 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 - `staleAfterSec`(기본 1800초) 동안 보고도 체크포인트도 없는 워커는 끊긴 것으로 보고 마지막 체크포인트부터 다시 띄운다. 사람 결정을 기다리는 `waiting-gate` 주문의 워커와 `--status waiting`으로 대기를 알린 워커는 이 셈에서 빠진다. CI 대기처럼 15분 넘게 걸릴 수 있는 대기는 워커가 앞뒤로 체크포인트를 남긴다. 오르카 워커는 이 시간이 지나면 터미널을 먼저 확인해서 출력 중이면 그대로 두고 세션 한도 표시가 보이면 재개하지 않는다
 - `rateLimitEscalateAfterSec`(기본 21600초, 600~604800)는 세션 한도에 걸린 오르카 워커를 기다려 주는 상한이다. 넘으면 게이트로 사람에게 올린다. 자세한 흐름은 [오르카 워커의 세션 한도](./conductor.md#오르카-워커의-세션-한도)에 있다
 - `waitingEscalateAfterSec`(기본 21600초, 600~604800)는 `--status waiting`으로 대기를 알린 워커를 기다려 주는 상한이다. 넘거나 워커가 적은 기한이 지나고 `staleAfterSec`만큼 더 소식이 없으면 게이트로 사람에게 올린다
+- `deployWaitMaxSec`(기본 86400초, 양의 정수)는 머지 뒤 배포 신호를 기다리는 상한이다. `mergedAt`을 기준으로 센다. 그 값이 없는 주문은 `updatedAt`을 쓴다. 기한에 배포가 여전히 대기 중이면 지라 이동 없이 주문을 `done`으로 바꾸고 tick에 경고를 남긴다
+- `orcaReleaseRetryMaxSec`(기본 7200초, 양의 정수)는 살아 있는 오르카 워커의 release가 처음 거절된 때부터 재시도를 이어가는 상한이다. 그때까지 거절이 이어지면 게이트를 연다. 오르카가 생존 여부를 확인하지 못하면 바로 게이트를 연다
 - `humanOwnedPollSec`(기본 900초, 60~86400)는 사람이 넘겨받은 `human-owned` 주문의 PR을 tick이 gh로 다시 볼 간격이다. 주문마다 따로 센다. `humanOwnedParkAfterSec`(기본 86400초, 600~2592000)가 지나도 머지나 닫힘이 없으면 `parked`로 내리고 더 안 본다. 자세한 전이는 [주문 상태](./conductor.md#주문-상태)에 있다
 - `handoffContextPercent`(기본 70)는 컨덕터 세션이 컴팩트를 한 번 거친 뒤 컨텍스트를 이 비율 이상 쓰면 다음 tick을 마친 자리에서 새 세션으로 인계하는 기준이다. `contextWindowTokens`를 비우면 Claude settings의 `autoCompactWindow`를 창으로 쓰고(모델 창보다 크면 모델 창) 그것도 없으면 모델 id와 사용량으로 200k나 1M 창을 고른다. 새 지휘자에 `[1m]`을 붙일지는 이 창과 따로 모델 창으로만 가른다. 자세한 흐름은 [세션 인계](./conductor.md#세션-인계)에 있다
 - `handoffEffort`(기본 `high`)는 인계로 띄우는 새 지휘자 세션의 추론 수준이고 `low`, `medium`, `high`, `xhigh`, `max`를 받는다. 오르카가 `--effort`를 `--model`과 함께만 받아서 `handoffModel`을 같이 싣는다. `handoffModel`은 적힌 그대로 쓰므로 1M 창이 필요하면 `opus[1m]`처럼 접미까지 적는다. 비우면 이전 세션 트랜스크립트의 모델을 잇고 그것도 모르면 effort 없이 띄운 뒤 직접 맞추라고 알린다. 새 세션 에이전트가 claude일 때만 싣는다. 쓰는 모델이 비용을 정하므로 레포 `gestalt.json`으로는 못 바꾼다

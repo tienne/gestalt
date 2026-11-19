@@ -211,12 +211,12 @@ gestalt conductor deploy report --order <orderId> --status success --ref <pipeli
    ```
 
 2. **끝나면 알림이 온다.** 출력의 `reason`대로 한다.
-   - `attention`: `reasons`에 끝난 이유(`hostActions`, `escalated`, `gatesOpened`, `humanOwned`, `errors`, `warnings`, `handoff`, `handoffClose`)가 있다. `tick`이 tick JSON과 같은 꼴이니 tick 결과처럼 hostActions를 처리하고 4절을 점검한다. 결과가 길면 `tick`이 빠지고 `reportFile` 경로만 오니 그 파일을 읽는다. `handoff.due`가 true면 7-1로 가고 wait는 다시 띄우지 않는다. 그 밖에는 처리를 마쳤으면 1번대로 다시 띄운다.
+   - `attention`: `reasons`에 끝난 이유(`hostActions`, `escalated`, `gatesOpened`, `humanOwned`, `errors`, `warnings`, `handoff`, `handoffClose`, `carriedHandoff`)가 있다. `tick`이 tick JSON과 같은 꼴이니 tick 결과처럼 hostActions를 처리하고 4절을 점검한다. 결과가 길면 `tick`이 빠지고 `reportFile` 경로만 오니 그 파일을 읽는다. `handoff.due`가 true면 7-1로 가고 wait는 다시 띄우지 않는다. 그 밖에는 처리를 마쳤으면 1번대로 다시 띄운다.
    - `timeout`: 상한(`waitMaxSec`, 기본 1500초) 동안 할 일이 없었다는 뜻이다. 사람에게 보고하지 않고 1번대로 다시 띄운다.
-   - `superseded`: 더 나중에 띄운 wait가 이어받았다. 다시 띄우지 않는다.
+   - `superseded`: 더 나중에 띄운 wait가 이어받았다. 진행 중이던 tick의 전달할 결과는 새 wait의 `attention`에 실린다. 다시 띄우지 않는다. `carriedHandoffs`는 이전 판단 기록이니 인계 조건은 현재 `handoff.due`로만 본다.
    - 명령이 실패로 끝났으면 stderr 문장을 사람에게 전한다. 인계한 세션이라 거절됐으면 다시 띄우지 않는다. 그 밖의 실패는 한 번만 다시 띄우고 또 실패하면 사람에게 묻는다.
 3. **wait가 도는 동안 사람이 말을 걸면** 그 일을 처리한다. 확인 자리를 종료했거나 주문을 넣었으면 `tick --force --json`을 한 번 돌려 바로 반영한다. wait는 그대로 두고 다시 띄우지 않는다. 같은 tick 잠금을 쓰니 둘이 겹쳐 돌지 않는다.
-4. **wait가 떠 있는지 기억이 없으면**(컴팩트나 재개 뒤) 그냥 다시 띄운다. 새 wait가 소유 표식을 가져가고 앞선 wait는 다음 tick 앞에서 `superseded`로 끝난다.
+4. **wait가 떠 있는지 기억이 없으면**(컴팩트나 재개 뒤) 그냥 다시 띄운다. 새 wait가 소유 표식을 가져가고 앞선 wait는 tick 앞뒤에서 표식이 바뀐 걸 확인해 `superseded`로 끝난다. 세션 id가 없는 wait는 최근 tick을 돌린 컨덕터가 있으면 시작이 거절된다.
 
 wait는 tick을 감시 간격마다 `--force`로 돌린다. 이미 보여 준 경고와 오류, 이전 탭을 닫은 결과는 `wait-seen.json`에 남겨 같은 문장만으로는 다시 끝나지 않는다. 다른 이유로 끝나면 함께 실린다. wait 하나 동안 한 번도 안 나온 문장은 그 wait가 끝날 때 목록에서 빠진다. 고쳐졌다가 같은 문장으로 다시 나면 그다음 wait가 끝난다. 세션 한도 대기(`rateLimited`)는 이유로 안 친다. 오래가면 tick이 확인 자리로 올린다.
 

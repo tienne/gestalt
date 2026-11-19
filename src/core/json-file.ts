@@ -18,6 +18,8 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
 export interface WriteJsonOptions {
   /** 새 파일의 권한. rename으로 갈아 끼우므로 기존 파일 권한은 이어지지 않는다 */
   mode?: number;
+  /** 들여쓰기 칸 수. 기본값은 2다 */
+  indent?: number;
 }
 
 /**
@@ -33,7 +35,10 @@ export interface WriteJsonOptions {
 export function writeJsonAtomic(path: string, data: unknown, options: WriteJsonOptions = {}): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  writeFileSync(tmp, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: options.mode });
+  writeFileSync(tmp, JSON.stringify(data, null, options.indent ?? 2), {
+    encoding: 'utf-8',
+    mode: options.mode,
+  });
   try {
     renameSync(tmp, path);
   } catch (e) {

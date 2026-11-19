@@ -55,12 +55,20 @@ describe('ConductorStore', () => {
     expect(b.worker('wrk-1')?.spawnedBy).toBe('conductor');
   });
 
-  it('스냅샷 파일은 로그와 같은 내용을 담는다', () => {
+  it('append는 스냅샷을 쓰지 않고 명시적으로 쓸 때만 압축된 사본을 남긴다', () => {
     const dir = tempStateDir();
     const s = ConductorStore.open(dir);
     s.addOrder(order({ id: 'ord-1' }));
-    const snap = JSON.parse(readFileSync(join(dir, SNAPSHOT_FILE), 'utf-8'));
-    expect(snap).toEqual(replay(join(dir, EVENTS_FILE)));
+    const path = join(dir, SNAPSHOT_FILE);
+    expect(existsSync(path)).toBe(false);
+    expect(ConductorStore.open(dir).order('ord-1')).toBeDefined();
+
+    s.flushSnapshot();
+    const raw = readFileSync(path, 'utf-8');
+    expect(raw).toBe(JSON.stringify(replay(join(dir, EVENTS_FILE))));
+
+    s.addOrder(order({ id: 'ord-2' }));
+    expect(readFileSync(path, 'utf-8')).toBe(raw);
   });
 
   it('컨덕터가 아닌 쪽이 띄운 워커는 기록하지 않는다', () => {

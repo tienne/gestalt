@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -100,10 +101,15 @@ import type { ConductorConfig } from '../../conductor/scheduler.js';
 import { draftSlack } from '../../conductor/slack.js';
 import {
   claimWaitOwner,
+  consumeWaitCarry,
+  hasWaitCarry,
+  mergeWaitCarry,
   readSeen,
+  saveWaitCarry,
   shownLines,
   WAIT_REPORT_FILE,
   waitForAttention,
+  withWaitOwnerLock,
   writeSeen,
   type WaitLoopDeps,
   type WaitResult,
@@ -580,29 +586,32 @@ async function enterTickSession(ctx: Ctx, takeOver: boolean): Promise<string | u
   const sessionId = currentSessionId();
   if (!sessionId) return undefined;
   const dir = ctx.store.dir;
-  if (takeOver) rmSync(supersededRecordPath(dir, sessionId), { force: true });
-  // 등록과 탭 이름 붙이기 전에 거절한다. 인계한 세션이 자기를 새 세션으로 다시 올리면 안 된다
-  assertStillConductor(ctx, sessionId);
-  const now = new Date();
-  const registered = readSessionRegisteredAt(dir, sessionId) !== undefined;
-  if (!registered && !takeOver) {
-    const active = findActiveConductor(
-      dir,
-      sessionId,
-      now.getTime(),
-      activeConductorWindowMs(ctx.config),
-    );
-    if (active) {
-      throw new Error(
-        `다른 컨덕터 세션이 돌고 있어요(세션 ${active.sessionId}${active.cwd ? `, ${active.cwd}` : ''}, 마지막 tick ${active.lastTickAt}). 이 세션은 컨덕터로 등록하지 않았어요. 주문만 넣으려면 order add를 쓰면 그 세션이 다음 tick에 받아요. 그 세션이 닫힌 게 맞으면 tick --take-over로 넘겨받아요`,
+  const isNew = withWaitOwnerLock(dir, () => {
+    if (takeOver) rmSync(supersededRecordPath(dir, sessionId), { force: true });
+    // 등록과 탭 이름 붙이기 전에 거절한다. 인계한 세션이 자기를 새 세션으로 다시 올리면 안 된다
+    assertStillConductor(ctx, sessionId);
+    const now = new Date();
+    const registered = readSessionRegisteredAt(dir, sessionId) !== undefined;
+    if (!registered && !takeOver) {
+      const active = findActiveConductor(
+        dir,
+        sessionId,
+        now.getTime(),
+        activeConductorWindowMs(ctx.config),
       );
+      if (active) {
+        throw new Error(
+          `다른 컨덕터 세션이 돌고 있어요(세션 ${active.sessionId}${active.cwd ? `, ${active.cwd}` : ''}, 마지막 tick ${active.lastTickAt}). 이 세션은 컨덕터로 등록하지 않았어요. 주문만 넣으려면 order add를 쓰면 그 세션이 다음 tick에 받아요. 그 세션이 닫힌 게 맞으면 tick --take-over로 넘겨받아요`,
+        );
+      }
     }
-  }
-  const isNew = registerSession(dir, sessionId, process.cwd(), now);
-  if (isNew || takeOver) {
-    for (const id of supersedeOthers(dir, sessionId, now))
-      console.error(`컨덕터 세션 ${id}를 넘겨받았어요. 그 세션의 tick은 이제 거절돼요`);
-  }
+    const isNew = registerSession(dir, sessionId, process.cwd(), now);
+    if (isNew || takeOver) {
+      for (const id of supersedeOthers(dir, sessionId, now))
+        console.error(`컨덕터 세션 ${id}를 넘겨받았어요. 그 세션의 tick은 이제 거절돼요`);
+    }
+    return isNew;
+  });
   if (isNew) await nameTabOnce();
   return sessionId;
 }
@@ -624,8 +633,10 @@ async function runConductorTick(
 ): Promise<WaitTickOutcome> {
   // wait가 도는 사이 인계했거나 다른 세션이 넘겨받았으면 다음 tick에서 거절해 wait를 끝낸다
   if (sessionId) {
-    assertStillConductor(ctx, sessionId);
-    touchSessionTick(ctx.store.dir, sessionId, new Date());
+    withWaitOwnerLock(ctx.store.dir, () => {
+      assertStillConductor(ctx, sessionId);
+      touchSessionTick(ctx.store.dir, sessionId, new Date());
+    });
   }
   const handoffClose = sessionId ? await closePreviousTabs(ctx, sessionId) : [];
   onClose(handoffClose);
@@ -669,6 +680,7 @@ function tickJson(o: WaitTickOutcome): Record<string, unknown> {
   return {
     ...o.report,
     ...(o.handoff ? { handoff: o.handoff } : {}),
+    ...(o.carriedHandoffs ? { carriedHandoffs: o.carriedHandoffs } : {}),
     ...(o.handoffClose.length > 0 ? { handoffClose: o.handoffClose } : {}),
   };
 }
@@ -719,7 +731,20 @@ export async function conductorWaitCommand(
     if (!Number.isInteger(maxWaitSec) || maxWaitSec < 1 || maxWaitSec > WAIT_MAX_SEC_LIMIT)
       throw new Error(`--max-wait-sec는 1~${WAIT_MAX_SEC_LIMIT} 사이의 정수여야 해요`);
     const sessionId = await enterTickSession(ctx, opts.takeOver === true);
-    const owner = claimWaitOwner(ctx.store.dir);
+    const owner = claimWaitOwner(ctx.store.dir, sessionId, () => {
+      if (sessionId) return;
+      const active = findActiveConductor(
+        ctx.store.dir,
+        '',
+        Date.now(),
+        activeConductorWindowMs(ctx.config),
+      );
+      if (active) {
+        throw new Error(
+          `다른 컨덕터 세션이 돌고 있어요(세션 ${active.sessionId}, 마지막 tick ${active.lastTickAt}). 세션 id가 없는 wait는 이 저장소의 감시를 넘겨받을 수 없어요`,
+        );
+      }
+    });
     const seen = readSeen(ctx.store.dir);
     const result = await waitForAttention(
       {
@@ -736,30 +761,53 @@ export async function conductorWaitCommand(
         sleep: loop.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
         now: loop.now ?? (() => Date.now()),
         stillOwner: owner.stillOwner,
+        hasCarry: () => hasWaitCarry(ctx.store.dir),
         seen,
         openGatesBefore: ctx.store.openGates().length,
       },
       { maxWaitMs: maxWaitSec * 1000, intervalMs: ctx.config.pollIntervalSec * 1000 },
     );
-    // superseded는 이어받은 wait가 본 목록을 맡는다. 건너뛴 tick뿐이었으면 무엇이 풀렸는지 몰라 그대로 둔다
-    if (result.reason !== 'superseded' && result.observed) {
-      const shown = result.reason === 'attention' && result.last ? shownLines(result.last) : [];
-      writeSeen(ctx.store.dir, seen, result.observed, shown);
-    }
-    printWaitResult(ctx, opts, result);
+    withWaitOwnerLock(ctx.store.dir, () => {
+      if (result.reason === 'superseded' || !owner.stillOwner()) {
+        if (result.last) saveWaitCarry(ctx.store.dir, result.last, result.reasons, seen);
+        printWaitResult(ctx, opts, { ...result, reason: 'superseded', reasons: [] });
+        return;
+      }
+      consumeWaitCarry(ctx.store.dir, (carried) => {
+        const merged = mergeWaitCarry(result, carried, sessionId);
+        const shown = merged.reason === 'attention' && merged.last ? shownLines(merged.last) : [];
+        if (merged.observed || shown.length > 0) {
+          writeSeen(ctx.store.dir, seen, merged.observed, shown);
+        }
+        printWaitResult(ctx, opts, merged, carried.length > 0);
+      });
+    });
   } catch (e) {
     for (const r of handoffClose) console.error(handoffCloseLine(r));
     exitWithError(e);
   }
 }
 
-function printWaitResult(ctx: Ctx, opts: ConductorWaitOptions, result: WaitResult): void {
+function printWaitResult(
+  ctx: Ctx,
+  opts: ConductorWaitOptions,
+  result: WaitResult,
+  carried = false,
+): void {
   const minutes = Math.round(result.elapsedMs / 60_000);
-  const reportFile = join(ctx.store.dir, WAIT_REPORT_FILE);
-  // attention일 때만 쓴다. superseded로 끝난 앞선 wait가 이어받은 wait의 보고서를 덮지 않게 한다
+  const latestFile = join(ctx.store.dir, WAIT_REPORT_FILE);
+  // superseded로 끝난 앞선 wait가 이어받은 wait의 보고서를 덮지 않게 한다.
   const full = result.reason === 'attention' && result.last ? tickJson(result.last) : undefined;
-  if (full) writeJsonAtomic(reportFile, full, { mode: 0o600 });
   const inline = full !== undefined && JSON.stringify(full).length <= WAIT_INLINE_MAX;
+  // 다음 wait가 공용 사본을 갱신해도 알림에 실린 넘김 결과는 그대로 읽을 수 있어야 한다.
+  const separateFile = full && carried && !inline;
+  const reportFile = separateFile
+    ? join(ctx.store.dir, 'wait-reports', `${randomUUID()}.json`)
+    : latestFile;
+  if (full) {
+    if (separateFile) writeJsonAtomic(reportFile, full, { mode: 0o600 });
+    writeJsonAtomic(latestFile, full, { mode: 0o600 });
+  }
   if (opts.json)
     return print({
       reason: result.reason,

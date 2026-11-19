@@ -29,6 +29,7 @@ import type { DeploySignal, JiraClient } from '../../../src/conductor/jira.js';
 import { repoContextPath } from '../../../src/conductor/context.js';
 import {
   OrcaLauncher,
+  OrcaReleaseLiveError,
   SubagentLauncher,
   type CommandRunner,
   type HostAction,
@@ -51,6 +52,8 @@ const config: ConductorConfig = {
   staleAfterSec: 900,
   rateLimitEscalateAfterSec: 21600,
   waitingEscalateAfterSec: 21600,
+  deployWaitMaxSec: 86400,
+  orcaReleaseRetryMaxSec: 7200,
   defaultScope: 'approval',
   resultMaxChars: 2000,
   accounts: {},
@@ -421,6 +424,41 @@ describe('컨덕터 tick', () => {
     expect(store.order('ord-bug')!.status).toBe('done');
     expect(jira.moves.map((m) => m.to)).toEqual(['TODO', 'In Progress', 'PR', 'In-QA']);
   });
+
+  it.each([true, false])(
+    '배포 대기 기한이 지나면 지라 이동 없이 끝낸다 (mergedAt: %s)',
+    async (hasMergedAt) => {
+      const { store, advance } = clockedStore();
+      const jira = fakeJira();
+      const { deps: d } = deps({
+        config: { ...config, deployWaitMaxSec: 120 },
+        jira: jira.client,
+        deploy: { status: async () => ({ status: 'pending' }) },
+      });
+      const anchor = store.timestamp();
+      if (hasMergedAt) advance(30_000);
+      store.addOrder(
+        order({
+          id: 'ord-bug',
+          issueKey: 'APP-1',
+          issueType: 'bug',
+          status: 'merged',
+          updatedAt: store.timestamp(),
+          ...(hasMergedAt ? { mergedAt: anchor } : {}),
+        }),
+      );
+
+      expect((await tick(store, d, { force: true })).warnings).toEqual([]);
+      expect(store.order('ord-bug')?.status).toBe('merged');
+      advance(hasMergedAt ? 90_000 : 120_000);
+      const expired = await tick(store, d, { force: true });
+      expect(store.order('ord-bug')).toMatchObject({ status: 'done' });
+      expect(store.order('ord-bug')?.deployedAt).toBeUndefined();
+      expect(expired.warnings).toEqual([expect.stringContaining('ord-bug: 배포 신호')]);
+      expect(expired.escalated).toEqual([]);
+      expect(jira.moves).toEqual([]);
+    },
+  );
 
   it('지라 담당 티켓이 페이지 상한에 닿으면 tick 결과에 남긴다', async () => {
     const { store } = clockedStore();
@@ -875,44 +913,189 @@ describe('컨덕터 tick', () => {
       },
     );
 
-    it('오르카 dispatch가 안 끝났으면 멈추지 않고 정리 실패 게이트로 올린다', async () => {
-      const { store } = clockedStore();
-      store.addOrder(order({ id: 'ord-1', status: 'cancelled' }));
-      store.startWorker({
-        ...worker('ord-1'),
-        id: 'wrk-1',
-        kind: 'orca-worktree',
-        handle: 'ctx_9',
-        status: 'stopped',
-      });
-      const calls: string[] = [];
-      const runner: CommandRunner = async (_cmd, args) => {
-        calls.push(args[1]!);
-        if (args[1] === 'worker-release')
-          return {
-            code: 1,
-            stdout: '{"ok":false,"error":{"code":"dispatch_inactive"}}',
-            stderr: '',
-          };
-        if (args[1] === 'worker-show')
+    it.each(['dispatch_inactive', 'retained'])(
+      '오르카 release %s는 살아 있는 동안 재시도하다가 기한에 게이트를 연다',
+      async (refusal) => {
+        const { store, advance } = clockedStore();
+        store.addOrder(order({ id: 'ord-1', status: 'cancelled' }));
+        store.startWorker(
+          worker('ord-1', {
+            id: 'wrk-1',
+            kind: 'orca-worktree',
+            handle: 'ctx_9',
+            status: 'stopped',
+          }),
+        );
+        const calls: string[] = [];
+        const runner: CommandRunner = async (_cmd, args) => {
+          calls.push(args[1]!);
+          if (args[1] === 'worker-release') {
+            return refusal === 'dispatch_inactive'
+              ? { code: 1, stdout: '{"ok":false,"error":{"code":"dispatch_inactive"}}', stderr: '' }
+              : { code: 0, stdout: '{"ok":true,"result":{"state":"retained"}}', stderr: '' };
+          }
           return {
             code: 0,
-            stdout: JSON.stringify({ ok: true, result: { state: 'ready', liveness: 'live' } }),
+            stdout: '{"ok":true,"result":{"state":"ready","liveness":"live"}}',
             stderr: '',
           };
-        return { code: 0, stdout: '{"ok":true}', stderr: '' };
-      };
+        };
+        const launcher = new OrcaLauncher({
+          orcaCommand: 'orca',
+          promptDir: tempStateDir(),
+          runner,
+        });
+        const { deps: d } = deps({ launchers: { 'orca-worktree': launcher } });
+        const first = await tick(store, d, { force: true });
+        expect(first.escalated).toEqual([]);
+        expect(store.worker('wrk-1')?.releaseRefusedAt).toBe(first.at);
+        const eventCount = store.snapshot.eventCount;
+
+        advance(7_199_000);
+        expect((await tick(store, d, { force: true })).escalated).toEqual([]);
+        expect(store.worker('wrk-1')?.releaseRefusedAt).toBe(first.at);
+        expect(store.snapshot.eventCount).toBe(eventCount + 1);
+
+        advance(1000);
+        const expired = await tick(store, d, { force: true });
+        expect(calls).toEqual(
+          Array.from({ length: 3 }, () => ['worker-release', 'worker-show']).flat(),
+        );
+        expect(expired.escalated).toHaveLength(1);
+        const gate = store.snapshot.gates[expired.escalated[0]!]!;
+        expect(gate.payload).toMatchObject({ kind: 'cleanup-failed', workerId: 'wrk-1' });
+        expect(gate.reason).toContain('liveness live');
+        expect(store.worker('wrk-1')?.status).toBe('stopped');
+      },
+    );
+
+    it('재시도 중 liveness를 알 수 없으면 바로 게이트를 연다', async () => {
+      const { store } = clockedStore();
+      store.addOrder(order({ id: 'ord-1', status: 'cancelled' }));
+      store.startWorker(
+        worker('ord-1', { id: 'wrk-1', kind: 'orca-worktree', handle: 'ctx_9', status: 'stopped' }),
+      );
+      let liveness = 'live';
+      const runner: CommandRunner = async (_cmd, args) => ({
+        code: 0,
+        stdout: JSON.stringify({
+          ok: true,
+          result: args[1] === 'worker-release' ? { state: 'retained' } : { liveness },
+        }),
+        stderr: '',
+      });
       const launcher = new OrcaLauncher({ orcaCommand: 'orca', promptDir: tempStateDir(), runner });
       const { deps: d } = deps({ launchers: { 'orca-worktree': launcher } });
-      const r = await tick(store, d, { force: true });
-      expect(calls).toEqual(['worker-release', 'worker-show']);
-      expect(r.escalated).toHaveLength(1);
-      const gate = store.snapshot.gates[r.escalated[0]!]!;
-      expect(gate.payload).toMatchObject({ kind: 'cleanup-failed', workerId: 'wrk-1' });
-      expect(gate.reason).toContain('liveness live');
-      expect(store.worker('wrk-1')!.status).toBe('stopped');
-      expect(() => store.removeOrder('ord-1')).toThrow(/멈춘 워커/);
+      expect((await tick(store, d, { force: true })).escalated).toEqual([]);
+
+      liveness = 'unverifiable';
+      const failed = await tick(store, d, { force: true });
+      expect(failed.escalated).toHaveLength(1);
+      expect(store.snapshot.gates[failed.escalated[0]!]!.reason).toContain('liveness unverifiable');
+      expect(store.worker('wrk-1')?.releaseRefusedAt).toBeUndefined();
     });
+  });
+
+  it.each(['released', 'live'])(
+    '재개는 앞 워커 release를 재시도한 뒤 결과에 따라 재개하거나 게이트를 연다 (%s)',
+    async (outcome) => {
+      const { store, advance } = clockedStore();
+      store.addOrder(order({ id: 'ord-1', status: 'running', workerId: 'wrk-1' }));
+      store.startWorker(
+        worker('ord-1', {
+          id: 'wrk-1',
+          kind: 'orca-worktree',
+          handle: 'ctx_9',
+          status: 'stopped',
+          stopReason: 'disconnected',
+        }),
+      );
+      const orca = fakeLauncher('orca-worktree');
+      let live = true;
+      orca.launcher.release = async () => {
+        if (live) throw new OrcaReleaseLiveError('liveness live');
+      };
+      const { deps: d } = deps({
+        config: { ...config, orcaReleaseRetryMaxSec: 2 },
+        launchers: { 'orca-worktree': orca.launcher },
+        orcaAvailable: true,
+      });
+
+      const deferred = await tick(store, d, { force: true });
+      expect(deferred.launched).toEqual([]);
+      expect(deferred.escalated).toEqual([]);
+      expect(store.order('ord-1')?.status).toBe('queued');
+      expect(store.worker('wrk-1')?.releaseRefusedAt).toBe(deferred.at);
+
+      advance(1000);
+      expect((await tick(store, d, { force: true })).escalated).toEqual([]);
+      advance(1000);
+      live = outcome === 'live';
+      const retried = await tick(store, d, { force: true });
+      if (live) {
+        expect(retried.launched).toEqual([]);
+        expect(retried.escalated).toHaveLength(1);
+        expect(store.order('ord-1')?.status).toBe('escalated');
+        expect(store.snapshot.gates[retried.escalated[0]!]!.reason).toContain('liveness live');
+      } else {
+        expect(retried.escalated).toEqual([]);
+        expect(retried.launched).toEqual([
+          expect.objectContaining({ orderId: 'ord-1', resumed: true }),
+        ]);
+        expect(store.worker('wrk-1')?.releaseRefusedAt).toBeUndefined();
+      }
+    },
+  );
+
+  it('다른 워커가 슬롯을 모두 써도 앞 워커의 release 재시도와 기한 판정은 계속한다', async () => {
+    const { store, advance } = clockedStore();
+    store.addOrder(order({ id: 'ord-1', status: 'queued', workerId: 'wrk-1' }));
+    store.addOrder(order({ id: 'ord-2', createdAt: '2026-11-01T00:00:01.000Z' }));
+    store.startWorker(worker('ord-1', { id: 'wrk-1', kind: 'orca-worktree', status: 'stopped' }));
+    const orca = fakeLauncher('orca-worktree');
+    let attempts = 0;
+    orca.launcher.release = async () => {
+      attempts++;
+      throw new OrcaReleaseLiveError('liveness live');
+    };
+    const { deps: d } = deps({
+      config: { ...config, maxConcurrentWorkers: 1, orcaReleaseRetryMaxSec: 2 },
+      launchers: { 'orca-worktree': orca.launcher },
+      orcaAvailable: true,
+    });
+
+    const first = await tick(store, d, { force: true });
+    expect(first.launched).toEqual([expect.objectContaining({ orderId: 'ord-2' })]);
+    advance(1000);
+    expect((await tick(store, d, { force: true })).escalated).toEqual([]);
+    expect(attempts).toBe(2);
+    advance(1000);
+    const expired = await tick(store, d, { force: true });
+    expect(attempts).toBe(3);
+    expect(expired.escalated).toHaveLength(1);
+    expect(expired.launched).toEqual([]);
+    expect(store.order('ord-1')?.status).toBe('escalated');
+  });
+
+  it('앞 워커의 release만 대기하는 주문은 다른 주문의 배정을 막지 않는다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-1', status: 'queued', workerId: 'wrk-1' }));
+    store.addOrder(order({ id: 'ord-2', createdAt: '2026-11-01T00:00:01.000Z' }));
+    store.startWorker(worker('ord-1', { id: 'wrk-1', kind: 'orca-worktree', status: 'stopped' }));
+    const orca = fakeLauncher('orca-worktree');
+    orca.launcher.release = async () => {
+      throw new OrcaReleaseLiveError('liveness live');
+    };
+    const { deps: d } = deps({
+      config: { ...config, maxConcurrentWorkers: 1 },
+      launchers: { 'orca-worktree': orca.launcher },
+      orcaAvailable: true,
+    });
+
+    const r = await tick(store, d, { force: true });
+    expect(r.launched).toEqual([expect.objectContaining({ orderId: 'ord-2', resumed: false })]);
+    expect(r.escalated).toEqual([]);
+    expect(store.order('ord-1')?.status).toBe('queued');
   });
 
   it('워커 정리가 실패하면 주문에 안 묶인 게이트를 열고 주문은 그대로 정산한다', async () => {
