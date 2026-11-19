@@ -199,7 +199,7 @@ function projectionSlice(ir: ArchitectureIr, pr: ArchitectureProjection): Projec
 }
 
 // 브라우저가 열어둔 HTML을 새로고침할 때 반쯤 쓰인 파일을 보지 않게 json과 같은 방식으로 갈아 끼운다
-function writeTextAtomic(path: string, content: string): void {
+export function writeTextAtomic(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   writeFileSync(tmp, content, 'utf-8');

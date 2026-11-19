@@ -11,6 +11,7 @@ import { deriveLifecycle, lifecycleCounts, lifecycleOverBudget } from './lifecyc
 import { resolveInfraPlacement } from './infra-placement.js';
 import { indexMicroApps } from './micro-app.js';
 import { maskIrSecrets } from './secret-mask.js';
+import type { IGNORED_FILE_TRACKED } from './commit-policy.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, packById } from './packs/index.js';
 import { KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
 import {
@@ -111,7 +112,16 @@ export type ArchitectureValidationWarning =
   | BudgetWarning
   | ExcerptMismatchWarning
   | InfraPlacementWarning
-  | SecretMaskedWarning;
+  | SecretMaskedWarning
+  | IgnoredFileTrackedWarning;
+
+/** 공개 레포에서 .gitignore에 넣은 산출물을 git이 이미 추적하고 있다. 파일이 몇 개든 한 건으로 낸다 */
+export interface IgnoredFileTrackedWarning {
+  code: typeof IGNORED_FILE_TRACKED;
+  message: string;
+  /** 레포 루트 기준 경로 */
+  paths: string[];
+}
 
 /** 산출물에 싣기 전에 비밀값을 가린 자리. 위치만 담고 값이나 값의 일부는 담지 않는다 */
 export interface SecretMaskedWarning {
