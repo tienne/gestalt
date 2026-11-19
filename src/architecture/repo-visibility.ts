@@ -31,9 +31,9 @@ export interface RepoVisibilityDeps {
 
 /**
  * GitHub INTERNAL(엔터프라이즈 조직 안에서만 보이는 레포)을 어느 쪽으로 볼지.
- * 조직 사람 전부가 보는 레포라 본인용 산출물을 올리면 안 되는 쪽에 가깝게 보고 공개로 둔다
+ * 조직 밖에는 안 보이는 레포라 프라이빗으로 둔다
  */
-export const INTERNAL_VISIBILITY_VERDICT: RepoVisibilityVerdict = 'public';
+export const INTERNAL_VISIBILITY_VERDICT: RepoVisibilityVerdict = 'private';
 
 const GH_TIMEOUT_MS = 5_000;
 const GIT_TIMEOUT_MS = 5_000;

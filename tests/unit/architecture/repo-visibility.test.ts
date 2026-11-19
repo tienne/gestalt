@@ -34,12 +34,12 @@ describe('resolveRepoVisibility', () => {
     expect(r).toEqual({ verdict: 'public', source: 'gh', visibility: 'PUBLIC' });
   });
 
-  it('INTERNAL은 한 상수로 정한 쪽을 따른다(지금은 공개)', () => {
+  it('INTERNAL은 한 상수로 정한 쪽을 따른다(지금은 비공개)', () => {
     const r = resolveRepoVisibility(ROOT, {
       readRemoteUrl: () => REMOTE,
       ghRepoView: gh('INTERNAL'),
     });
-    expect(INTERNAL_VISIBILITY_VERDICT).toBe('public');
+    expect(INTERNAL_VISIBILITY_VERDICT).toBe('private');
     expect(r).toEqual({
       verdict: INTERNAL_VISIBILITY_VERDICT,
       source: 'gh',

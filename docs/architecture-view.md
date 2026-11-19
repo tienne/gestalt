@@ -724,7 +724,7 @@ render는 그릴 때마다 레포 공개 여부를 보고 `.gestalt/architecture
 
 1. `git remote get-url origin`으로 원격 주소를 읽는다. 원격이 없으면 퍼블릭으로 본다.
 2. GitHub 주소가 아니면 퍼블릭으로 본다.
-3. `gh repo view <owner/repo> --json visibility`로 묻는다 (타임아웃 5초). `PRIVATE`면 프라이빗, `PUBLIC`이면 퍼블릭이다. 엔터프라이즈 조직 안에서만 보이는 `INTERNAL`도 퍼블릭으로 본다.
+3. `gh repo view <owner/repo> --json visibility`로 묻는다 (타임아웃 5초). `PRIVATE`면 프라이빗, `PUBLIC`이면 퍼블릭이다. 엔터프라이즈 조직 안에서만 보이는 `INTERNAL`은 조직 밖에 안 보이니 프라이빗으로 본다.
 4. gh가 없거나 실패했거나 응답을 못 읽었으면 퍼블릭으로 본다.
 
 애매하면 퍼블릭으로 보는 이유는 본인용 산출물이 공개 레포에 올라가는 쪽이 더 큰 사고라서다. 공개 여부를 못 읽어도 render는 막히지 않는다.

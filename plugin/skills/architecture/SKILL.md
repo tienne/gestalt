@@ -882,4 +882,4 @@ LLM이 채운 글자 칸(근거 `excerpt`, `label`, `description`, 흐름과 질
 
 공유본은 외부 통신을 막는 CSP(`connect-src 'none'`)가 붙는다. 본인용은 정책을 따로 두지만 지금도 외부로 요청을 보내지 않는다.
 
-커밋할 파일은 레포 공개 여부로 갈린다. 퍼블릭 레포(원격이 없거나 GitHub 밖이거나 gh로 확인을 못 한 경우와 `INTERNAL` 포함)면 render가 `.gestalt/architecture/.gitignore`에 본인용 HTML과 저장 IR, 질문별 그림 파일을 막는 줄을 써 두고 `.shared.html`만 커밋하게 둔다. 프라이빗 레포면 아무것도 막지 않는다. render가 쓰는 줄은 `# >>> gestalt architecture` 표식 구역 안에만 있고 사람이 적은 줄은 건드리지 않는다.
+커밋할 파일은 레포 공개 여부로 갈린다. 퍼블릭 레포(원격이 없거나 GitHub 밖이거나 gh로 확인을 못 한 경우 포함)면 render가 `.gestalt/architecture/.gitignore`에 본인용 HTML과 저장 IR, 질문별 그림 파일을 막는 줄을 써 두고 `.shared.html`만 커밋하게 둔다. 프라이빗 레포(`INTERNAL` 포함)면 아무것도 막지 않는다. render가 쓰는 줄은 `# >>> gestalt architecture` 표식 구역 안에만 있고 사람이 적은 줄은 건드리지 않는다.
