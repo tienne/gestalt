@@ -183,7 +183,7 @@ test('parseStatus와 toView는 터미널 화면 필드를 싣고 꼴이 틀린 �
     ],
     gates: [],
     conductor: { maxWorkers: 4, activeWorkers: '3', prWatchRepos: ['a/b', 1] },
-    recentEvents: [{ at: 't', type: 'checkpoint', orderId: 'o1', summary: '<b>x</b>' }, { type: 'report' }]
+    recentEvents: [{ at: 't', type: 'checkpoint', orderId: 'o1', summary: '<b>x</b>' }, { type: 'report' }, { at: 'u', type: 'waiting', summary: 'CI 대기', until: '2026-11-12T02:10:00.000Z' }]
   })
   const view = toView(raw, null, [], 0)
   const [o1, o2] = view.orders
@@ -195,7 +195,10 @@ test('parseStatus와 toView는 터미널 화면 필드를 싣고 꼴이 틀린 �
   assert.equal(o2!.checkpoint, undefined)
   assert.equal(o2!.waiting, undefined)
   assert.deepEqual(view.conductor, { maxWorkers: 4, prWatchRepos: ['a/b'] })
-  assert.deepEqual(view.recentEvents, [{ at: 't', type: 'checkpoint', orderId: 'o1', summary: '<b>x</b>' }])
+  assert.deepEqual(view.recentEvents, [
+    { at: 't', type: 'checkpoint', orderId: 'o1', summary: '<b>x</b>' },
+    { at: 'u', type: 'waiting', summary: 'CI 대기', until: '2026-11-12T02:10:00.000Z' }
+  ])
 })
 
 test('옛 CLI 출력이면 conductor와 recentEvents가 없다', () => {

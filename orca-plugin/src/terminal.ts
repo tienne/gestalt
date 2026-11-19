@@ -2,7 +2,7 @@
 // 파일 내용은 쓰지 않고 워커가 읽은 상태만 그린다. 주문 제목이나 게이트 사유는 바깥에서 온 글이라 textContent로만 넣는다.
 import { ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
 import type { ConductorView, EventView } from './protocol'
-import { clock, duration, gateLabel, terminalModel, type Card, type TerminalModel } from './terminal-model'
+import { clock, duration, eventText, gateLabel, terminalModel, type Card, type TerminalModel } from './terminal-model'
 
 type State = { view: ConductorView | null; loadError: string | null; openError: string | null }
 const state: State = { view: null, loadError: null, openError: null }
@@ -148,7 +148,7 @@ function eventRow(e: EventView): HTMLElement {
     { class: 'r' },
     el('span', { class: 'muted' }, clock(e.at, true)),
     el('span', { class: EVENT_TONE[e.type] ?? '' }, EVENT_LABEL[e.type] ?? e.type),
-    el('span', { class: 'ell' }, e.orderId ? `${e.orderId} ${e.summary}` : e.summary)
+    el('span', { class: 'ell' }, eventText(e))
   )
 }
 

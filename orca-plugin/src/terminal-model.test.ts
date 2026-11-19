@@ -1,6 +1,6 @@
 import { assert, test } from 'orca/testing'
 import type { ConductorView, OrderView } from './protocol'
-import { chainChips, duration, metaOf, progressOf, stateLine, terminalModel } from './terminal-model'
+import { chainChips, clock, duration, eventText, metaOf, progressOf, stateLine, terminalModel } from './terminal-model'
 
 const base: OrderView = { id: 'o1', status: 'running', scope: 'pr', repo: 'acme/web', title: 't', bypasses: [] }
 const cp = (over: Partial<NonNullable<OrderView['checkpoint']>> = {}) => ({
@@ -104,4 +104,16 @@ test('terminalModel은 옛 CLI면 슬롯 최대값을 비우고 워커 수와 �
   assert.equal(m.maxWorkers, undefined)
   assert.equal(m.activeWorkers, 1)
   assert.equal(m.queued, 1)
+})
+
+test('같은 대기면 카드 상태줄과 이벤트 로그가 같은 로컬 시각을 적는다', () => {
+  const until = '2026-11-12T02:10:00.000Z'
+  const o: OrderView = { ...base, waiting: { reason: 'CI 대기', since: '2026-11-12T01:51:00.000Z', until } }
+  const card = stateLine(o, [], Date.parse('2026-11-12T01:58:00.000Z')).text
+  const row = eventText({ at: '2026-11-12T01:51:00.000Z', type: 'waiting', orderId: 'o1', summary: 'CI 대기', until })
+  const at = clock(until)
+  assert.equal(card, `CI 대기 ~${at}`)
+  assert.equal(row, `o1 CI 대기 · ~${at}`)
+  // 기한을 문장에 굳혀 보내던 옛 CLI 줄은 손대지 않는다
+  assert.equal(eventText({ at: 't', type: 'waiting', summary: 'CI 대기 · ~11:10' }), 'CI 대기 · ~11:10')
 })

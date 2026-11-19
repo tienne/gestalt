@@ -44,7 +44,7 @@ export type ConductorInfo = {
 }
 
 /** CLI가 이벤트 로그에서 고른 한 줄. summary에 바깥에서 온 글이 섞여 있으니 텍스트로만 그린다 */
-export type EventView = { at: string; type: string; orderId?: string; summary: string }
+export type EventView = { at: string; type: string; orderId?: string; summary: string; until?: string }
 
 export type OrderView = {
   id: string

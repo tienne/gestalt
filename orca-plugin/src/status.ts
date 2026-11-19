@@ -125,11 +125,13 @@ function events(v: unknown): EventView[] | undefined {
   for (const e of v) {
     if (!isRecord(e) || !str(e['at']) || !str(e['type'])) continue
     const orderId = str(e['orderId'])
+    const until = str(e['until'])
     out.push({
       at: str(e['at'])!,
       type: str(e['type'])!,
       ...(orderId ? { orderId } : {}),
-      summary: str(e['summary']) ?? ''
+      summary: str(e['summary']) ?? '',
+      ...(until ? { until } : {})
     })
   }
   return out

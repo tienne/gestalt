@@ -79,6 +79,18 @@ export function clock(iso: string | undefined, seconds = false): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}${seconds ? `:${pad(d.getSeconds())}` : ''}`
 }
 
+/** 대기 사유와 기한. 카드 상태줄과 이벤트 로그가 같은 시각을 적도록 둘 다 이걸 쓴다 */
+export function waitText(reason: string, until: string | undefined, joiner = ' '): string {
+  const at = clock(until)
+  return at ? `${reason}${joiner}~${at}` : reason
+}
+
+/** 이벤트 로그 한 줄의 본문. 대기 기한은 CLI가 원시 ISO로 주면 이 맥의 시각으로 붙인다 */
+export function eventText(e: EventView): string {
+  const body = e.type === 'waiting' && e.until ? waitText(e.summary, e.until, ' · ') : e.summary
+  return e.orderId ? `${e.orderId} ${body}` : body
+}
+
 export type StateTone = 'run' | 'wait' | 'gate' | 'limit' | 'idle'
 export type StateLine = { tone: StateTone; text: string; aside: string }
 
@@ -92,8 +104,7 @@ export function stateLine(o: OrderView, gates: readonly GateView[], now: number)
   if (gate) return { tone: 'gate', text: `${gateLabel(gate.type)} 대기`, aside: duration(ms(gate.openedAt), now) }
   if (o.status === 'waiting-gate') return { tone: 'gate', text: 'waiting-gate', aside: duration(ms(o.updatedAt), now) }
   if (o.waiting) {
-    const until = clock(o.waiting.until)
-    return { tone: 'wait', text: `${o.waiting.reason}${until ? ` ~${until}` : ''}`, aside: duration(ms(o.waiting.since), now) }
+    return { tone: 'wait', text: waitText(o.waiting.reason, o.waiting.until), aside: duration(ms(o.waiting.since), now) }
   }
   const last = Math.max(ms(o.checkpoint?.savedAt) ?? 0, ms(o.updatedAt) ?? 0) || null
   const tone: StateTone = o.status === 'running' ? 'run' : o.status === 'escalated' ? 'gate' : 'idle'
