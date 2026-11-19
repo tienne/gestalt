@@ -32,6 +32,7 @@ import { DIARY_CSS, DIARY_FONT_LINK } from './theme-diary.js';
 import { THEME_BOOT_JS, VIEWER_JS } from './viewer-js.js';
 import {
   boldPattern,
+  FOLLOWUP_LABEL,
   isLensKind,
   isTextKind,
   keywordPattern,
@@ -334,6 +335,14 @@ export function renderDigestHtml(
       )
       .join('')}</nav>`;
 
+    const followups = report.followups?.length
+      ? `<section class="extra followups"><h2>후속 설명</h2><ul>${report.followups
+          .map(
+            (item) =>
+              `<li><p><strong>${FOLLOWUP_LABEL[item.kind]}</strong> ${loc(item.anchor.key)} → ${loc(item.cite.key)}${cite(item.cite)}</p><p>${e(item.note)}</p><blockquote>${e(item.quote)}</blockquote></li>`,
+          )
+          .join('')}</ul></section>`
+      : '';
     const keywordsHtml = keywords.length
       ? `<section class="extra" id="${pfx}keywords"><h2>키워드</h2><dl>${keywords
           .map(
@@ -367,6 +376,7 @@ export function renderDigestHtml(
 ${glance}
 ${toc}
 ${sectionsHtml}
+${followups}
 ${limits}
 ${keywordsHtml}
 ${skippedHtml}</div>`;

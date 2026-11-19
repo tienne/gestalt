@@ -1,3 +1,4 @@
+import { checkFollowups } from './lint-followups.js';
 import { checkSourceQuote, locateCite } from './lint-cite.js';
 import { isCellRef } from './lens-schema.js';
 import type { LensSource } from './lens-source.js';
@@ -751,6 +752,7 @@ function lintReport(
   checkSubsectionCoverage(report, p, issues);
   checkCites(report, p, transcript, slides, issues);
   checkComparisons(report, p, transcript, slides, issues);
+  checkFollowups(report, p, transcript, span, issues);
   // 대섹션 아래 출처는 커버리지와 소섹션 범위 검사가 이미 구간 안으로 묶는다. 키워드만 따로 본다
   if (report.options.range && span) {
     const s = span;

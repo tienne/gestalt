@@ -100,6 +100,7 @@ outputs:
 | `gestalt digest ingest <url\|파일>`                        | 메타데이터와 자막을 받아 `transcript.json` 만들기. 자막이 없으면 faster-whisper                                                                                   |
 | `gestalt digest merge <slug> <파일>`                       | 리포트 한 벌을 `digest.json`에 합치며 스키마와 lint 검사. 오류가 있으면 저장하지 않는다                                                                           |
 | `gestalt digest slice <slug> --range <구간>`               | 구간 리포트용으로 그 구간 문장만 잘라 저장. 문장 번호는 그대로 둔다                                                                                               |
+| `gestalt digest followup-candidates <slug> --report <file>` | 구간 리포트의 본문 인용과 이후 스크립트가 만나는 후보를 양쪽 원문과 함께 최대 24개 고른다 |
 | `ges_digest action=validate`                               | `digest.json`의 스키마와 lint 검사. 리포트 키 목록도 준다                                                                                                         |
 | `gestalt digest translate-apply <slug> <파일>`             | 스크립트 번역을 문장 번호로 붙이기. 언어가 바뀌면 이전 번역을 지운다                                                                                              |
 | `gestalt digest ocr <slug>`                                | 일정 간격으로 프레임을 뽑아 화면 글자를 읽고 `ocr.json`에 쓰기. tesseract가 있어야 한다                                                                           |
@@ -302,7 +303,29 @@ jq -n --slurpfile base '<reportPath>' --slurpfile ld '<폴더>/digest.easy.lead.
   '<폴더>/digest.easy.part-s1.json' '<폴더>/digest.easy.part-s2.json' > '<easyPath>'
 ```
 
+## Step 2.1 — 구간 밖 후속 설명
+
+새로 쓴 보통 리포트에 `options.range`가 있으면 Step 3 첫 merge 전에 아래 명령을 호출한다. 이미 저장된 보통 리포트를 바탕으로 쉬운 리포트만 쓸 때는 거기에 저장된 후속 설명을 가져온다.
+
+```bash
+gestalt digest followup-candidates '<slug>' --report '<reportPath>' --json --repo-root '<repoRoot>' > '<candidatesPath>'
+```
+
+명령이 고른 원문 후보만 읽는다. 각 후보의 본문 불릿과 `before` 원문, `after` 원문을 함께 대조한다. 뒤 발언이 같은 주장의 빠진 조건, 적용 범위, 작동 방식 등을 직접 밝히면 `clarification`으로 쓴다. 발표자가 앞선 발언의 오류를 짚고 고쳐 말한 것이 확인되면 `correction`으로 쓴다. 같은 주제를 반복하거나 다음 절에서 비슷한 용어가 나온 후보는 버린다. 판단이 어려우면 그 후보만 건너뛴다. 슬라이드 비교가 있으면 PDF 해당 쪽도 확인할 수 있지만 후속 발언의 근거는 같은 영상에서 찾는다.
+
+확인한 경우에만 보통 초안의 `followups`에 최대 여섯 항목을 넣는다. `{kind, anchor, cite, quote, note}` 모양이다. `anchor`에는 후보가 가리킨 기존 영상 인용을 그대로 쓴다. `cite`는 이후 원문에서 핵심 발언의 번호를 `key`로 두고 확인에 필요한 문장만 여덟 개 이내로 잡는다. `quote`에는 앞선 발언과 연결이 드러나는 후속 발언을 가리킨 범위에서 그대로 옮긴다. `note`에는 새로 명확해진 점이나 고친 점을 한두 문장으로 쓴다. 확인한 후보가 없으면 필드를 비운다. 제목, 본문, 기존 인용이나 요약 범위를 바꾸지 않는다.
+
+쉬운 리포트는 보통 리포트에 저장한 배열을 그대로 붙인다. 후속 설명이 연결된 불릿의 기존 영상 근거도 그대로 둔다. 조각으로 만든 쉬운 리포트도 Step 3 전에 아래 방법으로 동일한 배열을 붙인다.
+
+```bash
+jq --slurpfile normal '<reportPath>' \
+  'if $normal[0] | has("followups") then .followups = $normal[0].followups else del(.followups) end' \
+  '<easyPath>' > '<easyPath>.verified' && mv '<easyPath>.verified' '<easyPath>'
+```
+
 ## Step 3 — 합치기와 검증
+
+시간 구간이 있는 리포트는 Step 2.1에서 후속 설명까지 확인한 뒤 합친다.
 
 ```bash
 gestalt digest merge '<slug>' '<reportPath>' --json --repo-root '<repoRoot>'

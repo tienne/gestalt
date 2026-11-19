@@ -70,6 +70,7 @@ import {
   digestTemplateCommand,
   digestTemplatesCommand,
   digestSliceCommand,
+  digestFollowupCandidatesCommand,
   digestTranslateApplyCommand,
   digestRenderCommand,
   digestServeCommand,
@@ -681,6 +682,14 @@ export function createCli(): Command {
     .command('template <id>')
     .description('템플릿의 요약 지시를 출력한다. 요약 에이전트에게 그대로 넘긴다')
     .action((id, o, cmd) => digestTemplateCommand(id, { ...digestInherited(cmd), ...o }));
+
+  digest
+    .command('followup-candidates <slug>')
+    .description('구간 리포트의 기존 인용과 관련된 뒤쪽 원문 후보를 찾는다')
+    .requiredOption('--report <file>', '구간 리포트 초안 JSON')
+    .action((slug, o, cmd) =>
+      digestFollowupCandidatesCommand(slug, { ...digestInherited(cmd), ...o }),
+    );
 
   digest
     .command('slice <slug>')

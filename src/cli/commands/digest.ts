@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadConfig } from '../../core/config.js';
 import { COMMENTS_DEFAULT_MAX, commentsMap, fetchComments } from '../../digest/comments.js';
+import { findFollowupCandidates } from '../../digest/followups.js';
 import { extractFrames } from '../../digest/frames.js';
 import { ingest } from '../../digest/ingest.js';
 import { lensSourceForLint } from '../../digest/lens-source.js';
@@ -12,7 +13,7 @@ import { pickScenes, sceneSecs } from '../../digest/scenes.js';
 import { mergeExtension, mergeReport } from '../../digest/merge.js';
 import { runOcr, type OcrResult } from '../../digest/ocr.js';
 import { exportMarkdown, renderToFiles, type RenderFilesResult } from '../../digest/render.js';
-import { parseDigest } from '../../digest/schema.js';
+import { parseDigest, reportSchema } from '../../digest/schema.js';
 import { parseRangeArg, sliceFileName, sliceTranscript } from '../../digest/slice.js';
 import { DigestServer, findDigestPort, openInBrowser } from '../../digest/server.js';
 import { DigestStore } from '../../digest/store.js';
@@ -394,6 +395,21 @@ export function digestSliceCommand(
       );
       console.log(`저장: ${path}`);
     });
+  } catch (e) {
+    fail(e);
+  }
+}
+
+export function digestFollowupCandidatesCommand(
+  slug: string,
+  opts: DigestCommonOptions & { report: string },
+): void {
+  try {
+    const transcript = new DigestStore(rootOf(opts)).readTranscript(slug);
+    if (!transcript.ok) throw new Error(transcript.message);
+    const report = reportSchema.parse(JSON.parse(readFileSync(resolve(opts.report), 'utf-8')));
+    const candidates = findFollowupCandidates(transcript.transcript, report);
+    emit({ candidates }, opts.json, () => console.log(JSON.stringify(candidates, null, 2)));
   } catch (e) {
     fail(e);
   }

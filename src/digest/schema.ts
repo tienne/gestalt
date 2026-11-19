@@ -276,6 +276,16 @@ export const reportOptionsSchema = z.object({
   prompt: z.string().trim().min(1).max(2000).optional(),
 });
 
+export const followupSchema = z.object({
+  kind: z.enum(['clarification', 'correction']),
+  anchor: citeSchema,
+  cite: citeSchema,
+  quote: z.string().trim().min(8).max(600),
+  note: z.string().trim().min(1).max(500),
+});
+
+export const FOLLOWUP_LABEL = { clarification: '구체화', correction: '정정' } as const;
+
 export const reportSchema = z.object({
   options: reportOptionsSchema.default({}),
   lead: z.object({
@@ -288,6 +298,7 @@ export const reportSchema = z.object({
   sections: z.array(sectionSchema).min(1),
   skipped: z.array(skippedSchema).default([]),
   keywords: z.array(keywordSchema).default([]),
+  followups: z.array(followupSchema).max(6).optional(),
   /** 읽기 렌즈의 검증 안 된 부분. 본문 끝에 늘 펼쳐 둔다 */
   limits: z.array(limitSchema).optional(),
   /**

@@ -63,6 +63,12 @@ gestalt digest serve <slug>                       # 이미 만든 뷰어를 다�
 gestalt digest export <slug> --md --report <key>  # 첫 리포트가 아닌 리포트의 마크다운을 낸다
 ```
 
+## 구간 요약 뒤의 후속 설명
+
+시간 구간을 정한 리포트에서는 같은 영상이 구간 안의 주장을 뒤에서 구체화하거나 바로잡은 경우에 한해 본문 뒤에 후속 설명을 붙인다. 본문 인용 시각과 뒤의 발언 시각, 원문 인용, 두 발언을 연결한 이유를 함께 표시한다. 보통 리포트와 쉬운 리포트는 같은 후속 근거를 쓴다.
+
+`gestalt digest followup-candidates <slug> --report <구간 초안 JSON> --json`으로 후보 원문을 찾는다. 명령은 저장된 전체 스크립트에서 작은 문장 묶음만 뽑는다. 후보 중 실제로 앞선 주장을 구체화하거나 정정한 대목을 원문으로 확인한 뒤 초안에 넣는다.
+
 ## 발표 영상과 슬라이드 PDF를 같이 요약하기
 
 `/video-digest source=<영상> slides=<PDF>`로 영상과 발표 자료를 한 리포트로 읽을 수 있다. 파일 경로나 주소를 넘긴다. CLI에서 수집만 하려면 `gestalt digest ingest <영상> --slides <PDF> --json`을 쓴다. JSON의 `slides.source`가 출처 ID다. `slides.transcriptPath`와 `slides.sourcePath`에서 PDF의 추출 문단과 원문 위치를 확인할 수 있다.

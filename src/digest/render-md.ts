@@ -11,6 +11,7 @@ import { CARD_VERDICT_LABEL, cardKindLabel, GLANCE_LABEL, unitLabel } from './re
 import { reportLabel } from './reports.js';
 import { widgetMarkdown } from './render-widgets.js';
 import {
+  FOLLOWUP_LABEL,
   isLensKind,
   isTextKind,
   keywordPattern,
@@ -187,6 +188,17 @@ export function renderDigestMarkdown(
       out.push('');
     }
   }
+  if (report.followups?.length) {
+    out.push('## 후속 설명', '');
+    for (const item of report.followups) {
+      out.push(
+        `- **${FOLLOWUP_LABEL[item.kind]}** ${time(item.anchor)} → ${time(item.cite)}. ${mdInline(item.note)}`,
+        `  > ${mdInline(item.quote)}`,
+        '',
+      );
+    }
+  }
+
   if (report.links?.length && !opts.omitCrops) {
     out.push('## 내 지식과 잇기', '');
     for (const link of report.links) {
