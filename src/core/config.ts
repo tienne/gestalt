@@ -403,6 +403,8 @@ const conductorConfigSchema = z.object({
    * 대기 중에는 staleAfterSec로 끊김 판정을 하지 않는다
    */
   waitingEscalateAfterSec: z.number().int().min(600).max(604800).default(21600),
+  /** 머지 뒤 배포 신호를 기다리는 상한(초) */
+  deployWaitMaxSec: z.number().int().positive().default(86400),
   /** 사람이 넘겨받은(human-owned) 주문의 PR 상태를 gh로 확인하는 주문별 간격(초) */
   humanOwnedPollSec: z.number().int().min(60).max(86400).default(900),
   /** human-owned로 들어간 뒤 이 시간(초)이 지나도 머지나 닫힘이 없으면 parked로 바꾸고 더 안 본다 */

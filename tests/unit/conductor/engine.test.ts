@@ -51,6 +51,7 @@ const config: ConductorConfig = {
   staleAfterSec: 900,
   rateLimitEscalateAfterSec: 21600,
   waitingEscalateAfterSec: 21600,
+  deployWaitMaxSec: 86400,
   defaultScope: 'approval',
   resultMaxChars: 2000,
   accounts: {},
@@ -421,6 +422,41 @@ describe('컨덕터 tick', () => {
     expect(store.order('ord-bug')!.status).toBe('done');
     expect(jira.moves.map((m) => m.to)).toEqual(['TODO', 'In Progress', 'PR', 'In-QA']);
   });
+
+  it.each([true, false])(
+    '배포 대기 기한이 지나면 지라 이동 없이 끝낸다 (mergedAt: %s)',
+    async (hasMergedAt) => {
+      const { store, advance } = clockedStore();
+      const jira = fakeJira();
+      const { deps: d } = deps({
+        config: { ...config, deployWaitMaxSec: 120 },
+        jira: jira.client,
+        deploy: { status: async () => ({ status: 'pending' }) },
+      });
+      const anchor = store.timestamp();
+      if (hasMergedAt) advance(30_000);
+      store.addOrder(
+        order({
+          id: 'ord-bug',
+          issueKey: 'APP-1',
+          issueType: 'bug',
+          status: 'merged',
+          updatedAt: store.timestamp(),
+          ...(hasMergedAt ? { mergedAt: anchor } : {}),
+        }),
+      );
+
+      expect((await tick(store, d, { force: true })).warnings).toEqual([]);
+      expect(store.order('ord-bug')?.status).toBe('merged');
+      advance(hasMergedAt ? 90_000 : 120_000);
+      const expired = await tick(store, d, { force: true });
+      expect(store.order('ord-bug')).toMatchObject({ status: 'done' });
+      expect(store.order('ord-bug')?.deployedAt).toBeUndefined();
+      expect(expired.warnings).toEqual([expect.stringContaining('ord-bug: 배포 신호')]);
+      expect(expired.escalated).toEqual([]);
+      expect(jira.moves).toEqual([]);
+    },
+  );
 
   it('지라 담당 티켓이 페이지 상한에 닿으면 tick 결과에 남긴다', async () => {
     const { store } = clockedStore();

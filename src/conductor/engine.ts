@@ -1058,6 +1058,15 @@ async function settleOne(
     });
     store.updateOrder(order.id, { status: 'escalated' });
     report.escalated.push(gate.id);
+  } else if (
+    signal.status === 'pending' &&
+    Date.parse(report.at) - Date.parse(order.mergedAt ?? order.updatedAt) >=
+      deps.config.deployWaitMaxSec * 1000
+  ) {
+    store.updateOrder(order.id, { status: 'done' });
+    report.warnings.push(
+      `${order.id}: 배포 신호를 ${deps.config.deployWaitMaxSec}초 기다려 지라 이동 없이 끝냈어요`,
+    );
   }
 }
 
