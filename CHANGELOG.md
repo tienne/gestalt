@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.149.0] - 2026-11-19
+
+### Added
+
+- **모바일 기기 제어용 device 스킬을 추가했어요(#152).** 용도(research, check, qa)와 OS 버전을 보고 iph, mobile-mcp, Maestro, idb 중 도구를 골라요. 승인받아 셋업한 뒤 화면을 읽고 누르고 다시 읽는 순서로 조작해요.
+  - 결제 직전에 멈추고 로그인은 대신 하지 않아요. 남의 앱 화면에 보이는 개인정보는 용도별로 다르게 다뤄요. research는 원본을 치환한 뒤에만 보고 check와 qa는 테스트 계정 화면을 그대로 보되 실제 고객 정보가 보이면 멈춰요.
+  - 설치 명령은 확인한 버전으로 고정했어요. 설치 스크립트는 파일로 받아 보여 준 뒤에 실행하고 도구마다 출처와 텔레메트리 끄는 방법을 적었어요.
+
+### Changed
+
+- **research의 앱 화면 출처를 device 스킬에 맡겼어요.** Android와 iOS로 나눠 적던 출처를 모바일 앱 한 줄로 합쳤어요. 셋업이 안 되면 다음 출처로 내려가고 개인정보 치환은 research에 남겼어요.
+  - 캡처는 레포 밖 임시 폴더에 두고 지우는 주체를 research로 정했어요. 지울 경로를 넣는 자리를 가드 첫 줄에 두었고 링크면 지우지 않아요.
+  - 접근성 트리에서 개인정보가 아닌 메뉴 라벨만 화면 지도의 entryPath로 옮겨요.
+
+### Fixed
+
+- **임시 폴더 가드가 링크 대상까지 지우던 문제를 막았어요.** 셸 변수는 도구 호출 사이에 남지 않아 가드를 돌릴 때 경로가 비어 있었어요. 끝 슬래시를 모두 떼고 링크면 지우지 않아요.
+- **첫 iph doctor 승인 조건을 세션 기준으로 바꿨어요.** 기기에서 doctor를 돌린 적이 있는지는 에이전트가 알 수 없어서 이 세션에서 승인받았는지로 판단해요.
+
 ## [0.148.0] - 2026-11-19
 
 ### Added
