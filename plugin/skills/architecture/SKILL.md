@@ -248,15 +248,18 @@ Step 0 전에 두 가지를 정한다. 대상에 맞는 어휘 팩과 질문에 
 1. **FE 호출**: 화면이 부르는 API 호출을 찾는다. API 클라이언트 래퍼를 거치면 래퍼 안이 아니라 화면 쪽 호출 지점까지 따라간다. 각 호출을 `{ id, method, path, baseUrl? }`로 적는다. 적기 전에 두 가지를 확인한다. 둘 다 실제로 틀린 적이 있는 자리다.
    - **경로 인자가 리터럴인지 변수인지 본다.** 리터럴을 변수로 읽으면 없는 경로가 생긴다.
    - **API 클라이언트가 이미 접두를 붙이는지 본다.** 클라이언트가 붙이는 접두를 호출 경로에 또 붙이면 접두가 두 번 들어간 경로가 된다.
-2. **BE 라우트**: BE 레포에서 라우트 선언(매핑 어노테이션, 라우터 등록, 컨트롤러 데코레이터)을 찾아 `{ id, method, path, repo }`로 적는다.
+2. **BE 라우트**: BE 레포에서 라우트 선언(매핑 어노테이션, 라우터 등록, 컨트롤러 데코레이터)을 찾아 `{ id, method, path, repo, mountPrefix? }`로 적는다. 서버 설정이 context-path나 global prefix를 라우트 앞에 붙이면(예: `server.servlet.context-path`, `setGlobalPrefix`) 그 값을 `mountPrefix`에 적는다. 라우트 경로에 이미 들어 있으면 비운다. 안 비우면 prefix가 두 번 들어간 경로로 비교한다.
 3. **매칭**: 둘을 `match_endpoints`에 넘긴다. FE 경로 앞에 붙는 prefix를 Step 2나 설정 파일에서 찾았으면 `prefixCandidates`로 함께 준다.
 
    ```json
    { "action": "match_endpoints", "feCalls": [...], "beRoutes": [...], "prefixCandidates": ["/gateway"] }
    ```
 
-   - `matches`에 든 쌍만 `screen → endpoint` 실선(`calls`)으로 잇는다.
+   - `matches`에 든 쌍만 `screen → endpoint` 실선(`calls`)으로 잇는다. `matchedBy`는 이은 방법이다. `base_url_join`(상대 경로 앞에 `baseUrl`을 붙임), `mount_prefix`(라우트 앞에 `mountPrefix`를 붙임), `learned_prefix`(같은 배치에서 같은 레포에 두 번 이상 쓰인 prefix)가 있다. 칸이 없으면 경로 그대로나 `baseUrl`, `prefixCandidates`를 떼어 맞춘 것이다. 응답의 `learnedPrefixes`는 그렇게 배운 prefix(`{ repo, prefix, support }`)다.
    - `unmatched`(`no_route`, `ambiguous_prefix`, `multiple_routes`)는 눈으로 맞춰 실선을 긋지 않는다. `candidates`를 담아 `unresolved`에 질문으로 남긴다.
+   - `no_route`에 `suggested`(최대 3개, `{ beRouteId, score, fePrefix, routePrefix }`)가 붙을 수 있다. 경로 뒤쪽이 닮은 점수 후보일 뿐이라 `matches`가 아니다. FE 호출 줄과 BE 라우트 줄을 직접 읽어 같은 API일 때만 엣지를 긋는다. 근거는 그 두 줄의 `code` 근거다. 후보 여럿을 추정 엣지로 만들지 않는다. 줄을 읽고도 확인하지 못하면 기존처럼 `unresolved` 질문으로 남긴다. `suggested`가 있으면 응답에 `suggestedNote`가 붙는다.
+   - 실선의 근거 규칙은 그대로다. `code`나 `spec` 근거가 있어야 하고 import 줄은 근거가 아니다. `matches`든 `suggested`를 확인한 쌍이든 FE 호출 줄과 BE 라우트 줄이 근거다.
+   - 레포를 따로 분석해 `merge`로 합칠 때 레포 간 `no_route`는 오류가 아니고 엣지나 질문도 만들지 않는다. `report.unlinkedEndpoints`로 알림만 온다. 서버가 prefix를 붙이는 레포가 있으면 `merge`에 `mountPrefixes`(레포 이름 → prefix)를 주면 레포 간 매칭에도 붙는다.
 
 4. **엔드포인트 노드**: label은 `METHOD /정규화 경로` 꼴로 쓴다. 경로 변수는 이름과 무관하게 `{}`로 맞춘다 (예: `GET /api/v1/orders/{}`). 재실행 때 같은 엔드포인트가 같은 노드로 잡히는 기준이 이 label이다.
 5. **앱 모듈**: 라우트를 받는 컨트롤러나 핸들러가 속한 모듈을 `app_module`로 두고 `endpoint → app_module`을 `handles`로 잇는다.

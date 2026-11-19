@@ -1389,29 +1389,41 @@ render는 질문별 그림마다 `views/<view>.<투영 id>.json`을 따로 쓴�
 
 ### `match_endpoints`
 
-| Parameter          | Type                                                       | Required | Description                                 |
-| ------------------ | ---------------------------------------------------------- | :------: | ------------------------------------------- |
-| `feCalls`          | `{ id, method, path, baseUrl? }[]`                         |   Y\*    | FE 쪽 API 호출                              |
-| `beRoutes`         | `{ id, method, path, repo }[]`                             |   Y\*    | BE 쪽 라우트 선언                           |
-| `prefixCandidates` | `string[]`                                                 |    N     | FE 경로 앞에 붙는 게이트웨이 prefix 후보    |
-| `skillToolCalls`   | `{ id, server?, tool, action? }[]`                         |   Y\*    | 스킬과 에이전트 문서에서 찾은 MCP 도구 호출 |
-| `serverTools`      | `{ id, server, tool, actions? }[]`                         |   Y\*    | MCP 서버 코드에서 찾은 도구 등록            |
-| `nameRefs`         | `{ matcher, refs: { id, name }[], decls: { id, name }[] }` |   Y\*    | 팩 matcher로 맞출 이름 참조와 선언          |
+| Parameter          | Type                                                       | Required | Description                                                                                                                 |
+| ------------------ | ---------------------------------------------------------- | :------: | --------------------------------------------------------------------------------------------------------------------------- |
+| `feCalls`          | `{ id, method, path, baseUrl? }[]`                         |   Y\*    | FE 쪽 API 호출                                                                                                              |
+| `beRoutes`         | `{ id, method, path, repo, mountPrefix? }[]`               |   Y\*    | BE 쪽 라우트 선언. `mountPrefix`는 서버가 라우트 앞에 붙이는 context-path나 global prefix다. 경로에 이미 들어 있으면 비운다 |
+| `prefixCandidates` | `string[]`                                                 |    N     | FE 경로 앞에 붙는 게이트웨이 prefix 후보                                                                                    |
+| `skillToolCalls`   | `{ id, server?, tool, action? }[]`                         |   Y\*    | 스킬과 에이전트 문서에서 찾은 MCP 도구 호출                                                                                 |
+| `serverTools`      | `{ id, server, tool, actions? }[]`                         |   Y\*    | MCP 서버 코드에서 찾은 도구 등록                                                                                            |
+| `nameRefs`         | `{ matcher, refs: { id, name }[], decls: { id, name }[] }` |   Y\*    | 팩 matcher로 맞출 이름 참조와 선언                                                                                          |
 
 \* `feCalls`와 `beRoutes` 짝, `skillToolCalls`와 `serverTools` 짝, `nameRefs` 중 하나는 있어야 한다. 셋 다 없으면 `MISSING_INPUT`이다. 여럿을 함께 넘겨도 된다.
 
 경로 변수 표기(`{id}`, `:id`, `${expr}`, `<int:id>`, `[id]` 등)는 이름과 무관하게 전부 `{}`로 맞춘 뒤 비교한다. 절대 URL의 스킴과 호스트, 쿼리 문자열, 끝 슬래시도 걷어낸다. method가 `*`, `ANY`, `ALL`인 라우트는 어떤 method로 불러도 받는다.
 
-FE 경로는 그대로 한 번 비교한다. `baseUrl`의 경로 부분과 `prefixCandidates`를 각각 떼어낸 경로로도 따로 비교한다. 떼지 않은 경로로 맞은 쪽이 먼저다.
+비교는 세 단계로 한다. 앞 단계에서 맞거나 모호하다고 판정이 나면 그 호출은 거기서 끝나고 뒤 단계로 가지 않는다.
 
-응답은 `{ matches, unmatched }`다.
+1. **1단계**는 예전부터 있던 비교다. FE 경로를 그대로 한 번 비교하고 `baseUrl`의 경로 부분과 `prefixCandidates`를 각각 떼어낸 경로로도 따로 비교한다. 떼지 않은 경로로 맞은 쪽이 먼저다. 하나라도 맞으면 판정은 여기서 끝난다. 경로가 비었는데 `baseUrl`이 있으면 실제 요청은 `baseUrl` 그대로라서 루트(`/`) 라우트와는 비교하지 않는다.
+2. **2단계**는 1단계에서 아무것도 못 맞춘 호출만 본다. 상대 경로 앞에 `baseUrl`을 붙인 경로(`base_url_join`)와 `mountPrefix`를 붙인 라우트(`mount_prefix`)를 비교한다. 두 방법이 서로 다른 라우트를 가리키면 `ambiguous_prefix`다.
+3. **3단계**는 2단계까지 남은 호출 중 `baseUrl`이 없는 것만 본다. 같은 배치에서 같은 레포에 두 번 이상 쓰인 prefix(`learnedPrefixes`)를 `mountPrefix`가 없는 그 레포 라우트에 붙이거나 떼어 비교한다. 덜 쓰인 prefix로만 맞으면 잇지 않는다. 같은 배치에서 `baseUrl`이나 `mountPrefix`로 맞은 매치가 prefix를 세는 재료다. 쓰인 횟수 기준은 `LEARNED_MIN_SUPPORT`(2)다.
 
-| 키          | 꼴                                                                                                         |
-| ----------- | ---------------------------------------------------------------------------------------------------------- |
-| `matches`   | `{ feCallId, beRouteId, viaPrefix }[]`. prefix 없이 맞았으면 `viaPrefix`는 `null`                          |
-| `unmatched` | `{ feCallId, reason, candidates }[]`. `reason`은 `no_route`, `ambiguous_prefix`, `multiple_routes` 중 하나 |
+세 단계를 지나고도 `no_route`면 경로 뒤쪽이 닮은 라우트를 점수로 골라 `suggested`로 단다. 최대 3개이고 `matches`에는 들어가지 않는다.
 
-`unmatched`는 눈으로 맞춰 실선을 긋지 않는다. `candidates`를 담아 미해결 질문으로 남긴다.
+새 칸(`mountPrefix`, `matchedBy`, `learnedPrefixes`, `suggested`, `suggestedNote`)은 전부 선택 칸이다. 예전 입력은 1단계에서 같은 결과가 나오고 응답에 칸만 더 붙는다.
+
+응답은 `{ matches, unmatched, learnedPrefixes }`다.
+
+| 키                | 꼴                                                                                                                                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `matches`         | `{ feCallId, beRouteId, viaPrefix, matchedBy? }[]`. prefix 없이 맞았으면 `viaPrefix`는 `null`. `matchedBy`는 2단계 이후에 이은 매치에만 붙고 `base_url_join`, `mount_prefix`, `learned_prefix` 중 하나다 |
+| `unmatched`       | `{ feCallId, reason, candidates, suggested? }[]`. `reason`은 `no_route`, `ambiguous_prefix`, `multiple_routes` 중 하나. `suggested`는 `no_route`에만 붙는다                                              |
+| `learnedPrefixes` | `{ repo, prefix, support }[]`. `support`가 2 이상인 prefix만 담긴다                                                                                                                                      |
+| `suggestedNote`   | `suggested`가 붙은 호출이 하나라도 있을 때만 온다. 후보를 그대로 잇지 말고 양쪽 줄을 읽어 확인하라는 안내다                                                                                              |
+
+`suggested`는 `{ beRouteId, score, fePrefix, routePrefix }[]`다. `fePrefix`는 FE 경로 앞에 남은 조각, `routePrefix`는 라우트 경로 앞에 남은 조각이고 없으면 `null`이다. 경로 끝에서부터 조각을 맞춰 점수를 매기고 점수가 높은 순으로 최대 3개를 준다.
+
+`unmatched`는 눈으로 맞춰 실선을 긋지 않는다. `candidates`를 담아 미해결 질문으로 남긴다. `suggested`도 같다. 점수로 고른 후보라 실선 근거가 아니다. 세션이 FE 호출 줄과 BE 라우트 줄을 직접 읽어 같은 API일 때만 엣지를 긋고 후보 여럿을 추정 엣지로 만들지 않는다. 확인하지 못하면 미해결 질문으로 남긴다.
 
 MCP 짝을 넘기면 응답에 `tools: { matches, unmatched }`가 붙는다 (`src/architecture/mcp-tool-match.ts`).
 
@@ -1527,28 +1539,30 @@ render는 이 순서로 돈다.
 
 ### `merge`
 
-| Parameter          | Type       | Required | Default            | Description                                                                                                            |
-| ------------------ | ---------- | :------: | ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `irs`              | `object[]` |   Y\*    | —                  | 합칠 ArchitectureIR JSON 목록                                                                                          |
-| `irPaths`          | `string[]` |   Y\*    | —                  | 합칠 IR 파일 경로 목록. `repoRoot` 기준으로 푼다. `irs`와 함께 주면 `irs` 뒤에 이어 붙인다                             |
-| `groupNames`       | `string[]` |    N     | 입력의 서비스 이름 | 입력마다 붙일 제품 이름. 넘긴 순서에 맞춘다. 결과 `groups[].name`이 되고 [제품 띠](#제품-띠) 이름과 제품 브릭에 찍힌다 |
-| `prefixCandidates` | `string[]` |    N     | —                  | 레포를 넘는 엔드포인트 매칭에서 FE 경로 앞에 붙는 게이트웨이 prefix 후보                                               |
-| `outPath`          | `string`   |    N     | —                  | 합친 IR을 쓸 파일. 주면 응답에 IR 대신 경로를 싣는다                                                                   |
+| Parameter          | Type                     | Required | Default            | Description                                                                                                                                         |
+| ------------------ | ------------------------ | :------: | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `irs`              | `object[]`               |   Y\*    | —                  | 합칠 ArchitectureIR JSON 목록                                                                                                                       |
+| `irPaths`          | `string[]`               |   Y\*    | —                  | 합칠 IR 파일 경로 목록. `repoRoot` 기준으로 푼다. `irs`와 함께 주면 `irs` 뒤에 이어 붙인다                                                          |
+| `groupNames`       | `string[]`               |    N     | 입력의 서비스 이름 | 입력마다 붙일 제품 이름. 넘긴 순서에 맞춘다. 결과 `groups[].name`이 되고 [제품 띠](#제품-띠) 이름과 제품 브릭에 찍힌다                              |
+| `prefixCandidates` | `string[]`               |    N     | —                  | 레포를 넘는 엔드포인트 매칭에서 FE 경로 앞에 붙는 게이트웨이 prefix 후보                                                                            |
+| `mountPrefixes`    | `Record<string, string>` |    N     | —                  | 레포 이름(`repos`의 `name`) → 그 레포 라우트 앞에 서버가 붙이는 context-path나 global prefix. 레포를 넘는 매칭에서 그 레포의 라우트에 붙여 비교한다 |
+| `outPath`          | `string`                 |    N     | —                  | 합친 IR을 쓸 파일. 주면 응답에 IR 대신 경로를 싣는다                                                                                                |
 
 입력은 둘 이상이고 뷰가 모두 같아야 한다. 입력마다 파일 확인을 뺀 검증을 먼저 돌려 끊긴 엣지나 private 원문이 있으면 거부한다. 에러 메시지에 몇 번째 입력인지 붙는다. 합치는 규칙은 [분석 합치기](#분석-합치기)에 있다.
 
 성공 응답이다.
 
-| 키                         | 내용                                                                                                            |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `ok`                       | `true`                                                                                                          |
-| `ir` 또는 `irPath`         | 합친 IR, `outPath`를 줬으면 쓴 경로                                                                             |
-| `report.inputs`            | 입력 수                                                                                                         |
-| `report.sharedNodes`       | 둘 이상의 입력에 있던 노드. `{ id, kind, label, repo, displayName?, inputs }`이고 `inputs`는 넘긴 순서의 번호다 |
-| `report.crossRepoEdges`    | 레포를 넘는 매칭으로 새로 그은 엣지 id                                                                          |
-| `report.conflictQuestions` | 충돌이나 애매한 매칭으로 새로 만든 질문 id                                                                      |
-| `report.islands`           | 공유 노드나 새 엣지로 이어지지 않은 입력 묶음 수. 1이면 한 덩어리다                                             |
-| `nextAction`               | 다음에 할 일                                                                                                    |
+| 키                         | 내용                                                                                                                                                                                                                 |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`                       | `true`                                                                                                                                                                                                               |
+| `ir` 또는 `irPath`         | 합친 IR, `outPath`를 줬으면 쓴 경로                                                                                                                                                                                  |
+| `report.inputs`            | 입력 수                                                                                                                                                                                                              |
+| `report.sharedNodes`       | 둘 이상의 입력에 있던 노드. `{ id, kind, label, repo, displayName?, inputs }`이고 `inputs`는 넘긴 순서의 번호다                                                                                                      |
+| `report.crossRepoEdges`    | 레포를 넘는 매칭으로 새로 그은 엣지 id                                                                                                                                                                               |
+| `report.conflictQuestions` | 충돌이나 애매한 매칭으로 새로 만든 질문 id                                                                                                                                                                           |
+| `report.islands`           | 공유 노드나 새 엣지로 이어지지 않은 입력 묶음 수. 1이면 한 덩어리다                                                                                                                                                  |
+| `report.unlinkedEndpoints` | 다른 분석에 라우트가 있는데도 받는 핸들러를 못 찾은 FE 엔드포인트. 있을 때만 온다. `{ nodeId, label, repo, suggested? }[]`이고 `suggested`는 `{ nodeId, label, repo, score }[]`(경로 뒤쪽이 닮은 라우트, 최대 3개)다 |
+| `nextAction`               | 다음에 할 일                                                                                                                                                                                                         |
 
 합친 IR은 `validate`와 `render`에 그대로 넘긴다. render는 `repoRoot`의 같은 뷰 IR과 병합하므로 **원래 분석 레포가 아닌 따로 둔 디렉토리를 `repoRoot`로 준다.** 원래 레포를 주면 그 레포의 단독 분석 IR이 합친 IR로 덮인다.
 
@@ -1816,7 +1830,7 @@ render 응답의 `delta`는 넷 중 하나다.
 - **노드**는 재실행 병합과 같은 키(`kind`, 레포, 정규화한 `label`)로 알아본다. 레포는 위에서 묶은 기준이라 두 분석이 다른 별칭을 썼어도 같은 노드가 된다. 같은 노드면 하나로 합치고 근거는 합집합으로 남긴다. 한 입력 안에서 키가 겹친 노드끼리는 그 분석이 일부러 나눈 것으로 보고 합치지 않는다.
 - **id**는 먼저 합친 쪽 것을 쓴다. 다른 노드와 부딪히면 `-2`를 붙인다. `parent`, `account`, 엣지 양 끝, 질문 대상이 바뀐 id를 따라간다.
 - **엣지**는 바뀐 id 기준 `from`, `to`, `kind`가 같으면 하나로 합친다. 한쪽이라도 실선이면 실선이다. 근거는 합집합이라 실선의 근거가 줄지 않는다.
-- **레포를 넘는 연결**: 핸들러(`handles` → `app_module`)가 없는 엔드포인트를 다른 입력의 핸들러 달린 엔드포인트와 [`match_endpoints`](#match_endpoints)와 같은 규칙(method와 정규화한 경로)으로 맞춘다. 맞으면 FE 엔드포인트에서 그 모듈로 `handles`를 긋고 FE 쪽 경로 줄과 BE 쪽 라우트 줄을 둘 다 근거로 단다. 같은 입력 안의 쌍은 다시 맞추지 않는다. 그 분석이 이미 못 맞춘 쌍이라서다. 후보가 여럿이면 긋지 않고 질문으로 남긴다.
+- **레포를 넘는 연결**: 핸들러(`handles` → `app_module`)가 없는 엔드포인트를 다른 입력의 핸들러 달린 엔드포인트와 [`match_endpoints`](#match_endpoints)와 같은 규칙(method와 정규화한 경로)으로 맞춘다. 맞으면 FE 엔드포인트에서 그 모듈로 `handles`를 긋고 FE 쪽 경로 줄과 BE 쪽 라우트 줄을 둘 다 근거로 단다. 같은 입력 안의 쌍은 다시 맞추지 않는다. 그 분석이 이미 못 맞춘 쌍이라서다. 후보가 여럿이면 긋지 않고 질문으로 남긴다. 받는 핸들러를 못 찾은(`no_route`) FE 엔드포인트는 질문을 만들지 않고 `report.unlinkedEndpoints`에 담아 알리기만 한다. 오류가 아니다. 서버가 라우트 앞에 prefix를 붙이는 레포는 `mountPrefixes`(레포 이름 → prefix)로 알려 주면 그 레포의 라우트에 붙여 비교한다. `nextAction`에 `unlinkedEndpoints`가 몇 개인지와 `suggested`는 양쪽 줄을 읽어 같은 API일 때만 엣지를 더하라는 안내가 붙는다.
 - **충돌**: 같은 노드인데 `displayName`, `parent`, `environment`, `account`가 입력마다 다르면 어느 쪽도 고르지 않는다. 그 값을 비우고 후보를 담은 미해결 질문(`merge:<필드>:<노드 id>`)을 만든다. 단 `user` 근거가 있는 쪽 값은 그대로 둔다. 사람이 답해서 정한 값이라서다. 한쪽만 값을 줬으면 충돌이 아니라 그 값을 쓴다. 테이블 컬럼은 이름으로 합치고 먼저 준 입력 값으로 그린다. 외래 키 대상 테이블이나 타입이 입력마다 다르면 질문(`merge:column:<노드 id>:<컬럼 순번>`)을 만든다. 대상 테이블은 합친 id로 바꾼 뒤 견준다. `description`은 먼저 합친 쪽 것을 쓴다.
 - **마이크로 프론트엔드 앱**은 레포를 빼고 `kind`와 정규화한 `label`로 알아본다. 호스트 레포 분석이 리모트를 `loads`로 들여오고 리모트 레포 분석이 그 앱을 직접 그려도 한 노드가 된다. 레포는 그 앱으로 들어오는 `loads`가 없는 입력, 곧 자기 레포를 분석한 쪽 것을 쓴다. 두 제품이 같은 리모트를 각자 자기 서비스에 달았으면 parent를 비우고 질문은 만들지 않는다. 같이 쓰는 리모트는 어느 한 서비스 것이 아니라서 전체 레벨에 따로 서는 게 맞다.
 - **겹치는 노드가 없으면** 입력이 섬처럼 나란히 선다. 서비스가 둘 이상이라 드릴다운 전체 화면에 서비스가 나란히 서고 서비스마다 레벨이 생긴다. 포커스도 그대로 쓸 수 있다.
