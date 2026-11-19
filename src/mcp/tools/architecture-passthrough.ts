@@ -4,6 +4,13 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectGlobalContext } from '../../architecture/global-context.js';
 import {
+  maskValidatedIr,
+  maskWarningMessages,
+  secretMaskedWarnings,
+} from '../../architecture/secret-mask.js';
+import { resolveRepoVisibility, type RepoVisibility } from '../../architecture/repo-visibility.js';
+import { applyCommitPolicy } from '../../architecture/commit-policy.js';
+import {
   buildKnowledgeIr,
   scanDocRoots,
   summarizeScan,
@@ -55,6 +62,7 @@ import {
   redactForSharing,
   validateArchitectureIr,
   type BudgetWarning,
+  type IgnoredFileTrackedWarning,
   type ValidatedIr,
   type ValidateArchitectureIrResult,
 } from '../../architecture/validator.js';
@@ -221,6 +229,51 @@ export interface ArchitectureHandlerOptions {
   /** 테스트에서 실제 홈 디렉토리를 건드리지 않게 주입한다 */
   homeDir?: string;
   projectsRoot?: string;
+  /** 레포 공개 여부 판정. 기본은 gh로 묻는다. 테스트는 네트워크 없이 돌게 바꿔 끼운다 */
+  resolveVisibility?: (repoRoot: string) => RepoVisibility;
+}
+
+interface CommitPolicyOutcome {
+  visibility?: Pick<RepoVisibility, 'verdict' | 'source' | 'fallbackReason'>;
+  ignoreFilePath?: string;
+  warning?: IgnoredFileTrackedWarning;
+}
+
+/**
+ * 그림을 저장한 뒤 공개 여부에 맞춰 커밋할 파일을 정한다. 보조 단계라 실패해도 render는 성공으로 둔다.
+ * 판정은 됐는데 .gitignore 쓰기만 실패하면 판정 결과는 응답에 남긴다
+ */
+function commitPolicyAfterRender(
+  repoRoot: string,
+  opts: ArchitectureHandlerOptions,
+): CommitPolicyOutcome {
+  let visibility: RepoVisibility;
+  try {
+    visibility = (opts.resolveVisibility ?? resolveRepoVisibility)(repoRoot);
+  } catch (e) {
+    log(
+      `architecture: 레포 공개 여부를 못 정해 커밋 정책을 건너뜁니다 (${(e as Error).message ?? e})`,
+    );
+    return {};
+  }
+  const summary = {
+    verdict: visibility.verdict,
+    source: visibility.source,
+    ...(visibility.fallbackReason !== undefined
+      ? { fallbackReason: visibility.fallbackReason }
+      : {}),
+  };
+  try {
+    const policy = applyCommitPolicy(repoRoot, visibility.verdict);
+    return {
+      visibility: summary,
+      ...(policy.ignoreFilePath !== undefined ? { ignoreFilePath: policy.ignoreFilePath } : {}),
+      ...(policy.trackedWarning !== undefined ? { warning: policy.trackedWarning } : {}),
+    };
+  } catch (e) {
+    log(`architecture: .gitignore를 맞추지 못했습니다 (${(e as Error).message ?? e})`);
+    return { visibility: summary };
+  }
 }
 
 function handleStart(
@@ -308,7 +361,11 @@ function handleValidate(input: ArchitectureInput, repoRoot: string): object {
   };
 }
 
-async function handleRender(input: ArchitectureInput, repoRoot: string): Promise<object> {
+async function handleRender(
+  input: ArchitectureInput,
+  repoRoot: string,
+  opts: ArchitectureHandlerOptions,
+): Promise<object> {
   const prepared = prepareIr(input, repoRoot);
   if (!prepared.ok) return prepared;
   const first = validate(prepared.ir, repoRoot, input.checkFiles);
@@ -320,7 +377,9 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
   // 병합이 id를 바꾸므로 그린 대상도 병합 결과로 다시 뽑는다
   const second = validate(merged, repoRoot, input.checkFiles);
   if (!second.ok) return asFailure(second);
-  const validated = second.value;
+  // excerpt를 코드와 대조하는 검증이 끝난 뒤에 가린다. 앞에서 가리면 가린 글자가 코드와 안 맞아 근거가 틀렸다고 나온다.
+  // 이 뒤로는 그림, 저장, 공유본, delta가 전부 가린 사본만 본다
+  const { validated, hits: secretHits } = maskValidatedIr(second.value);
 
   // 서비스가 그려지면 노드가 많아 평면 한 장으로는 못 읽는다. 레벨로 나눠 한 파일에 담는다
   const drilldown = shouldDrillDown(validated) ? await computeDrilldown(validated) : null;
@@ -372,7 +431,13 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
       };
     },
   );
-  const warnings = [...validated.warnings, ...(delta.warning ? [delta.warning] : [])];
+  const commit = commitPolicyAfterRender(repoRoot, opts);
+  const warnings = [
+    ...maskWarningMessages(validated.warnings),
+    ...secretMaskedWarnings(secretHits),
+    ...(delta.warning ? maskWarningMessages([delta.warning]) : []),
+    ...(commit.warning ? [commit.warning] : []),
+  ];
 
   return {
     ok: true,
@@ -381,6 +446,8 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
     sharedHtmlPath,
     openPath: input.audience === 'shared' ? sharedHtmlPath : htmlPath,
     ...(viewPaths.length > 0 ? { viewPaths } : {}),
+    ...(commit.visibility ? { visibility: commit.visibility } : {}),
+    ...(commit.ignoreFilePath !== undefined ? { ignoreFilePath: commit.ignoreFilePath } : {}),
     ...(drilldown
       ? {
           levels: drilldown.levels.map((l) => ({
@@ -438,7 +505,9 @@ async function renderDelta(
       },
     };
   }
-  const delta = computeArchitectureDelta(deltaSnapshot(before.value), deltaSnapshot(next));
+  // 예전 실행이 가림 없이 저장한 IR일 수 있어 이전 쪽도 가린 뒤 비교한다. 경고는 이번 IR 것만 낸다
+  const prevMasked = maskValidatedIr(before.value).validated;
+  const delta = computeArchitectureDelta(deltaSnapshot(prevMasked), deltaSnapshot(next));
   if (delta.ledger.length === 0) {
     return { result: { status: 'unchanged', message: '이전 그림과 구조가 같다.' } };
   }
@@ -447,7 +516,7 @@ async function renderDelta(
   const privateLayout = await computeDeltaLayout(delta, scope);
   // 가린 글자끼리 다시 비교해야 공유본 원장에 계정 ID 같은 원문이 옛 값으로 새지 않는다
   const shared = computeArchitectureDelta(
-    deltaSnapshot(before.value, true),
+    deltaSnapshot(prevMasked, true),
     deltaSnapshot(next, true),
   );
   const sharedScope = deltaScope(shared);
@@ -821,7 +890,7 @@ export async function handleArchitecturePassthrough(
     case 'validate':
       return handleValidate(input, repoRoot);
     case 'render':
-      return handleRender(input, repoRoot);
+      return handleRender(input, repoRoot, opts);
     case 'status':
       return handleStatus(repoRoot);
     case 'merge':

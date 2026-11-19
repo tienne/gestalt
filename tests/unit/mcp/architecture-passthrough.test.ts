@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
@@ -8,7 +9,15 @@ import type {
   ArchitectureNode,
 } from '../../../src/architecture/types.js';
 import { architectureInputSchema } from '../../../src/mcp/schemas.js';
-import { handleArchitecturePassthrough } from '../../../src/mcp/tools/architecture-passthrough.js';
+import { FAKE_PASSWORD, FAKE_TOKEN } from '../architecture/fake-secrets.js';
+import {
+  handleArchitecturePassthrough,
+  type ArchitectureHandlerOptions,
+} from '../../../src/mcp/tools/architecture-passthrough.js';
+import {
+  resolveRepoVisibility,
+  type RepoVisibility,
+} from '../../../src/architecture/repo-visibility.js';
 
 let tmpRoot: string;
 let repoRoot: string;
@@ -97,11 +106,23 @@ function makeIr(prefix = 'n'): ArchitectureIr {
   };
 }
 
-async function call(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+// 기본은 비공개로 판정해 gh와 네트워크를 타지 않는다. 공개 여부를 보는 테스트만 바꿔 넣는다
+const PRIVATE_REPO = (): RepoVisibility => ({
+  verdict: 'private',
+  source: 'gh',
+  visibility: 'PRIVATE',
+});
+
+async function call(
+  args: Record<string, unknown>,
+  opts: ArchitectureHandlerOptions = {},
+): Promise<Record<string, unknown>> {
   const input = architectureInputSchema.parse({ repoRoot, ...args });
   return (await handleArchitecturePassthrough(input, process.cwd(), {
     homeDir,
     projectsRoot: join(homeDir, '.claude', 'projects'),
+    resolveVisibility: PRIVATE_REPO,
+    ...opts,
   })) as Record<string, unknown>;
 }
 
@@ -634,5 +655,192 @@ describe('ges_architecture render의 구조 변경 그림', () => {
     const [b1, b2] = await run();
     expect(a1.equals(b1)).toBe(true);
     expect(a2.equals(b2)).toBe(true);
+  });
+});
+
+describe('ges_architecture render의 비밀값 가림', () => {
+  function filesUnder(dir: string): string[] {
+    return readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile())
+      .map((d) => join(d.parentPath, d.name));
+  }
+
+  function secretIr(prefix = 'n'): ArchitectureIr {
+    const ir = makeIr(prefix);
+    // 코드 근거 excerpt는 실제 줄과 같아야 검증을 통과한다. 가림이 검증 뒤에 와야 이 대조가 안 깨진다
+    ir.nodes[0]!.evidence[0] = {
+      type: 'code',
+      location: 'web:src/config.ts:1',
+      visibility: 'public',
+      excerpt: `const token = "${FAKE_TOKEN}";`,
+    };
+    ir.nodes[1]!.description = `postgres://app:${FAKE_PASSWORD}@db.local/app 로 붙는다`;
+    return ir;
+  }
+
+  it('본인용, 저장 IR, views, 공유본, delta 두 벌과 응답 어디에도 원래 값이 없고 경고는 위치만 싣는다', async () => {
+    writeFileSync(join(repoRoot, 'src/config.ts'), `const token = "${FAKE_TOKEN}";\n`);
+    const first = await call({ action: 'render', ir: secretIr() });
+    expect(first['ok']).toBe(true);
+    // 예전 실행이 가림 없이 남긴 IR이 디스크에 있다고 치고 delta의 이전 쪽도 가려지는지 본다
+    writeFileSync(first['irPath'] as string, JSON.stringify(secretIr(), null, 2));
+
+    const next = secretIr();
+    next.nodes.push(node('n-pay', 'endpoint', 'POST /pay', 2));
+    next.edges.push(edge('n-e3', 'n-home', 'n-pay', 'calls'));
+    const second = await call({ action: 'render', ir: next });
+    expect(second['ok']).toBe(true);
+    expect((second['delta'] as { status: string }).status).toBe('created');
+
+    const files = filesUnder(join(repoRoot, '.gestalt', 'architecture'));
+    const names = files.map((f) => f.slice(f.lastIndexOf('/') + 1));
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'screen-chain.html',
+        'screen-chain.shared.html',
+        'screen-chain.delta.html',
+        'screen-chain.delta.shared.html',
+      ]),
+    );
+    for (const f of files) {
+      const text = readFileSync(f, 'utf8');
+      expect(text, f).not.toContain(FAKE_TOKEN);
+      expect(text, f).not.toContain(FAKE_PASSWORD);
+    }
+    const response = JSON.stringify(second);
+    expect(response).not.toContain(FAKE_TOKEN);
+    expect(response).not.toContain(FAKE_PASSWORD);
+
+    const masked = (second['warnings'] as Array<Record<string, unknown>>).filter(
+      (w) => w['code'] === 'SECRET_MASKED',
+    );
+    expect(masked).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nodeId: 'n-home', field: 'evidence[0].excerpt' }),
+        expect.objectContaining({ nodeId: 'n-orders-api', field: 'description' }),
+      ]),
+    );
+    // 같은 자리는 한 번만 싣는다
+    const keys = masked.map((w) => `${String(w['nodeId'])}/${String(w['field'])}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe('ges_architecture render의 커밋 정책', () => {
+  const VIEW = 'screen-chain';
+  const rel = (name: string) => join('.gestalt', 'architecture', name);
+
+  function git(...args: string[]): string {
+    return execFileSync('git', ['-C', repoRoot, ...args], { encoding: 'utf8' });
+  }
+
+  function isIgnored(path: string): boolean {
+    try {
+      git('check-ignore', '-q', '--no-index', '--', path);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const fixed = (r: RepoVisibility) => (): RepoVisibility => r;
+
+  beforeEach(() => {
+    git('init', '-q');
+    git('config', 'user.email', 'test@example.com');
+    git('config', 'user.name', 'test');
+    git('config', 'commit.gpgsign', 'false');
+  });
+
+  it('공개 레포면 본인용 HTML과 IR은 무시하고 공유본은 커밋할 수 있게 둔다', async () => {
+    const out = await call(
+      { action: 'render', ir: makeIr() },
+      { resolveVisibility: fixed({ verdict: 'public', source: 'gh', visibility: 'PUBLIC' }) },
+    );
+    expect(out['ok']).toBe(true);
+    expect(out['visibility']).toEqual({ verdict: 'public', source: 'gh' });
+    expect(out['ignoreFilePath']).toBe(join(repoRoot, rel('.gitignore')));
+    expect(existsSync(out['ignoreFilePath'] as string)).toBe(true);
+    expect(isIgnored(rel(`${VIEW}.html`))).toBe(true);
+    expect(isIgnored(rel(`${VIEW}.json`))).toBe(true);
+    expect(isIgnored(rel(`${VIEW}.shared.html`))).toBe(false);
+  });
+
+  it('비공개 레포면 아무것도 막지 않는다', async () => {
+    const out = await call({ action: 'render', ir: makeIr() });
+    expect(out['ok']).toBe(true);
+    expect(out['visibility']).toEqual({ verdict: 'private', source: 'gh' });
+    expect(out['ignoreFilePath']).toBeUndefined();
+    expect(existsSync(join(repoRoot, rel('.gitignore')))).toBe(false);
+    for (const f of [`${VIEW}.html`, `${VIEW}.json`, `${VIEW}.shared.html`]) {
+      expect(isIgnored(rel(f)), f).toBe(false);
+    }
+  });
+
+  it.each([
+    [
+      'gh 실패',
+      'gh_failed',
+      {
+        readRemoteUrl: () => 'git@github.com:acme/web.git',
+        ghRepoView: () => {
+          throw new Error('gh: command not found');
+        },
+      },
+    ],
+    ['원격 없음', 'no_remote', { readRemoteUrl: () => null, ghRepoView: () => '' }],
+    [
+      'GitHub 밖 원격',
+      'non_github_remote',
+      { readRemoteUrl: () => 'https://gitlab.com/acme/web.git', ghRepoView: () => '' },
+    ],
+  ])('%s 이면 공개로 보고 같은 .gitignore를 쓴다', async (_name, reason, deps) => {
+    const out = await call(
+      { action: 'render', ir: makeIr() },
+      { resolveVisibility: (root) => resolveRepoVisibility(root, deps) },
+    );
+    expect(out['ok']).toBe(true);
+    expect(out['visibility']).toEqual({
+      verdict: 'public',
+      source: 'fallback',
+      fallbackReason: reason,
+    });
+    expect(isIgnored(rel(`${VIEW}.html`))).toBe(true);
+    expect(isIgnored(rel(`${VIEW}.shared.html`))).toBe(false);
+  });
+
+  it('이미 추적 중인 본인용 산출물이 있으면 경고 한 건만 내고 render는 끝까지 간다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    git('add', '-A');
+    git('commit', '-q', '-m', 'private repo commit');
+
+    const out = await call(
+      { action: 'render', ir: makeIr() },
+      { resolveVisibility: fixed({ verdict: 'public', source: 'gh', visibility: 'PUBLIC' }) },
+    );
+    expect(out['ok']).toBe(true);
+    const tracked = ((out['warnings'] ?? []) as { code: string; paths?: string[] }[]).filter(
+      (w) => w.code === 'IGNORED_FILE_TRACKED',
+    );
+    expect(tracked).toHaveLength(1);
+    expect(tracked[0]!.paths).toContain(rel(`${VIEW}.html`));
+    expect(tracked[0]!.paths).not.toContain(rel(`${VIEW}.shared.html`));
+    expect(existsSync(out['htmlPath'] as string)).toBe(true);
+    // 서버는 추적을 풀지 않는다
+    expect(git('ls-files', '--', rel(`${VIEW}.html`)).trim()).toBe(rel(`${VIEW}.html`));
+  });
+
+  it('공개 여부 판정이 던져도 render는 성공한다', async () => {
+    const out = await call(
+      { action: 'render', ir: makeIr() },
+      {
+        resolveVisibility: () => {
+          throw new Error('boom');
+        },
+      },
+    );
+    expect(out['ok']).toBe(true);
+    expect(out['visibility']).toBeUndefined();
+    expect(existsSync(out['htmlPath'] as string)).toBe(true);
   });
 });

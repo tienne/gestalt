@@ -441,7 +441,14 @@ describe('architecture e2e — 가짜 FE와 BE 레포에서 뷰 두 개 렌더',
   }
 
   const render = async (ir: ArchitectureIr) =>
-    (await handleArchitecturePassthrough({ action: 'render', repoRoot: base, ir })) as {
+    (await handleArchitecturePassthrough({ action: 'render', repoRoot: base, ir }, process.cwd(), {
+      // 실제 gh를 부르지 않는다. 원격 없는 레포처럼 공개로 본다
+      resolveVisibility: () => ({
+        verdict: 'public',
+        source: 'fallback',
+        fallbackReason: 'no_remote',
+      }),
+    })) as {
       ok: boolean;
       errors?: unknown[];
       irPath: string;
