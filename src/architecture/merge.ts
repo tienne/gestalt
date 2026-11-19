@@ -32,6 +32,17 @@ export interface MergeArchitectureIrsOptions {
   prefixCandidates?: string[];
   /** 입력마다 붙일 제품 이름. 넘긴 순서와 같다. 비우면 입력의 서비스 이름으로 짓는다 */
   groupNames?: string[];
+  /** 레포 이름 → 그 레포 라우트 앞에 서버가 붙이는 context-path나 global prefix */
+  mountPrefixes?: Record<string, string>;
+}
+
+/** 레포를 넘는 매칭에서 받는 핸들러를 못 찾은 FE 엔드포인트. 엣지는 긋지 않는다 */
+export interface MergeUnlinkedEndpoint {
+  nodeId: string;
+  label: string;
+  repo: string;
+  /** 경로 뒤쪽이 닮은 다른 분석의 라우트. 같은 API인지는 줄을 읽고 정한다 */
+  suggested?: { nodeId: string; label: string; repo: string; score: number }[];
 }
 
 export interface MergedSharedNode {
@@ -53,6 +64,8 @@ export interface MergeReport {
   conflictQuestions: string[];
   /** 공유 노드나 레포를 넘는 연결로 이어지지 않은 입력 묶음 수. 1이면 한 덩어리다 */
   islands: number;
+  /** 다른 분석에 라우트가 있는데도 받는 핸들러를 못 찾은 FE 엔드포인트. 있을 때만 붙는다 */
+  unlinkedEndpoints?: MergeUnlinkedEndpoint[];
 }
 
 export type MergeArchitectureIrsResult =
@@ -557,6 +570,9 @@ export function mergeArchitectureIrs(
   }
 
   const crossEdges: ArchitectureEdge[] = [];
+  const unlinked: MergeUnlinkedEndpoint[] = [];
+  const repoNameOf = new Map(repos.map((r) => [r.id, r.name]));
+  const repoName = (id: string): string => repoNameOf.get(id) ?? id;
   const disjoint = (a: Set<number>, b: Set<number>): boolean => [...a].every((x) => !b.has(x));
   for (const [sig, group] of [...orphanGroups.entries()].sort(([a], [b]) => byText(a, b))) {
     const own = new Set(sig.split(',').map(Number));
@@ -568,7 +584,9 @@ export function mergeArchitectureIrs(
     const beRoutes: BeRoute[] = routes.flatMap((n) => {
       if (!disjoint(own, inputsOf.get(n.id)!)) return [];
       const parsed = parseEndpoint(n);
-      return parsed ? [{ id: n.id, repo: n.repo, ...parsed }] : [];
+      if (!parsed) return [];
+      const mountPrefix = opts.mountPrefixes?.[repoName(n.repo)];
+      return [{ id: n.id, repo: n.repo, ...parsed, ...(mountPrefix ? { mountPrefix } : {}) }];
     });
     if (feCalls.length === 0 || beRoutes.length === 0) continue;
     const result = matchEndpoints({ feCalls, beRoutes, prefixCandidates: opts.prefixCandidates });
@@ -591,8 +609,20 @@ export function mergeArchitectureIrs(
       }
     }
     for (const miss of result.unmatched) {
-      if (miss.reason === 'no_route') continue;
       const fe = nodeById.get(miss.feCallId)!;
+      if (miss.reason === 'no_route') {
+        const suggested = (miss.suggested ?? []).map((s) => {
+          const n = nodeById.get(s.beRouteId)!;
+          return { nodeId: n.id, label: n.label, repo: repoName(n.repo), score: s.score };
+        });
+        unlinked.push({
+          nodeId: fe.id,
+          label: fe.label,
+          repo: repoName(fe.repo),
+          ...(suggested.length > 0 ? { suggested } : {}),
+        });
+        continue;
+      }
       const names = miss.candidates.map((id) => {
         const n = nodeById.get(id)!;
         return `"${n.label}" (${n.repo})`;
@@ -855,6 +885,9 @@ export function mergeArchitectureIrs(
       crossRepoEdges: crossEdges.map((e) => e.id).sort(byText),
       conflictQuestions: conflictIds.sort(byText),
       islands: countIslands(irs.length, slots, crossEdges, inputsOf),
+      ...(unlinked.length > 0
+        ? { unlinkedEndpoints: unlinked.sort((a, b) => byText(a.nodeId, b.nodeId)) }
+        : {}),
     },
   };
 }

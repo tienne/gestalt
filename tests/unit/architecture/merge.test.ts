@@ -280,10 +280,38 @@ describe('mergeArchitectureIrs — 레포를 넘는 연결', () => {
     expect(report.islands).toBe(1);
   });
 
-  it('prefix 후보가 없어 경로가 안 맞으면 잇지 않는다', () => {
-    const { report } = merged([feOnly(), beOnly()]);
+  it('prefix 후보가 없어 경로가 안 맞으면 잇지 않고 미연결 엔드포인트로 알린다', () => {
+    const { ir, report } = merged([feOnly(), beOnly()]);
     expect(report.crossRepoEdges).toEqual([]);
     expect(report.islands).toBe(2);
+    expect(report.unlinkedEndpoints).toEqual([
+      {
+        nodeId: 'ep:fe-order',
+        label: 'GET /api/v1/orders/{}',
+        repo: 'acme-shop-web',
+        suggested: [
+          { nodeId: 'ep:order', label: 'GET /v1/orders/{orderId}', repo: 'acme-api', score: 6.5 },
+        ],
+      },
+    ]);
+    // 후보는 알리기만 하고 엣지도 미해결 질문도 만들지 않는다
+    expect(ir.edges.filter((e) => e.from === 'ep:fe-order').map((e) => e.kind)).toEqual([]);
+    expect(report.conflictQuestions).toEqual([]);
+  });
+
+  it('레포 이름으로 받은 mountPrefix를 라우트 앞에 붙여 잇는다', () => {
+    const result = mergeArchitectureIrs([feOnly(), beOnly()], {
+      mountPrefixes: { 'acme-api': '/api' },
+    });
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    expect(result.report.crossRepoEdges).toHaveLength(1);
+    expect(result.report.unlinkedEndpoints).toBeUndefined();
+    expect(result.report.islands).toBe(1);
+  });
+
+  it('다 이으면 미연결 칸이 붙지 않는다', () => {
+    const { report } = merged([feOnly(), beOnly()], ['/api']);
+    expect(report).not.toHaveProperty('unlinkedEndpoints');
   });
 
   it('후보 핸들러가 여럿이면 긋지 않고 미해결 질문으로 남긴다', () => {
