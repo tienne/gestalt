@@ -30,9 +30,9 @@ idb screenshot "$RAW/<n>.png"
 adb exec-out screencap -p > "$RAW/<n>.png"
 ```
 
-mobile-mcp는 `mobile_save_screenshot`의 저장 경로에 `$RAW/<n>.png`를 넘긴다. 이미지를 바로 돌려주는 `mobile_take_screenshot`은 research에서 쓰지 않는다. iPhone 미러링은 파일로 떨어지지 않는다.
+mobile-mcp는 `mobile_save_screenshot`의 저장 경로에 `$RAW/<n>.png`를 넘긴다. 이미지를 바로 돌려주는 `mobile_take_screenshot`은 research에서 쓰지 않는다. iPhone 미러링은 화면 조작 도구가 스크린샷을 파일 없이 이미지로 바로 돌려준다.
 
-끝낼 때 `rm -rf "$RAW"`로 지운다. research로 불렸으면 치환이 끝난 뒤에 지운다.
+check와 qa, 혼자 불린 경우는 끝낼 때 `rm -rf "$RAW"`로 지운다. research로 불렸으면 지우지 않고 `$RAW`를 `rawDir`로 돌려준다. research가 치환을 마친 뒤 지운다.
 
 ## MCP 등록
 
@@ -105,6 +105,7 @@ MCP 서버로 붙인다. 호스트별 등록 명령은 [MCP 등록](#mcp-등록)
 - 출처: npm `@mobilenext/mobile-mcp`. 고정 버전은 1.0.18이다. `@latest`로 등록하지 않는다. 등록하면 세션마다 기기 제어 권한으로 돌아서 버전이 바뀌면 다시 승인받는다.
 - 텔레메트리: 기본으로 보낸다. 등록할 때 `MOBILEMCP_DISABLE_TELEMETRY=1`을 넣어 끈다.
 - 스크린샷은 `mobile_save_screenshot`으로 파일에 저장한다. `mobile_take_screenshot`은 이미지를 바로 돌려주니 research에서는 쓰지 않는다.
+- `mobile_batch_commands`는 동작 여러 개를 한 번에 보내서 동작마다 판단하는 루프를 건너뛴다. 보내기 전에 steps에 확정 동작이 있는지 훑어 사용자에게 보여준다. research에서는 steps에 `mobile_take_screenshot`을 넣지 않는다.
 
 - Android는 `adb devices`에 기기가 보이면 바로 된다. 폰에 깔 것이 없다.
 - iOS 실기기는 폰에 mobilecli 에이전트 앱을 서명해서 깔아야 한다. provisioning profile이 필요하고 무료 Apple ID 서명은 7일 뒤 만료된다. 예전 WebDriverAgent 방식은 `MOBILEMCP_LEGACY_ROBOT=1`로 쓴다.
@@ -131,7 +132,7 @@ MAESTRO_CLI_NO_ANALYTICS=1 maestro --version
 
 Java 17 이상이 필요하다. 기본 `java`가 더 낮으면 전역 설정은 두고 `JAVA_HOME=$(/usr/libexec/java_home -v 17+) maestro …`처럼 실행할 때만 잡는다.
 
-flow는 YAML이라 레포에 커밋해 두고 CI에서 돌린다. qa 용도면 제어 루프에서 성공한 동작을 이 파일로 옮긴다. 로그인 값은 flow에 쓰지 않고 `${TEST_USER}`처럼 변수로 둔다. 값은 `maestro test -e TEST_USER=… <flow.yaml>`처럼 실행할 때 넘기고 CI에서는 시크릿으로 넣는다.
+flow는 YAML이라 레포에 커밋해 두고 CI에서 돌린다. qa 용도면 제어 루프에서 성공한 동작을 이 파일로 옮긴다. 로그인 값은 flow에 쓰지 않고 `${MAESTRO_TEST_USER}`처럼 `MAESTRO_`로 시작하는 변수로 둔다. Maestro가 이 접두어가 붙은 셸 환경변수를 flow에 알아서 넣으니 `-e` 없이 `maestro test <flow.yaml>`만 돌린다. 값은 사용자가 셸 환경이나 CI 시크릿으로 올리고 로컬 `.env`는 `git check-ignore -q .env`가 통과할 때만 `set -a; . ./.env; set +a`로 불러온다. 에이전트는 `.env`를 열거나 출력하지 않는다.
 
 ## idb (check와 qa, iOS 시뮬레이터)
 
@@ -176,4 +177,4 @@ adb shell monkey -p <패키지> 1     # 앱 실행
 
 ## iPhone 미러링 (research와 check, iOS 26 이하에서 mobile-mcp 서명이 안 될 때)
 
-macOS의 iPhone 미러링 창을 화면 조작 도구로 다룬다. 설정은 필요 없지만 접근성 트리가 없어 스크린샷으로만 읽는다. 창이 맨 앞에 있어야 하고 사용자의 마우스와 키보드를 같이 쓰니 시작 전에 알린다. 스크린샷이 파일로 떨어지지 않아 원본 화면이 그대로 LLM에 넘어간다. research에서는 이 점을 먼저 알리고 승인받는다.
+macOS의 iPhone 미러링 창을 화면 조작 도구로 다룬다. 설정은 필요 없지만 접근성 트리가 없어 스크린샷으로만 읽는다. 창이 맨 앞에 있어야 하고 사용자의 마우스와 키보드를 같이 쓰니 시작 전에 알린다. 화면 조작 도구의 스크린샷은 파일을 거치지 않고 이미지로 바로 넘어와서 원본 화면이 그대로 LLM에 넘어간다. research에서는 이 점을 먼저 알리고 승인받는다.
