@@ -206,3 +206,14 @@ test('옛 CLI 출력이면 conductor와 recentEvents가 없다', () => {
   assert.equal('conductor' in view, false)
   assert.equal('recentEvents' in view, false)
 })
+
+test('주문은 있는데 conductor와 recentEvents가 둘 다 없을 때만 터미널 필드가 빠졌다고 표시한다', () => {
+  const orders = [{ id: 'a', status: 'running' }]
+  assert.equal(toView(parseStatus({ lastTickAt: null, orders, gates: [] }), null, [], 0).terminalFieldsMissing, true)
+  assert.equal(toView(parseStatus({ lastTickAt: null, orders: [], gates: [] }), null, [], 0).terminalFieldsMissing, undefined, '주문이 없으면 빠졌는지 모른다')
+  assert.equal(
+    toView(parseStatus({ lastTickAt: null, orders, gates: [], recentEvents: [] }), null, [], 0).terminalFieldsMissing,
+    undefined,
+    '빈 recentEvents라도 실렸으면 새 CLI다'
+  )
+})

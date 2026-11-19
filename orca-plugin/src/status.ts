@@ -316,6 +316,7 @@ export function toView(
     ...(raw.recentEvents ? { recentEvents: raw.recentEvents } : {}),
     projects: projectsOf(raw.orders, workspaces),
     ...(raw.orders.some((o) => o.worker && !o.workerKind) ? { outdatedCli: true } : {}),
+    ...(raw.orders.length > 0 && !raw.conductor && !raw.recentEvents ? { terminalFieldsMissing: true } : {}),
     refreshedAt: now
   }
 }

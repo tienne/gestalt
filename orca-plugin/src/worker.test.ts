@@ -341,7 +341,8 @@ test('worker.open은 주문의 워크트리를 찾아 연다', async () => {
   await run(s, h, async (worker) => {
     await worker.request('conductor.refresh')
     const opened = await worker.request('worker.open', { orderId: 'ord-a' })
-    assert.deepEqual(opened, { opened: true }, JSON.stringify({ opened, refusals: worker.refusals }))
+    assert.equal(opened.opened, true, JSON.stringify({ opened, refusals: worker.refusals }))
+    assert.equal(opened.worktreeOnly, true, '터미널로는 못 갔으니 워크트리만 열었다고 알린다')
     assert.deepEqual(h.callsOf('workspace.open'), [{ workspaceId: 'ws-a' }])
     const missing = await worker.request('worker.open', { orderId: 'ord-b' })
     assert.equal(missing.opened, false)
@@ -384,7 +385,11 @@ test('agent:read를 승인하지 않았으면 워크트리 첫 터미널로 가�
   )
   await run(s, h, async (worker) => {
     await worker.request('conductor.refresh')
-    assert.deepEqual(await worker.request('worker.open', { orderId: 'ord-a' }), { opened: true })
+    assert.deepEqual(await worker.request('worker.open', { orderId: 'ord-a' }), {
+      opened: true,
+      worktreeOnly: true,
+      error: '터미널로 못 옮겨 갔어요.'
+    })
     assert.deepEqual(h.callsOf('terminal.focus'), [{ terminalId: 'term-1' }])
     assert.deepEqual(h.callsOf('workspace.open'), [{ workspaceId: 'ws-a' }])
   })
@@ -450,4 +455,109 @@ test('mobilePort를 정하면 보기 전용 페이지를 열고 워커가 내려
     s.cleanup()
   }
   assert.equal(await getStatus(port), 0)
+})
+
+/** has()가 false인 옛 오르카를 흉내 낸다. mockHost는 메서드가 늘 있다고 답해서 따로 만든다 */
+function oldHost(methods: string[], results: Record<string, unknown>) {
+  const calls: string[] = []
+  const host = {
+    has: (m: string) => methods.includes(m),
+    call: async (m: string) => {
+      calls.push(m)
+      if (!(m in results)) throw new Error(`${m} 실패`)
+      return results[m]
+    }
+  } as unknown as Parameters<typeof main.workerTerminal>[0]
+  return { host, calls }
+}
+
+test('workerTerminal은 옛 오르카에 없는 기능을 이유로 남기고 부르지 않는다', async () => {
+  const none = oldHost([], {})
+  assert.deepEqual(await main.workerTerminal(none.host, 'ws-a'), {
+    fallback: false,
+    errors: ['이 오르카는 에이전트 상태 읽기를 지원하지 않아요.', '이 오르카는 터미널 목록 읽기를 지원하지 않아요.']
+  })
+  assert.deepEqual(none.calls, [])
+
+  const listOnly = oldHost(['terminal.list'], { 'terminal.list': { terminals: [{ id: 'term-1' }] } })
+  const out = await main.workerTerminal(listOnly.host, 'ws-a')
+  assert.equal(out.terminalId, 'term-1')
+  assert.equal(out.fallback, true, '에이전트 없이 고른 첫 터미널은 fallback으로 표시한다')
+})
+
+test('workerTerminal은 에이전트 터미널을 찾으면 터미널 목록을 안 읽는다', async () => {
+  const h = oldHost(['agents.list', 'terminal.list'], { 'agents.list': AGENTS, 'terminal.list': { terminals: [{ id: 'term-1' }] } })
+  const out = await main.workerTerminal(h.host, 'ws-a')
+  assert.equal(out.terminalId, 'term-worker')
+  assert.equal(out.fallback, false)
+  assert.deepEqual(h.calls, ['agents.list'])
+})
+
+test('worker.open은 terminal.focus가 실패하면 그 이유를 싣고 워크트리만 연다', async () => {
+  const s = store(STATUS)
+  const h = liveHost(s.dir, {
+    'agents.list': AGENTS,
+    'terminal.focus': () => {
+      throw new Error('터미널이 닫혔어요')
+    }
+  })
+  await run(s, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    const out = await worker.request('worker.open', { orderId: 'ord-a' })
+    assert.equal(out.opened, true)
+    assert.equal(out.worktreeOnly, true)
+    assert.match(out.error ?? '', /터미널로 못 옮겨 갔어요/)
+    assert.deepEqual(h.callsOf('workspace.open'), [{ workspaceId: 'ws-a' }])
+  })
+})
+
+test('worker.detail은 에이전트 없이 고른 터미널을 fallbackTerminal로 알린다', async () => {
+  const s = store(STATUS)
+  const h = liveHost(s.dir, {
+    'agents.list': { agents: [] },
+    'terminal.list': { terminals: [{ id: 'term-1' }], truncated: false },
+    'terminal.read': { lines: ['$ ls'], truncated: false }
+  })
+  await run(s, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    const live = await worker.request('worker.detail', { orderId: 'ord-a' })
+    assert.equal(live.terminalId, 'term-1')
+    assert.equal(live.fallbackTerminal, true)
+    assert.deepEqual(live.lines, ['$ ls'])
+  })
+})
+
+test('worker.detail은 지난 상태에 워크스페이스가 있으면 workspace.list를 다시 안 부른다', async () => {
+  const s = store(STATUS)
+  const h = liveHost(s.dir, { 'agents.list': AGENTS, 'terminal.read': { lines: [], truncated: false } })
+  await run(s, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    const before = h.callsOf('workspace.list').length
+    await worker.request('worker.detail', { orderId: 'ord-a' })
+    await worker.request('worker.detail', { orderId: 'ord-a' })
+    assert.equal(h.callsOf('workspace.list').length, before)
+  })
+})
+
+test('pickAgent는 작업을 받은 것, 도는 것, 최근 것 순으로 고르고 터미널 없는 에이전트는 뺀다', () => {
+  const row = (terminalId: string | null, state: 'working' | 'waiting' | 'done', at: number, task?: string) => ({
+    terminalId,
+    title: null,
+    agent: 'claude',
+    state,
+    stateStartedAt: at,
+    ...(task ? { task: { title: task } } : {})
+  })
+  assert.equal(main.pickAgent([row('t-done', 'done', 9, 'x'), row('t-run', 'working', 1, 'x')])?.terminalId, 't-run')
+  assert.equal(main.pickAgent([row('t-idle', 'working', 9), row('t-task', 'waiting', 1, 'x')])?.terminalId, 't-task')
+  assert.equal(main.pickAgent([row('t-old', 'working', 1, 'x'), row('t-new', 'working', 5, 'x')])?.terminalId, 't-new')
+  assert.equal(main.pickAgent([row(null, 'working', 1, 'x')]), undefined)
+})
+
+test('tailLines는 끝의 빈 줄을 걷고 24줄만, 줄당 400자까지 남긴다', () => {
+  assert.deepEqual(main.tailLines(['a', 'b', '', '  ']), ['a', 'b'])
+  assert.deepEqual(main.tailLines(['', ' ']), [])
+  const many = Array.from({ length: 30 }, (_, i) => `l${i}`)
+  assert.deepEqual(main.tailLines(many), many.slice(6))
+  assert.equal(main.tailLines(['y'.repeat(401)])[0], `${'y'.repeat(400)}…`)
 })

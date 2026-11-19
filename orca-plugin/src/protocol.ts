@@ -100,6 +100,8 @@ export type ConductorView = {
   projects?: Record<string, string>
   /** 워커가 붙은 주문에 workerKind가 없다. 워크트리를 못 이어 주문을 눌러도 워커로 못 가는 옛 CLI다 */
   outdatedCli?: boolean
+  /** 주문은 있는데 conductor와 recentEvents가 둘 다 없다. 터미널 화면을 그리기엔 낡은 CLI다 */
+  terminalFieldsMissing?: boolean
   /** 옛 CLI에는 없다 */
   conductor?: ConductorInfo
   recentEvents?: EventView[]
@@ -141,9 +143,18 @@ export type WorkerLive = {
   found: boolean
   agent?: { kind: string | null; title: string | null; state: AgentState; since: number; task: string | null }
   terminalId?: string
+  /** 워커 에이전트를 못 찾아 워크트리의 첫 터미널을 골랐다. 워커 터미널이 아닐 수 있다 */
+  fallbackTerminal?: true
   /** 워커 터미널의 마지막 줄들. 오래된 줄부터 */
   lines?: string[]
   /** 일부를 못 읽었으면 그 이유 */
+  error?: string
+}
+
+export type WorkerOpenResult = {
+  opened: boolean
+  /** 워커 터미널로는 못 가고 워크트리만 열었다. error에 이유가 있다 */
+  worktreeOnly?: true
   error?: string
 }
 
@@ -158,7 +169,7 @@ declare module 'orca' {
     /** `gestalt conductor order remove`로 끝난 주문을 지운다. 패널이 확인 단계를 거친 뒤에만 보낸다 */
     'order.remove': { input: { orderIds: string[] }; output: OrderRemoveResult }
     /** 주문을 맡은 워커의 터미널로 간다. 터미널을 못 찾으면 워크트리만 연다 */
-    'worker.open': { input: { orderId: string }; output: { opened: boolean; error?: string } }
+    'worker.open': { input: { orderId: string }; output: WorkerOpenResult }
     /** 주문을 맡은 워커의 에이전트 상태와 터미널 마지막 줄을 읽는다 */
     'worker.detail': { input: { orderId: string }; output: WorkerLive }
   }
