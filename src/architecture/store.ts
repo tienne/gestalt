@@ -5,15 +5,17 @@ import { readJsonOrQuarantine, writeJsonAtomic } from '../core/json-file.js';
 import { deriveBlueprint } from './blueprint-layout.js';
 import { parseArchitectureIr } from './ir-schema.js';
 import { maskIrSecrets } from './secret-mask.js';
-import type {
-  ArchitectureEdge,
-  ArchitectureIr,
-  ArchitectureNode,
-  ArchitectureFlow,
-  ArchitectureProjection,
-  ArchitectureView,
-  ContextSource,
-  UnresolvedQuestion,
+import {
+  FLOW_REF_KINDS,
+  hasCardDescription,
+  type ArchitectureEdge,
+  type ArchitectureIr,
+  type ArchitectureNode,
+  type ArchitectureFlow,
+  type ArchitectureProjection,
+  type ArchitectureView,
+  type ContextSource,
+  type UnresolvedQuestion,
 } from './types.js';
 import {
   erNonTableParticipants,
@@ -217,10 +219,34 @@ export function writeTextAtomic(path: string, content: string): void {
 
 /** 같은 노드를 알아보는 키. 재실행 병합과 분석 합치기가 같은 기준을 쓴다 */
 export function nodeKey(node: Pick<ArchitectureNode, 'kind' | 'repo' | 'label'>): string {
-  const label = node.label.trim().replace(/\s+/g, ' ').toLowerCase();
+  const label = normalizeLabel(node.label);
   // 호스트 분석은 리모트를 자기 레포 노드로 적고 리모트 분석은 리모트 레포로 적는다. Module Federation 이름은 런타임에서 하나라 레포를 빼야 둘이 만난다
   if (node.kind === 'micro_app') return `${node.kind}\u0000\u0000${label}`;
   return `${node.kind}\u0000${node.repo}\u0000${label}`;
+}
+
+function normalizeLabel(label: string): string {
+  return label.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/** nodeKey에서 label만 뺀 자리. 2차 매칭은 이 자리 안에서만 짝을 찾는다 */
+function slotKey(node: Pick<ArchitectureNode, 'kind' | 'repo'>): string {
+  return node.kind === 'micro_app' ? `${node.kind}\u0000` : `${node.kind}\u0000${node.repo}`;
+}
+
+function keyText(node: Pick<ArchitectureNode, 'kind' | 'repo' | 'label'>): string {
+  return `${node.kind}/${node.kind === 'micro_app' ? '*' : node.repo}/${normalizeLabel(node.label)}`;
+}
+
+// 줄 번호는 코드가 조금만 밀려도 바뀐다. 같은 노드인지는 어느 파일을 근거로 댔는지로 본다
+function codeFileSignature(node: ArchitectureNode): string | undefined {
+  const files = new Set(
+    node.evidence
+      .filter((ev) => ev.type === 'code')
+      .map((ev) => ev.location.replace(/:\d+(?:-\d+)?$/, '')),
+  );
+  if (files.size === 0) return undefined;
+  return [...files].sort().join('\n');
 }
 
 function edgeKey(edge: Pick<ArchitectureEdge, 'from' | 'to' | 'kind'>): string {
@@ -231,56 +257,183 @@ function isAnswered(q: UnresolvedQuestion): boolean {
   return q.answer !== undefined && q.answer.trim() !== '';
 }
 
+export type MergeWarning =
+  | {
+      code: 'LABEL_CHANGED_ID_LOST';
+      previousId: string;
+      previousLabel: string;
+      kind: string;
+      repo: string;
+      /** 같은 kind와 repo 자리에서 짝을 못 찾은 이번 실행 노드 id */
+      candidates: string[];
+      message: string;
+    }
+  | {
+      code: 'MERGE_KEY_DUPLICATE';
+      /** kind/repo/정규화 label. micro_app은 repo 자리에 `*`를 쓴다 */
+      key: string;
+      nodeIds: string[];
+      message: string;
+    };
+
+export interface MergeRelabel {
+  id: string;
+  previousLabel: string;
+  label: string;
+  matchedBy: 'id' | 'evidence';
+}
+
+export interface PreviousMergeReport {
+  /** 지난 실행의 description을 이어받은 노드 id */
+  descriptionCarried: string[];
+  relabeled: MergeRelabel[];
+  /** 이번 실행에 없어 지난 실행에서 이어 실은 흐름 id */
+  flowsCarried: string[];
+  warnings: MergeWarning[];
+}
+
+export interface PreviousMergeResult {
+  ir: ArchitectureIr;
+  report: PreviousMergeReport;
+}
+
 /**
  * 재실행 IR(next)이 이전 IR(prev)의 id를 물려받게 맞춘다.
- *
- * 생성할 때마다 id가 새로 매겨지면 사람이 단 답이나 화면 위치 기억이 전부 끊긴다.
- * 노드는 kind, repo, 정규화한 label이 같으면 같은 것으로 보고 엣지는 바뀐 노드 id 기준
- * (from, to, kind)가 같으면 같은 것으로 본다. next의 다른 id와 부딪히면 바꾸지 않는다.
- * prev에서 답이 달린 질문은 대상이 merge 결과에 남아 있을 때만 이어 붙인다.
- * 입력은 바꾸지 않는다.
+ * 입력은 바꾸지 않는다. 무엇을 이어받았는지 알릴 필요가 없으면 이 함수를, 알려야 하면 mergeWithPreviousDetailed를 쓴다.
  */
 export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): ArchitectureIr {
-  const prevNodeIdByKey = new Map<string, string>();
+  return mergeWithPreviousDetailed(prev, next).ir;
+}
+
+/**
+ * 재실행 IR(next)이 이전 IR(prev)의 id를 물려받게 맞추고 무엇을 이어받았는지 함께 돌려준다.
+ *
+ * 생성할 때마다 id가 새로 매겨지면 사람이 단 답이나 화면 위치 기억이 전부 끊긴다.
+ * 노드는 kind, repo, 정규화한 label이 같으면 같은 것으로 본다. 이걸로 못 찾으면 같은 kind와 repo 자리 안에서
+ * 같은 id가 있는지, 그다음 code 근거 파일 집합이 1:1로 하나뿐인 짝이 있는지 본다. label만 바꿔 쓴 노드를 놓치지 않으려고다.
+ * 엣지는 바뀐 노드 id 기준 (from, to, kind)가 같으면 같은 것으로 본다. next의 다른 id와 부딪히면 바꾸지 않는다.
+ * 짝지은 노드의 description이 next에 없으면 prev 것을 잇는다. 빈 문자열은 지운 것이라 그대로 둔다.
+ * prev에서 답이 달린 질문과 이번에 안 나온 흐름, 투영은 가리키는 대상이 merge 결과에 남아 있을 때만 이어 붙인다.
+ * 입력은 바꾸지 않는다.
+ */
+export function mergeWithPreviousDetailed(
+  prev: ArchitectureIr,
+  next: ArchitectureIr,
+): PreviousMergeResult {
+  const prevNodeByKey = new Map<string, ArchitectureNode>();
   for (const node of prev.nodes) {
     const key = nodeKey(node);
-    if (!prevNodeIdByKey.has(key)) prevNodeIdByKey.set(key, node.id);
+    if (!prevNodeByKey.has(key)) prevNodeByKey.set(key, node);
   }
 
   const nodeIdMap = new Map<string, string>();
+  const mapNodeId = (id: string): string => nodeIdMap.get(id) ?? id;
   // 비워진 옛 id를 다시 쓰지 않는다. 연쇄로 바꾸다 보면 한 바퀴 돌아 id가 겹칠 수 있다
   const takenNodeIds = new Set(next.nodes.map((n) => n.id));
-  const claimedKeys = new Set<string>();
-  for (const node of next.nodes) {
-    const key = nodeKey(node);
-    if (claimedKeys.has(key)) continue;
-    claimedKeys.add(key);
-    const prevId = prevNodeIdByKey.get(key);
-    if (prevId === undefined || prevId === node.id || takenNodeIds.has(prevId)) continue;
-    if (nodeIdMap.has(node.id)) continue;
+  // next 노드 자리 번호 → 짝지은 prev 노드. id를 못 물려받아도 같은 노드로 본 짝은 남겨 description을 잇는다
+  const pairOf = new Map<number, ArchitectureNode>();
+  const usedPrev = new Set<ArchitectureNode>();
+  const relabeled: MergeRelabel[] = [];
+
+  const link = (index: number, prevNode: ArchitectureNode): void => {
+    const node = next.nodes[index]!;
+    pairOf.set(index, prevNode);
+    usedPrev.add(prevNode);
+    const prevId = prevNode.id;
+    if (prevId === node.id || takenNodeIds.has(prevId) || nodeIdMap.has(node.id)) return;
     // 지난 실행이 계정 ID나 배포 ID를 id에 박았으면 물려받지 않는다. 지금 검증기가 그런 id를 거부한다
-    if (idCarriesCloudId(prevId, node.kind)) continue;
+    if (idCarriesCloudId(prevId, node.kind)) return;
     takenNodeIds.add(prevId);
     nodeIdMap.set(node.id, prevId);
-  }
-  const mapNodeId = (id: string): string => nodeIdMap.get(id) ?? id;
+  };
+  const relink = (index: number, prevNode: ArchitectureNode, matchedBy: 'id' | 'evidence') => {
+    link(index, prevNode);
+    const node = next.nodes[index]!;
+    if (prevNode.label !== node.label) {
+      relabeled.push({
+        id: mapNodeId(node.id),
+        previousLabel: prevNode.label,
+        label: node.label,
+        matchedBy,
+      });
+    }
+  };
 
-  const nodes = next.nodes.map((n) => ({
-    ...n,
-    id: mapNodeId(n.id),
-    ...(n.parent !== undefined ? { parent: mapNodeId(n.parent) } : {}),
-    ...(n.account !== undefined ? { account: mapNodeId(n.account) } : {}),
-    ...(n.placedIn !== undefined ? { placedIn: mapNodeId(n.placedIn) } : {}),
-    ...(n.columns !== undefined
-      ? {
-          columns: n.columns.map((c) =>
-            c.references !== undefined
-              ? { ...c, references: { ...c.references, table: mapNodeId(c.references.table) } }
-              : { ...c },
-          ),
-        }
-      : {}),
-  }));
+  const claimedKeys = new Set<string>();
+  next.nodes.forEach((node, i) => {
+    const key = nodeKey(node);
+    if (claimedKeys.has(key)) return;
+    claimedKeys.add(key);
+    const prevNode = prevNodeByKey.get(key);
+    if (prevNode !== undefined) link(i, prevNode);
+  });
+
+  const prevNodeById = new Map<string, ArchitectureNode>();
+  for (const node of prev.nodes) if (!prevNodeById.has(node.id)) prevNodeById.set(node.id, node);
+  next.nodes.forEach((node, i) => {
+    if (pairOf.has(i)) return;
+    const prevNode = prevNodeById.get(node.id);
+    if (prevNode === undefined || usedPrev.has(prevNode)) return;
+    if (slotKey(prevNode) !== slotKey(node)) return;
+    relink(i, prevNode, 'id');
+  });
+
+  // 근거 파일이 같은 후보가 어느 쪽이든 둘 이상이면 어느 것이 어느 것인지 모른다. 잘못 이으면 답이 엉뚱한 노드에 붙어 잇지 않는다
+  const bucketOf = (node: ArchitectureNode): string | undefined => {
+    const signature = codeFileSignature(node);
+    return signature === undefined ? undefined : `${slotKey(node)}\u0001${signature}`;
+  };
+  const nextBuckets = new Map<string, number[]>();
+  next.nodes.forEach((node, i) => {
+    if (pairOf.has(i)) return;
+    const bucket = bucketOf(node);
+    if (bucket === undefined) return;
+    nextBuckets.set(bucket, [...(nextBuckets.get(bucket) ?? []), i]);
+  });
+  const prevBuckets = new Map<string, ArchitectureNode[]>();
+  for (const node of prev.nodes) {
+    if (usedPrev.has(node)) continue;
+    const bucket = bucketOf(node);
+    if (bucket === undefined) continue;
+    prevBuckets.set(bucket, [...(prevBuckets.get(bucket) ?? []), node]);
+  }
+  for (const [bucket, indexes] of nextBuckets) {
+    const prevNodes = prevBuckets.get(bucket);
+    if (indexes.length !== 1 || prevNodes?.length !== 1) continue;
+    relink(indexes[0]!, prevNodes[0]!, 'evidence');
+  }
+
+  const descriptionCarried: string[] = [];
+  const nodes = next.nodes.map((n, i) => {
+    const prevNode = pairOf.get(i);
+    const carryDescription =
+      prevNode !== undefined &&
+      n.description === undefined &&
+      hasCardDescription(prevNode.description);
+    if (carryDescription) descriptionCarried.push(mapNodeId(n.id));
+    return {
+      ...n,
+      id: mapNodeId(n.id),
+      ...(carryDescription ? { description: prevNode.description } : {}),
+      ...(n.parent !== undefined ? { parent: mapNodeId(n.parent) } : {}),
+      ...(n.account !== undefined ? { account: mapNodeId(n.account) } : {}),
+      ...(n.placedIn !== undefined ? { placedIn: mapNodeId(n.placedIn) } : {}),
+      ...(n.columns !== undefined
+        ? {
+            columns: n.columns.map((c) =>
+              c.references !== undefined
+                ? { ...c, references: { ...c.references, table: mapNodeId(c.references.table) } }
+                : { ...c },
+            ),
+          }
+        : {}),
+    };
+  });
+
+  const warnings: MergeWarning[] = [
+    ...lostLabelWarnings(prev, next, pairOf, usedPrev, mapNodeId),
+    ...duplicateKeyWarnings(next, prevNodeByKey, mapNodeId),
+  ];
 
   const prevEdgeIdByKey = new Map<string, string>();
   for (const edge of prev.edges) {
@@ -319,14 +472,21 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     },
   }));
 
-  // 흐름은 지난 실행과 키로 맞추지 않고 이번 실행 것을 그대로 쓴다. 노드 id가 바뀌었으면 가리키는 쪽만 따라 바꾼다
-  const flows = next.flows?.map((f) => ({
+  const nodeKindById = new Map(nodes.map((n) => [n.id, n.kind]));
+  // 노드 id가 바뀌었으면 이번 흐름이 가리키는 쪽만 따라 바꾼다
+  const nextFlows = next.flows?.map((f) => ({
     ...f,
     ...(f.service !== undefined ? { service: mapNodeId(f.service) } : {}),
     steps: f.steps.map((st) =>
       st.refs !== undefined ? { ...st, refs: st.refs.map(mapNodeId) } : { ...st },
     ),
   }));
+  // 질문 하나에 맞춰 돈 실행은 다른 흐름을 안 적는다. 이번에 안 나온 지난 흐름은 가리키는 노드가 다 살아 있을 때만 이어 싣는다
+  const carriedFlows = carryFlows(prev.flows ?? [], nextFlows ?? [], nodeKindById);
+  const flows =
+    nextFlows !== undefined || carriedFlows.length > 0
+      ? [...(nextFlows ?? []), ...carriedFlows]
+      : undefined;
   const projections = next.projections?.map((pr) => ({
     ...pr,
     ...(pr.participants !== undefined ? { participants: pr.participants.map(mapNodeId) } : {}),
@@ -340,7 +500,6 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
       ...(m.edge !== undefined ? { edge: mapEdgeId(m.edge) } : {}),
     })),
   }));
-  const nodeKindById = new Map(nodes.map((n) => [n.id, n.kind]));
   const nodeIds = new Set(nodeKindById.keys());
   const edgeIds = new Set(edges.map((e) => e.id));
   const edgeById = new Map(edges.map((e) => [e.id, e]));
@@ -391,7 +550,7 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
     unresolved.push({ ...prevQ, id, subject: { ...prevQ.subject } });
   }
 
-  return {
+  const ir: ArchitectureIr = {
     ...next,
     nodes,
     edges,
@@ -410,9 +569,108 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
         }
       : {}),
   };
+  return {
+    ir,
+    report: {
+      descriptionCarried,
+      relabeled,
+      flowsCarried: carriedFlows.map((f) => f.id),
+      warnings,
+    },
+  };
 }
 
-/** 이전 실행을 한 줄로 보여줄 때 쓰는 요약 */
+// 끝까지 짝을 못 찾은 지난 노드에 사람이 남긴 것(답, 설명)이 있고 같은 자리에 새 노드가 생겼으면 label과 id를 함께 바꿔 끊겼을 가능성이 크다
+function lostLabelWarnings(
+  prev: ArchitectureIr,
+  next: ArchitectureIr,
+  pairOf: ReadonlyMap<number, ArchitectureNode>,
+  usedPrev: ReadonlySet<ArchitectureNode>,
+  mapNodeId: (id: string) => string,
+): MergeWarning[] {
+  const answeredNodeIds = new Set(
+    prev.unresolved.flatMap((q) =>
+      isAnswered(q) && q.subject.nodeId !== undefined ? [q.subject.nodeId] : [],
+    ),
+  );
+  const warnings: MergeWarning[] = [];
+  for (const prevNode of prev.nodes) {
+    if (usedPrev.has(prevNode)) continue;
+    if (!answeredNodeIds.has(prevNode.id) && !hasCardDescription(prevNode.description)) continue;
+    const slot = slotKey(prevNode);
+    const candidates = next.nodes.flatMap((n, i) =>
+      !pairOf.has(i) && slotKey(n) === slot ? [mapNodeId(n.id)] : [],
+    );
+    if (candidates.length === 0) continue;
+    warnings.push({
+      code: 'LABEL_CHANGED_ID_LOST',
+      previousId: prevNode.id,
+      previousLabel: prevNode.label,
+      kind: prevNode.kind,
+      repo: prevNode.repo,
+      candidates,
+      message: `지난 실행의 "${prevNode.label}"(${prevNode.id})와 짝을 못 찾아 설명과 답이 이어지지 않았다. label과 id를 함께 바꿨다면 후보 ${candidates.join(', ')} 중 하나에 지난 id를 다시 쓴다.`,
+    });
+  }
+  return warnings;
+}
+
+// 이번 실행에 같은 키가 여럿이면 첫 노드만 지난 id를 받는다. 순서만 바뀌어도 id가 뒤바뀔 수 있어 알린다
+function duplicateKeyWarnings(
+  next: ArchitectureIr,
+  prevNodeByKey: ReadonlyMap<string, ArchitectureNode>,
+  mapNodeId: (id: string) => string,
+): MergeWarning[] {
+  const byKey = new Map<string, ArchitectureNode[]>();
+  for (const node of next.nodes) {
+    const key = nodeKey(node);
+    byKey.set(key, [...(byKey.get(key) ?? []), node]);
+  }
+  const warnings: MergeWarning[] = [];
+  for (const [key, group] of byKey) {
+    if (group.length < 2 || !prevNodeByKey.has(key)) continue;
+    const nodeIds = group.map((n) => mapNodeId(n.id));
+    const shown = keyText(group[0]!);
+    warnings.push({
+      code: 'MERGE_KEY_DUPLICATE',
+      key: shown,
+      nodeIds,
+      message: `병합 키 ${shown}를 노드 ${nodeIds.join(', ')}가 함께 써서 첫 노드만 지난 id를 받았다. label을 서로 다르게 적는다.`,
+    });
+  }
+  return warnings;
+}
+
+function carryFlows(
+  prev: readonly ArchitectureFlow[],
+  next: readonly ArchitectureFlow[],
+  nodeKindById: ReadonlyMap<string, ArchitectureNode['kind']>,
+): ArchitectureFlow[] {
+  const flowIds = new Set(next.map((f) => f.id));
+  // 단계와 전이 id는 흐름 전체에서 겹치면 안 된다. 겹치는 지난 흐름은 실으면 검증에서 막힌다
+  const stepIds = new Set(next.flatMap((f) => f.steps.map((st) => st.id)));
+  const transitionIds = new Set(next.flatMap((f) => f.transitions.map((t) => t.id)));
+  const out: ArchitectureFlow[] = [];
+  for (const flow of prev) {
+    if (flowIds.has(flow.id)) continue;
+    if (flow.service !== undefined && nodeKindById.get(flow.service) !== 'service') continue;
+    const refsAlive = flow.steps.every((st) =>
+      (st.refs ?? []).every((id) => {
+        const kind = nodeKindById.get(id);
+        return kind !== undefined && FLOW_REF_KINDS.includes(kind);
+      }),
+    );
+    if (!refsAlive) continue;
+    if (flow.steps.some((st) => stepIds.has(st.id))) continue;
+    if (flow.transitions.some((t) => transitionIds.has(t.id))) continue;
+    flowIds.add(flow.id);
+    for (const st of flow.steps) stepIds.add(st.id);
+    for (const t of flow.transitions) transitionIds.add(t.id);
+    out.push(flow);
+  }
+  return out;
+}
+
 function carryProjections(
   prev: readonly ArchitectureProjection[],
   next: readonly ArchitectureProjection[],
@@ -450,6 +708,7 @@ function carryProjections(
   return out;
 }
 
+/** 이전 실행을 한 줄로 보여줄 때 쓰는 요약 */
 export function previousRunSummary(prev: ArchitectureIr): PreviousRunSummary {
   return {
     generatedAt: prev.generatedAt,

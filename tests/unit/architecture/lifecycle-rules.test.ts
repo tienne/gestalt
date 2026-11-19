@@ -264,11 +264,12 @@ describe('lifecycle 이월 (store)', () => {
     expect(merged.projections ?? []).toEqual([]);
   });
 
-  it('다음 IR에 flows가 아예 없어도 폐기한다', () => {
+  it('다음 IR에 flows가 빠지면 지난 흐름과 함께 이어 싣는다', () => {
     const next = flowIr();
     delete next.flows;
     const merged = mergeWithPrevious(withLife(), next);
-    expect(merged.projections ?? []).toEqual([]);
+    expect(merged.flows?.map((f) => f.id)).toEqual(['queue']);
+    expect((merged.projections ?? []).length).toBe(1);
   });
 
   it('같은 id의 흐름이 state를 단 단계 없이 다시 오면 폐기한다', () => {
