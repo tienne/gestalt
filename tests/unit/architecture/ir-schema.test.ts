@@ -11,6 +11,7 @@ import {
   contextSourceViaSchema,
   edgeKindSchema,
   evidenceTypeSchema,
+  findUnknownFields,
   FLOW_ACTOR_KINDS,
   FLOW_PATHS,
   FLOW_STEP_KINDS,
@@ -349,5 +350,46 @@ describe('인프라 배치 필드 (provider, region, exposure, placedIn, engine)
     const r = parseArchitectureIr(withNode({ engine: 'ecs' }, 'service'));
     expect(r.ok).toBe(false);
     expect(issues(r).some((i) => i.includes('engine'))).toBe(true);
+  });
+});
+
+describe('findUnknownFields (입력 오타 칸)', () => {
+  it('스키마에 맞는 IR은 빈 목록', () => {
+    expect(findUnknownFields(minimalIr())).toEqual([]);
+  });
+
+  it('노드의 오타 칸을 경로와 제안 하나로 알린다', () => {
+    const ir = minimalIr();
+    (ir.nodes as Array<Record<string, unknown>>)[0]!.discription = '오타';
+    expect(findUnknownFields(ir)).toEqual([
+      { path: 'nodes[0].discription', key: 'discription', suggestion: 'description' },
+    ]);
+  });
+
+  it('최상위와 근거 안쪽까지 내려가 찾는다', () => {
+    const ir = minimalIr();
+    ir.generatedAtt = 'x';
+    const nodes = ir.nodes as Array<{ evidence: Array<Record<string, unknown>> }>;
+    nodes[0]!.evidence.push({ type: 'user', location: 'chat', visibility: 'public', exerpt: 'x' });
+    const found = findUnknownFields(ir);
+    expect(found).toContainEqual({
+      path: 'generatedAtt',
+      key: 'generatedAtt',
+      suggestion: 'generatedAt',
+    });
+    expect(found.find((f) => f.key === 'exerpt')?.suggestion).toBe('excerpt');
+  });
+
+  it('가까운 키가 없으면 제안을 비운다', () => {
+    const ir = minimalIr();
+    (ir.nodes as Array<Record<string, unknown>>)[0]!.zzzzzzzz = 1;
+    const [field] = findUnknownFields(ir);
+    expect(field).toEqual({ path: 'nodes[0].zzzzzzzz', key: 'zzzzzzzz' });
+  });
+
+  it('모양이 틀린 자리는 건너뛴다(형식 오류는 parseArchitectureIr 몫)', () => {
+    const ir = minimalIr();
+    ir.nodes = 'not-an-array';
+    expect(findUnknownFields(ir)).toEqual([]);
   });
 });

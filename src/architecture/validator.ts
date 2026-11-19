@@ -33,62 +33,69 @@ import {
   type Platform,
   type UnresolvedQuestion,
 } from './types.js';
+import { suggestOne } from './did-you-mean.js';
 
-export type ArchitectureValidationErrorCode =
-  | 'SOLID_EDGE_WITHOUT_EVIDENCE'
-  | 'CODE_EVIDENCE_NOT_FOUND'
-  | 'PRIVATE_EXCERPT_PRESENT'
-  | 'DANGLING_EDGE'
-  | 'PARENT_NOT_FOUND'
-  | 'PARENT_CYCLE'
-  | 'INVALID_PARENT_KIND'
-  | 'LIVE_COMMAND_NOT_READ_ONLY'
-  | 'ACCOUNT_NOT_FOUND'
-  | 'INVALID_ACCOUNT_KIND'
-  | 'PLACED_IN_NOT_FOUND'
-  | 'INVALID_PLACED_IN_KIND'
-  | 'CLOUD_ID_IN_ID'
-  | 'GROUP_MEMBER_NOT_FOUND'
-  | 'DUPLICATE_GROUP_ID'
-  | 'SERVES_SERVICE_WITH_APPS'
-  | 'INVALID_LOADS_ENDS'
-  | 'INVALID_HARNESS_EDGE_ENDS'
-  | 'INVALID_CALL_ACTIONS'
-  | 'UNKNOWN_MCP_ACTION'
-  | 'MD_CODE_EVIDENCE'
-  | 'FLOW_SERVICE_NOT_FOUND'
-  | 'DUPLICATE_FLOW_ID'
-  | 'FLOW_ACTOR_NOT_FOUND'
-  | 'FLOW_STEP_NOT_FOUND'
-  | 'FLOW_REF_NOT_FOUND'
-  | 'INVALID_FLOW_REF_KIND'
-  | 'SOLID_TRANSITION_WITHOUT_EVIDENCE'
-  | 'DUPLICATE_STAGE_ID'
-  | 'STAGE_NODE_NOT_FOUND'
-  | 'STAGE_NODE_TWICE'
-  | 'UNKNOWN_PACK'
-  | 'KIND_NOT_IN_PACKS'
-  | 'CODE_EVIDENCE_IN_DOC_REPO'
-  | 'DUPLICATE_PROJECTION_ID'
-  | 'DUPLICATE_MESSAGE_ID'
-  | 'PROJECTION_NODE_NOT_FOUND'
-  | 'PROJECTION_EDGE_NOT_FOUND'
-  | 'PROJECTION_EDGE_MISMATCH'
-  | 'PROJECTION_BLOCK_NOT_FOUND'
-  | 'PROJECTION_BLOCK_SPLIT'
-  | 'SOLID_MESSAGE_WITHOUT_EVIDENCE'
-  | 'PROJECTION_EMPTY'
-  | 'PROJECTION_SHAPE_FIELD'
-  | 'PROJECTION_FLOW_NOT_FOUND'
-  | 'DUPLICATE_PHASE_ID'
-  | 'PROJECTION_PHASE_MESSAGE_NOT_FOUND'
-  | 'PROJECTION_PHASE_REVERSED'
-  | 'PROJECTION_PHASE_OVERLAP'
-  | 'PROJECTION_PHASE_GAP'
-  | 'INVALID_DESCRIBES_FROM'
-  | 'SOLID_DESCRIBES'
-  | 'COLUMN_REFERENCE_NOT_FOUND'
-  | 'INVALID_COLUMN_REFERENCE_KIND';
+/**
+ * IR 전체를 거부하는 에러 코드. 문서(docs/architecture-view.md) 표가 이 배열과 같은지 테스트가 본다
+ */
+export const ARCHITECTURE_VALIDATION_ERROR_CODES = [
+  'SOLID_EDGE_WITHOUT_EVIDENCE',
+  'CODE_EVIDENCE_NOT_FOUND',
+  'PRIVATE_EXCERPT_PRESENT',
+  'DANGLING_EDGE',
+  'PARENT_NOT_FOUND',
+  'PARENT_CYCLE',
+  'INVALID_PARENT_KIND',
+  'LIVE_COMMAND_NOT_READ_ONLY',
+  'ACCOUNT_NOT_FOUND',
+  'INVALID_ACCOUNT_KIND',
+  'PLACED_IN_NOT_FOUND',
+  'INVALID_PLACED_IN_KIND',
+  'CLOUD_ID_IN_ID',
+  'GROUP_MEMBER_NOT_FOUND',
+  'DUPLICATE_GROUP_ID',
+  'SERVES_SERVICE_WITH_APPS',
+  'INVALID_LOADS_ENDS',
+  'INVALID_HARNESS_EDGE_ENDS',
+  'INVALID_CALL_ACTIONS',
+  'UNKNOWN_MCP_ACTION',
+  'MD_CODE_EVIDENCE',
+  'FLOW_SERVICE_NOT_FOUND',
+  'DUPLICATE_FLOW_ID',
+  'FLOW_ACTOR_NOT_FOUND',
+  'FLOW_STEP_NOT_FOUND',
+  'FLOW_REF_NOT_FOUND',
+  'INVALID_FLOW_REF_KIND',
+  'SOLID_TRANSITION_WITHOUT_EVIDENCE',
+  'DUPLICATE_STAGE_ID',
+  'STAGE_NODE_NOT_FOUND',
+  'STAGE_NODE_TWICE',
+  'UNKNOWN_PACK',
+  'KIND_NOT_IN_PACKS',
+  'CODE_EVIDENCE_IN_DOC_REPO',
+  'DUPLICATE_PROJECTION_ID',
+  'DUPLICATE_MESSAGE_ID',
+  'PROJECTION_NODE_NOT_FOUND',
+  'PROJECTION_EDGE_NOT_FOUND',
+  'PROJECTION_EDGE_MISMATCH',
+  'PROJECTION_BLOCK_NOT_FOUND',
+  'PROJECTION_BLOCK_SPLIT',
+  'SOLID_MESSAGE_WITHOUT_EVIDENCE',
+  'PROJECTION_EMPTY',
+  'PROJECTION_SHAPE_FIELD',
+  'PROJECTION_FLOW_NOT_FOUND',
+  'DUPLICATE_PHASE_ID',
+  'PROJECTION_PHASE_MESSAGE_NOT_FOUND',
+  'PROJECTION_PHASE_REVERSED',
+  'PROJECTION_PHASE_OVERLAP',
+  'PROJECTION_PHASE_GAP',
+  'INVALID_DESCRIBES_FROM',
+  'SOLID_DESCRIBES',
+  'COLUMN_REFERENCE_NOT_FOUND',
+  'INVALID_COLUMN_REFERENCE_KIND',
+] as const;
+
+export type ArchitectureValidationErrorCode = (typeof ARCHITECTURE_VALIDATION_ERROR_CODES)[number];
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
@@ -104,6 +111,31 @@ export interface ArchitectureValidationError {
   /** 노드 컬럼의 근거나 외래 키에서 난 오류. nodeId와 함께 온다 */
   column?: string;
   evidenceIndex?: number;
+  /** 못 찾은 id나 경로 대신 쓰려던 것으로 보이는 값 하나. 가까운 후보가 없으면 비운다 */
+  suggestion?: string;
+  /** CODE_EVIDENCE_NOT_FOUND에서 파일이 git으로 옮겨졌을 때 고쳐 쓸 위치 후보 */
+  movedTo?: string[];
+}
+
+/**
+ * 못 찾은 id 가운데 첫 번째로 가까운 후보가 있는 것에 제안 하나를 붙인다.
+ * 여러 개를 한꺼번에 못 찾아도 제안은 하나만 싣는다(고치는 쪽이 하나씩 확인하게).
+ */
+function withNodeIdSuggestion(
+  error: ArchitectureValidationError,
+  missingIds: readonly string[],
+  known: { keys(): Iterable<string> },
+): ArchitectureValidationError {
+  for (const id of missingIds) {
+    const suggestion = suggestOne(id, known.keys());
+    if (suggestion === undefined) continue;
+    return {
+      ...error,
+      message: `${error.message} "${suggestion}"를 가리키려던 건지 확인한다.`,
+      suggestion,
+    };
+  }
+  return error;
 }
 
 /** 렌더를 막지 않는 알림. 저장하지 않고 validate와 render 응답에만 싣는다 */
@@ -455,11 +487,17 @@ function checkAccounts(ir: ArchitectureIr, errors: ArchitectureValidationError[]
     if (node.account === undefined) continue;
     const account = byId.get(node.account);
     if (!account) {
-      errors.push({
-        code: 'ACCOUNT_NOT_FOUND',
-        message: `노드 "${node.id}"의 account "${node.account}"가 nodes에 없다.`,
-        nodeId: node.id,
-      });
+      errors.push(
+        withNodeIdSuggestion(
+          {
+            code: 'ACCOUNT_NOT_FOUND',
+            message: `노드 "${node.id}"의 account "${node.account}"가 nodes에 없다.`,
+            nodeId: node.id,
+          },
+          [node.account],
+          byId,
+        ),
+      );
     } else if (account.kind !== 'cloud_account') {
       errors.push({
         code: 'INVALID_ACCOUNT_KIND',
@@ -476,11 +514,17 @@ function checkPlacedIn(ir: ArchitectureIr, errors: ArchitectureValidationError[]
     if (node.placedIn === undefined) continue;
     const target = byId.get(node.placedIn);
     if (!target) {
-      errors.push({
-        code: 'PLACED_IN_NOT_FOUND',
-        message: `노드 "${node.id}"의 placedIn "${node.placedIn}"가 nodes에 없다.`,
-        nodeId: node.id,
-      });
+      errors.push(
+        withNodeIdSuggestion(
+          {
+            code: 'PLACED_IN_NOT_FOUND',
+            message: `노드 "${node.id}"의 placedIn "${node.placedIn}"가 nodes에 없다.`,
+            nodeId: node.id,
+          },
+          [node.placedIn],
+          byId,
+        ),
+      );
     } else if (!PLACED_IN_TARGET_KINDS.includes(target.kind)) {
       errors.push({
         code: 'INVALID_PLACED_IN_KIND',
@@ -547,11 +591,17 @@ function checkParents(ir: ArchitectureIr, errors: ArchitectureValidationError[])
     if (node.parent === undefined) continue;
     const parent = byId.get(node.parent);
     if (!parent) {
-      errors.push({
-        code: 'PARENT_NOT_FOUND',
-        message: `노드 "${node.id}"의 parent "${node.parent}"가 nodes에 없다.`,
-        nodeId: node.id,
-      });
+      errors.push(
+        withNodeIdSuggestion(
+          {
+            code: 'PARENT_NOT_FOUND',
+            message: `노드 "${node.id}"의 parent "${node.parent}"가 nodes에 없다.`,
+            nodeId: node.id,
+          },
+          [node.parent],
+          byId,
+        ),
+      );
       continue;
     }
     // 고리에 걸린 노드마다 한 번씩만 알린다. 고리 밖에서 고리로 들어가는 노드는 고리 쪽 에러로 충분하다
@@ -1662,11 +1712,17 @@ export function validateArchitectureIr(
   for (const edge of ir.edges) {
     const missing = [edge.from, edge.to].filter((id) => !nodeIds.has(id));
     if (missing.length > 0) {
-      errors.push({
-        code: 'DANGLING_EDGE',
-        message: `엣지 "${edge.id}"가 nodes에 없는 노드 ${missing.map((id) => `"${id}"`).join(', ')}를 가리킨다.`,
-        edgeId: edge.id,
-      });
+      errors.push(
+        withNodeIdSuggestion(
+          {
+            code: 'DANGLING_EDGE',
+            message: `엣지 "${edge.id}"가 nodes에 없는 노드 ${missing.map((id) => `"${id}"`).join(', ')}를 가리킨다.`,
+            edgeId: edge.id,
+          },
+          missing,
+          nodeIds,
+        ),
+      );
     }
     // 실선은 "코드나 스펙으로 확인했다"는 주장이라 근거 없이 내면 그림 전체를 믿을 수 없게 된다.
     // 그래서 미해결로 조용히 돌리지 않고 거부한다. 근거 없는 점선 엣지만 (e)에서 미해결로 간다.

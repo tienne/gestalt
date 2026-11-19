@@ -3,6 +3,7 @@ import { ValidationError } from '../core/errors.js';
 import { err, ok, type Result } from '../core/result.js';
 import { KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
 import { RENDER_CLASSES } from './packs/types.js';
+import { suggestOne } from './did-you-mean.js';
 import {
   ARCHITECTURE_IR_SCHEMA_VERSION,
   ARCHITECTURE_VIEWS,
@@ -479,6 +480,83 @@ export const architectureIrSchema = z.object({
   stages: z.array(stageSchema).optional(),
   projections: z.array(projectionSchema).optional(),
 });
+
+/** 스키마에 없는 키 하나. path는 `nodes[3].discription`처럼 입력 JSON에서 찾아갈 수 있는 꼴이다 */
+export interface UnknownField {
+  path: string;
+  key: string;
+  /** 그 자리에서 받는 키 중 가장 가까운 하나. 가까운 게 없으면 비운다 */
+  suggestion?: string;
+}
+
+/**
+ * zod는 모르는 키를 조용히 버려서 오타 칸(discription 같은)이 에러 없이 사라진다.
+ * 입력을 스키마 모양대로 따라 내려가며 받지 않는 키를 모은다. 스키마 검증과 따로 돌아서
+ * 모양이 틀린 자리(배열이어야 하는데 객체 등)는 건너뛰고 그건 parseArchitectureIr이 알린다.
+ */
+export function findUnknownFields(input: unknown): UnknownField[] {
+  const found: UnknownField[] = [];
+  walkUnknown(architectureIrSchema, input, '', found);
+  return found;
+}
+
+function unwrapSchema(schema: z.ZodTypeAny): z.ZodTypeAny {
+  let current = schema;
+  for (;;) {
+    if (current instanceof z.ZodOptional || current instanceof z.ZodNullable) {
+      current = current.unwrap() as z.ZodTypeAny;
+    } else if (current instanceof z.ZodDefault) {
+      current = current.removeDefault() as z.ZodTypeAny;
+    } else if (current instanceof z.ZodEffects) {
+      current = current.innerType() as z.ZodTypeAny;
+    } else {
+      return current;
+    }
+  }
+}
+
+function walkUnknown(
+  schema: z.ZodTypeAny,
+  value: unknown,
+  path: string,
+  found: UnknownField[],
+): void {
+  const inner = unwrapSchema(schema);
+  if (inner instanceof z.ZodArray) {
+    if (!Array.isArray(value)) return;
+    value.forEach((item, index) => {
+      walkUnknown(inner.element as z.ZodTypeAny, item, `${path}[${index}]`, found);
+    });
+    return;
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return;
+  if (inner instanceof z.ZodRecord) {
+    for (const [key, item] of Object.entries(value)) {
+      walkUnknown(inner.valueSchema as z.ZodTypeAny, item, joinPath(path, key), found);
+    }
+    return;
+  }
+  if (!(inner instanceof z.ZodObject)) return;
+  const shape = inner.shape as Record<string, z.ZodTypeAny>;
+  const known = Object.keys(shape);
+  for (const [key, item] of Object.entries(value)) {
+    const child = shape[key];
+    if (child === undefined) {
+      const suggestion = suggestOne(key, known);
+      found.push({
+        path: joinPath(path, key),
+        key,
+        ...(suggestion === undefined ? {} : { suggestion }),
+      });
+      continue;
+    }
+    walkUnknown(child, item, joinPath(path, key), found);
+  }
+}
+
+function joinPath(parent: string, key: string): string {
+  return parent === '' ? key : `${parent}.${key}`;
+}
 
 export function parseArchitectureIr(input: unknown): Result<ArchitectureIr, ValidationError> {
   const parsed = architectureIrSchema.safeParse(input);

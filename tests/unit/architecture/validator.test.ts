@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  ARCHITECTURE_VALIDATION_ERROR_CODES,
   SECRET_MASK,
   maskIrSecrets,
   redactForSharing,
@@ -534,5 +535,46 @@ describe('validateArchitectureIr description 경고', () => {
     if (!result.ok) return;
     expect(result.value.autoUnresolved).toEqual([]);
     expect(JSON.stringify(result.value.ir)).not.toContain('NODE_DESCRIPTION_MISSING');
+  });
+});
+
+describe('없는 id에 붙는 제안 하나', () => {
+  function errorsOf(ir: ArchitectureIr) {
+    const result = validateArchitectureIr(ir);
+    return result.ok ? [] : result.errors;
+  }
+
+  it('DANGLING_EDGE는 가장 가까운 노드 id 하나를 제안한다', () => {
+    const ir = makeIr(
+      [node('svc-orders'), node('svc-users')],
+      [edge('e1', 'svc-users', 'svc-order', [codeEv()])],
+    );
+    const [error] = errorsOf(ir);
+    expect(error).toMatchObject({ code: 'DANGLING_EDGE', suggestion: 'svc-orders' });
+    expect(error!.message).toContain('"svc-orders"');
+  });
+
+  it('가까운 id가 없으면 제안을 비운다', () => {
+    const ir = makeIr([node('a')], [edge('e1', 'a', 'completely-different', [codeEv()])]);
+    const [error] = errorsOf(ir);
+    expect(error?.code).toBe('DANGLING_EDGE');
+    expect(error?.suggestion).toBeUndefined();
+  });
+
+  it('PARENT_NOT_FOUND도 제안 하나를 붙인다', () => {
+    const child: ArchitectureNode = { ...node('s1'), parent: 'feat-cart' };
+    const parent: ArchitectureNode = { ...node('feat-carts'), kind: 'feature' };
+    const errors = errorsOf(makeIr([child, parent]));
+    expect(errors).toContainEqual(
+      expect.objectContaining({ code: 'PARENT_NOT_FOUND', suggestion: 'feat-carts' }),
+    );
+  });
+});
+
+describe('에러 코드 배열', () => {
+  it('겹치는 코드가 없다', () => {
+    expect(new Set(ARCHITECTURE_VALIDATION_ERROR_CODES).size).toBe(
+      ARCHITECTURE_VALIDATION_ERROR_CODES.length,
+    );
   });
 });
