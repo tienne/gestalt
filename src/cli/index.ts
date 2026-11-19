@@ -70,6 +70,7 @@ import {
   digestTemplateCommand,
   digestTemplatesCommand,
   digestSliceCommand,
+  digestFollowupCandidatesCommand,
   digestTranslateApplyCommand,
   digestRenderCommand,
   digestServeCommand,
@@ -607,6 +608,7 @@ export function createCli(): Command {
     .option('--slug <slug>', '저장 폴더 이름 (기본: 제목과 영상 id)')
     .option('--whisper', '자막이 있어도 faster-whisper로 받아쓴다')
     .option('--whisper-model <name>', 'faster-whisper 모델 (기본 large-v3)')
+    .option('--slides <pdf>', '발표 슬라이드 PDF 파일 또는 주소를 함께 수집한다')
     .option('--ocr', '스크립트를 만든 뒤 화면 글자도 읽어 ocr.json에 둔다 (tesseract 필요)')
     .option('--ocr-interval <sec>', '화면 글자를 읽는 간격 (기본 10초)')
     .action((input, o, cmd) => digestIngestCommand(input, { ...digestInherited(cmd), ...o }));
@@ -682,6 +684,14 @@ export function createCli(): Command {
     .action((id, o, cmd) => digestTemplateCommand(id, { ...digestInherited(cmd), ...o }));
 
   digest
+    .command('followup-candidates <slug>')
+    .description('구간 리포트의 기존 인용과 관련된 뒤쪽 원문 후보를 찾는다')
+    .requiredOption('--report <file>', '구간 리포트 초안 JSON')
+    .action((slug, o, cmd) =>
+      digestFollowupCandidatesCommand(slug, { ...digestInherited(cmd), ...o }),
+    );
+
+  digest
     .command('slice <slug>')
     .description(
       '구간 리포트용으로 스크립트를 그 구간 문장만 잘라 저장한다. 문장 번호는 그대로 둔다',
@@ -699,8 +709,8 @@ export function createCli(): Command {
     );
 
   digest
-    .command('serve <slug>')
-    .description('뷰어를 로컬 서버(127.0.0.1)로 띄운다. 유튜브 재생과 따라가기는 여기서만 된다')
+    .command('serve [slug]')
+    .description('뷰어를 로컬 서버(127.0.0.1)로 띄운다. slug를 생략하면 요약 보관함을 연다')
     .option('--port <n>', '포트 (기본: 7893부터 빈 곳)')
     .option('--no-browser', '브라우저를 열지 않는다')
     .option(

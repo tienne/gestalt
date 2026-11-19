@@ -13,7 +13,7 @@
  * 세 번째 인자는 쪽 수 상한이다. 넘으면 stderr에 too-many-pages를 남기고 멈춘다.
  * 백틱과 달러 중괄호가 없어야 String.raw 안에 그대로 실린다
  */
-export const PDF_EXTRACT_PY = String.raw`import json, os, re, statistics, sys
+export const PDF_EXTRACT_PY = String.raw`import csv, io, json, os, re, shutil, statistics, subprocess, sys, time
 
 # 신뢰할 수 없는 PDF가 메모리를 다 먹지 않게 주소 공간을 4GB로 묶는다. macOS는 RLIMIT_AS를 거부해서 Linux에서만 건다
 if sys.platform.startswith("linux"):
@@ -29,6 +29,7 @@ import pdfplumber
 
 pdf_path, out_dir = sys.argv[1], sys.argv[2]
 MAX_PAGES = int(sys.argv[3]) if len(sys.argv) > 3 else 300
+OCR_MIN_CONFIDENCE = int(sys.argv[4])
 PAGE_SCALE = 2.0
 CROP_SCALE = 3.0
 CAPTION = re.compile(r"^(Table|Figure|Fig\.)\s*(\d+)\s*[:.]", re.I)
@@ -268,6 +269,44 @@ def layout_title(page):
     return " ".join(out)
 
 
+def ocr_units(engine, image, page, width, height, timeout):
+    if not engine or timeout <= 0:
+        return []
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    try:
+        result = subprocess.run(
+            [engine, "stdin", "stdout", "--dpi", str(int(72 * PAGE_SCALE)), "tsv"],
+            input=buf.getvalue(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            env={**os.environ, "OMP_THREAD_LIMIT": "1"}, timeout=timeout, check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    lines = {}
+    for row in csv.DictReader(io.StringIO(result.stdout.decode("utf-8", errors="replace")), delimiter="\t"):
+        text = (row["text"] or "").strip()
+        if not text or float(row["conf"]) < OCR_MIN_CONFIDENCE:
+            continue
+        x, y, w, h = (int(row[k]) for k in ("left", "top", "width", "height"))
+        key = (row["block_num"], row["par_num"], row["line_num"])
+        lines.setdefault(key, []).append((text, x, y, x + w, y + h))
+    paragraphs = {}
+    for (block, par, _line), words in lines.items():
+        bbox = [
+            round(min(w[1] for w in words) * width / image.width, 1),
+            round(min(w[2] for w in words) * height / image.height, 1),
+            round(max(w[3] for w in words) * width / image.width, 1),
+            round(max(w[4] for w in words) * height / image.height, 1),
+        ]
+        texts, rects = paragraphs.setdefault((block, par), ([], []))
+        texts.append(" ".join(w[0] for w in words))
+        rects.append({"page": page, "bbox": bbox})
+    return [
+        {"page": page, "role": "para", "text": " ".join(texts), "rects": rects}
+        for texts, rects in paragraphs.values()
+    ]
+
+
 def main():
     os.makedirs(os.path.join(out_dir, "pages"), exist_ok=True)
     os.makedirs(os.path.join(out_dir, "figures"), exist_ok=True)
@@ -281,12 +320,17 @@ def main():
     body_sizes = []
     page_lines = []
     for page in pdf.pages:
-        words = page.extract_words(x_tolerance=1.5, extra_attrs=["size", "fontname"])
-        lines = cluster_lines(words)
+        try:
+            words = page.extract_words(x_tolerance=1.5, extra_attrs=["size", "fontname"])
+            lines = cluster_lines(words)
+        except Exception:
+            lines = []
         page_lines.append(lines)
         body_sizes += [round(l["size"], 1) for l in lines]
     body = statistics.mode(body_sizes) if body_sizes else 10.0
 
+    engine = shutil.which("tesseract")
+    ocr_remaining = 240.0
     pending = None  # 단이나 쪽을 넘어 이어지는 문단
     for pi, page in enumerate(pdf.pages):
         pno = pi + 1
@@ -356,6 +400,15 @@ def main():
         pname = f"pages/p{pno}.jpg"
         pimg.save(os.path.join(out_dir, pname), quality=80)
         pages.append({"n": pno, "width": round(W, 1), "height": round(H, 1), "image": pname})
+
+        if not any(any(ch.isalnum() for ch in line["text"]) for line in lines):
+            started = time.monotonic()
+            ocr = ocr_units(engine, pimg, pno, W, H, min(8.0, ocr_remaining))
+            ocr_remaining -= time.monotonic() - started
+            pages[-1]["textMethod"] = "ocr" if ocr else "unread"
+            units.extend(ocr)
+            pending = None
+            continue
 
         body_lines = [l for l in lines if not any(inside(l, r) for r in regions)]
         crossing = sum(1 for l in body_lines if l["x0"] < mid - 8 and l["x1"] > mid + 8)
@@ -428,7 +481,7 @@ def main():
     for f in figures:
         f["unit"] = next(u["i"] for u in units if u.get("ref") == f["id"])
     meta = pdf.metadata or {}
-    print(json.dumps({"title": meta.get("Title") or "", "layoutTitle": layout_title(pdf.pages[0]) if pdf.pages else "", "pageCount": len(pdf.pages), "pages": pages, "units": units, "tables": tables, "figures": figures}))
+    print(json.dumps({"title": meta.get("Title") or "", "layoutTitle": layout_title(pdf.pages[0]) if page_lines and page_lines[0] else "", "pageCount": len(pdf.pages), "ocrUnavailable": engine is None, "pages": pages, "units": units, "tables": tables, "figures": figures}))
 
 
 def close(cur, pno, units, body):

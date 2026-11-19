@@ -50,6 +50,20 @@ describe('읽기 렌즈 lint', () => {
     expect(codes(r)).toContain('DOUBT_NUMBER_UNKNOWN');
   });
 
+  it('OCR 문단의 숫자는 의심이나 한계의 수치 검증 근거로 세지 않는다', () => {
+    const r = lensReport();
+    const source = lensSource();
+    const cite = { key: 3, from: 3, to: 3 };
+    r.limits = [{ text: '노드가 200개다.', evidence: [{ cite }] }];
+    expect(codes(r, source)).not.toContain('LIMIT_NUMBER_UNKNOWN');
+    source.pages[1]!.textMethod = 'ocr';
+    expect(codes(r, source)).toContain('LIMIT_NUMBER_UNKNOWN');
+    const doubt = r.sections[1]!.subsections[0]!.bullets[0]!.doubt!;
+    doubt.note = '노드가 200개다.';
+    doubt.evidence = [{ cite }];
+    expect(codes(r, source)).toContain('DOUBT_NOT_NUMERIC');
+  });
+
   it('줄 이름의 숫자(노드 50개)와 표 번호는 근거로 친다', () => {
     const r = lensReport();
     r.sections[1]!.subsections[0]!.bullets[0]!.doubt!.note =

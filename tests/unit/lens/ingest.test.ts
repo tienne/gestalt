@@ -107,6 +107,65 @@ describe('ingestLens (pdf)', () => {
     expect(r.warnings.join('\n')).toContain('figure-1');
   });
 
+  it('OCR 좌표와 읽지 못한 쪽을 저장하고 Tesseract 없이도 읽힌 쪽을 남긴다', async () => {
+    const root = repo();
+    const run =
+      (available: boolean): RunCommand =>
+      async () => ({
+        stderr: '',
+        stdout: JSON.stringify({
+          ...EXTRACT,
+          ocrUnavailable: !available,
+          pages: [
+            ...EXTRACT.pages,
+            {
+              ...EXTRACT.pages[0],
+              n: 2,
+              image: 'pages/p2.jpg',
+              textMethod: available ? 'ocr' : 'unread',
+            },
+            { ...EXTRACT.pages[0], n: 3, image: 'pages/p3.jpg', textMethod: 'unread' },
+          ],
+          units: available
+            ? [
+                ...EXTRACT.units,
+                {
+                  i: 3,
+                  page: 2,
+                  role: 'para',
+                  text: 'Scanned words.',
+                  rects: [{ page: 2, bbox: [15, 28, 200, 40] }],
+                },
+              ]
+            : EXTRACT.units,
+        }),
+      });
+    const store = new DigestStore(root);
+    const pdf = pdfFile(root);
+    const mixed = await ingestLens(pdf, { repoRoot: root, slug: 'mixed', run: run(true) });
+    expect(mixed.warnings).toEqual(
+      expect.arrayContaining(['OCR로 읽은 PDF 쪽: 2', '글자를 읽지 못한 PDF 쪽: 3']),
+    );
+    expect(readLensSource(store, 'mixed')?.pages.map((p) => p.textMethod)).toEqual([
+      undefined,
+      'ocr',
+      'unread',
+    ]);
+    const transcript = store.readTranscript('mixed');
+    expect(transcript.ok && transcript.transcript.segments[3]).toMatchObject({
+      page: 2,
+      text: 'Scanned words.',
+      rects: [{ page: 2, bbox: [15, 28, 200, 40] }],
+    });
+    const unavailable = await ingestLens(pdf, {
+      repoRoot: root,
+      slug: 'unavailable',
+      run: run(false),
+    });
+    expect(unavailable.units).toBe(EXTRACT.units.length);
+    expect(unavailable.warnings.join(' ')).toMatch(/PDF 쪽: 2, 3.*Tesseract가 없어요/);
+  });
+
   it('메타데이터 제목이 없으면 첫 쪽의 가장 큰 줄을 첫 heading보다 먼저 쓴다', async () => {
     const titleOf = async (extract: object) => {
       const root = repo();

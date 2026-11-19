@@ -1,3 +1,4 @@
+import { readSlideContext } from './slides.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { extensionKey } from './blocks.js';
@@ -61,7 +62,7 @@ export function loadForRender(
   store: DigestStore,
   slug: string,
   templates?: DigestTemplate[],
-): { transcript: Transcript; digest: Digest } {
+): { transcript: Transcript; digest: Digest; slideContext: ReturnType<typeof readSlideContext> } {
   const t = store.readTranscript(slug);
   if (!t.ok) throw new DigestLoadError(t.code, t.message);
   const raw = store.readDigestFile(slug);
@@ -79,6 +80,7 @@ export function loadForRender(
   }
   const parsed = parseDigest(raw.value);
   if (!parsed.ok) throw new DigestLoadError('INVALID_DIGEST', parsed.error.message);
+  const slideContext = readSlideContext(store, slug);
   const errors = lintErrors(
     lintDigest(parsed.value, t.transcript, {
       templates: templates ? templateMap(templates) : undefined,
@@ -87,21 +89,23 @@ export function loadForRender(
       comments: commentsMap(store, slug) ?? undefined,
       scenes: sceneSecs(store, slug) ?? undefined,
       ...lensSourceForLint(store, slug),
+      ...slideContext,
     }),
   );
   if (errors.length > 0) throw new DigestLintError(errors);
-  return { transcript: t.transcript, digest: parsed.value };
+  return { transcript: t.transcript, digest: parsed.value, slideContext };
 }
 
 /** digest.html과 digest.md를 한 번에 쓴다. 둘 다 같은 digest.json에서 나온다 */
 export function renderToFiles(slug: string, opts: RenderFilesOptions): RenderFilesResult {
   const store = new DigestStore(opts.repoRoot);
-  const { transcript, digest } = loadForRender(store, slug, opts.templates);
+  const { transcript, digest, slideContext } = loadForRender(store, slug, opts.templates);
   const framesDir = store.framesDir(slug);
   const frameExists = (file: string) => existsSync(join(framesDir, file));
   const source = readLensSource(store, slug);
   const { html, warnings } = renderDigestHtml(digest, transcript, {
     source,
+    ...slideContext,
     omitCrops: opts.omitCrops,
     frameExists,
     inlineFrames: opts.inlineFrames,
@@ -113,7 +117,12 @@ export function renderToFiles(slug: string, opts: RenderFilesOptions): RenderFil
     htmlPath: store.saveHtml(slug, html),
     mdPath: store.saveMd(
       slug,
-      renderDigestMarkdown(digest, transcript, { frameExists, source, omitCrops: opts.omitCrops }),
+      renderDigestMarkdown(digest, transcript, {
+        frameExists,
+        source,
+        ...slideContext,
+        omitCrops: opts.omitCrops,
+      }),
     ),
     warnings,
   };
@@ -129,12 +138,12 @@ export function exportMarkdown(
   opts: { repoRoot: string; out?: string; report?: string },
 ): { slug: string; mdPath: string } {
   const store = new DigestStore(opts.repoRoot);
-  const { transcript, digest } = loadForRender(store, slug);
+  const { transcript, digest, slideContext } = loadForRender(store, slug);
   const ext = opts.report
     ? digest.extensions.find((x) => extensionKey(x) === opts.report)
     : undefined;
   if (ext) {
-    const md = renderExtensionMarkdown(ext, transcript);
+    const md = renderExtensionMarkdown(ext, transcript, slideContext);
     const mdPath = opts.out
       ? resolve(opts.out)
       : join(store.dir(slug), `digest.${extensionKey(ext)}.md`);
@@ -160,6 +169,7 @@ export function exportMarkdown(
       frameExists,
       report,
       source: readLensSource(store, slug),
+      ...slideContext,
     });
     if (report === digest.reports[0]) return { slug, mdPath: store.saveMd(slug, md) };
     const mdPath = join(store.dir(slug), `digest.${reportKey(report.options)}.md`);
@@ -177,6 +187,7 @@ export function exportMarkdown(
     framesHref,
     report,
     source: readLensSource(store, slug),
+    ...slideContext,
   });
   mkdirSync(dirname(mdPath), { recursive: true });
   writeFileSync(mdPath, md);

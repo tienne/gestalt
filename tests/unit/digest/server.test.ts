@@ -81,6 +81,47 @@ function get(
 }
 
 describe('DigestServer', () => {
+  it('미완성 폴더가 있어도 빈 보관함을 열 수 있다', async () => {
+    const server = await started();
+    const r = await get(server.port!, '/');
+    expect(r.status).toBe(200);
+    expect(r.body).toContain('아직 열 수 있는 요약이 없어요.');
+    expect((await get(server.port!, '/', { host: 'outside.test' })).status).toBe(403);
+  });
+
+  it('완성된 영상과 렌즈를 최신순으로 보여 주고 제목과 유형을 함께 검색한다', async () => {
+    const server = await started();
+    const root = server['root'];
+    for (const [slug, transcript, title, day] of [
+      ['video', sampleTranscript(), 'Common <Talk>', 1],
+      ['paper', lensTranscript(), 'Common Paper', 2],
+    ] as const) {
+      mkdirSync(join(root, slug));
+      writeFileSync(
+        join(root, slug, 'transcript.json'),
+        JSON.stringify({
+          ...transcript,
+          slug,
+          meta: { ...transcript.meta, title },
+        }),
+      );
+      const page = join(root, slug, 'digest.html');
+      writeFileSync(page, title);
+      utimesSync(page, new Date(Date.UTC(2025, 0, day)), new Date(Date.UTC(2025, 0, day)));
+      expect((await get(server.port!, `/${slug}/`)).body).toBe(title);
+    }
+    const all = await get(server.port!, '/');
+    expect(all.body).toContain('Common &lt;Talk&gt;');
+    expect(all.body.indexOf('href="/paper/"')).toBeLessThan(all.body.indexOf('href="/video/"'));
+    const pdf = await get(server.port!, '/?q=cOmMoN&kind=pdf');
+    expect(pdf.body).toContain('href="/paper/"');
+    expect(pdf.body).not.toContain('href="/video/"');
+    expect((await get(server.port!, '/?q=talk&kind=pdf')).body).toContain('검색 결과가 없어요.');
+    const head = await get(server.port!, '/', { method: 'HEAD' });
+    expect(head.headers['content-length']).toBe(all.headers['content-length']);
+    expect(head.body).toBe('');
+  });
+
   it('127.0.0.1에만 바인딩한다', async () => {
     const server = await started();
     // @ts-expect-error 바인딩 주소를 보려고 내부 서버를 연다

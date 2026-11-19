@@ -1,3 +1,6 @@
+import { pdfTextNotices } from './lens-source.js';
+import { slideLabel } from './render-slides.js';
+import { SLIDES_FAILED_NOTICE, type SlideContext } from './slides.js';
 import type { Extension } from './blocks.js';
 import { frameFileName, shotFileName } from './frames.js';
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
@@ -8,6 +11,7 @@ import { CARD_VERDICT_LABEL, cardKindLabel, GLANCE_LABEL, unitLabel } from './re
 import { reportLabel } from './reports.js';
 import { widgetMarkdown } from './render-widgets.js';
 import {
+  FOLLOWUP_LABEL,
   isLensKind,
   isTextKind,
   keywordPattern,
@@ -18,7 +22,7 @@ import {
   type Transcript,
 } from './schema.js';
 
-export interface RenderMdOptions {
+export interface RenderMdOptions extends Partial<SlideContext> {
   /** 이 이름의 프레임이 있으면 소섹션에 `<framesHref>/...` 상대 경로로 싣는다 */
   frameExists?: (fileName: string) => boolean;
   /** 마크다운 파일에서 frames 폴더까지의 상대 경로. 슬러그 폴더 밖에 쓸 때만 바꾼다 */
@@ -47,8 +51,10 @@ export function renderDigestMarkdown(
   const long = meta.durationSec >= 3600;
   const at = (i: number) => segments[i]?.startSec ?? 0;
   const framesHref = opts.framesHref ?? 'frames';
-  const cite = mdCiter(transcript);
+  const cite = mdCiter(transcript, opts.slides);
   const out = mdHeader(transcript);
+  if (opts.slidesFailed) out.push(`> ${SLIDES_FAILED_NOTICE}`, '');
+  for (const notice of pdfTextNotices(opts.source?.pages ?? [])) out.push(`> ${notice}`, '');
 
   const report = opts.report ?? digest.reports[0]!;
   // 리포트가 하나뿐이고 옵션도 기본이면 1차 출력과 같게 둔다
@@ -79,6 +85,17 @@ export function renderDigestMarkdown(
   const bullet = (b: Bullet, depth: number): string[] => {
     const pad = '  '.repeat(depth);
     const lines = [`${pad}- ${plain(b.text)}${cite(b.cite)}`];
+    if (b.comparison) {
+      lines.push(`${pad}  > **영상과 슬라이드의 차이** ${plain(b.comparison.note)}`);
+      for (const [label, evidence] of [
+        ['영상', b.comparison.video],
+        ['PDF', b.comparison.slides],
+      ] as const) {
+        lines.push(
+          `${pad}  > ${label}${cite(evidence.cite)}${evidence.quote ? ` “${mdInline(evidence.quote)}”` : ''}`,
+        );
+      }
+    }
     if (b.doubt) {
       lines.push(
         `${pad}  > **원문과 어긋남** ${plain(b.doubt.note)} ${b.doubt.evidence.map(evidence).join(' ')}`,
@@ -88,7 +105,7 @@ export function renderDigestMarkdown(
     return lines;
   };
 
-  const time = mdTimer(transcript);
+  const time = mdTimer(transcript, opts.slides);
   sections.forEach((s, si) => {
     out.push(`## ${si + 1}. ${stripNumbering(s.title)}`, '');
     if (s.intro) out.push(`*${plain(s.intro)}*`, '');
@@ -171,6 +188,17 @@ export function renderDigestMarkdown(
       out.push('');
     }
   }
+  if (report.followups?.length) {
+    out.push('## 후속 설명', '');
+    for (const item of report.followups) {
+      out.push(
+        `- **${FOLLOWUP_LABEL[item.kind]}** ${time(item.anchor)} → ${time(item.cite)}. ${mdInline(item.note)}`,
+        `  > ${mdInline(item.quote)}`,
+        '',
+      );
+    }
+  }
+
   if (report.links?.length && !opts.omitCrops) {
     out.push('## 내 지식과 잇기', '');
     for (const link of report.links) {
@@ -212,11 +240,16 @@ export function renderDigestMarkdown(
 }
 
 /** 확장 리포트 한 벌을 마크다운으로. 머리말은 요약 마크다운과 같다 */
-export function renderExtensionMarkdown(ext: Extension, transcript: Transcript): string {
-  const cite = mdCiter(transcript);
+export function renderExtensionMarkdown(
+  ext: Extension,
+  transcript: Transcript,
+  opts: Partial<SlideContext> = {},
+): string {
+  const cite = mdCiter(transcript, opts.slides);
   const out = mdHeader(transcript);
+  if (opts.slidesFailed) out.push(`> ${SLIDES_FAILED_NOTICE}`, '');
   out.push(`> 리포트: ${mdInline(ext.title)}`, '');
-  const time = mdTimer(transcript);
+  const time = mdTimer(transcript, opts.slides);
   for (const b of ext.blocks) out.push(...blockMarkdown(b, { cite, time }));
   return finish(out);
 }
@@ -236,7 +269,7 @@ function tableMd(num: string, caption: string, rows: string[][]): string[] {
   ];
 }
 
-function mdCiter(transcript: Transcript): (c: Cite) => string {
+function mdCiter(transcript: Transcript, slides?: SlideContext['slides']): (c: Cite) => string {
   const { meta, segments } = transcript;
   const long = meta.durationSec >= 3600;
   const at = (i: number) => segments[i]?.startSec ?? 0;
@@ -248,17 +281,29 @@ function mdCiter(transcript: Transcript): (c: Cite) => string {
     };
   }
   return (c) => {
+    if (c.source) return slideMd(c, slides);
     const url = watchUrlAt(meta, at(c.key));
     return url ? ` [[${c.key + 1}]](${url})` : ` [${c.key + 1} ${formatTime(at(c.key), long)}]`;
   };
 }
 
-function mdTimer(transcript: Transcript): (c: Cite) => string {
+function slideMd(c: Cite, slides: SlideContext['slides'] | undefined): string {
+  const deck = c.source ? slides?.get(c.source) : undefined;
+  if (!deck) return '';
+  const label = `${slideLabel(deck, c.key)}, 문단 ${c.key + 1}`;
+  const url = deck.transcript.meta.url;
+  const page = deck.transcript.segments[c.key]?.page;
+  const link = url && /^https?:\/\//.test(url) ? url.split('#')[0] : undefined;
+  return link ? ` [${label}](<${encodeURI(link)}${page ? `#page=${page}` : ''}>)` : ` [${label}]`;
+}
+
+function mdTimer(transcript: Transcript, slides?: SlideContext['slides']): (c: Cite) => string {
   const { meta, segments } = transcript;
   // 글 자료는 시각이 다 0이라 뷰어의 문단 칩과 같은 쪽이나 문단 번호를 적는다
   if (isTextKind(meta.source)) return (c) => unitLabel(transcript, c.key);
   const long = meta.durationSec >= 3600;
   return (c) => {
+    if (c.source) return slideMd(c, slides).trim();
     const sec = segments[c.key]?.startSec ?? 0;
     const url = watchUrlAt(meta, sec);
     return url ? `[${formatTime(sec, long)}](${url})` : formatTime(sec, long);

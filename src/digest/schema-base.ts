@@ -11,8 +11,11 @@ export const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 export const sentenceIndex = z.number().int().nonnegative();
 
+export const SLIDE_SOURCE_PATTERN = /^slides-[a-f0-9]{24}$/;
+
 export const citeSchema = z
   .object({
+    source: z.string().regex(SLIDE_SOURCE_PATTERN).optional(),
     key: sentenceIndex,
     from: sentenceIndex,
     to: sentenceIndex,

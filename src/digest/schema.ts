@@ -170,12 +170,23 @@ export const transcriptSchema = z
     });
   });
 
+const comparisonEvidenceSchema = z.object({ cite: citeSchema, quote: textSchema.optional() });
+
+const comparisonSchema = z.object({
+  note: textSchema,
+  video: comparisonEvidenceSchema,
+  slides: comparisonEvidenceSchema,
+});
+
+export type SlideComparison = z.infer<typeof comparisonSchema>;
+
 export interface Bullet {
   text: string;
   cite: z.infer<typeof citeSchema>;
   children?: Bullet[];
   /** 읽기 렌즈의 의심 표시. 이 불릿의 주장과 원문 표나 다른 문단이 어긋나는 자리다 */
   doubt?: Doubt;
+  comparison?: SlideComparison;
 }
 
 // 3단 이상은 스키마가 아니라 lint가 잡는다. 어느 불릿이 깊은지 경로로 알려주려고
@@ -185,6 +196,7 @@ export const bulletSchema: z.ZodType<Bullet> = z.lazy(() =>
     cite: citeSchema,
     children: z.array(bulletSchema).optional(),
     doubt: doubtSchema.optional(),
+    comparison: comparisonSchema.optional(),
   }),
 );
 
@@ -264,6 +276,16 @@ export const reportOptionsSchema = z.object({
   prompt: z.string().trim().min(1).max(2000).optional(),
 });
 
+export const followupSchema = z.object({
+  kind: z.enum(['clarification', 'correction']),
+  anchor: citeSchema,
+  cite: citeSchema,
+  quote: z.string().trim().min(8).max(600),
+  note: z.string().trim().min(1).max(500),
+});
+
+export const FOLLOWUP_LABEL = { clarification: '구체화', correction: '정정' } as const;
+
 export const reportSchema = z.object({
   options: reportOptionsSchema.default({}),
   lead: z.object({
@@ -276,6 +298,7 @@ export const reportSchema = z.object({
   sections: z.array(sectionSchema).min(1),
   skipped: z.array(skippedSchema).default([]),
   keywords: z.array(keywordSchema).default([]),
+  followups: z.array(followupSchema).max(6).optional(),
   /** 읽기 렌즈의 검증 안 된 부분. 본문 끝에 늘 펼쳐 둔다 */
   limits: z.array(limitSchema).optional(),
   /**

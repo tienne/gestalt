@@ -1,3 +1,4 @@
+import { pdfTextNotices } from './lens-source.js';
 import {
   isCellRef,
   type CardVerdict,
@@ -198,6 +199,10 @@ const pct = (v: number, of: number) => `${Math.max(0, Math.min(100, (v / of) * 1
 /** 원문 창. PDF는 쪽 그림과 추출 텍스트를 오가고 웹 글은 추출한 문단 목록 하나다 */
 export function docPaneHtml(transcript: Transcript, ctx: LensHtmlContext): string {
   const { meta, segments } = transcript;
+  const notices = pdfTextNotices(ctx.source?.pages ?? []);
+  const status = notices.length
+    ? `<p class="src-note pdf-text-status">${ctx.escape(notices.join('. '))}</p>`
+    : '';
   const textList = `<ol id="script-list">${segments
     .map(
       (s) =>
@@ -213,7 +218,7 @@ export function docPaneHtml(transcript: Transcript, ctx: LensHtmlContext): strin
   // 크롭을 빼면 쪽 그림도 원문 그대로라 함께 빼고 추출 텍스트만 둔다
   const pages = ctx.omitCrops ? [] : (ctx.source?.pages ?? []);
   if (meta.source === 'pdf' && pages.length > 0) {
-    return `<div class="doc-pane" id="doc-pane"><div class="doc-bar" role="group" aria-label="원문 보기"><button type="button" data-view="pages" aria-pressed="true">원문 쪽</button><button type="button" data-view="text" aria-pressed="false">추출 텍스트</button>${link}${close}</div><div id="doc-pages" class="doc-pages" tabindex="0" role="region" aria-label="원문 쪽">${pages
+    return `<div class="doc-pane" id="doc-pane"><div class="doc-bar" role="group" aria-label="원문 보기"><button type="button" data-view="pages" aria-pressed="true">원문 쪽</button><button type="button" data-view="text" aria-pressed="false">추출 텍스트</button>${link}${close}</div>${status}<div id="doc-pages" class="doc-pages" tabindex="0" role="region" aria-label="원문 쪽">${pages
       .map(
         (p) =>
           `<div class="doc-page" data-page="${p.n}" style="aspect-ratio:${p.width}/${p.height}"><img src="${ctx.escape(p.image)}" alt="${p.n}쪽" loading="lazy"><span class="page-no">${p.n}</span></div>`,
@@ -222,7 +227,7 @@ export function docPaneHtml(transcript: Transcript, ctx: LensHtmlContext): strin
         '',
       )}</div><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="추출 텍스트" hidden>${textList}</div></div>`;
   }
-  return `<div class="doc-pane" id="doc-pane"><div class="doc-bar"><span>본문 ${segments.length}문단</span>${link}${close}</div><div id="script-body" class="script-body" tabindex="0" role="region" aria-label="추출한 본문">${textList}</div></div>`;
+  return `<div class="doc-pane" id="doc-pane"><div class="doc-bar"><span>본문 ${segments.length}문단</span>${link}${close}</div>${status}<div id="script-body" class="script-body" tabindex="0" role="region" aria-label="추출한 본문">${textList}</div></div>`;
 }
 
 /** 원문 창이 칠할 자리. PDF 문단의 사각형을 [쪽, x0, top, x1, bottom]으로 줄여 싣는다 */

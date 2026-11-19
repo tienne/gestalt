@@ -5,6 +5,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, sep } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+import { renderDigestLibrary } from './library.js';
+import { SLIDE_VIEWER_JS_SHA256 } from './render-slides.js';
 import { parseTranscript, type SourceKind } from './schema.js';
 import {
   frameSessionRequest,
@@ -72,12 +74,12 @@ export function parseByteRange(header: string | undefined, size: number): ByteRa
 }
 
 // 유튜브 IFrame API가 스크립트와 iframe을 함께 끌어와서 그 둘만 밖으로 연다.
-// 렌더가 싣는 실행 스크립트는 테마를 먼저 붙이는 THEME_BOOT_JS와 VIEWER_JS 둘이라 해시로 고정한다. 데이터 블록은 type이 JSON이라 실행되지 않는다.
+// 뷰어와 슬라이드 원문 창의 실행 스크립트는 해시로 고정한다. JSON 데이터 블록은 실행되지 않는다.
 // 다이어리 테마(theme-diary.ts)의 손글씨 제목 글꼴은 영상 요약과 렌즈 모두 구글 폰트에서 받아서 스타일시트와 글꼴 파일 주소를 연다
 // GESTALT_DIGEST_EXTERNAL_FONTS로 끄면 렌더가 링크를 빼고 CSP는 그대로 둔다. 이미 렌더한 HTML의 링크가 막히지 않게 하려는 것이다
 export const DIGEST_CSP = [
   "default-src 'self'",
-  `script-src 'self' 'sha256-${THEME_BOOT_JS_SHA256}' 'sha256-${VIEWER_JS_SHA256}' https://www.youtube.com https://s.ytimg.com`,
+  `script-src 'self' 'sha256-${THEME_BOOT_JS_SHA256}' 'sha256-${VIEWER_JS_SHA256}' 'sha256-${SLIDE_VIEWER_JS_SHA256}' https://www.youtube.com https://s.ytimg.com`,
   'frame-src https://www.youtube.com https://www.youtube-nocookie.com',
   "img-src 'self' data: https://i.ytimg.com",
   "media-src 'self'",
@@ -265,7 +267,19 @@ export class DigestServer {
     if (!this.hosts.has(host)) return this.deny(res, 403, 'Forbidden');
     if (isRequest) return this.handleRequest(req, res);
 
-    const decoded = safeDecode((req.url ?? '/').split('?')[0]!);
+    const [path, ...query] = (req.url ?? '/').split('?');
+    if (path === '/') {
+      const body = renderDigestLibrary(this.root, new URLSearchParams(query.join('?')));
+      res.writeHead(200, {
+        ...BASE_HEADERS,
+        'Content-Type': MIME['.html']!,
+        'Content-Length': String(Buffer.byteLength(body)),
+        'Content-Security-Policy':
+          "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      });
+      return void res.end(req.method === 'HEAD' ? undefined : body);
+    }
+    const decoded = safeDecode(path!);
     if (decoded === null || decoded.includes('\0')) return this.deny(res, 400, 'Bad Request');
     const rel = decoded.endsWith('/') ? `${decoded}digest.html` : decoded;
     const parts = rel.split('/');

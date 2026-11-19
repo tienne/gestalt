@@ -16,6 +16,7 @@ export const sourcePageSchema = z.object({
   width: z.number().positive(),
   height: z.number().positive(),
   image: assetPath,
+  textMethod: z.enum(['ocr', 'unread']).optional(),
 });
 
 /**
@@ -60,6 +61,16 @@ export type SourcePage = z.infer<typeof sourcePageSchema>;
 export type SourceTable = z.infer<typeof sourceTableSchema>;
 export type SourceFigure = z.infer<typeof sourceFigureSchema>;
 export type LensSource = z.infer<typeof lensSourceSchema>;
+
+/** PDF의 OCR 및 미추출 쪽을 수집 출력과 원문 창에 표시한다 */
+export function pdfTextNotices(pages: readonly SourcePage[]): string[] {
+  const ocr = pages.filter((p) => p.textMethod === 'ocr').map((p) => p.n);
+  const unread = pages.filter((p) => p.textMethod === 'unread').map((p) => p.n);
+  return [
+    ...(ocr.length ? [`OCR로 읽은 PDF 쪽: ${ocr.join(', ')}`] : []),
+    ...(unread.length ? [`글자를 읽지 못한 PDF 쪽: ${unread.join(', ')}`] : []),
+  ];
+}
 
 export function lensSourcePath(store: DigestStore, slug: string): string {
   return join(store.dir(slug), LENS_SOURCE_FILE);

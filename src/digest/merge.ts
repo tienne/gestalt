@@ -1,3 +1,4 @@
+import { readSlideContext } from './slides.js';
 import { extensionKey, extensionSchema, type Extension } from './blocks.js';
 import { commentsMap } from './comments.js';
 import { lensSourceForLint } from './lens-source.js';
@@ -62,6 +63,7 @@ export function mergeReport(repoRoot: string, slug: string, input: unknown): Mer
   const issues = lintDigest(merged, t.transcript, {
     scenes: sceneSecs(store, slug),
     ...lensSourceForLint(store, slug),
+    ...readSlideContext(store, slug),
     knowledge: knowledgeContext(store, slug),
   });
   const saved = lintErrors(issues).length === 0;
@@ -136,6 +138,7 @@ export function mergeExtension(
     strictVerbatim: true,
     scenes: sceneSecs(store, slug),
     ...lensSourceForLint(store, slug),
+    ...readSlideContext(store, slug),
   });
   const saved = lintErrors(issues).length === 0;
   const digestPath = saved ? store.saveDigest(merged) : store.digestPath(slug);

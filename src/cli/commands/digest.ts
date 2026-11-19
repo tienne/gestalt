@@ -1,7 +1,9 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readSlideContext } from '../../digest/slides.js';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadConfig } from '../../core/config.js';
 import { COMMENTS_DEFAULT_MAX, commentsMap, fetchComments } from '../../digest/comments.js';
+import { findFollowupCandidates } from '../../digest/followups.js';
 import { extractFrames } from '../../digest/frames.js';
 import { ingest } from '../../digest/ingest.js';
 import { lensSourceForLint } from '../../digest/lens-source.js';
@@ -11,7 +13,7 @@ import { pickScenes, sceneSecs } from '../../digest/scenes.js';
 import { mergeExtension, mergeReport } from '../../digest/merge.js';
 import { runOcr, type OcrResult } from '../../digest/ocr.js';
 import { exportMarkdown, renderToFiles, type RenderFilesResult } from '../../digest/render.js';
-import { parseDigest } from '../../digest/schema.js';
+import { parseDigest, reportSchema } from '../../digest/schema.js';
 import { parseRangeArg, sliceFileName, sliceTranscript } from '../../digest/slice.js';
 import { DigestServer, findDigestPort, openInBrowser } from '../../digest/server.js';
 import { DigestStore } from '../../digest/store.js';
@@ -21,6 +23,7 @@ import {
   templateMap,
   type TemplateLoad,
 } from '../../digest/templates.js';
+import { ingestDigestSlides } from '../../lens/digest-slides.js';
 import { applyTranslation } from '../../digest/translate.js';
 
 /**
@@ -66,6 +69,7 @@ export async function digestIngestCommand(
     whisperModel?: string;
     ocr?: boolean;
     ocrInterval?: string;
+    slides?: string;
   },
 ): Promise<void> {
   try {
@@ -78,6 +82,9 @@ export async function digestIngestCommand(
       whisper: opts.whisper,
       whisperModel: opts.whisperModel,
     });
+    const slides = opts.slides
+      ? await ingestDigestSlides(opts.slides, r.slug, { repoRoot: rootOf(opts) })
+      : undefined;
     // OCR이 실패해도 수집 결과는 남아 있어서 slug와 경로를 출력하고 종료 코드로만 알린다
     let ocr: OcrResult | { error: string } | undefined;
     if (opts.ocr) {
@@ -88,7 +95,7 @@ export async function digestIngestCommand(
         process.exitCode = 1;
       }
     }
-    emit(ocr ? { ...r, ocr } : r, opts.json, () => {
+    emit({ ...r, ...(ocr && { ocr }), ...(slides && { slides }) }, opts.json, () => {
       console.log(`${r.title} (${mmss(r.durationSec)})`);
       console.log(`자막: ${r.captionSource} [${r.captionTrack}] → 문장 ${r.segmentCount}개`);
       console.log(`slug: ${r.slug}`);
@@ -98,6 +105,13 @@ export async function digestIngestCommand(
         console.log(
           `문장 번호가 바뀌어 기존 요약을 옮겼어요(문장 ${before}개 → ${r.segmentCount}개): ${r.staleDigest.movedTo}`,
         );
+      }
+      if (slides?.status === 'failed') console.error(`슬라이드 PDF 수집 실패: ${slides.error}`);
+      if (slides?.status === 'ok') {
+        console.log(`슬라이드 출처: ${slides.source}`);
+        console.log(`슬라이드 텍스트: ${slides.transcriptPath}`);
+        console.log(`슬라이드 원문 정보: ${slides.sourcePath}`);
+        for (const warning of slides.warnings) console.error(`슬라이드 경고: ${warning}`);
       }
       if (ocr && 'error' in ocr) console.log(`화면 글자를 못 읽었어요: ${ocr.error}`);
       else if (ocr) printOcr(ocr);
@@ -228,6 +242,7 @@ export function digestValidateCommand(slug: string, opts: DigestCommonOptions): 
       comments: commentsMap(store, slug) ?? undefined,
       scenes: sceneSecs(store, slug),
       ...lensSourceForLint(store, slug),
+      ...readSlideContext(store, slug),
       knowledge: knowledgeContext(store, slug),
     });
     const errors = lintErrors(issues);
@@ -385,6 +400,21 @@ export function digestSliceCommand(
   }
 }
 
+export function digestFollowupCandidatesCommand(
+  slug: string,
+  opts: DigestCommonOptions & { report: string },
+): void {
+  try {
+    const transcript = new DigestStore(rootOf(opts)).readTranscript(slug);
+    if (!transcript.ok) throw new Error(transcript.message);
+    const report = reportSchema.parse(JSON.parse(readFileSync(resolve(opts.report), 'utf-8')));
+    const candidates = findFollowupCandidates(transcript.transcript, report);
+    emit({ candidates }, opts.json, () => console.log(JSON.stringify(candidates, null, 2)));
+  } catch (e) {
+    fail(e);
+  }
+}
+
 export function digestTranslateApplyCommand(
   slug: string,
   file: string,
@@ -428,15 +458,17 @@ export function parsePort(value: string): number {
 }
 
 export async function digestServeCommand(
-  slug: string,
+  slug: string | undefined,
   opts: DigestCommonOptions & { port?: string; browser?: boolean; allowHost?: string[] },
 ): Promise<void> {
   try {
     const repoRoot = rootOf(opts);
     const allowHosts = (opts.allowHost ?? []).map((h) => h.trim().toLowerCase());
-    const r = renderDigestFiles(slug, opts);
+    const r = slug ? renderDigestFiles(slug, opts) : undefined;
+    const root = new DigestStore(repoRoot).root;
+    mkdirSync(root, { recursive: true });
     // 뷰어의 템플릿 요청은 이 목록에 있는 id만 세션에 넘긴다
-    const server = new DigestServer(new DigestStore(repoRoot).root, {
+    const server = new DigestServer(root, {
       templates: templatesOf(opts).templates,
       allowHosts,
     });
@@ -451,10 +483,10 @@ export async function digestServeCommand(
       }
       throw e;
     }
-    const url = `http://127.0.0.1:${server.port}/${slug}/`;
+    const url = `http://127.0.0.1:${server.port}/${slug ? `${slug}/` : ''}`;
     emit({ ...r, url }, opts.json, () => {
-      for (const w of r.warnings) console.log(`경고: ${w}`);
-      console.log(`뷰어: ${url}`);
+      for (const w of r?.warnings ?? []) console.log(`경고: ${w}`);
+      console.log(`${slug ? '뷰어' : '요약 보관함'}: ${url}`);
       for (const h of allowHosts) console.log(`받는 이름: ${h}`);
       console.log('끝내려면 Ctrl+C');
     });

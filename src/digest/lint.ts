@@ -1,3 +1,5 @@
+import { checkFollowups } from './lint-followups.js';
+import { checkSourceQuote, locateCite } from './lint-cite.js';
 import { isCellRef } from './lens-schema.js';
 import type { LensSource } from './lens-source.js';
 import { lintLensReport } from './lint-lens.js';
@@ -90,6 +92,8 @@ function collectReportText(report: Report, p: string): TextField[] {
       out.push({ path: `${bp}.title`, text: sub.title });
       for (const { bullet, path } of walkBullets(sub.bullets, `${bp}.bullets`)) {
         out.push({ path: `${path}.text`, text: bullet.text });
+        if (bullet.comparison)
+          out.push({ path: `${path}.comparison.note`, text: bullet.comparison.note });
         if (bullet.doubt) out.push({ path: `${path}.doubt.note`, text: bullet.doubt.note });
       }
       sub.widgets?.forEach((w, k) => {
@@ -148,6 +152,7 @@ interface CiteField {
   cite: Cite;
   /** 불릿이면 소속 소섹션, 도식 노드면 소속 대섹션 범위. 키워드 firstCite처럼 범위 제한이 없으면 비운다 */
   within?: { cite: Cite; code: string; name: string };
+  slidesAllowed?: boolean;
 }
 
 function collectCites(report: Report, p: string): CiteField[] {
@@ -160,7 +165,7 @@ function collectCites(report: Report, p: string): CiteField[] {
       out.push({ path: `${bp}.cite`, cite: sub.cite });
       const within = { cite: sub.cite, code: 'BULLET_CITE_OUT_OF_SUBSECTION', name: '소섹션' };
       for (const { bullet, path } of walkBullets(sub.bullets, `${bp}.bullets`)) {
-        out.push({ path: `${path}.cite`, cite: bullet.cite, within });
+        out.push({ path: `${path}.cite`, cite: bullet.cite, within, slidesAllowed: true });
         // 의심의 근거 문단은 원문 어디든 된다. 표가 본문과 다른 쪽에 있는 경우가 흔하다
         bullet.doubt?.evidence.forEach((ev, k) => {
           if (!isCellRef(ev)) out.push({ path: `${path}.doubt.evidence.${k}.cite`, cite: ev.cite });
@@ -339,16 +344,16 @@ function checkSubsectionCoverage(report: Report, p: string, issues: DigestIssue[
   });
 }
 
-function checkCites(report: Report, p: string, total: number, issues: DigestIssue[]): void {
-  for (const { path, cite, within } of collectCites(report, p)) {
-    if (cite.to >= total) {
-      issues.push({
-        path,
-        severity: 'error',
-        code: 'CITE_OUT_OF_RANGE',
-        message: `${cite.to}번 문장이 없다. 스크립트는 0~${total - 1}번이다`,
-      });
-    }
+function checkCites(
+  report: Report,
+  p: string,
+  transcript: Transcript,
+  slides: DigestLintOptions['slides'],
+  issues: DigestIssue[],
+): void {
+  const total = transcript.segments.length;
+  for (const { path, cite, within, slidesAllowed } of collectCites(report, p)) {
+    locateCite(cite, path, transcript, slides, slidesAllowed ?? false, issues);
     if (cite.key < cite.from || cite.key > cite.to) {
       issues.push({
         path: `${path}.key`,
@@ -357,7 +362,7 @@ function checkCites(report: Report, p: string, total: number, issues: DigestIssu
         message: `key(${cite.key})가 ${range(cite.from, cite.to)} 밖이다`,
       });
     }
-    if (within && (cite.from < within.cite.from || cite.to > within.cite.to)) {
+    if (within && !cite.source && (cite.from < within.cite.from || cite.to > within.cite.to)) {
       issues.push({
         path,
         severity: 'error',
@@ -707,7 +712,7 @@ export function lintDigest(
     } else {
       seenKeys.set(key, ri);
     }
-    lintReport(report, p, transcript, issues);
+    lintReport(report, p, transcript, opts.slides, issues);
     checkShots(report, p, transcript, opts.scenes, issues);
     const kind = transcript.meta.source;
     if (isLensKind(kind)) {
@@ -727,6 +732,7 @@ function lintReport(
   report: Report,
   p: string,
   transcript: Transcript,
+  slides: DigestLintOptions['slides'],
   issues: DigestIssue[],
 ): void {
   const total = transcript.segments.length;
@@ -744,7 +750,9 @@ function lintReport(
   }
   if (span) checkSectionCoverage(report, p, span, issues);
   checkSubsectionCoverage(report, p, issues);
-  checkCites(report, p, total, issues);
+  checkCites(report, p, transcript, slides, issues);
+  checkComparisons(report, p, transcript, slides, issues);
+  checkFollowups(report, p, transcript, span, issues);
   // 대섹션 아래 출처는 커버리지와 소섹션 범위 검사가 이미 구간 안으로 묶는다. 키워드만 따로 본다
   if (report.options.range && span) {
     const s = span;
@@ -770,6 +778,54 @@ function lintReport(
   checkVolume(report, p, issues);
   checkDiagramCount(report, p, issues);
   checkDiagramKindSkew(report, p, issues);
+}
+
+function checkComparisons(
+  report: Report,
+  p: string,
+  transcript: Transcript,
+  slides: DigestLintOptions['slides'],
+  issues: DigestIssue[],
+): void {
+  report.sections.forEach((section, si) => {
+    section.subsections.forEach((sub, bi) => {
+      for (const { bullet, path } of walkBullets(
+        sub.bullets,
+        `${p}.sections.${si}.subsections.${bi}.bullets`,
+      )) {
+        if (!bullet.comparison) continue;
+        const { video, slides: deck } = bullet.comparison;
+        if (video.cite.source || !deck.cite.source || isLensKind(transcript.meta.source)) {
+          issues.push({
+            path: `${path}.comparison`,
+            severity: 'error',
+            code: 'COMPARISON_SOURCES',
+            message:
+              '영상과 슬라이드 PDF 양쪽 근거가 필요하다. slides.cite에는 슬라이드 source를 적는다',
+          });
+          continue;
+        }
+        for (const [name, evidence] of [
+          ['video', video],
+          ['slides', deck],
+        ] as const) {
+          const field = `${path}.comparison.${name}`;
+          const { cite, quote } = evidence;
+          const original = locateCite(cite, `${field}.cite`, transcript, slides, true, issues);
+          if (cite.key < cite.from || cite.key > cite.to) {
+            issues.push({
+              path: `${field}.cite.key`,
+              severity: 'error',
+              code: 'KEY_OUT_OF_RANGE',
+              message: 'key가 인용 범위 밖이다',
+            });
+          }
+          if (original && quote)
+            checkSourceQuote(quote, cite, original, `${field}.quote`, issues, 'error');
+        }
+      }
+    });
+  });
 }
 
 /**

@@ -5,6 +5,8 @@ import {
   type ListItem,
   type MindmapNode,
 } from './blocks.js';
+import { checkSourceQuote, locateCite, normalizeQuote } from './lint-cite.js';
+import { citeTranscript, type SlideContext } from './slides.js';
 import type { DigestIssue } from './lint.js';
 import { boldPattern, keywordPattern, type Cite, type Diagram, type Transcript } from './schema.js';
 import { statValueFits } from './svg.js';
@@ -23,9 +25,11 @@ export interface ExtensionText {
 export interface ExtensionCite {
   path: string;
   cite: Cite;
+  primaryOnly?: boolean;
 }
 
 export interface ExtensionLintOptions {
+  slides?: SlideContext['slides'];
   /** 아는 템플릿. 있으면 템플릿에 없는 블록 타입과 모르는 템플릿을 경고한다 */
   templates?: ReadonlyMap<string, Pick<DigestTemplate, 'id' | 'blocks'>>;
   /**
@@ -147,8 +151,8 @@ export function blockFields(
 ): { texts: ExtensionText[]; cites: ExtensionCite[] } {
   const texts: ExtensionText[] = [];
   const cites: ExtensionCite[] = [];
-  const cite = (path: string, c: Cite | undefined) => {
-    if (c) cites.push({ path, cite: c });
+  const cite = (path: string, c: Cite | undefined, primaryOnly = false) => {
+    if (c) cites.push({ path, cite: c, primaryOnly });
   };
   switch (block.type) {
     case 'heading':
@@ -220,7 +224,7 @@ export function blockFields(
       // 라벨은 그림 안 글자라 굵게를 못 그린다. 이름 칸으로 둔다
       for (const { node, path } of walkMindmap(block.root, `${p}.root`)) {
         texts.push({ path: `${path}.label`, text: node.label, role: 'title' });
-        cite(`${path}.cite`, node.cite);
+        cite(`${path}.cite`, node.cite, true);
       }
       break;
     case 'figure':
@@ -231,7 +235,7 @@ export function blockFields(
       // 도식 라벨도 그림 안 글자라 마인드맵처럼 이름 칸으로 둔다
       for (const node of walkDiagram(block.diagram, `${p}.diagram`)) {
         texts.push({ path: node.labelPath, text: node.label, role: 'title' });
-        if (node.cite) cite(`${node.path}.cite`, node.cite);
+        if (node.cite) cite(`${node.path}.cite`, node.cite, true);
       }
       texts.push({ path: `${p}.explanation`, text: block.explanation, role: 'body' });
       cite(`${p}.cite`, block.cite);
@@ -309,16 +313,14 @@ function checkMarkers(texts: ExtensionText[], issues: DigestIssue[]): void {
   }
 }
 
-function checkCites(cites: ExtensionCite[], total: number, issues: DigestIssue[]): void {
-  for (const { path, cite } of cites) {
-    if (cite.to >= total) {
-      issues.push({
-        path,
-        severity: 'error',
-        code: 'CITE_OUT_OF_RANGE',
-        message: `${cite.to}번 문장이 없다. 스크립트는 0~${total - 1}번이다`,
-      });
-    }
+function checkCites(
+  cites: ExtensionCite[],
+  transcript: Transcript,
+  slides: ExtensionLintOptions['slides'],
+  issues: DigestIssue[],
+): void {
+  for (const { path, cite, primaryOnly } of cites) {
+    locateCite(cite, path, transcript, slides, !primaryOnly, issues);
     if (cite.key < cite.from || cite.key > cite.to) {
       issues.push({
         path: `${path}.key`,
@@ -330,39 +332,26 @@ function checkCites(cites: ExtensionCite[], total: number, issues: DigestIssue[]
   }
 }
 
-// 자동 자막은 문장부호와 대소문자가 흔들려서 글자와 숫자만 남겨 비교한다
-const normalizeQuote = (s: string) =>
-  s
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, '');
-
-/**
- * 인용은 원문이어야 한다. 출처 문장들을 이어 붙인 글에 인용문이 그대로 없으면 경고한다.
- * 고쳐 쓴 문장을 원문처럼 보이게 두지 않으려는 것이다. 자막 오인식을 바로잡은 인용도 있어 오류로 막지는 않는다
- */
+/** 자막 오인식을 바로잡은 인용도 있어서 영상 인용은 경고로 남긴다 */
 function checkQuotes(
   ext: Extension,
   p: string,
   transcript: Transcript,
+  slides: ExtensionLintOptions['slides'],
   issues: DigestIssue[],
 ): void {
   ext.blocks.forEach((block, bi) => {
     if (block.type !== 'quote') return;
-    const { from, to } = block.cite;
-    const source = transcript.segments
-      .slice(from, to + 1)
-      .map((s) => s.text)
-      .join(' ');
-    const quote = normalizeQuote(block.text);
-    if (quote && !normalizeQuote(source).includes(quote)) {
-      issues.push({
-        path: `${p}.blocks.${bi}.text`,
-        severity: 'warning',
-        code: 'QUOTE_NOT_IN_SOURCE',
-        message: `인용문이 ${from}~${to}번 문장에 그대로 없다. 원문을 옮기고 번역은 translation에 둔다`,
-      });
-    }
+    const original = citeTranscript(block.cite, transcript, slides);
+    if (!original || block.cite.to >= original.segments.length) return;
+    checkSourceQuote(
+      block.text,
+      block.cite,
+      original,
+      `${p}.blocks.${bi}.text`,
+      issues,
+      block.cite.source ? 'error' : 'warning',
+    );
   });
 }
 
@@ -641,7 +630,6 @@ export function lintExtensions(
   issues: DigestIssue[],
   opts: ExtensionLintOptions = {},
 ): void {
-  const total = transcript.segments.length;
   const seen = new Map<string, number>();
   extensions.forEach((ext, xi) => {
     const p = `extensions.${xi}`;
@@ -659,9 +647,9 @@ export function lintExtensions(
     }
     const { texts, cites } = extensionFields(ext, p);
     checkMarkers(texts, issues);
-    checkCites(cites, total, issues);
+    checkCites(cites, transcript, opts.slides, issues);
     checkListDepth(ext, p, issues);
-    checkQuotes(ext, p, transcript, issues);
+    checkQuotes(ext, p, transcript, opts.slides, issues);
     checkQuiz(ext, p, issues);
     checkShapes(ext, p, issues);
     checkComments(ext, p, opts.comments, opts.strictVerbatim ?? false, issues);

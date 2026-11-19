@@ -1,3 +1,5 @@
+import { slideCiteHtml, slideDialogHtml, SLIDE_CSS, SLIDE_VIEWER_JS } from './render-slides.js';
+import { SLIDES_FAILED_NOTICE, type SlideContext, type SlideSource } from './slides.js';
 import { extensionKey } from './blocks.js';
 import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
 import { frameFileName, shotFileName } from './frames.js';
@@ -30,6 +32,7 @@ import { DIARY_CSS, DIARY_FONT_LINK } from './theme-diary.js';
 import { THEME_BOOT_JS, VIEWER_JS } from './viewer-js.js';
 import {
   boldPattern,
+  FOLLOWUP_LABEL,
   isLensKind,
   isTextKind,
   keywordPattern,
@@ -45,7 +48,7 @@ import {
 } from './schema.js';
 import { templateFitsKind, templateKindOf, type DigestTemplate } from './templates.js';
 
-export interface RenderHtmlOptions {
+export interface RenderHtmlOptions extends Partial<SlideContext> {
   /** 프레임 파일이 있는지. 상대 경로 모드에서 없는 프레임은 자리를 만들지 않는다 */
   frameExists?: (fileName: string) => boolean;
   /** 켜면 프레임을 data URI로 싣는다. 파일 하나만 들고 다닐 때 쓴다 */
@@ -166,8 +169,21 @@ export function renderDigestHtml(
     return `<a class="ts" href="${e(url)}" target="_blank" rel="noopener" data-sec="${sec}"${tab}>${label}</a>`;
   };
 
-  const cite = (c: Cite): string =>
-    `<sup><button type="button" class="cite" data-key="${c.key}" data-from="${c.from}" data-to="${c.to}" aria-label="출처 ${c.key + 1}">[${c.key + 1}]</button></sup>`;
+  const shownSlides = new Map<string, SlideSource>();
+  const cite = (c: Cite): string => {
+    if (c.source) {
+      const deck = opts.slides?.get(c.source);
+      if (!deck) return '';
+      shownSlides.set(c.source, deck);
+      return slideCiteHtml(c, deck);
+    }
+    const attrs = `class="cite" data-key="${c.key}" data-from="${c.from}" data-to="${c.to}" aria-label="출처 ${c.key + 1}"`;
+    const label = `[${c.key + 1}]`;
+    const url = isYoutube ? watchUrlAt(meta, at(c.key)) : null;
+    return url
+      ? `<sup><a ${attrs} href="${e(url)}" target="_blank" rel="noopener">${label}</a></sup>`
+      : `<sup><button type="button" ${attrs}>${label}</button></sup>`;
+  };
 
   const sec = (c: Cite) => segments[c.key]?.startSec ?? 0;
   // 글 자료는 시각 대신 문단 칩을 단다. 누르면 원문 창이 그 쪽과 문단을 연다
@@ -178,7 +194,7 @@ export function renderDigestHtml(
   const blockCtx: BlockHtmlContext = {
     escape: e,
     cite,
-    time: (c) => (textKind ? loc(c.key) : timeLink(sec(c))),
+    time: (c) => (c.source ? cite(c) : textKind ? loc(c.key) : timeLink(sec(c))),
     sec,
     unit: textKind ? (c) => ({ index: c.key, label: unitLabel(transcript, c.key) }) : undefined,
   };
@@ -250,11 +266,17 @@ export function renderDigestHtml(
       pfx,
       omitCrops: opts.omitCrops,
     };
+    const comparison = (b: NonNullable<Bullet['comparison']>): string => {
+      const quote = (text?: string) => (text ? `<blockquote>${e(text)}</blockquote>` : '');
+      return `<div class="slide-comparison" role="note"><p><strong>영상과 슬라이드의 차이</strong> ${inline(b.note, kwIds)}</p>
+<p>영상 ${timeLink(sec(b.video.cite))}${cite(b.video.cite)}</p>${quote(b.video.quote)}
+<p>${cite(b.slides.cite)}</p>${quote(b.slides.quote)}</div>`;
+    };
     const bullets = (list: Bullet[]): string =>
       `<ul>${list
         .map(
           (b) =>
-            `<li${b.doubt ? ' class="has-doubt"' : ''}>${inline(b.text, kwIds)}${cite(b.cite)}${b.doubt ? doubtHtml(b.doubt, lens) : ''}${b.children?.length ? bullets(b.children) : ''}</li>`,
+            `<li${b.doubt ? ' class="has-doubt"' : ''}>${inline(b.text, kwIds)}${cite(b.cite)}${b.doubt ? doubtHtml(b.doubt, lens) : ''}${b.comparison ? comparison(b.comparison) : ''}${b.children?.length ? bullets(b.children) : ''}</li>`,
         )
         .join('')}</ul>`;
     // 원문 표와 그림은 source.json에서 옮긴다. lint가 id를 확인했지만 렌더도 없는 id는 건너뛴다
@@ -313,6 +335,14 @@ export function renderDigestHtml(
       )
       .join('')}</nav>`;
 
+    const followups = report.followups?.length
+      ? `<section class="extra followups"><h2>후속 설명</h2><ul>${report.followups
+          .map(
+            (item) =>
+              `<li><p><strong>${FOLLOWUP_LABEL[item.kind]}</strong> ${loc(item.anchor.key)} → ${loc(item.cite.key)}${cite(item.cite)}</p><p>${e(item.note)}</p><blockquote>${e(item.quote)}</blockquote></li>`,
+          )
+          .join('')}</ul></section>`
+      : '';
     const keywordsHtml = keywords.length
       ? `<section class="extra" id="${pfx}keywords"><h2>키워드</h2><dl>${keywords
           .map(
@@ -346,6 +376,7 @@ export function renderDigestHtml(
 ${glance}
 ${toc}
 ${sectionsHtml}
+${followups}
 ${limits}
 ${keywordsHtml}
 ${skippedHtml}</div>`;
@@ -455,6 +486,8 @@ ${skippedHtml}</div>`;
       ),
       markdown: renderDigestMarkdown(digest, transcript, {
         source,
+        slides: opts.slides,
+        slidesFailed: opts.slidesFailed,
         omitCrops: opts.omitCrops,
         frameExists: opts.frameExists,
         report,
@@ -463,7 +496,7 @@ ${skippedHtml}</div>`;
     extensions: digest.extensions.map((x) => ({
       key: extensionKey(x),
       panel: extensionPanelId(x),
-      markdown: renderExtensionMarkdown(x, transcript),
+      markdown: renderExtensionMarkdown(x, transcript, opts),
     })),
   };
 
@@ -515,7 +548,7 @@ ${skippedHtml}</div>`;
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>${e(meta.title)}</title>
 <script>${THEME_BOOT_JS}</script>
-${externalFontsEnabled(opts.externalFonts) ? DIARY_FONT_LINK : ''}<style>${CSS}${LENS_CSS}${WIDGET_CSS}${DIARY_CSS}</style>
+${externalFontsEnabled(opts.externalFonts) ? DIARY_FONT_LINK : ''}<style>${CSS}${LENS_CSS}${WIDGET_CSS}${DIARY_CSS}${opts.slides?.size ? SLIDE_CSS : ''}</style>
 ${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn,.quiz-check,.zoom-btn{display:none}.quiz-exp{display:block!important}</style></noscript>' : ''}
 <noscript><style>.doc-open,.doc-close,.theme-switch{display:none!important}.replay-btn{display:none!important}@media (max-width:900px){.is-doc .side{position:static;height:auto;transform:none;visibility:visible;transition:none}}</style></noscript>
 </head>
@@ -524,7 +557,7 @@ ${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn,.quiz
 <aside class="side" id="side">${side}</aside>
 ${textKind ? '<button type="button" id="doc-open" class="doc-open" aria-controls="side" aria-expanded="false">원문 보기</button>' : ''}
 <main class="main">
-<header class="head"><h1>${e(meta.title)}</h1><p class="facts">${facts}</p><div class="head-row">${hasTabs ? '' : reportBar}<div class="tools"><button type="button" id="copy-md">마크다운 복사</button><label>글자 크기 <input id="font-range" type="range" min="85" max="145" step="5" value="100"> <output id="font-value">100%</output></label><span class="theme-switch" role="group" aria-label="테마"><button type="button" data-theme-set="auto" aria-pressed="true">자동</button><button type="button" data-theme-set="light" aria-pressed="false">라이트</button><button type="button" data-theme-set="dark" aria-pressed="false">다크</button></span><p id="copy-status" class="sr-only" role="status" aria-live="polite"></p></div></div>
+<header class="head"><h1>${e(meta.title)}</h1><p class="facts">${facts}</p>${opts.slidesFailed ? `<p class="note">${SLIDES_FAILED_NOTICE}</p>` : ''}<div class="head-row">${hasTabs ? '' : reportBar}<div class="tools"><button type="button" id="copy-md">마크다운 복사</button><label>글자 크기 <input id="font-range" type="range" min="85" max="145" step="5" value="100"> <output id="font-value">100%</output></label><span class="theme-switch" role="group" aria-label="테마"><button type="button" data-theme-set="auto" aria-pressed="true">자동</button><button type="button" data-theme-set="light" aria-pressed="false">라이트</button><button type="button" data-theme-set="dark" aria-pressed="false">다크</button></span><p id="copy-status" class="sr-only" role="status" aria-live="polite"></p></div></div>
 <noscript><p class="note">자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기, 리포트 전환이 동작하지 않아요.${isYoutube ? ' 시각 링크는 유튜브 새 탭으로 열려요.' : ''}</p></noscript></header>
 ${tabRow}
 ${summaryPanel}
@@ -533,6 +566,8 @@ ${summaryPanel}
 ${rendered.map((r) => r.minimap).join('')}
 <script type="application/json" id="digest-data">${embedJson(data)}</script>
 <script>${VIEWER_JS}</script>
+${[...shownSlides].map(([id, deck]) => slideDialogHtml(id, deck, opts.omitCrops)).join('')}
+${opts.slides?.size ? `<script>${SLIDE_VIEWER_JS}</script>` : ''}
 </body>
 </html>
 `;
@@ -796,7 +831,7 @@ body[data-tab="ext"] .minimap{display:none}
 .sub-body.has-shots .shot img{max-height:50vh}
 .shot figcaption{margin-top:4px;font-size:.92em;color:var(--muted)}
 #zoom-dialog .zoom-body img{display:block;max-width:100%;width:auto;height:auto;max-height:calc(92vh - 64px);object-fit:contain;margin:0 auto}
-.cite{border:0;background:none;padding:0 1px;color:var(--accent);cursor:pointer;font-size:.8em}
+.cite{border:0;background:none;padding:0 1px;color:var(--accent);cursor:pointer;font-size:.8em;text-decoration:none}
 .kw{border:0;background:none;padding:0;border-bottom:1px dashed var(--accent);cursor:pointer}
 .extra dt{font-weight:600;margin-top:8px}
 .extra dd{margin:0 0 4px 0;color:var(--muted)}

@@ -71,6 +71,8 @@ outputs:
 - **작성**: `lens-reader`가 두 파일을 읽고 리포트 한 벌을 쓴다. 쉬운 리포트를 부탁받으면 그 리포트를 풀어 한 벌 더 쓴다. 확장 리포트는 `video-summarizer`가 템플릿대로 쓴다. 이 단계에서만 LLM이 돈다.
 - **검사와 표현**: `gestalt digest merge`가 리포트를 합치며 표 칸 출처와 의심 표시 숫자를 `source.json`과 대조한다. `ges_digest render`가 HTML과 마크다운을 코드로 만든다.
 
+PDF 수집 경고와 `source.json`의 `pages[].textMethod`에서 OCR 및 미추출 쪽을 확인한다. OCR 문단은 위치와 대목을 찾는 데 쓴다. 숫자나 수식을 옮길 때는 해당 원문 쪽 그림을 직접 대조한다. 읽지 못한 쪽은 읽은 범위에 포함하지 않는다.
+
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
 > `ges_digest`가 없거나 호출이 실패하면 HTML이나 마크다운을 손으로 쓰지 않는다. 무엇이 왜 안 되는지 말하고 멈춘다.
 
