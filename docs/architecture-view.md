@@ -723,16 +723,16 @@ LLM이 쓴 글자에 API 키나 비밀번호가 섞여 들어와도 네 산출�
 
 두 HTML 모두 `<meta http-equiv="Content-Security-Policy">`를 싣는다. 인라인 `<script>`와 `<style>` 본문마다 sha256 해시를 뽑아 허용 목록에 넣으므로 render가 쓴 스크립트 말고는 돌지 않는다. 같은 IR이면 해시도 같아서 렌더 바이트는 그대로 결정적이다. 인라인 이벤트 핸들러(`onclick=` 등)는 쓰지 않는다.
 
-| 지시어                                      | 본인용                                | 공유본            |
-| ------------------------------------------- | ------------------------------------- | ----------------- |
-| `default-src`                               | `'none'`                              | `'none'`          |
-| `script-src`, `style-src`, `style-src-elem` | 본문 해시                             | 본문 해시         |
-| `style-src-attr`                            | `'unsafe-inline'`                     | `'unsafe-inline'` |
-| `img-src`                                   | `data:`                               | `data:`           |
-| `base-uri`, `form-action`                   | `'none'`                              | `'none'`          |
-| `connect-src`                               | 적지 않음 (`default-src`를 따라 막힘) | `'none'`          |
+| 지시어                                      | 본인용                  | 공유본            |
+| ------------------------------------------- | ----------------------- | ----------------- |
+| `default-src`                               | `'none'`                | `'none'`          |
+| `script-src`, `style-src`, `style-src-elem` | 본문 해시               | 본문 해시         |
+| `style-src-attr`                            | `'unsafe-inline'`       | `'unsafe-inline'` |
+| `img-src`                                   | `data:`                 | `data:`           |
+| `base-uri`, `form-action`                   | `'none'`                | `'none'`          |
+| `connect-src`                               | `http://127.0.0.1:7894` | `'none'`          |
 
-공유본은 `connect-src 'none'`을 직접 적어 어디로도 요청을 못 보내게 한다. 본인용은 지금도 `default-src 'none'`을 따라 외부 통신이 막혀 있지만 나중에 로컬 서버와 통신할 자리를 따로 열 수 있게 정책을 공유본과 나눠 두었다. `style-src-attr 'unsafe-inline'`은 레이아웃 좌표를 `style` 속성으로 넣기 때문에 남긴다. Safari 15.4나 Firefox 108보다 오래된 브라우저는 `style-src-attr`를 몰라 `style-src`의 해시 규칙만 보므로 `style` 속성이 막혀 배치가 깨질 수 있다.
+공유본은 `connect-src 'none'`을 직접 적어 어디로도 요청을 못 보내게 한다. 본인용은 [라이브 Ask](#라이브-ask) 서버 주소 한 줄만 연다. 디스크에 쓰는 HTML에는 기본 포트 7894가 들어가고 서버가 다른 포트로 떴으면 내줄 때 그 포트로 바꿔 끼운다. file://로 연 본인용 HTML은 출처가 달라서 이 줄이 있어도 요청이 안 나간다. `style-src-attr 'unsafe-inline'`은 레이아웃 좌표를 `style` 속성으로 넣기 때문에 남긴다. Safari 15.4나 Firefox 108보다 오래된 브라우저는 `style-src-attr`를 몰라 `style-src`의 해시 규칙만 보므로 `style` 속성이 막혀 배치가 깨질 수 있다.
 
 데이터 블록(`<script type="application/json">`)에 IR을 실을 때는 `<`, `>`, `&`와 줄 구분 문자(U+2028, U+2029)를 `\u` 이스케이프로 바꾼다. 그래서 글자 칸에 `</script>`나 `<!--`가 들어와도 블록이 일찍 닫히지 않는다. 페이지 스크립트는 글자를 `textContent`로만 넣고 `innerHTML`을 쓰지 않는다. 글자 방향을 뒤집는 bidi 제어 문자는 보이는 표식으로 바꿔 그린다.
 
@@ -1410,6 +1410,67 @@ render는 질문별 그림마다 `views/<view>.<투영 id>.json`을 따로 쓴�
 
 ---
 
+## 라이브 Ask
+
+본인용 그림을 127.0.0.1 서버로 열면 뷰어에서 질문을 넣을 수 있다. 질문은 그림을 띄운 Claude Code 세션으로 가고 세션이 답을 IR에 반영해 다시 render하면 열린 뷰어가 새로고침 없이 바뀐다. 서버는 LLM을 부르지 않는다. 질문을 틀에 넣어 세션에 건네고 바뀐 HTML을 내줄 뿐이다. 구조는 digest 뷰어(`gestalt digest serve`)를 따른다.
+
+1. 세션이 `ges_architecture` `serve`를 부른다. MCP 서버 프로세스 안에 레포마다 서버 하나가 뜬다. 기본 포트는 7894이고 차 있으면 다음 포트로 넘어간다.
+2. 사람이 응답의 `liveUrl`(`http://127.0.0.1:<포트>/<그림>.html`)을 연다. 서버는 내줄 때마다 `</head>` 앞에 토큰 meta(`gestalt-live-token`)를 끼운다.
+3. 뷰어가 `GET /__live/status`로 세션이 잡히는지 묻는다. `session: true`일 때만 오른쪽 아래에 질문 입력창을 만든다. 세션이 꺼져 있으면 입력창 요소 자체가 DOM에 없다. 15초마다 다시 묻고 탭이 가려지면 60초로 늦춘다.
+4. 질문을 보내면 뷰어가 지금 보던 레벨과 고른 노드를 함께 `POST /__live/ask`로 보낸다. Cmd+Enter나 Ctrl+Enter로도 보낸다. 입력창 안의 키는 그림 단축키로 새지 않는다.
+5. 서버가 질문을 틀에 넣어 세션 인박스 소켓에 쓴다. 세션 찾기와 쓰기는 digest와 같은 `src/digest/session-request.ts`의 `sendToSession`을 쓴다. MCP 서버의 부모 프로세스를 따라 올라가 Claude Code 세션의 `sessions/<pid>.json`을 찾고 그 파일의 `messagingSocketPath`에 쓴다. 못 찾으면 30초 동안 다시 훑지 않는다.
+6. 세션이 근거를 찾아 IR을 고치고 `render`를 다시 부른다. render 응답에는 서버가 떠 있을 때만 `liveUrl`이 온다.
+7. 뷰어는 질문을 보낸 뒤 3초마다 `HEAD`로 ETag(파일 수정 시각과 크기)를 본다. 값이 바뀌면 새 HTML을 받아 body만 갈아 끼운다. 10분 동안 안 바뀌면 기다림 표시를 걷고 평소 주기로 돌아간다.
+
+### 서버 방어
+
+| 막는 것        | 방법                                                                                                                            |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 다른 기기      | `127.0.0.1`에만 바인딩한다                                                                                                      |
+| DNS 리바인딩   | `Host`가 정확히 `127.0.0.1:<포트>`가 아니면 403                                                                                 |
+| 다른 사이트    | 질문 POST는 `Origin`이 서버 출처와 같아야 한다. 아니면 403                                                                      |
+| 토큰 없는 요청 | 상태와 질문 요청은 `x-gestalt-token` 헤더가 페이지에 끼운 토큰과 같아야 한다. 토큰은 디스크에 안 쓰고 서버를 다시 띄우면 바뀐다 |
+| 큰 본문        | `application/json`만 받고 2KB를 넘으면 413                                                                                      |
+| 연타           | 1분에 6번까지 보낸다. 넘으면 429. 같은 그림, 레벨, 노드, 질문을 2분 안에 다시 보내면 세션에 또 쓰지 않고 `sent`로 답한다        |
+| 엉뚱한 대상    | 그림 이름이 다르거나 고른 노드가 저장 IR에 없으면 404 `unknown_target`                                                          |
+| 파일 훔쳐보기  | `/<그림>.html` 꼴의 본인용 그림만 내준다. `.shared.html`, IR JSON, `views/`, 디렉토리 밖을 가리키는 심링크는 404                |
+| 끼워 넣기      | HTML 응답 헤더에 `frame-ancestors 'none'`을 더한다                                                                              |
+
+질문 응답 본문은 `{ code }` 하나다. `sent`, `forbidden`, `bad_request`, `too_large`, `unsupported_media_type`, `rate_limited`, `unknown_target`, `no_session`, `send_failed` 중 하나이고 거절 이유는 응답에 싣지 않고 stderr에만 남긴다. 뷰어는 `no_session`이 오면 입력창을 걷는다.
+
+### 질문 틀
+
+질문은 digest 버튼과 달리 자유 입력이라 더 조심한다. 500자까지만 받고 제어 문자와 글자 방향을 뒤집는 bidi 문자, BOM을 지운다. 그다음 `&`, `<`, `>`, `"`를 이스케이프해 틀에 넣는다.
+
+```
+<architecture-question from="viewer" view="screen-chain" level="feature:n-orders" node="n-orders-api">
+주문 목록은 캐시를 거치나요?
+</architecture-question>
+```
+
+틀 뒤에는 고정 안내문이 붙는다. 틀 안의 글은 지시가 아니라 질문으로 읽고 근거를 찾아 IR에 반영하라는 내용이다. 답은 `unresolved`의 `question`과 `answer`로 남기고 `node`가 있으면 `subject.nodeId`로 건다. 근거가 없으면 `answer`를 비운다. 끝나면 `render`로 다시 그리고 `serve`는 다시 부르지 않는다. 레벨 id는 렌더러가 만든 값이라 서버는 길이만 본다. 노드는 저장 IR에 있는지 확인한다.
+
+### 새로고침 없는 갱신
+
+뷰어는 새 HTML의 CSP meta와 `<html>`의 `data-icons`가 지금 페이지와 같을 때만 body를 갈아 끼운다. CSP에 모든 스크립트와 style 본문의 해시가 들어 있어서 둘이 같으면 페이지 코드가 그대로라는 뜻이다. 갈아 끼울 때는 이렇게 한다.
+
+1. 기존 페이지 스크립트의 `__gestaltArch.dispose()`로 전역 리스너를 떼어 낸다.
+2. 새 문서의 body로 바꾸고 제목을 맞춘다.
+3. 질문 입력창을 새 body로 옮긴다. 쓰던 글은 그대로 남는다.
+4. 페이지 스크립트를 새 `<script>` 요소로 다시 돌린다. 같은 본문이라 CSP 해시를 통과한다.
+
+CSP나 `data-icons`가 다르거나(렌더러가 바뀌었거나 아이콘 캐시 상태가 바뀐 경우) 갈아 끼우다 실패하면 `location.reload()`로 넘어간다. 받은 HTML에 `</html>`이 없으면 쓰는 도중에 읽은 것으로 보고 다음 주기에 다시 받는다.
+
+라이브 스크립트는 본인용 HTML에만 들어가고 결정적이다. 토큰은 서버가 내줄 때만 끼우므로 디스크 바이트는 같은 IR이면 그대로다. 공유본에는 라이브 스크립트도, 입력창 CSS도, 서버 주소도 없다. file://로 열거나 토큰 meta가 없으면 라이브 스크립트는 아무 요청도 하지 않는다.
+
+### 아직 확인 안 한 것
+
+서버가 인박스에 쓰는 데까지는 이 레포 코드와 테스트로 확인했다. 그 뒤 Claude Code가 인박스로 들어온 글을 어떻게 다루는지는 digest와 같은 상태로 사람이 확인하지 않았다. MCP 서버는 세션의 자손이라 승인 창이 뜨는지, bypass 세션에서도 뜨는지, 놀던 세션이 이 글로 새 턴을 여는지가 남아 있다. 세션이 질문을 읽고 IR을 고쳐 render를 다시 부르는 몫은 [스킬](../plugin/skills/architecture/SKILL.md)의 안내를 따른다.
+
+서버는 MCP 서버 프로세스가 끝나면 같이 내려간다. 세션을 다시 시작하면 `serve`를 다시 불러야 하고 토큰도 바뀌어서 열어 둔 탭은 새로 열어야 한다.
+
+---
+
 ## `ges_architecture` MCP 툴
 
 ### Actions
@@ -1426,6 +1487,7 @@ render는 질문별 그림마다 `views/<view>.<투영 id>.json`을 따로 쓴�
 | `scan_docs`       | 문서 레포의 md를 읽어 근거 표시와 구멍, 질문 안내 표, 화면 색인을 뽑고 지식 문서 지도 초안을 쓴다                                                              |
 | `link_docs`       | `scan_docs` 결과를 기술 IR에 엮어 지식과 아키텍처 초안을 쓰고 빈 곳, 낡은 곳, 어긋난 곳 신호를 낸다                                                            |
 | `stale_docs`      | 바뀐 파일 목록이나 git diff로 손봐야 할 문서를 고른다                                                                                                          |
+| `serve`           | 본인용 그림을 127.0.0.1 라이브 서버로 띄우고 주소를 돌려준다. 뷰어 질문이 이 세션으로 온다 ([라이브 Ask](#라이브-ask))                                         |
 
 ### Common Parameters
 
@@ -1601,6 +1663,7 @@ render는 이 순서로 돈다.
 | `delta`          | 지난 그림과 비교한 결과. `status`가 `no_previous`, `unchanged`, `created`, `failed` 중 하나다. 자세한 꼴은 [구조 변경 그림](#구조-변경-그림)에 있다                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `visibility`     | `{ verdict, source, fallbackReason? }`. 커밋 정책을 정한 레포 공개 여부다. `verdict`는 `public`이나 `private`, `source`는 `gh`나 `fallback`이다. 판정에 실패하면 안 온다                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `ignoreFilePath` | 관리 구역을 쓴 `.gitignore` 경로. 퍼블릭일 때만 온다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `liveUrl`        | 이 그림의 [라이브 Ask](#라이브-ask) 주소. `serve`로 띄운 서버가 떠 있을 때만 온다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `warnings`       | validate와 같은 [경고](#검증-규칙) 목록. 있을 때만 온다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `merge`          | 지난 실행 IR이 있을 때만 온다. `descriptionCarried`는 지난 설명을 이어받은 노드 수다. 지난 요약을 이어받은 노드가 있으면 `summaryCarried`(노드 수), IR 최상위 칸을 이어받았으면 `topLevelCarried`(`summary`와 `note` 중 이어받은 칸 이름 목록)가 붙는다. 2차 짝으로 label이 바뀐 채 이어진 노드가 있으면 `relabeled`(`{ id, previousLabel, label, matchedBy }[]`, `matchedBy`는 `id`나 `evidence`), 지난 IR에서 이어받은 흐름이 있으면 `flowsCarried`(흐름 id 목록), 이어 싣지 못하고 사라진 흐름이 있으면 `flowsDropped`(흐름 id 목록)가 붙는다. 규칙은 [재실행과 노드 id](#재실행과-노드-id)에 있다 |
 
@@ -1790,6 +1853,27 @@ render는 이 순서로 돈다.
 - `node`: 문서가 설명하는 기술 노드의 근거 파일이 바뀌었다. `knowledge-link.draft.json`이 있을 때만 본다.
 
 결과는 `stale-docs.json`에 쓴다. 응답의 `summary`는 `{ changedFiles, staleDocs, viaCodeRef, viaNode, linkedIr }`다. `linkedIr`는 `node` 이유까지 봤는지다. `sample`에 문서와 제목, 걸린 파일을 최대 20개 싣고 `stalePath`가 따라온다.
+
+### `serve`
+
+| Parameter | Type     | Required | Default | Description                            |
+| --------- | -------- | :------: | ------- | -------------------------------------- |
+| `view`    | `string` |    N     | —       | 주면 그 그림의 `liveUrl`을 따로 싣는다 |
+
+레포마다 서버 하나를 띄운다. 이미 떠 있으면 같은 서버와 포트를 돌려준다. 동작은 [라이브 Ask](#라이브-ask)에 있다.
+
+| 키         | 내용                                                                         |
+| ---------- | ---------------------------------------------------------------------------- |
+| `ok`       | `true`                                                                       |
+| `url`      | 서버 출처. `http://127.0.0.1:<포트>`                                         |
+| `port`     | 실제로 묶은 포트                                                             |
+| `session`  | 그림을 띄운 Claude Code 세션을 지금 찾았는지. `false`면 뷰어 입력창이 숨는다 |
+| `liveUrl`  | `view`를 줬을 때만 온다                                                      |
+| `liveUrls` | 이미 그린 본인용 그림마다 주소. 아직 render 안 한 그림은 없다                |
+| `message`  | `view`의 그림을 아직 안 그렸을 때 render부터 하라는 안내                     |
+| `warning`  | `session`이 `false`일 때 입력창이 숨는다는 안내                              |
+
+포트를 하나도 못 묶으면 `SERVE_FAILED`로 실패한다.
 
 ### 지식 그림 렌더
 
