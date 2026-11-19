@@ -572,7 +572,7 @@ test('agent:read를 승인하지 않아 첫 터미널로 갔으면 그 이유를
   })
 })
 
-test('첫 터미널로 가다 terminal.focus가 던지면 앞의 이유와 함께 싣고 워크트리만 연다', async () => {
+test('첫 터미널로 가다 terminal.focus가 실패하면 앞의 이유와 함께 싣고 워크트리만 연다', async () => {
   const s = store(STATUS)
   const h = liveHost(
     s.dir,
