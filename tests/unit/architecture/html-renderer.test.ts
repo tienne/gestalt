@@ -15,6 +15,17 @@ import {
 import { markBidi } from '../../../src/architecture/html-client.js';
 import { cspCoversInline, cspOf, directive, executableScripts } from './csp-check.js';
 import { embedJson, escapeHtml } from '../../../src/architecture/html-renderer.js';
+import {
+  LIVE_ASK_PATH,
+  LIVE_STATUS_PATH,
+  LIVE_TOKEN_META,
+  liveOrigin,
+} from '../../../src/architecture/live-port.js';
+import {
+  LIVE_FORM_CSS,
+  LIVE_HANDLE,
+  renderLiveScript,
+} from '../../../src/architecture/live-client.js';
 import { computeLayout, type LayoutResult } from '../../../src/architecture/layout.js';
 
 const codeEv: Evidence = { type: 'code', location: 'web:src/home.tsx:3', visibility: 'public' };
@@ -432,12 +443,12 @@ describe('renderDrilldownHtml', () => {
   it('화면 이동을 주소 해시에 싣고 해시가 바뀌면 그 화면으로 돌아간다', async () => {
     const html = await render(drillIr(), 'private');
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]!);
-    // 테마를 먼저 거는 head 스크립트와 본문 스크립트 둘이다
-    expect(scripts).toHaveLength(2);
+    // 테마를 먼저 거는 head 스크립트와 본문 스크립트, 본인용에만 붙는 라이브 스크립트 셋이다
+    expect(scripts).toHaveLength(3);
     // 템플릿 문자열 안에서 이스케이프가 빠지면 브라우저에서만 문법 오류가 난다
     for (const s of scripts) expect(() => new Function(s)).not.toThrow();
     const main = scripts[1]!;
-    expect(main).toContain("window.addEventListener('hashchange', route)");
+    expect(main).toContain("onGlobal(window, 'hashchange', route)");
     expect(main).toContain("'#/level/'");
     expect(main).toContain("'#/pair/'");
     expect(main).toContain("'#/bundle/'");
@@ -891,17 +902,40 @@ describe('CSP meta', () => {
     expect(directive(sharedPolicy, 'connect-src')).toBe("'none'");
     expect(directive(sharedPolicy, 'default-src')).toBe("'none'");
     expect(privatePolicy).not.toBe(sharedPolicy);
-    // 본인용도 외부 통신을 새로 열지 않는다. connect-src가 없으면 default-src 'none'을 따른다
+    // 본인용은 라이브 서버(127.0.0.1) 한 줄만 연다. 다른 출처는 default-src 'none'을 따른다
     expect(directive(privatePolicy, 'default-src')).toBe("'none'");
-    expect(directive(privatePolicy, 'connect-src') ?? "'none'").toBe("'none'");
+    expect(directive(privatePolicy, 'connect-src')).toBe(liveOrigin());
+    expect(sharedPolicy).not.toMatch(/https?:/);
+    expect(privatePolicy.replace(liveOrigin(), '')).not.toMatch(/https?:/);
     for (const p of [sharedPolicy, privatePolicy]) {
-      expect(p).not.toMatch(/unsafe-eval|https?:|\*/);
+      expect(p).not.toMatch(/unsafe-eval|\*/);
       expect(directive(p, 'script-src')).not.toContain('unsafe-inline');
       expect(directive(p, 'img-src')).toBe('data:');
     }
     expect(cspCoversInline(shared)).toBe(true);
     expect(cspCoversInline(priv)).toBe(true);
-    expect(executableScripts(priv)).toHaveLength(2);
+    expect(executableScripts(priv)).toHaveLength(3);
+    expect(executableScripts(shared)).toHaveLength(2);
+  });
+
+  it('라이브 스크립트와 질문 폼 CSS는 본인용에만 싣고 공유본에는 한 글자도 없다', async () => {
+    const { v, layout } = await prepare(makeIr());
+    const shared = renderArchitectureHtml(v, layout, { audience: 'shared' });
+    const priv = renderArchitectureHtml(v, layout, { audience: 'private' });
+    expect(executableScripts(priv)).toContain(renderLiveScript());
+    expect(priv).toContain(LIVE_FORM_CSS);
+    for (const needle of [
+      LIVE_HANDLE,
+      LIVE_ASK_PATH,
+      LIVE_STATUS_PATH,
+      LIVE_TOKEN_META,
+      '.live-ask',
+      '127.0.0.1',
+    ]) {
+      expect(shared).not.toContain(needle);
+    }
+    // 입력창은 스크립트가 세션을 확인한 뒤에야 만든다. 렌더 결과에는 폼이 없다
+    expect(priv).not.toMatch(/<form|<textarea|id="live-ask"/);
   });
 
   it('meta는 charset 바로 뒤에 온다', async () => {

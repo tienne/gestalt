@@ -39,6 +39,7 @@ import {
   type ErModel,
 } from './er-layout.js';
 import { cspMeta } from './csp.js';
+import { LIVE_FORM_CSS, renderLiveScript } from './live-client.js';
 import { computeFlowLayout, type FlowLevel } from './flow-layout.js';
 import { markBidi, renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
 import {
@@ -2736,7 +2737,9 @@ function renderPage({
     );
   const soloActor = drawnFlows.some((f) => f.actors.length === 1);
   const hasCaptures = ir.nodes.some((n) => n.capture !== undefined);
-  const styleBody = `${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}${ers ? `\n${ER_CSS}` : ''}${frameLabels ? `\n${FRAME_LABEL_CSS}` : ''}${infra !== undefined ? `${hasViews ? '' : `\n${VIEW_STRIP_CSS}`}\n${INFRA_CSS}` : ''}`;
+  const styleBody = `${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}${ers ? `\n${ER_CSS}` : ''}${frameLabels ? `\n${FRAME_LABEL_CSS}` : ''}${infra !== undefined ? `${hasViews ? '' : `\n${VIEW_STRIP_CSS}`}\n${INFRA_CSS}` : ''}${audience === 'private' ? `\n${LIVE_FORM_CSS}` : ''}`;
+  // 라이브 Ask 스크립트는 본인용에만 싣는다. 공유본에는 글자 하나 들어가지 않고 CSP도 connect-src 'none' 그대로다
+  const liveScript = audience === 'private' ? renderLiveScript() : null;
   const clientScript = clientScriptFor(
     vocab,
     hasFlows && flows.flows.some((f) => f.service === undefined),
@@ -2754,7 +2757,10 @@ function renderPage({
       : '<html lang="ko">',
     '<head>',
     '<meta charset="utf-8">',
-    cspMeta(audience, { scripts: [THEME_BOOT_SCRIPT, clientScript], styles: [styleBody] }),
+    cspMeta(audience, {
+      scripts: [THEME_BOOT_SCRIPT, clientScript, ...(liveScript ? [liveScript] : [])],
+      styles: [styleBody],
+    }),
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
@@ -2815,6 +2821,7 @@ function renderPage({
       : '') + (hasViews ? `\n${renderViewsPop(views)}` : ''),
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
     `<script>${clientScript}</script>`,
+    ...(liveScript ? [`<script>${liveScript}</script>`] : []),
     '</body>',
     '</html>',
     '',
