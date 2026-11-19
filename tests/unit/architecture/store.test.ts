@@ -380,6 +380,8 @@ describe('mergeWithPreviousDetailed', () => {
     expect(ir.projections?.map((p) => p.id)).toEqual(['p1']);
     expect(report).toEqual({
       descriptionCarried: ['old-list'],
+      summaryCarried: [],
+      topLevelCarried: [],
       relabeled: [
         { id: 'old-list', previousLabel: 'Order List', label: 'Orders', matchedBy: 'evidence' },
       ],
@@ -501,6 +503,70 @@ describe('mergeWithPreviousDetailed', () => {
       ['old-d', undefined],
     ]);
     expect(report.descriptionCarried).toEqual(['old-a']);
+  });
+
+  it('노드 summary가 next에 없으면 이어받고 빈 문자열이면 지운 것으로 둔다', () => {
+    const prev = makeIr({
+      nodes: [
+        node('old-a', 'A', { summary: '에이 레벨' }),
+        node('old-b', 'B', { summary: '비 레벨' }),
+        node('old-c', 'C', { summary: '씨 레벨' }),
+        node('old-d', 'D', { summary: '  ' }),
+        node('old-e', 'E'),
+      ],
+    });
+    const next = makeIr({
+      nodes: [
+        node('a', 'A'),
+        node('b', 'B', { summary: '' }),
+        node('c', 'C', { summary: '새 요약' }),
+        node('d', 'D'),
+        node('e', 'E'),
+      ],
+    });
+
+    const { ir, report } = mergeWithPreviousDetailed(prev, next);
+
+    expect(ir.nodes.map((n) => [n.id, n.summary])).toEqual([
+      ['old-a', '에이 레벨'],
+      ['old-b', ''],
+      ['old-c', '새 요약'],
+      ['old-d', undefined],
+      ['old-e', undefined],
+    ]);
+    // 이을 게 없으면 키를 새로 만들지 않는다
+    expect(ir.nodes.slice(3).map((n) => 'summary' in n)).toEqual([false, false]);
+    expect(report.summaryCarried).toEqual(['old-a']);
+    expect(report.descriptionCarried).toEqual([]);
+  });
+
+  it('IR 최상위 summary와 note도 next에 없을 때만 이어받는다', () => {
+    const carried = mergeWithPreviousDetailed(
+      makeIr({ summary: '전체 요약', note: '일러두기' }),
+      makeIr(),
+    );
+    expect([carried.ir.summary, carried.ir.note]).toEqual(['전체 요약', '일러두기']);
+    expect(carried.report.topLevelCarried).toEqual(['summary', 'note']);
+
+    const kept = mergeWithPreviousDetailed(
+      makeIr({ summary: '전체 요약', note: '일러두기' }),
+      makeIr({ summary: '새 요약', note: '' }),
+    );
+    expect([kept.ir.summary, kept.ir.note]).toEqual(['새 요약', '']);
+    expect(kept.report.topLevelCarried).toEqual([]);
+
+    const blank = mergeWithPreviousDetailed(makeIr({ summary: ' ' }), makeIr());
+    expect('summary' in blank.ir).toBe(false);
+    expect('note' in blank.ir).toBe(false);
+    expect(blank.report.topLevelCarried).toEqual([]);
+  });
+
+  it('summary만 남긴 지난 노드가 짝을 잃어도 LABEL_CHANGED_ID_LOST로 알린다', () => {
+    const prev = makeIr({ nodes: [node('old', 'Alpha', { summary: '알파 레벨' })] });
+    const next = makeIr({ nodes: [node('new', 'Beta')] });
+    const { ir, report } = mergeWithPreviousDetailed(prev, next);
+    expect(ir.nodes[0]!.summary).toBeUndefined();
+    expect(report.warnings.map((w) => w.code)).toEqual(['LABEL_CHANGED_ID_LOST']);
   });
 
   it('next에 같은 병합 키가 여럿이고 prev에 그 키가 있으면 MERGE_KEY_DUPLICATE로 알린다', () => {

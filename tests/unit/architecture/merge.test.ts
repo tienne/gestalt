@@ -431,6 +431,36 @@ describe('mergeArchitectureIrs — 충돌', () => {
   });
 });
 
+describe('mergeArchitectureIrs — 요약과 일러두기', () => {
+  const withGatewaySummary = (ir: ArchitectureIr, summary: string): ArchitectureIr => ({
+    ...ir,
+    nodes: ir.nodes.map((n) => (n.kind === 'gateway' ? { ...n, summary } : n)),
+  });
+
+  it('겹친 노드의 summary는 한쪽에만 있어도 남는다', () => {
+    const { ir } = merged([withGatewaySummary(shopIr(), '게이트웨이 안쪽 요약'), adminIr()]);
+    expect(byLabel(ir, 'gateway', 'acme-gateway')[0]!.summary).toBe('게이트웨이 안쪽 요약');
+  });
+
+  it('양쪽 summary가 다르면 description처럼 넘긴 순서와 상관없이 한쪽을 고른다', () => {
+    const shop = withGatewaySummary(shopIr(), '샵 요약');
+    const admin = withGatewaySummary(adminIr(), '어드민 요약');
+    const a = byLabel(merged([shop, admin]).ir, 'gateway', 'acme-gateway')[0]!.summary;
+    const b = byLabel(merged([admin, shop]).ir, 'gateway', 'acme-gateway')[0]!.summary;
+    expect(['샵 요약', '어드민 요약']).toContain(a);
+    expect(b).toBe(a);
+  });
+
+  it('입력 한 장에 쓴 최상위 summary와 note는 합친 그림에 싣지 않는다', () => {
+    const { ir } = merged([
+      { ...shopIr(), summary: '샵 전체 요약', note: '샵 일러두기' },
+      { ...adminIr(), summary: '어드민 전체 요약' },
+    ]);
+    expect('summary' in ir).toBe(false);
+    expect('note' in ir).toBe(false);
+  });
+});
+
 describe('mergeArchitectureIrs — 결정성과 입력 검사', () => {
   it('넘긴 순서나 키 순서가 달라도 같은 바이트가 나온다', () => {
     const a = JSON.stringify(merged([shopIr(), adminIr()]).ir);

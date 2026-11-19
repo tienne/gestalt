@@ -365,6 +365,9 @@ export function mergeArchitectureIrs(
       if (slot.node.description === undefined && raw.description !== undefined) {
         slot.node.description = raw.description;
       }
+      if (slot.node.summary === undefined && raw.summary !== undefined) {
+        slot.node.summary = raw.summary;
+      }
       if (raw.actions !== undefined)
         slot.node.actions = unionActions(slot.node.actions, raw.actions);
       if (raw.platforms !== undefined) {
@@ -839,6 +842,7 @@ export function mergeArchitectureIrs(
   const packs = ordered.some((o) => o.ir.packs !== undefined)
     ? resolvePackIds(ordered.flatMap((o) => o.ir.packs ?? LEGACY_PACK_IDS))
     : undefined;
+  // 최상위 summary와 note는 입력 한 장의 그림을 두고 쓴 글이라 합친 그림에 맞지 않아 싣지 않는다. 입력은 늘 둘 이상이다
   const draft: ArchitectureIr = stripPrivateExcerpts({
     schemaVersion: ordered[0]!.ir.schemaVersion,
     view: ordered[0]!.ir.view,

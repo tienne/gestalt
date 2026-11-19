@@ -295,6 +295,10 @@ export interface MergeRelabel {
 export interface PreviousMergeReport {
   /** 지난 실행의 description을 이어받은 노드 id */
   descriptionCarried: string[];
+  /** 지난 실행의 summary를 이어받은 노드 id */
+  summaryCarried: string[];
+  /** 지난 실행에서 이어받은 IR 최상위 칸 */
+  topLevelCarried: Array<'summary' | 'note'>;
   relabeled: MergeRelabel[];
   /** 이번 실행에 없어 지난 실행에서 이어 실은 흐름 id */
   flowsCarried: string[];
@@ -323,7 +327,8 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
  * 노드는 kind, repo, 정규화한 label이 같으면 같은 것으로 본다. 이걸로 못 찾으면 같은 kind와 repo 자리 안에서
  * 같은 id가 있는지, 그다음 code 근거 파일 집합이 1:1로 하나뿐인 짝이 있는지 본다. label만 바꿔 쓴 노드를 놓치지 않으려고다.
  * 엣지는 바뀐 노드 id 기준 (from, to, kind)가 같으면 같은 것으로 본다. next의 다른 id와 부딪히면 바꾸지 않는다.
- * 짝지은 노드의 description이 next에 없으면 prev 것을 잇는다. 빈 문자열은 지운 것이라 그대로 둔다.
+ * 짝지은 노드의 description과 summary, IR 최상위 summary와 note가 next에 없으면 prev 것을 잇는다.
+ * 빈 문자열은 지운 것이라 그대로 둔다.
  * prev에서 답이 달린 질문과 이번에 안 나온 흐름, 투영은 가리키는 대상이 merge 결과에 남아 있을 때만 이어 붙인다.
  * 입력은 바꾸지 않는다.
  */
@@ -415,6 +420,7 @@ export function mergeWithPreviousDetailed(
   }
 
   const descriptionCarried: string[] = [];
+  const summaryCarried: string[] = [];
   const nodes = next.nodes.map((n, i) => {
     const prevNode = pairOf.get(i);
     const carryDescription =
@@ -422,10 +428,14 @@ export function mergeWithPreviousDetailed(
       n.description === undefined &&
       hasCardDescription(prevNode.description);
     if (carryDescription) descriptionCarried.push(mapNodeId(n.id));
+    const carrySummary =
+      prevNode !== undefined && n.summary === undefined && hasCardDescription(prevNode.summary);
+    if (carrySummary) summaryCarried.push(mapNodeId(n.id));
     return {
       ...n,
       id: mapNodeId(n.id),
       ...(carryDescription ? { description: prevNode.description } : {}),
+      ...(carrySummary ? { summary: prevNode.summary } : {}),
       ...(n.parent !== undefined ? { parent: mapNodeId(n.parent) } : {}),
       ...(n.account !== undefined ? { account: mapNodeId(n.account) } : {}),
       ...(n.placedIn !== undefined ? { placedIn: mapNodeId(n.placedIn) } : {}),
@@ -566,8 +576,17 @@ export function mergeWithPreviousDetailed(
     unresolved.push({ ...prevQ, id, subject: { ...prevQ.subject } });
   }
 
+  const topLevelCarried: Array<'summary' | 'note'> = [];
+  const topLevel: Pick<ArchitectureIr, 'summary' | 'note'> = {};
+  for (const field of ['summary', 'note'] as const) {
+    if (next[field] !== undefined || !hasCardDescription(prev[field])) continue;
+    topLevel[field] = prev[field];
+    topLevelCarried.push(field);
+  }
+
   const ir: ArchitectureIr = {
     ...next,
+    ...topLevel,
     nodes,
     edges,
     unresolved,
@@ -589,6 +608,8 @@ export function mergeWithPreviousDetailed(
     ir,
     report: {
       descriptionCarried,
+      summaryCarried,
+      topLevelCarried,
       relabeled,
       flowsCarried: carriedFlows.map((f) => f.id),
       flowsDropped: droppedFlows.map((d) => d.flowId),
@@ -597,7 +618,7 @@ export function mergeWithPreviousDetailed(
   };
 }
 
-// 끝까지 짝을 못 찾은 지난 노드에 사람이 남긴 것(답, 설명)이 있고 같은 자리에 새 노드가 생겼으면 label과 id를 함께 바꿔 끊겼을 가능성이 크다
+// 끝까지 짝을 못 찾은 지난 노드에 사람이 남긴 것(답, 설명, 요약)이 있고 같은 자리에 새 노드가 생겼으면 label과 id를 함께 바꿔 끊겼을 가능성이 크다
 function lostLabelWarnings(
   prev: ArchitectureIr,
   next: ArchitectureIr,
@@ -613,7 +634,12 @@ function lostLabelWarnings(
   const warnings: MergeWarning[] = [];
   for (const prevNode of prev.nodes) {
     if (usedPrev.has(prevNode)) continue;
-    if (!answeredNodeIds.has(prevNode.id) && !hasCardDescription(prevNode.description)) continue;
+    if (
+      !answeredNodeIds.has(prevNode.id) &&
+      !hasCardDescription(prevNode.description) &&
+      !hasCardDescription(prevNode.summary)
+    )
+      continue;
     const slot = slotKey(prevNode);
     const candidates = next.nodes.flatMap((n, i) =>
       !pairOf.has(i) && slotKey(n) === slot ? [mapNodeId(n.id)] : [],
@@ -626,7 +652,7 @@ function lostLabelWarnings(
       kind: prevNode.kind,
       repo: prevNode.repo,
       candidates,
-      message: `지난 실행의 "${prevNode.label}"(${prevNode.id})와 짝을 못 찾아 설명과 답이 이어지지 않았다. label과 id를 함께 바꿨다면 후보 ${candidates.join(', ')} 중 하나에 지난 id를 다시 쓴다.`,
+      message: `지난 실행의 "${prevNode.label}"(${prevNode.id})와 짝을 못 찾아 설명과 요약, 답이 이어지지 않았다. label과 id를 함께 바꿨다면 후보 ${candidates.join(', ')} 중 하나에 지난 id를 다시 쓴다.`,
     });
   }
   return warnings;
