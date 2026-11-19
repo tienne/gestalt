@@ -11,7 +11,7 @@ import { LEGACY_IRS, renderBoth, sha256 } from '../../fixtures/architecture-lega
 
 // 팩 구조로 옮기기 전 렌더러로 뽑은 해시다. 어휘를 팩으로 옮기거나 새 팩과 모양을 더해도 옛 그림은 바이트까지 같아야 한다.
 // 이 테스트가 깨지면 해시를 고치기 전에 무엇이 왜 달라졌는지부터 확인한다.
-// 마지막 갱신: CSP meta 한 줄, 데이터 블록의 <, >, & 이스케이프, 클라이언트 스크립트의 bidi 표식만 달라진 것을 확인하고 고쳤다
+// 마지막 갱신: 담백한 테마 CSS와 개요 패널, 전체 검색, CSP meta가 바뀌고 드릴다운 그림은 service와 server 레벨에 바깥 맥락 선만 더해진 것을 확인하고 고쳤다
 const EXPECTED = JSON.parse(
   readFileSync(
     new URL('../../fixtures/architecture-legacy/html-hashes.json', import.meta.url),
