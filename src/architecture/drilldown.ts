@@ -61,9 +61,22 @@ export interface DrillLevel {
   trail: string[];
   nodeIds: string[];
   edges: DrillEdge[];
+  /** service와 server 레벨에서 이 레벨 밖의 상대 카드. 하나도 없으면 칸이 없다 */
+  outside?: DrillOutside;
   layout: LayoutResult;
   /** infra 레벨만. 카드 배치(layout) 대신 벤더 박스와 타일 좌표로 그린다. layout은 크기만 담은 빈 배치다 */
   infra?: InfraLayout;
+}
+
+/**
+ * 레벨 밖에서 안으로 선을 보내는 카드(from)와 안에서 나간 선을 받는 카드(to). nodeIds에도 들어 있다.
+ * 한쪽에 OUTSIDE_CONTEXT_MAX장까지만 세우고 넘친 장수는 hidden 칸에 싣는다
+ */
+export interface DrillOutside {
+  from: string[];
+  to: string[];
+  hiddenFrom: number;
+  hiddenTo: number;
 }
 
 export interface Drilldown {
@@ -83,8 +96,22 @@ export const INFRA_LEVEL_ID = 'infra';
 const RECEIVER_RANK = 10;
 const TABLE_RANK_AFTER_RECEIVERS = 100;
 // 전체 레벨에서 서버를 거쳐서만 닿는 게이트웨이와 모듈. 같은 레인 안에서도 게이트웨이가 왼쪽에 선다
-// tree 드릴다운에서 바깥 카드 한 열에 세우는 최대 장수
+// 바깥 카드 한 열에 세우는 최대 장수. tree 드릴다운과 service, server 레벨이 같이 쓴다
 const OUTSIDE_PER_COLUMN = 4;
+// service와 server 레벨에서 한쪽에 세우는 바깥 카드 최대 장수. 넘치면 레벨 안 카드보다 바깥이 더 커진다
+const OUTSIDE_CONTEXT_MAX = 8;
+// 서빙과 배포 사슬은 호출이 아니라 바깥 맥락으로 세우지 않는다. 서비스 레벨이 제 서빙 사슬을 이미 그리고 나머지는 인프라 레벨과 배포 경로 그림이 보여 준다
+const NON_CALL_EDGE_KINDS: ReadonlySet<EdgeKind> = new Set<EdgeKind>([
+  'serves',
+  'origin',
+  'resolves_to',
+  'deploys_to',
+  'produces',
+  'builds',
+  'triggers',
+]);
+// layout.ts가 구간 있는 노드의 열을 구간 순번 * 이 값 + rank로 잡는다. 바깥 카드는 구간이 없어 이 값으로 안쪽 끝 열을 거꾸로 셈한다
+const STAGE_RANK_STRIDE = 100;
 const EXTERNAL_GATEWAY_RANK = PARTITION_RANK.app_module + 1;
 const EXTERNAL_MODULE_RANK = PARTITION_RANK.app_module + 2;
 // 저장소는 외부 서비스 레인 오른쪽 끝에 선다. 외부 서버도 같은 저장소를 쓰므로 그보다 뒤여야 선이 거꾸로 안 간다
@@ -446,6 +473,8 @@ interface LevelDraft {
   frames?: FrameGroup[];
   /** 라벨 단 테두리로 묶을 카드. 노드의 group 값이 같은 것끼리다 */
   groups?: LabeledGroup[];
+  /** 레벨 밖 상대 카드. 열은 배치 직전에 구간까지 보고 정한다 */
+  outside?: DrillOutside;
 }
 
 /**
@@ -1090,6 +1119,118 @@ function treeOrder(
   return { root: tree.root, children };
 }
 
+/** 바깥 카드를 kind 순위마다 열로 나누고 한 열이 OUTSIDE_PER_COLUMN장을 넘으면 옆 열로 넘긴다 */
+function outsideColumns(g: Graph, ids: readonly string[]): string[][] {
+  const byRank = new Map<number, string[]>();
+  for (const id of [...ids].sort(compareStr)) {
+    const r = PARTITION_RANK[g.nodeById.get(id)!.kind];
+    byRank.set(r, [...(byRank.get(r) ?? []), id]);
+  }
+  return [...byRank.keys()]
+    .sort((x, y) => x - y)
+    .flatMap((r) => {
+      const list = byRank.get(r)!;
+      return Array.from({ length: Math.ceil(list.length / OUTSIDE_PER_COLUMN) }, (_, i) =>
+        list.slice(i * OUTSIDE_PER_COLUMN, (i + 1) * OUTSIDE_PER_COLUMN),
+      );
+    });
+}
+
+/**
+ * service와 server 레벨에 레벨 밖 상대 카드를 붙인다. 한 끝만 레벨 안에 있는 IR 선의 다른 끝이 대상이다.
+ * 레벨 선(묶음 포함)이 이미 품은 IR 선은 안에서 그려진 것이라 건너뛴다. 묶음이 접어 둔 엔드포인트가 바깥 카드로 다시 튀어나오지 않게 하려는 것이다.
+ * 레벨 주인 카드와 그 안에 든 노드도 바깥으로 치지 않는다
+ */
+function withOutsideContext(g: Graph, d: LevelDraft, containerId: string): LevelDraft {
+  const drawn = new Set(d.edges.flatMap((e) => e.memberEdgeIds));
+  const contained = (id: string): boolean => {
+    for (let x: string | undefined = id; x !== undefined; x = g.parentOf.get(x))
+      if (x === containerId) return true;
+    return false;
+  };
+  const sends = new Map<string, ArchitectureEdge[]>();
+  const receives = new Map<string, ArchitectureEdge[]>();
+  for (const e of g.edges) {
+    if (drawn.has(e.id) || NON_CALL_EDGE_KINDS.has(e.kind)) continue;
+    const fromIn = d.nodeIds.has(e.from);
+    if (fromIn === d.nodeIds.has(e.to)) continue;
+    const other = fromIn ? e.to : e.from;
+    if (contained(other)) continue;
+    const side = fromIn ? receives : sends;
+    side.set(other, [...(side.get(other) ?? []), e]);
+  }
+  // 보내기도 하고 받기도 하는 카드는 호출하는 쪽에 한 번만 세우고 받는 선도 그 카드에 같이 긋는다
+  for (const [id, es] of receives) {
+    const out = sends.get(id);
+    if (out === undefined) continue;
+    sends.set(id, [...out, ...es]);
+    receives.delete(id);
+  }
+  if (sends.size === 0 && receives.size === 0) return d;
+  const pick = (side: Map<string, ArchitectureEdge[]>): string[] =>
+    [...side.keys()]
+      .sort((a, b) => side.get(b)!.length - side.get(a)!.length || compareStr(a, b))
+      .slice(0, OUTSIDE_CONTEXT_MAX);
+  const from = pick(sends);
+  const to = pick(receives);
+  const nodeIds = new Set(d.nodeIds);
+  const laneOverride = new Map(d.laneOverride);
+  const added: ArchitectureEdge[] = [];
+  for (const [ids, side, lane] of [
+    [from, sends, 'outside_from'],
+    [to, receives, 'outside_to'],
+  ] as const) {
+    for (const id of ids) {
+      nodeIds.add(id);
+      laneOverride.set(id, lane);
+      added.push(...side.get(id)!);
+    }
+  }
+  return {
+    ...d,
+    nodeIds,
+    edges: [...d.edges, ...dedupe(added).map(asDetail)].sort(byId),
+    laneOverride,
+    outside: {
+      from,
+      to,
+      hiddenFrom: sends.size - from.length,
+      hiddenTo: receives.size - to.length,
+    },
+  };
+}
+
+/**
+ * 바깥 카드의 열. 호출하는 쪽은 레벨 안 맨 왼쪽 열보다 왼쪽, 호출받는 쪽은 맨 오른쪽 열보다 오른쪽이다.
+ * 안쪽 카드에 구간이 붙으면 layout.ts가 열을 구간 순번만큼 밀므로 그 값까지 넣어 끝 열을 잡는다
+ */
+function outsideRanks(
+  g: Graph,
+  d: LevelDraft,
+  outside: DrillOutside,
+  stageOf: ReadonlyMap<string, number> | undefined,
+): Map<string, number> {
+  const out = new Set([...outside.from, ...outside.to]);
+  const ranks = [...d.nodeIds]
+    .filter((id) => !out.has(id) && g.nodeById.has(id))
+    .map(
+      (id) =>
+        (stageOf?.get(id) ?? 0) * STAGE_RANK_STRIDE +
+        (d.rankOverride?.get(id) ?? PARTITION_RANK[g.nodeById.get(id)!.kind]),
+    );
+  const min = ranks.length > 0 ? Math.min(...ranks) : 0;
+  const max = ranks.length > 0 ? Math.max(...ranks) : 0;
+  const rankOf = new Map<string, number>();
+  const left = outsideColumns(g, outside.from);
+  left.forEach((col, i) => {
+    for (const id of col) rankOf.set(id, min - left.length + i);
+  });
+  outsideColumns(g, outside.to).forEach((col, i) => {
+    for (const id of col) rankOf.set(id, max + 1 + i);
+  });
+  return rankOf;
+}
+
 /**
  * tree 전략의 레벨. 전체는 parent 없는 노드를, 자식이 있는 노드마다 그 직속 자식을 세운다.
  * 자손끼리의 선은 이 레벨에 선 카드까지 끌어올려 묶는다. 밖으로 나가는 선은 상대를 이 레벨의 형제 높이까지 올려 같이 세운다
@@ -1157,29 +1298,17 @@ function groupDrafts(full: Graph): { drafts: LevelDraft[]; enter: Record<string,
     const ranks = [...members].map((id) => PARTITION_RANK[g.nodeById.get(id)!.kind]);
     const rankOverride = new Map<string, number>();
     const laneOverride = new Map<string, LaneId>();
-    const outsideColumns = (ids: readonly string[]): string[][] => {
-      const byRank = new Map<number, string[]>();
-      for (const id of [...ids].sort(compareStr)) {
-        const r = PARTITION_RANK[g.nodeById.get(id)!.kind];
-        byRank.set(r, [...(byRank.get(r) ?? []), id]);
-      }
-      return [...byRank.keys()]
-        .sort((x, y) => x - y)
-        .flatMap((r) => {
-          const list = byRank.get(r)!;
-          return Array.from({ length: Math.ceil(list.length / OUTSIDE_PER_COLUMN) }, (_, i) =>
-            list.slice(i * OUTSIDE_PER_COLUMN, (i + 1) * OUTSIDE_PER_COLUMN),
-          );
-        });
-    };
-    const right = outsideColumns([...receives]);
+    const right = outsideColumns(g, [...receives]);
     right.forEach((col, i) => {
       for (const id of col) {
         rankOverride.set(id, Math.max(...ranks) + 1 + i);
         laneOverride.set(id, 'outside_to');
       }
     });
-    const left = outsideColumns([...sendsOut].filter((id) => !receives.has(id)));
+    const left = outsideColumns(
+      g,
+      [...sendsOut].filter((id) => !receives.has(id)),
+    );
     left.forEach((col, i) => {
       for (const id of col) {
         rankOverride.set(id, Math.min(...ranks) - left.length + i);
@@ -1467,7 +1596,7 @@ function levelDrafts(
                 rootLane: 'service',
                 loads: [],
               });
-      drafts.push(level);
+      drafts.push(withOutsideContext(g, level, n.id));
       enter[n.id] = level.id;
       if (entry !== undefined) enter[entry.id] = level.id;
     } else if (n.kind === 'micro_app') {
@@ -1485,7 +1614,7 @@ function levelDrafts(
       drafts.push(level);
       enter[n.id] = level.id;
     } else if (n.kind === 'gateway' || n.kind === 'app_module') {
-      const level = serverLevel(g, n);
+      const level = withOutsideContext(g, serverLevel(g, n), n.id);
       drafts.push(level);
       enter[n.id] = level.id;
     } else if (n.kind === 'feature') {
@@ -1514,6 +1643,8 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
   const flowCount = flowCountByService(flowLevels);
   for (const d of ordered) {
     const nodeIds = [...d.nodeIds].filter((id) => g.nodeById.has(id)).sort(compareStr);
+    const outsideRank =
+      d.outside !== undefined ? outsideRanks(g, d, d.outside, staged?.indexOf) : undefined;
     const layoutNodes = nodeIds.map((id) => {
       const node = g.nodeById.get(id)!;
       const f = facts.get(id);
@@ -1522,9 +1653,12 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
         label: node.label,
         ...(node.displayName !== undefined ? { displayName: node.displayName } : {}),
         ...(node.displayNameInferred ? { displayNameInferred: true } : {}),
-        rank: d.rankOverride?.get(id) ?? PARTITION_RANK[node.kind],
+        rank: outsideRank?.get(id) ?? d.rankOverride?.get(id) ?? PARTITION_RANK[node.kind],
         lane: d.laneOverride?.get(id) ?? d.laneOfKind?.[node.kind] ?? laneOfNode(node),
-        ...(staged !== undefined ? { stage: staged.indexOf.get(id)! } : {}),
+        // 바깥 카드에 구간을 붙이면 layout.ts가 구간 레인으로 옮겨 맨 왼쪽과 맨 오른쪽 자리를 잃는다
+        ...(staged !== undefined && !outsideRank?.has(id)
+          ? { stage: staged.indexOf.get(id)! }
+          : {}),
         kind: displayKindOf(node),
         ...(chipTextOverride(node) !== undefined ? { chip: chipTextOverride(node)! } : {}),
         ...(d.orderOverride?.has(id)
@@ -1562,6 +1696,7 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
       trail: d.trail,
       nodeIds,
       edges: d.edges,
+      ...(d.outside !== undefined ? { outside: d.outside } : {}),
       layout,
     });
   }

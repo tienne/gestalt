@@ -572,14 +572,16 @@ describe('architecture e2e — 가짜 FE와 BE 레포에서 뷰 두 개 렌더',
       ]);
       // root: 서비스 → 게이트웨이 하나, 게이트웨이 → 모듈 둘
       expect(out.levels[0]).toEqual({ id: 'root', title: '전체', nodes: 4, edges: 3 });
-      // 서비스 카드에서 기능영역, 화면으로 이어지는 포함 선이 더해진다
+      // 서비스 카드에서 기능영역, 화면으로 이어지는 포함 선이 더해진다.
+      // 서버가 쓰는 결제 서비스와 주문 테이블은 레벨 밖 받는 쪽 카드로 선다
       expect(out.levels.find((l) => l.id === 'service:svc-shop')).toMatchObject({
-        nodes: 8,
-        edges: 8,
+        nodes: 10,
+        edges: 10,
       });
+      // 주문 API를 부르는 화면과 게이트웨이는 레벨 밖 호출하는 쪽 카드로 선다
       expect(out.levels.find((l) => l.id === 'server:mod-orders')).toMatchObject({
-        nodes: 4,
-        edges: 3,
+        nodes: 6,
+        edges: 5,
       });
 
       const html = readFileSync(out.htmlPath, 'utf-8');
@@ -833,6 +835,7 @@ describe('architecture e2e — 가짜 FE와 BE 레포에서 뷰 두 개 렌더',
         '화면',
         '게이트웨이',
         '서버',
+        '밖으로 나감',
       ]);
       const root = sectionOf(html, 'root');
       const card = root.slice(root.indexOf('data-node-id="svc-shop"'));
