@@ -586,29 +586,32 @@ async function enterTickSession(ctx: Ctx, takeOver: boolean): Promise<string | u
   const sessionId = currentSessionId();
   if (!sessionId) return undefined;
   const dir = ctx.store.dir;
-  if (takeOver) rmSync(supersededRecordPath(dir, sessionId), { force: true });
-  // 등록과 탭 이름 붙이기 전에 거절한다. 인계한 세션이 자기를 새 세션으로 다시 올리면 안 된다
-  assertStillConductor(ctx, sessionId);
-  const now = new Date();
-  const registered = readSessionRegisteredAt(dir, sessionId) !== undefined;
-  if (!registered && !takeOver) {
-    const active = findActiveConductor(
-      dir,
-      sessionId,
-      now.getTime(),
-      activeConductorWindowMs(ctx.config),
-    );
-    if (active) {
-      throw new Error(
-        `다른 컨덕터 세션이 돌고 있어요(세션 ${active.sessionId}${active.cwd ? `, ${active.cwd}` : ''}, 마지막 tick ${active.lastTickAt}). 이 세션은 컨덕터로 등록하지 않았어요. 주문만 넣으려면 order add를 쓰면 그 세션이 다음 tick에 받아요. 그 세션이 닫힌 게 맞으면 tick --take-over로 넘겨받아요`,
+  const isNew = withWaitOwnerLock(dir, () => {
+    if (takeOver) rmSync(supersededRecordPath(dir, sessionId), { force: true });
+    // 등록과 탭 이름 붙이기 전에 거절한다. 인계한 세션이 자기를 새 세션으로 다시 올리면 안 된다
+    assertStillConductor(ctx, sessionId);
+    const now = new Date();
+    const registered = readSessionRegisteredAt(dir, sessionId) !== undefined;
+    if (!registered && !takeOver) {
+      const active = findActiveConductor(
+        dir,
+        sessionId,
+        now.getTime(),
+        activeConductorWindowMs(ctx.config),
       );
+      if (active) {
+        throw new Error(
+          `다른 컨덕터 세션이 돌고 있어요(세션 ${active.sessionId}${active.cwd ? `, ${active.cwd}` : ''}, 마지막 tick ${active.lastTickAt}). 이 세션은 컨덕터로 등록하지 않았어요. 주문만 넣으려면 order add를 쓰면 그 세션이 다음 tick에 받아요. 그 세션이 닫힌 게 맞으면 tick --take-over로 넘겨받아요`,
+        );
+      }
     }
-  }
-  const isNew = registerSession(dir, sessionId, process.cwd(), now);
-  if (isNew || takeOver) {
-    for (const id of supersedeOthers(dir, sessionId, now))
-      console.error(`컨덕터 세션 ${id}를 넘겨받았어요. 그 세션의 tick은 이제 거절돼요`);
-  }
+    const isNew = registerSession(dir, sessionId, process.cwd(), now);
+    if (isNew || takeOver) {
+      for (const id of supersedeOthers(dir, sessionId, now))
+        console.error(`컨덕터 세션 ${id}를 넘겨받았어요. 그 세션의 tick은 이제 거절돼요`);
+    }
+    return isNew;
+  });
   if (isNew) await nameTabOnce();
   return sessionId;
 }
@@ -630,8 +633,10 @@ async function runConductorTick(
 ): Promise<WaitTickOutcome> {
   // wait가 도는 사이 인계했거나 다른 세션이 넘겨받았으면 다음 tick에서 거절해 wait를 끝낸다
   if (sessionId) {
-    assertStillConductor(ctx, sessionId);
-    touchSessionTick(ctx.store.dir, sessionId, new Date());
+    withWaitOwnerLock(ctx.store.dir, () => {
+      assertStillConductor(ctx, sessionId);
+      touchSessionTick(ctx.store.dir, sessionId, new Date());
+    });
   }
   const handoffClose = sessionId ? await closePreviousTabs(ctx, sessionId) : [];
   onClose(handoffClose);
