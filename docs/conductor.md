@@ -145,7 +145,7 @@ loop 반복과 비교하면 할 일 없는 주기에 세션이 아예 안 깨어
 - 이미 보여 준 경고와 오류, 이전 탭을 닫은 결과는 상태 저장소의 `wait-seen.json`에 남긴다. 고쳐지지 않는 오류 하나 때문에 wait가 띄우자마자 끝나는 일을 막는다. 다른 이유로 끝나면 그 오류도 함께 실린다. wait 하나가 끝날 때 그동안 건너뛰지 않은 tick에서 한 번도 안 나온 문장은 목록에서 뺀다. 고쳐졌다가 같은 문장으로 다시 나면 그다음 wait에서 호스트를 깨운다. 한 wait 안에서 풀렸다가 다시 난 문장은 그 wait에서는 못 알아본다. PR 상태 확인 실패처럼 `humanOwnedPollSec` 간격으로만 실리는 오류가 tick 사이에 빠졌다고 매번 깨우지 않게 하려는 것이다. 다만 이 오류는 wait가 그 간격보다 오래 돌아 확인 tick을 지나야 목록에 남는다. 일찍 끝난 wait나 `humanOwnedPollSec`이 `waitMaxSec`보다 길 때는 목록에서 빠져 다음 확인 tick에서 다시 깨운다.
 - 세션 한도 대기(`rateLimited`)는 풀릴 때까지 tick마다 실려서 이유로 안 친다. 오래가면 tick이 게이트로 올린다.
 - tick은 기존 잠금(`tick.lock`)을 그대로 쓴다. wait가 도는 중에 사람이 시켜 `tick --force`를 돌려도 둘이 겹쳐 돌지 않는다. 간격은 wait가 직접 재고 tick은 `--force`로 부른다. 시계 하한에 맡기면 호스트가 방금 돌린 tick 때문에 첫 주기를 통째로 건너뛴다.
-- wait는 뜰 때 상태 저장소의 `wait.owner`에 자기 표식을 쓴다. 컴팩트 뒤 중복으로 띄웠거나 닫힌 세션에 wait가 남아 있어도 다음 tick 앞에서 표식이 바뀐 걸 보고 `superseded`로 끝난다. 닫힌 세션에 남은 wait가 tick을 계속 돌리면 hostActions를 아무도 못 받기 때문이다.
+- wait는 뜰 때 상태 저장소의 `wait.owner`에 자기 표식과 세션 id를 쓴다. 세션 id가 없는 wait는 최근에 tick을 돌린 컨덕터가 있으면 시작을 거절한다. 컴팩트 뒤 중복으로 띄웠거나 닫힌 세션에 wait가 남아 있어도 tick 앞뒤에서 표식이 바뀐 걸 확인해 `superseded`로 끝난다. 닫힌 세션에 남은 wait가 tick을 계속 돌리면 hostActions를 아무도 못 받기 때문이다.
 - 상한은 기본값이자 최댓값이 1500초다. 스킬은 `timeout: 1800000`(30분)으로 띄우는데 상한이 지난 뒤에도 마지막 tick이 끝나야 wait가 끝난다. 그 tick까지 30분 안에 마치려고 상한을 1500초로 막았다. 설정이나 `--max-wait-sec`로 이보다 크게 주면 거절한다. 레포 `gestalt.json`에서 더 짧게 바꿀 수 있다.
 - tick이 감시 간격보다 오래 걸리면 다음 tick까지 10초만 쉰다. 간격은 tick이 시작한 때부터 잰다.
 - 인계한 세션의 wait는 다음 tick이 거절돼 실패로 끝난다.
@@ -310,7 +310,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 ## 상태 저장소
 
-주문, 워커, 체크포인트, 사람 확인 자리(gate), bypass 기록은 전부 `events.jsonl`에 이벤트로 한 줄씩 덧붙는다. 상태는 이 로그를 처음부터 다시 재생해서 만든다. 컨덕터 세션이 압축되거나 새로 떠도 같은 저장소를 열면 같은 상태에서 이어 간다.
+주문, 워커, 체크포인트, 사람 확인 자리(gate), bypass 기록은 전부 `events.jsonl`에 이벤트로 한 줄씩 덧붙는다. 상태는 이 로그를 처음부터 다시 재생해서 만든다. 컨덕터 세션이 압축되거나 새로 떠도 같은 저장소를 열면 같은 상태에서 이어 간다. 조회용 `snapshot.json`은 tick이나 `order remove`가 끝날 때 들여쓰기 없이 쓴다.
 
 | 경로                        | 쓰는 쪽         | 내용                                                                                                                                                                                                                                                           |
 | --------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -442,7 +442,7 @@ tick 마지막 단계는 `finished`나 `failed` 워커를 거두고 `released`�
 | `orca-worktree` | `orca orchestration worker-release`로 워커 터미널만 거둔다. 워크트리는 남는다             |
 | `subagent`      | 할 일 없음                                                                                |
 
-오르카는 settled 워커만 `worker-release`를 받는다. 워커가 컨덕터에만 보고하고 오르카에 `worker_done` 없이 나가면 dispatch가 `ready`로 남아 `dispatch_inactive`로 거절된다. 그때 `worker-show`의 `liveness`가 `exited`나 `gone`이면 `worker-stop`으로 dispatch를 끝난 상태(state `stopped`)로 바꾸고 `worker-release`를 다시 부른다. `exited`나 `gone`이 아니면(`live`거나 liveness를 모를 때) 멈추지 않고 정리 실패로 올린다.
+오르카는 settled 워커만 `worker-release`를 받는다. 워커가 컨덕터에만 보고하고 오르카에 `worker_done` 없이 나가면 dispatch가 `ready`로 남아 `dispatch_inactive`로 거절된다. 그때 `worker-show`의 `liveness`가 `exited`나 `gone`이면 `worker-stop`으로 dispatch를 끝난 상태(state `stopped`)로 바꾸고 `worker-release`를 다시 부른다. 워커가 살아 있으면 다음 tick에 release를 다시 시도한다. `retained` 응답 뒤에도 워커가 살아 있으면 같은 규칙을 쓴다. 첫 거절부터 `orcaReleaseRetryMaxSec`(기본 2시간) 동안 거절이 이어지면 정리 실패 게이트를 연다. 생존 여부를 확인할 수 없으면 바로 게이트를 연다.
 
 오르카 워크트리가 계속 쌓이는 게 싫으면 `~/.gestalt/conductor.json`에 `"removeMergedOrcaWorktrees": true`를 적는다. 레포 `gestalt.json`의 값은 받지 않는다. 켜면 머지된 주문(`mergedAt`이 있는 주문)의 오르카 워커는 다음처럼 정리한다.
 
@@ -595,7 +595,7 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 
 멈춘 지 `rateLimitEscalateAfterSec`(기본 6시간)이 지나도 안 풀리면 게이트로 사람에게 올린다. 한도에 걸린 워커는 오르카 기준으로 아직 안 끝난 상태라 그대로 승인하면 앞 터미널을 못 거둬 재개 게이트로 다시 올라온다. 그래서 게이트 사유에 적힌 대로 `orca orchestration worker-stop --dispatch=<id>`로 앞 워커를 먼저 멈추고 승인한다. 게이트가 열린 동안에는 터미널을 다시 보지 않는다. 그사이 앞 워커가 보고하면 워커는 `running`으로 돌아오지만 게이트는 사람이 정할 때까지 열려 있다. 승인하면 체크포인트부터 다시 띄운다. 거절하면 주문을 취소하고 앞 터미널은 그대로 남는다. 한도가 풀려 그 워커가 나중에 보고해도 취소된 주문이라 결과를 무시한다. 취소된 주문의 보고를 무시하는 건 워커 종류와 상관없이 똑같다.
 
-오르카 워커를 재개할 때는 새 워커를 띄우기 전에 앞 워커 터미널을 `worker-release`로 거둔다. 워크트리는 지우지 않는다. 오르카는 끝나지 않은 워커의 터미널을 안 닫고 `retained`로 돌려주는데, 그때 프로세스까지 끝나 있지 않으면 거두기 실패로 보고 새 워커를 안 띄운다. 대신 재개 게이트로 올려서 사람이 `orca orchestration worker-stop --dispatch=<id>`로 멈춘 뒤 승인하게 한다. git 워크트리와 서브에이전트 워커는 들여다볼 터미널이 없어 지금처럼 바로 끊김으로 보고 재개한다.
+오르카 워커를 재개할 때는 새 워커를 띄우기 전에 앞 워커 터미널을 `worker-release`로 거둔다. 워크트리는 지우지 않는다. 앞 워커가 살아 있어 release를 못 하면 새 워커는 대기하고 다음 tick에 release를 다시 시도한다. `orcaReleaseRetryMaxSec`까지 계속 거절되거나 생존 여부를 확인할 수 없으면 재개 게이트를 열어 사람이 `orca orchestration worker-stop --dispatch=<id>`로 멈춘 뒤 승인하게 한다. git 워크트리와 서브에이전트 워커는 들여다볼 터미널이 없어 지금처럼 바로 끊김으로 보고 재개한다.
 
 ## 지라 상태
 
@@ -607,7 +607,7 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 | 머지 (sub-task)                                           | Done        |
 | 배포 성공 (bug, task, sub-bug)                            | In-QA       |
 
-주문에 `jiraStatus`가 있으면 사용자가 정한 값이라 기본 규칙보다 먼저다. 배포는 머지 뒤 파이프라인 성공으로 판단한다. 호스트가 결과를 확인해 `gestalt conductor deploy report`로 남기고 tick이 읽는다. 배포가 실패하면 그 주문만 사람에게 올린다.
+주문에 `jiraStatus`가 있으면 사용자가 정한 값이라 기본 규칙보다 먼저다. 배포는 머지 뒤 파이프라인 성공으로 판단한다. 호스트가 결과를 확인해 `gestalt conductor deploy report`로 남기고 tick이 읽는다. 배포가 실패하면 그 주문만 사람에게 올린다. 배포가 `deployWaitMaxSec`(기본 24시간)까지 대기 중이면 지라 이동 없이 주문을 `done`으로 바꾸고 tick에 경고를 남긴다. 기한은 `mergedAt`부터 센다. 예전 주문에 이 값이 없으면 `updatedAt`부터 센다.
 
 ## PR 감시
 
