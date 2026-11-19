@@ -335,7 +335,7 @@ describe('wait 결과 넘김', () => {
     save('2026-11-15T00:01:00.000Z', 'APP-2');
     save('2026-11-15T00:00:00.000Z', 'APP-1', oldHandoff);
     const now = {
-      report: report({ at: '2026-11-15T00:02:00.000Z', hostActions: [hostAction('APP-3')] }),
+      report: report({ at: '2026-11-15T00:00:30.000Z', hostActions: [hostAction('APP-3')] }),
       handoffClose: [],
     };
     consumeWaitCarry(stateDir, (items) => {
@@ -345,7 +345,8 @@ describe('wait 결과 넘김', () => {
         'new',
       );
       expect(merged.reasons).toEqual(['hostActions', 'warnings', 'carriedHandoff']);
-      expect(merged.last?.report.hostActions).toEqual(['APP-1', 'APP-2', 'APP-3'].map(hostAction));
+      expect(merged.last?.report.hostActions).toEqual(['APP-1', 'APP-3', 'APP-2'].map(hostAction));
+      expect(merged.last?.report.at).toBe('2026-11-15T00:01:00.000Z');
       expect(merged.last?.report.warnings).toEqual(['APP-1', 'APP-2']);
       expect(merged.last?.report.errors).toEqual([]);
       expect(merged.last?.handoff).toBeUndefined();

@@ -642,6 +642,36 @@ describe('gestalt conductor', () => {
     expect(last()).not.toHaveProperty('tick');
   });
 
+  it('큰 넘김 결과의 경로는 다음 wait가 공용 보고서를 갱신해도 바뀌지 않는다', async () => {
+    const stateDir = tempStateDir();
+    const queueDir = join(stateDir, 'queue');
+    mkdirSync(queueDir);
+    for (let i = 0; i < 40; i++)
+      writeFileSync(join(queueDir, `${'x'.repeat(200)}-${i}.json`), '{"repo"');
+    const flushSnapshot = ConductorStore.prototype.flushSnapshot;
+    vi.spyOn(ConductorStore.prototype, 'flushSnapshot').mockImplementationOnce(function (
+      this: ConductorStore,
+    ) {
+      claimWaitOwner(stateDir, randomUUID());
+      flushSnapshot.call(this);
+    });
+    const opts = { stateDir, json: true, maxWaitSec: 1, prWatch: false };
+    await conductorWaitCommand(opts);
+    expect(last()).toMatchObject({ reason: 'superseded' });
+    await conductorWaitCommand(opts);
+    expect(last()).toMatchObject({ reason: 'attention', ticks: 0 });
+    expect(last()).not.toHaveProperty('tick');
+    const carriedFile = last().reportFile as string;
+    const carriedReport = readFileSync(carriedFile, 'utf-8');
+
+    writeFileSync(join(queueDir, 'new.json'), '{"repo"');
+    await conductorWaitCommand(opts);
+    expect(last()).toMatchObject({ reason: 'attention', ticks: 1 });
+    expect(last().reportFile).toBe(resolve(stateDir, 'wait-last.json'));
+    expect(readFileSync(last().reportFile as string, 'utf-8')).not.toBe(carriedReport);
+    expect(readFileSync(carriedFile, 'utf-8')).toBe(carriedReport);
+  });
+
   it('wait가 도는 사이 인계하면 다음 tick에서 거절해 끝난다', async () => {
     const stateDir = tempStateDir();
     vi.stubEnv('CLAUDE_CODE_SESSION_ID', randomUUID());

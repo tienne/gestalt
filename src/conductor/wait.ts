@@ -151,11 +151,15 @@ export const WAIT_REPORT_FILE = 'wait-last.json';
 export function claimWaitOwner(
   stateDir: string,
   sessionId?: string,
+  checkSession?: () => void,
 ): { stillOwner: () => boolean } {
   const path = join(stateDir, OWNER_FILE);
   const owner = { token: randomUUID(), sessionId: sessionId ?? null };
   const expected = JSON.stringify(owner);
-  withWaitOwnerLock(stateDir, () => writeJsonAtomic(path, owner, { mode: 0o600, indent: 0 }));
+  withWaitOwnerLock(stateDir, () => {
+    checkSession?.();
+    writeJsonAtomic(path, owner, { mode: 0o600, indent: 0 });
+  });
   const read = () => {
     try {
       return readFileSync(path, 'utf8');
@@ -242,11 +246,13 @@ export function mergeWaitCarry(
   sessionId?: string,
 ): WaitResult {
   if (carried.length === 0) return result;
-  const outcomes = carried.map(({ outcome }) => outcome);
-  if (result.last) outcomes.push(result.last);
+  const items = [...carried];
+  if (result.last) items.push({ outcome: result.last, reasons: result.reasons });
+  items.sort((a, b) => Date.parse(a.outcome.report.at) - Date.parse(b.outcome.report.at));
+  const outcomes = items.map(({ outcome }) => outcome);
   const latest = outcomes.at(-1)!;
   const reports = outcomes.filter(({ report }) => !report.skipped).map(({ report }) => report);
-  const reasons = new Set(carried.flatMap((item) => item.reasons).concat(result.reasons));
+  const reasons = new Set(items.flatMap((item) => item.reasons));
   // 인계 판단은 세션마다 달라서 다른 세션의 컨텍스트 사용량으로 다시 인계하면 안 된다.
   const handoff = outcomes
     .map((outcome) => outcome.handoff)

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -725,7 +726,8 @@ export async function conductorWaitCommand(
     if (!Number.isInteger(maxWaitSec) || maxWaitSec < 1 || maxWaitSec > WAIT_MAX_SEC_LIMIT)
       throw new Error(`--max-wait-sec는 1~${WAIT_MAX_SEC_LIMIT} 사이의 정수여야 해요`);
     const sessionId = await enterTickSession(ctx, opts.takeOver === true);
-    if (!sessionId) {
+    const owner = claimWaitOwner(ctx.store.dir, sessionId, () => {
+      if (sessionId) return;
       const active = findActiveConductor(
         ctx.store.dir,
         '',
@@ -737,8 +739,7 @@ export async function conductorWaitCommand(
           `다른 컨덕터 세션이 돌고 있어요(세션 ${active.sessionId}, 마지막 tick ${active.lastTickAt}). 세션 id가 없는 wait는 이 저장소의 감시를 넘겨받을 수 없어요`,
         );
       }
-    }
-    const owner = claimWaitOwner(ctx.store.dir, sessionId);
+    });
     const seen = readSeen(ctx.store.dir);
     const result = await waitForAttention(
       {
@@ -773,7 +774,7 @@ export async function conductorWaitCommand(
         if (merged.observed || shown.length > 0) {
           writeSeen(ctx.store.dir, seen, merged.observed, shown);
         }
-        printWaitResult(ctx, opts, merged);
+        printWaitResult(ctx, opts, merged, carried.length > 0);
       });
     });
   } catch (e) {
@@ -782,13 +783,26 @@ export async function conductorWaitCommand(
   }
 }
 
-function printWaitResult(ctx: Ctx, opts: ConductorWaitOptions, result: WaitResult): void {
+function printWaitResult(
+  ctx: Ctx,
+  opts: ConductorWaitOptions,
+  result: WaitResult,
+  carried = false,
+): void {
   const minutes = Math.round(result.elapsedMs / 60_000);
-  const reportFile = join(ctx.store.dir, WAIT_REPORT_FILE);
-  // attention일 때만 쓴다. superseded로 끝난 앞선 wait가 이어받은 wait의 보고서를 덮지 않게 한다
+  const latestFile = join(ctx.store.dir, WAIT_REPORT_FILE);
+  // superseded로 끝난 앞선 wait가 이어받은 wait의 보고서를 덮지 않게 한다.
   const full = result.reason === 'attention' && result.last ? tickJson(result.last) : undefined;
-  if (full) writeJsonAtomic(reportFile, full, { mode: 0o600 });
   const inline = full !== undefined && JSON.stringify(full).length <= WAIT_INLINE_MAX;
+  // 다음 wait가 공용 사본을 갱신해도 알림에 실린 넘김 결과는 그대로 읽을 수 있어야 한다.
+  const separateFile = full && carried && !inline;
+  const reportFile = separateFile
+    ? join(ctx.store.dir, 'wait-reports', `${randomUUID()}.json`)
+    : latestFile;
+  if (full) {
+    if (separateFile) writeJsonAtomic(reportFile, full, { mode: 0o600 });
+    writeJsonAtomic(latestFile, full, { mode: 0o600 });
+  }
   if (opts.json)
     return print({
       reason: result.reason,
