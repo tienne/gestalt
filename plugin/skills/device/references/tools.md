@@ -32,20 +32,27 @@ adb exec-out screencap -p > "$RAW/<n>.png"
 
 mobile-mcp는 `mobile_save_screenshot`의 저장 경로에 `$RAW/<n>.png`를 넘긴다. 이미지를 바로 돌려주는 `mobile_take_screenshot`은 research에서 쓰지 않는다. iPhone 미러링은 화면 조작 도구가 스크린샷을 파일 없이 이미지로 바로 돌려준다.
 
-폴더 이름을 `gestalt-device.`로 시작하게 만드는 건 지울 때 아래 가드로 확인하려는 것이다. `TMPDIR`이 슬래시로 끝나는 macOS에서도 경로가 맞도록 끝 슬래시를 떼고 붙인다.
+폴더 이름을 `gestalt-device.`로 시작하게 만드는 건 지울 때 아래 가드로 확인하려는 것이다. `TMPDIR`이 슬래시로 끝나는 macOS에서도 경로가 맞도록 끝 슬래시를 떼고 붙인다. 지울 경로 쪽 끝 슬래시도 남김없이 뗀다. 링크 경로 끝에 `/`가 붙은 채로 `rm -rf`를 돌리면 링크가 가리키는 폴더가 지워진다.
 
-check와 qa, 혼자 불린 경우는 끝낼 때 아래 가드로 지운다. research로 불렸으면 멈춤이나 실패, 중단으로 끝나도 지우지 않고 `$RAW`를 `rawDir`로 돌려준다. 지우는 쪽은 research 하나이고 같은 가드를 쓴다.
+check와 qa, 혼자 불린 경우는 끝낼 때 아래 가드로 지운다. research로 불렸으면 멈춤이나 실패, 중단으로 끝나도 지우지 않고 `mktemp`가 찍은 경로 문자열을 `rawDir`로 돌려준다. 지우는 쪽은 research 하나이고 같은 가드를 쓴다.
+
+셸 변수는 도구 호출 사이에 남지 않는다. 그래서 가드 첫 줄의 `<rawDir 값>` 자리에 지울 경로를 직접 넣고 돌린다. research는 device가 돌려준 `rawDir`를, check와 qa는 자기가 만든 경로를 넣는다.
 
 ```sh
+RAW='<rawDir 값>'
 T="${TMPDIR:-/tmp}"
+while :; do case "$RAW" in */) RAW="${RAW%/}" ;; *) break ;; esac; done
 case "$RAW" in
   ''|*/..|*/../*|*/.|*/./*) echo "rawDir를 지우지 않았다: $RAW" ;;
-  "${T%/}"/gestalt-device.*) rm -rf -- "$RAW" ;;
+  "${T%/}"/gestalt-device.*)
+    if [ -L "$RAW" ]; then echo "rawDir가 링크라 지우지 않았다: $RAW"
+    elif [ -d "$RAW" ]; then rm -rf -- "$RAW"
+    else echo "rawDir가 이미 없다: $RAW"; fi ;;
   *) echo "rawDir가 임시 폴더 밖이라 지우지 않았다: $RAW" ;;
 esac
 ```
 
-지우지 않았다는 줄이 나오면 그 경로를 사용자에게 보여주고 직접 확인해 달라고 한다.
+지우지 않았다는 줄이 나오면 그 경로를 사용자에게 보여주고 직접 확인해 달라고 한다. 이미 없다는 줄은 지울 게 없다는 뜻이라 따로 묻지 않는다.
 
 ## MCP 등록
 

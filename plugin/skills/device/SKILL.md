@@ -133,7 +133,7 @@ qa flow에는 로그인 값을 쓰지 않는다. Maestro flow에는 `${MAESTRO_T
 research는 원본 이미지를 저장하거나 LLM에 넘기기 전에 가짜 값으로 바꾸게 한다.
 
 - **이동에는 접근성 트리를 쓴다.** 트리 텍스트는 다음 동작을 고르는 데 쓰고 결과물이나 보고에 옮겨 적지 않는다. 예외는 개인정보가 아닌 메뉴 라벨과 화면 경로다. 이건 `navPath`로 돌려주고 research가 화면 지도의 `entryPath`에 적는다. 사람 이름, 전화번호, 주소, 주문 번호가 든 라벨은 넣지 않는다. 개인정보가 많은 화면(마이페이지, 주문 내역)에서는 `iph read` 전체 대신 `iph find`로 필요한 요소만 읽는다.
-- **스크린샷은 파일로만 찍는다.** 레포 밖 임시 폴더(`mktemp -d`로 만든 `gestalt-device.*`)에 저장하는 명령만 쓴다. `iph screenshot -o`, mobile-mcp `mobile_save_screenshot`, `idb screenshot <파일>`, `adb exec-out screencap -p > <파일>`이 여기에 든다. 이미지를 바로 돌려주는 `mobile_take_screenshot`은 쓰지 않는다. 명령은 [캡처 저장 위치](./references/tools.md#캡처-저장-위치)에 있다.
+- **스크린샷은 파일로만 찍는다.** 레포 밖 임시 폴더(`mktemp -d "${T%/}/gestalt-device.XXXXXX"`로 만든 폴더)에 저장하는 명령만 쓴다. `iph screenshot -o`, mobile-mcp `mobile_save_screenshot`, `idb screenshot <파일>`, `adb exec-out screencap -p > <파일>`이 여기에 든다. 이미지를 바로 돌려주는 `mobile_take_screenshot`은 쓰지 않는다. 명령은 [캡처 저장 위치](./references/tools.md#캡처-저장-위치)에 있다.
 - **원본은 열지 않는다.** 찍은 파일 경로를 `screenshots`로, 임시 폴더를 `rawDir`로 돌려주면 research가 `redact_image`에 넘기고 끝나면 폴더째 지운다. 치환이 실패하거나 중간에 멈춰도 지우는 쪽은 research다. 치환본만 본다. 트리가 비어서 화면을 봐야 할 때도 같다.
 - **iPhone 미러링은 파일 경로가 없다.** 원본 화면이 그대로 LLM에 넘어간다. 이 경로로 가야 하면 개인정보가 드러날 수 있다고 먼저 알리고 승인받는다.
 
@@ -160,6 +160,6 @@ research는 원본 이미지를 저장하거나 LLM에 넘기기 전에 가짜 �
 ## 끝낼 때
 
 - 켜 둔 방해 금지와 띄운 에뮬레이터, 시뮬레이터를 정리한다. 사용자가 띄워 둔 건 그대로 둔다.
-- 원본을 찍은 임시 폴더는 purpose에 따라 다르게 다룬다. check와 qa, 혼자 불린 경우는 여기서 [캡처 저장 위치](./references/tools.md#캡처-저장-위치)의 가드로 지운다. research로 불렸으면 멈춤이나 실패, 중단으로 끝나도 지우지 않고 `rawDir`로 돌려준다. 지우는 쪽은 research 하나다.
+- 원본을 찍은 임시 폴더는 purpose에 따라 다르게 다룬다. check와 qa, 혼자 불린 경우는 여기서 [캡처 저장 위치](./references/tools.md#캡처-저장-위치)의 가드 첫 줄에 만든 경로를 넣어 지운다. research로 불렸으면 멈춤이나 실패, 중단으로 끝나도 지우지 않고 `rawDir`로 돌려준다. 지우는 쪽은 research 하나다.
 - 기기에 남긴 adb UI 덤프는 purpose와 상관없이 지운다.
 - 쓴 도구, 읽은 화면 수, 멈춘 자리와 이유를 짧게 보고한다.
