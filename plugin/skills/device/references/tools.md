@@ -24,7 +24,7 @@ emulator -list-avds                 # 띄울 수 있는 Android 에뮬레이터
 스크린샷과 UI 덤프는 레포 밖 임시 폴더에만 남긴다. 작업 디렉토리에 찍으면 남의 앱 원본이 `git add` 한 번에 레포로 올라갈 수 있다.
 
 ```sh
-RAW=$(mktemp -d)
+T="${TMPDIR:-/tmp}"; RAW=$(mktemp -d "${T%/}/gestalt-device.XXXXXX")
 iph screenshot -o "$RAW/<n>.png"
 idb screenshot "$RAW/<n>.png"
 adb exec-out screencap -p > "$RAW/<n>.png"
@@ -32,7 +32,20 @@ adb exec-out screencap -p > "$RAW/<n>.png"
 
 mobile-mcp는 `mobile_save_screenshot`의 저장 경로에 `$RAW/<n>.png`를 넘긴다. 이미지를 바로 돌려주는 `mobile_take_screenshot`은 research에서 쓰지 않는다. iPhone 미러링은 화면 조작 도구가 스크린샷을 파일 없이 이미지로 바로 돌려준다.
 
-check와 qa, 혼자 불린 경우는 끝낼 때 `rm -rf "$RAW"`로 지운다. research로 불렸으면 지우지 않고 `$RAW`를 `rawDir`로 돌려준다. research가 치환을 마친 뒤 지운다.
+폴더 이름을 `gestalt-device.`로 시작하게 만드는 건 지울 때 아래 가드로 확인하려는 것이다. `TMPDIR`이 슬래시로 끝나는 macOS에서도 경로가 맞도록 끝 슬래시를 떼고 붙인다.
+
+check와 qa, 혼자 불린 경우는 끝낼 때 아래 가드로 지운다. research로 불렸으면 멈춤이나 실패, 중단으로 끝나도 지우지 않고 `$RAW`를 `rawDir`로 돌려준다. 지우는 쪽은 research 하나이고 같은 가드를 쓴다.
+
+```sh
+T="${TMPDIR:-/tmp}"
+case "$RAW" in
+  ''|*/..|*/../*|*/.|*/./*) echo "rawDir를 지우지 않았다: $RAW" ;;
+  "${T%/}"/gestalt-device.*) rm -rf -- "$RAW" ;;
+  *) echo "rawDir가 임시 폴더 밖이라 지우지 않았다: $RAW" ;;
+esac
+```
+
+지우지 않았다는 줄이 나오면 그 경로를 사용자에게 보여주고 직접 확인해 달라고 한다.
 
 ## MCP 등록
 
