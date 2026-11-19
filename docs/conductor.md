@@ -140,7 +140,7 @@ loop 반복과 비교하면 할 일 없는 주기에 세션이 아예 안 깨어
 | `timeout`    | 상한 동안 할 일이 없었다. 세션이 살아 있는지 확인할 기회를 준다                                                                                                                  | 보고 없이 다시 띄운다                              |
 | `superseded` | 더 나중에 띄운 wait가 이어받았다                                                                                                                                                 | 다시 띄우지 않는다                                 |
 
-- 출력은 호스트가 바로 처리할 만큼만 싣는다. tick 결과가 6000자를 넘으면 `tick`을 빼고 `reportFile`(상태 저장소의 `wait-last.json`) 경로만 싣는다. 이 파일은 `attention`으로 끝날 때만 덮어쓴다. `superseded`로 끝난 앞선 wait가 이어받은 wait의 보고서를 덮지 않게 하려는 것이다.
+- 출력은 호스트가 바로 처리할 만큼만 싣는다. tick 결과가 6000자를 넘으면 `tick`을 빼고 `reportFile`(상태 저장소의 `wait-last.json`) 경로만 싣는다. 크기가 큰 넘김 결과는 다음 wait가 공용 사본을 바꿔도 읽을 수 있게 `wait-reports/` 아래 별도 경로를 알린다. 공용 사본 `wait-last.json`은 `attention`으로 끝날 때만 덮어쓴다. `superseded`로 끝난 앞선 wait가 이어받은 wait의 보고서를 덮지 않게 하려는 것이다.
 - 접수 단계(지라, 큐, PR 감시)가 연 게이트는 tick의 `escalated`에 안 실린다. wait는 띄울 때 열려 있던 게이트 수보다 늘었으면 `gatesOpened`로 끝난다.
 - 이미 보여 준 경고와 오류, 이전 탭을 닫은 결과는 상태 저장소의 `wait-seen.json`에 남긴다. 고쳐지지 않는 오류 하나 때문에 wait가 띄우자마자 끝나는 일을 막는다. 다른 이유로 끝나면 그 오류도 함께 실린다. wait 하나가 끝날 때 그동안 건너뛰지 않은 tick에서 한 번도 안 나온 문장은 목록에서 뺀다. 고쳐졌다가 같은 문장으로 다시 나면 그다음 wait에서 호스트를 깨운다. 한 wait 안에서 풀렸다가 다시 난 문장은 그 wait에서는 못 알아본다. PR 상태 확인 실패처럼 `humanOwnedPollSec` 간격으로만 실리는 오류가 tick 사이에 빠졌다고 매번 깨우지 않게 하려는 것이다. 다만 이 오류는 wait가 그 간격보다 오래 돌아 확인 tick을 지나야 목록에 남는다. 일찍 끝난 wait나 `humanOwnedPollSec`이 `waitMaxSec`보다 길 때는 목록에서 빠져 다음 확인 tick에서 다시 깨운다.
 - 세션 한도 대기(`rateLimited`)는 풀릴 때까지 tick마다 실려서 이유로 안 친다. 오래가면 tick이 게이트로 올린다.
