@@ -32,6 +32,14 @@
     "unresolved": { "type": "array", "items": { "$ref": "#/definitions/unresolvedQuestion" } },
     "sourcesUsed": { "type": "array", "items": { "$ref": "#/definitions/contextSource" } },
     "generatedAt": { "type": "string" },
+    "summary": {
+      "type": "string",
+      "description": "summary of the root level: what the picture shows, one to three sentences in the user's language"
+    },
+    "note": {
+      "type": "string",
+      "description": "reading note for the whole picture: scope and how to read it"
+    },
     "groups": {
       "type": "array",
       "description": "product groups left by merge; members are the node ids that came from that product's analysis",
@@ -204,6 +212,10 @@
           "description": "containment: a screen points to a feature, micro_app or service, a skill points to a feature or service, a feature points to a micro_app or service, a micro_app points to a service, a db_table points to a datastore; other kinds have no parent"
         },
         "description": { "type": "string" },
+        "summary": {
+          "type": "string",
+          "description": "summary of the drill-down level this node opens (service, micro_app, gateway, app_module, feature, group parent): what is inside and where to start, one or two sentences"
+        },
         "evidence": { "type": "array", "items": { "$ref": "#/definitions/evidence" } },
         "environment": {
           "type": "string",

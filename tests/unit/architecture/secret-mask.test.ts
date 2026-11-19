@@ -2,11 +2,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   SECRET_MASK,
+  maskIrSecrets,
   maskSecrets,
   maskWarningMessages,
   secretMaskedWarnings,
 } from '../../../src/architecture/secret-mask.js';
-import { noise } from './fake-secrets.js';
+import type { ArchitectureIr } from '../../../src/architecture/types.js';
+import { FAKE_TOKEN, noise } from './fake-secrets.js';
 
 const ALNUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const HEX = '0123456789abcdef';
@@ -239,5 +241,51 @@ describe('maskWarningMessages', () => {
     expect(a).toBe(clean);
     expect(b!.message).not.toContain(SECRETS.github);
     expect(b!.code).toBe('Y');
+  });
+});
+
+describe('maskIrSecrets — 요약과 일러두기', () => {
+  const baseIr = (): ArchitectureIr => ({
+    schemaVersion: '1.0.0',
+    view: 'screen-chain',
+    repos: [{ id: 'web', name: 'acme-web', root: '/repo/acme-web' }],
+    nodes: [{ id: 'api', kind: 'api', label: 'api', repo: 'web', evidence: [] }],
+    edges: [],
+    unresolved: [],
+    sourcesUsed: [],
+    generatedAt: '2026-01-01T00:00:00.000Z',
+  });
+
+  it('노드 summary와 IR summary, note를 가리고 위치만 남긴다', () => {
+    const ir = baseIr();
+    ir.nodes[0]!.summary = `키 ${FAKE_TOKEN} 로 붙는다`;
+    ir.summary = `전체 요약 ${FAKE_TOKEN}`;
+    ir.note = `일러두기 ${FAKE_TOKEN}`;
+    const snapshot = structuredClone(ir);
+
+    const { ir: masked, hits } = maskIrSecrets(ir);
+    expect(JSON.stringify(masked)).not.toContain(FAKE_TOKEN);
+    expect(masked.nodes[0]!.summary).toContain(SECRET_MASK);
+    expect(masked.summary).toContain(SECRET_MASK);
+    expect(masked.note).toContain(SECRET_MASK);
+    expect(hits).toEqual(
+      expect.arrayContaining([
+        { nodeId: 'api', field: 'summary' },
+        { field: 'summary' },
+        { field: 'note' },
+      ]),
+    );
+    expect(hits).toHaveLength(3);
+    expect(ir).toEqual(snapshot);
+  });
+
+  it('칸이 없으면 키를 새로 만들지 않는다', () => {
+    const ir = baseIr();
+    ir.nodes[0]!.description = FAKE_TOKEN;
+    const { ir: masked } = maskIrSecrets(ir);
+    expect(masked).not.toBe(ir);
+    expect('summary' in masked).toBe(false);
+    expect('note' in masked).toBe(false);
+    expect('summary' in masked.nodes[0]!).toBe(false);
   });
 });

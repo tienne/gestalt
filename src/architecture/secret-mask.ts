@@ -366,6 +366,7 @@ class IrMasker {
       label: this.text(n.label, o, 'label'),
       ...this.opt('displayName', n.displayName, o),
       ...this.opt('description', n.description, o),
+      ...this.opt('summary', n.summary, o),
       evidence: this.evidence(n.evidence, o),
       ...(n.columns !== undefined
         ? {
@@ -511,6 +512,8 @@ export function maskIrSecrets(ir: ArchitectureIr): { ir: ArchitectureIr; hits: S
       ...s,
       identifier: m.text(s.identifier, {}, `sourcesUsed[${i}].identifier`),
     })),
+    ...m.opt('summary', ir.summary, {}),
+    ...m.opt('note', ir.note, {}),
     ...(ir.flows !== undefined ? { flows: ir.flows.map((f) => m.flow(f)) } : {}),
     ...(ir.projections !== undefined
       ? { projections: ir.projections.map((p) => m.projection(p)) }

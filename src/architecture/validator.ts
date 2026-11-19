@@ -2149,6 +2149,7 @@ function maskNodeText(node: ArchitectureNode): ArchitectureNode {
     label: mask(node.label),
     ...(node.displayName !== undefined ? { displayName: mask(node.displayName) } : {}),
     ...(node.description !== undefined ? { description: mask(node.description) } : {}),
+    ...(node.summary !== undefined ? { summary: mask(node.summary) } : {}),
     ...(node.region !== undefined ? { region: mask(node.region) } : {}),
     ...(doc !== undefined ? { doc: maskDocInfo(doc) } : {}),
     ...(node.columns !== undefined
@@ -2209,6 +2210,8 @@ export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
       ? { groups: redacted.groups.map((g) => ({ ...g, name: maskSharedText(g.name) })) }
       : {}),
     unresolved: redacted.unresolved.map(maskSharedQuestion),
+    ...(redacted.summary !== undefined ? { summary: maskSharedText(redacted.summary) } : {}),
+    ...(redacted.note !== undefined ? { note: maskSharedText(redacted.note) } : {}),
   }).ir;
 }
 
