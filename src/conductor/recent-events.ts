@@ -19,8 +19,8 @@ export interface RecentEvent {
 
 export const RECENT_EVENTS_LIMIT = 50;
 
-/** 이벤트 로그 끝에서 이만큼만 읽는다. 로그가 길어져도 status가 전체를 두 번 읽지 않게 한다 */
-const TAIL_BYTES = 512 * 1024;
+/** 이벤트 로그 끝에서 이만큼만 읽는다. status를 부를 때마다 읽으니 최근 50개가 들어갈 만큼만 잡는다 */
+export const TAIL_BYTES = 128 * 1024;
 const SUMMARY_MAX = 160;
 
 function readTailLines(path: string, bytes: number): string[] {
@@ -32,11 +32,12 @@ function readTailLines(path: string, bytes: number): string[] {
   }
   try {
     const size = fstatSync(fd).size;
-    const start = Math.max(0, size - bytes);
+    // 중간부터 읽을 때는 앞 바이트 하나를 더 읽는다. 그 바이트가 줄바꿈이면 첫 조각은 빈 문자열이고
+    // 아니면 잘린 줄이라 어느 쪽이든 버린다
+    const start = size > bytes ? size - bytes - 1 : 0;
     const buf = Buffer.alloc(size - start);
     readSync(fd, buf, 0, buf.length, start);
     const lines = buf.toString('utf-8').split('\n');
-    // 중간부터 읽었으면 첫 줄은 잘린 줄이다
     return start > 0 ? lines.slice(1) : lines;
   } finally {
     closeSync(fd);
@@ -120,7 +121,10 @@ export function readRecentEvents(
   limit = RECENT_EVENTS_LIMIT,
 ): RecentEvent[] {
   const out: RecentEvent[] = [];
-  for (const line of readTailLines(join(dir, EVENTS_FILE), TAIL_BYTES)) {
+  const lines = readTailLines(join(dir, EVENTS_FILE), TAIL_BYTES);
+  // 끝에서부터 읽어 limit개가 차면 멈춘다. 앞쪽 줄까지 JSON.parse하지 않는다
+  for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
+    const line = lines[i]!;
     if (!line.trim()) continue;
     let event: ConductorEvent;
     try {
@@ -133,5 +137,5 @@ export function readRecentEvents(
     if (item.orderId && snapshot.removedOrders[item.orderId]) continue;
     out.push(item);
   }
-  return out.slice(-limit);
+  return out.reverse();
 }
