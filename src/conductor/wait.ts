@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { TickReport } from './engine.js';
 import { writeJsonAtomic } from '../core/json-file.js';
@@ -116,8 +116,9 @@ export async function waitForAttention(
     if (!deps.stillOwner()) return result('superseded');
     const tickStart = deps.now();
     last = await deps.runTick();
-    const tickMs = deps.now() - tickStart;
     ticks++;
+    if (!deps.stillOwner()) return result('superseded');
+    const tickMs = deps.now() - tickStart;
     if (!last.report.skipped) {
       observed ??= new Set();
       for (const line of shownLines(last)) observed.add(line);
@@ -139,21 +140,17 @@ export const WAIT_REPORT_FILE = 'wait-last.json';
 
 /**
  * 새 wait가 뜨면 소유 표식을 덮어쓴다. 앞서 뜬 wait(컴팩트 뒤 중복으로 띄웠거나 닫힌 세션에 남은 것)는
- * 다음 tick 앞에서 표식이 바뀐 걸 보고 끝난다. 프로세스를 죽이지 않고 가장 나중에 뜬 쪽이 이어 간다.
+ * tick 앞뒤에서 표식이 바뀐 걸 보고 끝난다. 프로세스를 죽이지 않고 가장 나중에 뜬 쪽이 이어 간다.
  * 닫힌 세션에 남은 wait가 tick을 계속 돌리면 hostActions를 아무도 못 받기 때문이다.
  */
-export function claimWaitOwner(stateDir: string): { stillOwner: () => boolean } {
+export function claimWaitOwner(
+  stateDir: string,
+  sessionId?: string,
+): { stillOwner: () => boolean } {
   const path = join(stateDir, OWNER_FILE);
-  const token = `${process.pid}:${randomUUID()}`;
-  mkdirSync(stateDir, { recursive: true });
-  const tmp = `${path}.${token.replace(':', '-')}.tmp`;
-  writeFileSync(tmp, token);
-  try {
-    renameSync(tmp, path);
-  } catch (e) {
-    rmSync(tmp, { force: true });
-    throw e;
-  }
+  const owner = { token: randomUUID(), sessionId: sessionId ?? null };
+  const expected = JSON.stringify(owner);
+  writeJsonAtomic(path, owner, { mode: 0o600, indent: 0 });
   const read = () => {
     try {
       return readFileSync(path, 'utf8');
@@ -162,7 +159,7 @@ export function claimWaitOwner(stateDir: string): { stillOwner: () => boolean } 
     }
   };
   // 끝날 때 표식을 지우지 않는다. 확인하고 지우는 사이에 새 wait가 쓴 표식을 지울 수 있어서다. 남은 표식은 다음 wait가 덮어쓴다
-  return { stillOwner: () => read() === token };
+  return { stillOwner: () => read() === expected };
 }
 
 export function readSeen(stateDir: string): Set<string> {

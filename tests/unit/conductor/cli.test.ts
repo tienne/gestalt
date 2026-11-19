@@ -30,6 +30,7 @@ import {
   conductorWorkerReportCommand,
 } from '../../../src/cli/commands/conductor.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
+import { claimWaitOwner } from '../../../src/conductor/wait.js';
 import { cleanupStateDirs, tempStateDir, worker } from './fixtures.js';
 
 let out: string[] = [];
@@ -571,6 +572,30 @@ describe('gestalt conductor', () => {
     expect(existsSync(join(stateDir, 'wait-seen.json'))).toBe(false);
   });
 
+  it('tick이 도는 사이 wait를 이어받으면 앞선 tick의 보고서를 쓰지 않는다', async () => {
+    const stateDir = tempStateDir();
+    const queueDir = join(stateDir, 'queue');
+    mkdirSync(queueDir);
+    writeFileSync(join(queueDir, 'no-title.json'), JSON.stringify({ repo: 'acme/app' }));
+    const reportFile = join(stateDir, 'wait-last.json');
+    writeFileSync(reportFile, '{"앞선":"보고서"}');
+    const flushSnapshot = ConductorStore.prototype.flushSnapshot;
+    vi.spyOn(ConductorStore.prototype, 'flushSnapshot').mockImplementationOnce(function (
+      this: ConductorStore,
+    ) {
+      claimWaitOwner(stateDir, randomUUID());
+      flushSnapshot.call(this);
+    });
+
+    await conductorWaitCommand({ stateDir, json: true, maxWaitSec: 60, prWatch: false });
+
+    expect(ConductorStore.open(stateDir).openGates()).toHaveLength(1);
+    expect(last()).toMatchObject({ reason: 'superseded', ticks: 1 });
+    expect(last()).not.toHaveProperty('reportFile');
+    expect(readFileSync(reportFile, 'utf-8')).toBe('{"앞선":"보고서"}');
+    expect(existsSync(join(stateDir, 'wait-seen.json'))).toBe(false);
+  });
+
   it('wait가 도는 사이 인계하면 다음 tick에서 거절해 끝난다', async () => {
     const stateDir = tempStateDir();
     vi.stubEnv('CLAUDE_CODE_SESSION_ID', randomUUID());
@@ -877,6 +902,26 @@ describe('컨덕터 세션은 하나만', () => {
     expect(existsSync(join(stateDir, 'sessions', b, 'session.json'))).toBe(false);
     // 원래 세션은 계속 돈다
     await tickAs(stateDir, a);
+  });
+
+  it('세션 id가 없는 wait는 살아 있는 컨덕터의 소유 표식을 가져가지 못한다', async () => {
+    const stateDir = tempStateDir();
+    const sessionId = randomUUID();
+    await tickAs(stateDir, sessionId);
+    const owner = claimWaitOwner(stateDir, sessionId);
+    expect(JSON.parse(readFileSync(join(stateDir, 'wait.owner'), 'utf-8'))).toMatchObject({
+      sessionId,
+    });
+    vi.stubEnv('CLAUDE_CODE_SESSION_ID', undefined);
+    try {
+      await expect(
+        conductorWaitCommand({ stateDir, takeOver: true, maxWaitSec: 1, prWatch: false }),
+      ).rejects.toThrow('exit 1');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(err.at(-1)).toContain(sessionId);
+    expect(owner.stillOwner()).toBe(true);
   });
 
   it('--take-over로 넘겨받으면 원래 세션의 tick을 거절한다', async () => {

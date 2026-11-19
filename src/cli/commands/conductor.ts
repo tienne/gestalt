@@ -719,7 +719,20 @@ export async function conductorWaitCommand(
     if (!Number.isInteger(maxWaitSec) || maxWaitSec < 1 || maxWaitSec > WAIT_MAX_SEC_LIMIT)
       throw new Error(`--max-wait-sec는 1~${WAIT_MAX_SEC_LIMIT} 사이의 정수여야 해요`);
     const sessionId = await enterTickSession(ctx, opts.takeOver === true);
-    const owner = claimWaitOwner(ctx.store.dir);
+    if (!sessionId) {
+      const active = findActiveConductor(
+        ctx.store.dir,
+        '',
+        Date.now(),
+        activeConductorWindowMs(ctx.config),
+      );
+      if (active) {
+        throw new Error(
+          `다른 컨덕터 세션이 돌고 있어요(세션 ${active.sessionId}, 마지막 tick ${active.lastTickAt}). 세션 id가 없는 wait는 이 저장소의 감시를 넘겨받을 수 없어요`,
+        );
+      }
+    }
+    const owner = claimWaitOwner(ctx.store.dir, sessionId);
     const seen = readSeen(ctx.store.dir);
     const result = await waitForAttention(
       {
