@@ -52,7 +52,7 @@ export const SOURCE_LABEL = {
 export const CAPTURE_STATE_LABEL = {
   captured: '캡처함',
   'reference-image': '레퍼런스 이미지',
-  'stopped-before-payment': '결제 직전에 멈춤',
+  'stopped-before-payment': '결제나 확정 직전에 멈춤',
   'not-captured': '캡처 못 함',
 } as const;
 export const CAPTURE_KIND_LABEL = {
