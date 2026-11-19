@@ -1,6 +1,6 @@
 // 컨덕터 터미널 화면의 계산. DOM과 오르카 런타임을 모르는 순수 함수만 둔다.
 import { isTerminal, ms, splitRepo } from './model'
-import { ORDER_STATUSES, type ConductorView, type EventView, type GateView, type OrderView } from './protocol'
+import { ORDER_STATUSES, type ConductorView, type EventView, type GateView, type OrderView, type WaitingView } from './protocol'
 
 export type KindKey = 'orca' | 'git' | 'sub' | 'none'
 
@@ -89,6 +89,11 @@ export function waitText(reason: string, until: string | undefined, joiner = ' '
   return at ? `${reason}${joiner}~${at}` : reason
 }
 
+/** 주문의 대기 한 줄. 사유는 워커가 쓴 글이라 경로나 토큰이 섞일 수 있어서 showFreeText가 꺼지면 '대기'만 적는다 */
+export function orderWaitText(w: WaitingView, showFreeText: boolean): string {
+  return waitText(showFreeText ? w.reason : '대기', w.until)
+}
+
 /** 이벤트 로그 한 줄의 본문. 대기 기한은 CLI가 원시 ISO로 주면 이 맥의 시각으로 붙인다 */
 export function eventText(e: EventView): string {
   const body = e.type === 'waiting' && e.until ? waitText(e.summary, e.until, ' · ') : e.summary
@@ -100,7 +105,7 @@ export type StateLine = { tone: StateTone; text: string; aside: string }
 
 /**
  * 상태줄. 한도, 열린 게이트, 워커 대기, 그 밖 순으로 하나만 고른다.
- * 대기 사유는 워커가 쓴 글이라 경로나 토큰이 섞일 수 있어서 showFreeText가 꺼지면 사유 대신 '대기'만 적는다
+ * showFreeText는 orderWaitText로 넘긴다
  */
 export function stateLine(o: OrderView, gates: readonly GateView[], now: number, showFreeText = true): StateLine {
   if (o.rateLimitedAt) {
@@ -111,8 +116,7 @@ export function stateLine(o: OrderView, gates: readonly GateView[], now: number,
   if (gate) return { tone: 'gate', text: `${gateLabel(gate.type)} 대기`, aside: duration(ms(gate.openedAt), now) }
   if (o.status === 'waiting-gate') return { tone: 'gate', text: 'waiting-gate', aside: duration(ms(o.updatedAt), now) }
   if (o.waiting) {
-    const reason = showFreeText ? o.waiting.reason : '대기'
-    return { tone: 'wait', text: waitText(reason, o.waiting.until), aside: duration(ms(o.waiting.since), now) }
+    return { tone: 'wait', text: orderWaitText(o.waiting, showFreeText), aside: duration(ms(o.waiting.since), now) }
   }
   const last = Math.max(ms(o.checkpoint?.savedAt) ?? 0, ms(o.updatedAt) ?? 0) || null
   const tone: StateTone = o.status === 'running' ? 'run' : o.status === 'escalated' ? 'gate' : 'idle'

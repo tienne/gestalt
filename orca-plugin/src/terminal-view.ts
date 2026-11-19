@@ -6,6 +6,8 @@ import { terminalModel } from './terminal-model'
 
 /** 상세를 펼쳐 둔 동안 워커 터미널을 다시 읽는 간격 */
 const LIVE_POLL_MS = 4000
+/** 상태가 안 바뀌어도 경과 시간과 마지막 tick 표시를 새로 그리는 간격 */
+const CLOCK_MS = 30_000
 
 type State = {
   view: ConductorView | null
@@ -18,12 +20,19 @@ type State = {
 const state: State = { view: null, loadError: null, openError: null, openNote: null, open: new Set(), live: {} }
 const inflight = new Set<string>()
 let poll: ReturnType<typeof setInterval> | null = null
+let clockTimer: ReturnType<typeof setInterval> | null = null
 let lastMarkup = ''
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 const root = document.createElement('div')
 root.className = 'term'
+// root는 다시 그릴 때마다 통째로 바뀌어서 스크린 리더가 안내를 놓친다. 안내는 바깥의 고정 영역에 따로 싣는다
+const SR_ONLY = 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap'
+const statusRegion = Object.assign(document.createElement('div'), { role: 'status' })
+const alertRegion = Object.assign(document.createElement('div'), { role: 'alert' })
+for (const r of [statusRegion, alertRegion]) r.style.cssText = SR_ONLY
+statusRegion.setAttribute('aria-live', 'polite')
 
 async function load(): Promise<void> {
   try {
@@ -41,12 +50,18 @@ async function openWorker(orderId: string): Promise<void> {
   state.openNote = null
   try {
     const out = await orca.plugin.request('worker.open', { orderId })
-    if (!out.opened) state.openError = out.error ?? '워크트리를 못 열었어요'
-    else if (out.worktreeOnly) state.openNote = `터미널을 못 찾아 워크트리만 열었어요. ${out.error ?? ''}`.trim()
+    if (!out.opened) state.openError = out.error ?? '이유를 못 받았어요.'
+    else if (out.fallbackTerminal) state.openNote = '워커 에이전트를 못 찾아 워크트리의 첫 터미널로 옮겼어요. 워커 터미널이 아닐 수 있어요.'
+    else if (out.worktreeOnly) state.openNote = out.error ?? '워크트리만 열었어요.'
   } catch (e) {
     state.openError = errorText(e)
   }
   render()
+  // 같은 문장이 다시 와도 읽히도록 비웠다가 싣는다
+  statusRegion.textContent = ''
+  alertRegion.textContent = ''
+  if (state.openError) alertRegion.textContent = `워크트리를 못 열었어요. ${state.openError}`
+  else if (state.openNote) statusRegion.textContent = state.openNote
 }
 
 const hasWorkspace = (orderId: string) => Boolean(state.view?.orders.find((o) => o.id === orderId)?.workspaceId)
@@ -55,10 +70,12 @@ const hasWorkspace = (orderId: string) => Boolean(state.view?.orders.find((o) =>
 async function readLive(orderId: string): Promise<void> {
   if (inflight.has(orderId) || !hasWorkspace(orderId)) return
   inflight.add(orderId)
+  // 읽는 사이 접었으면 결과를 버린다. 남겨 두면 다시 펼칠 때 지난 출력이 잠깐 보인다
   try {
-    state.live[orderId] = await orca.plugin.request('worker.detail', { orderId })
+    const live = await orca.plugin.request('worker.detail', { orderId })
+    if (state.open.has(orderId)) state.live[orderId] = live
   } catch (e) {
-    state.live[orderId] = { found: true, error: `워커에 못 닿았어요. ${errorText(e)}` }
+    if (state.open.has(orderId)) state.live[orderId] = { found: true, error: `워커에 못 닿았어요. ${errorText(e)}` }
   } finally {
     inflight.delete(orderId)
   }
@@ -72,10 +89,25 @@ async function readOpen(): Promise<void> {
 
 /** 끝나서 카드가 사라진 주문은 펼침과 읽어 둔 터미널을 걷는다. 안 걷으면 안 보이는 카드를 4초마다 읽는다 */
 function pruneOpen(): void {
-  const cards = state.view ? new Set(terminalModel(state.view, Date.now()).cards.map((c) => c.order.id)) : new Set<string>()
-  for (const id of state.open) if (!cards.has(id)) state.open.delete(id)
+  if (state.open.size > 0) {
+    const cards = state.view ? new Set(terminalModel(state.view, Date.now()).cards.map((c) => c.order.id)) : new Set<string>()
+    for (const id of state.open) if (!cards.has(id)) state.open.delete(id)
+  }
   for (const id of Object.keys(state.live)) if (!state.open.has(id)) delete state.live[id]
   syncPoll()
+}
+
+function startClock(): void {
+  clockTimer ??= setInterval(() => {
+    if (document.visibilityState !== 'hidden') render()
+  }, CLOCK_MS)
+}
+
+function stopTimers(): void {
+  if (poll) clearInterval(poll)
+  if (clockTimer) clearInterval(clockTimer)
+  poll = null
+  clockTimer = null
 }
 
 function syncPoll(): void {
@@ -154,7 +186,7 @@ export function mountTerminal(): void {
   const style = document.createElement('style')
   style.textContent = TERMINAL_STYLE
   document.head.append(style)
-  document.body.append(root)
+  document.body.append(root, statusRegion, alertRegion)
   root.addEventListener('toggle', onToggle, true)
   root.addEventListener('click', (e) => {
     const go = (e.target as Element | null)?.closest<HTMLElement>('[data-go]')
@@ -177,12 +209,20 @@ export function mountTerminal(): void {
     render()
   })
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && state.open.size > 0) void readOpen()
+    if (document.visibilityState !== 'visible') return
+    syncPoll()
+    if (state.open.size > 0) void readOpen()
+    else render()
   })
-  window.addEventListener('pagehide', () => {
-    if (poll) clearInterval(poll)
-    poll = null
+  window.addEventListener('pagehide', stopTimers)
+  // 뒤로 가기 캐시에서 돌아오면 pagehide가 멈춘 타이머를 다시 건다
+  window.addEventListener('pageshow', (e) => {
+    if (!e.persisted) return
+    startClock()
+    syncPoll()
+    void readOpen()
   })
+  startClock()
   render()
   void load()
 }
