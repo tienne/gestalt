@@ -78,6 +78,8 @@ maestro --version
 | 화면 트리 | `maestro hierarchy` |
 | flow 만들면서 보기 | `maestro studio` |
 
+Java 17 이상이 필요하다. 기본 `java`가 더 낮으면 전역 설정은 두고 `JAVA_HOME=$(/usr/libexec/java_home -v 17+) maestro …`처럼 실행할 때만 잡는다.
+
 flow는 YAML이라 레포에 커밋해 두고 CI에서 돌린다. qa 용도면 제어 루프에서 성공한 동작을 이 파일로 옮긴다.
 
 ## idb (QA, iOS 시뮬레이터)
@@ -100,6 +102,8 @@ idb list-targets
 | 스크린샷 | `idb screenshot <파일>` |
 
 접근성 트리는 시뮬레이터에서만 나온다. 실기기에는 쓰지 않는다.
+
+`idb list-targets`가 `Failed to run ['--list', '1']`로 실패하면 xcode-select가 CommandLineTools를 가리키는 경우다. [기기 확인](#기기-확인)처럼 `DEVELOPER_DIR`을 붙인다.
 
 ## adb 직접 (mobile-mcp가 없을 때)
 
