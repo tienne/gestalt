@@ -31,7 +31,7 @@ import {
 } from '../../../src/cli/commands/conductor.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import { claimWaitOwner } from '../../../src/conductor/wait.js';
-import { cleanupStateDirs, tempStateDir, worker } from './fixtures.js';
+import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
 
 let out: string[] = [];
 let err: string[] = [];
@@ -572,11 +572,25 @@ describe('gestalt conductor', () => {
     expect(existsSync(join(stateDir, 'wait-seen.json'))).toBe(false);
   });
 
-  it('tick이 도는 사이 wait를 이어받으면 앞선 tick의 보고서를 쓰지 않는다', async () => {
+  it('tick 도중 소유권이 바뀌면 새 wait만 결과를 한 번 받는다', async () => {
     const stateDir = tempStateDir();
     const queueDir = join(stateDir, 'queue');
     mkdirSync(queueDir);
     writeFileSync(join(queueDir, 'no-title.json'), JSON.stringify({ repo: 'acme/app' }));
+    const store = ConductorStore.open(stateDir);
+    store.addOrder(
+      order({ id: 'ord-success', status: 'merged', issueKey: 'APP-7', issueType: 'bug' }),
+    );
+    store.addOrder(
+      order({
+        id: 'ord-expired',
+        status: 'merged',
+        issueKey: 'APP-8',
+        issueType: 'bug',
+        mergedAt: '2000-01-01T00:00:00Z',
+      }),
+    );
+    conductorDeployReportCommand({ stateDir, order: 'ord-success', status: 'success' });
     const reportFile = join(stateDir, 'wait-last.json');
     writeFileSync(reportFile, '{"앞선":"보고서"}');
     const flushSnapshot = ConductorStore.prototype.flushSnapshot;
@@ -594,6 +608,32 @@ describe('gestalt conductor', () => {
     expect(last()).not.toHaveProperty('reportFile');
     expect(readFileSync(reportFile, 'utf-8')).toBe('{"앞선":"보고서"}');
     expect(existsSync(join(stateDir, 'wait-seen.json'))).toBe(false);
+    const carryDir = join(stateDir, 'wait-carry');
+    expect(readdirSync(carryDir)).toHaveLength(1);
+
+    await conductorWaitCommand({ stateDir, json: true, maxWaitSec: 1, prWatch: false });
+    expect(last()).toMatchObject({
+      reason: 'attention',
+      reasons: ['hostActions', 'gatesOpened', 'warnings'],
+      ticks: 0,
+      tick: {
+        counts: { openGates: 1 },
+        hostActions: [{ type: 'jira-transition', issueKey: 'APP-7', to: 'In-QA' }],
+        warnings: [expect.stringContaining('ord-expired')],
+      },
+    });
+    expect(readdirSync(carryDir)).toEqual([]);
+
+    const idle = { json: true, stateDir, maxWaitSec: 1, prWatch: false };
+    let clock = 0;
+    await conductorWaitCommand(idle, {
+      now: () => clock,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+    });
+    expect(last()).toMatchObject({ reason: 'timeout' });
+    expect(last()).not.toHaveProperty('tick');
   });
 
   it('wait가 도는 사이 인계하면 다음 tick에서 거절해 끝난다', async () => {

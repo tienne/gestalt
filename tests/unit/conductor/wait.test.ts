@@ -3,7 +3,10 @@ import type { TickReport } from '../../../src/conductor/engine.js';
 import {
   attentionReasons,
   claimWaitOwner,
+  consumeWaitCarry,
+  mergeWaitCarry,
   readSeen,
+  saveWaitCarry,
   waitForAttention,
   writeSeen,
   type WaitTickOutcome,
@@ -239,5 +242,65 @@ describe('wait 소유 표식과 본 목록', () => {
     expect([...seen]).toEqual(['오류 B']);
     const again = { report: report({ errors: ['오류 A'] }), handoffClose: [] };
     expect(attentionReasons(again, seen)).toEqual(['errors']);
+  });
+});
+
+describe('wait 결과 넘김', () => {
+  it('다른 wait가 가져가는 도중이면 실행 요청을 다시 받지 않는다', () => {
+    const stateDir = tempStateDir();
+    const action = { type: 'jira-transition' as const, issueKey: 'APP-1', to: 'In-QA' as const };
+    const outcome = { report: report({ hostActions: [action] }), handoffClose: [] };
+    saveWaitCarry(stateDir, outcome, ['hostActions'], new Set());
+
+    consumeWaitCarry(stateDir, (first) => {
+      consumeWaitCarry(stateDir, (second) => expect(second).toEqual([]));
+      expect(first.map((item) => item.outcome.report.hostActions)).toEqual([[action]]);
+    });
+    consumeWaitCarry(stateDir, (next) => expect(next).toEqual([]));
+  });
+
+  it('결과를 오래된 순으로 합치고 앞 세션의 인계는 기록으로만 전달한다', () => {
+    const stateDir = tempStateDir();
+    const hostAction = (issueKey: string) => ({
+      type: 'jira-transition' as const,
+      issueKey,
+      to: 'In-QA' as const,
+    });
+    const save = (at: string, issue: string, handoff?: WaitTickOutcome['handoff']) =>
+      saveWaitCarry(
+        stateDir,
+        {
+          report: report({
+            at,
+            hostActions: [hostAction(issue)],
+            errors: ['이미 본 오류'],
+            warnings: [issue],
+          }),
+          handoffClose: [],
+          ...(handoff ? { handoff } : {}),
+        },
+        handoff ? ['hostActions', 'handoff', 'warnings'] : ['hostActions', 'warnings'],
+        new Set(['이미 본 오류']),
+      );
+    const oldHandoff = { sessionId: 'old', due: true, compactions: 2, thresholdPercent: 70 };
+    save('2026-11-15T00:01:00.000Z', 'APP-2');
+    save('2026-11-15T00:00:00.000Z', 'APP-1', oldHandoff);
+    const now = {
+      report: report({ at: '2026-11-15T00:02:00.000Z', hostActions: [hostAction('APP-3')] }),
+      handoffClose: [],
+    };
+    consumeWaitCarry(stateDir, (items) => {
+      const merged = mergeWaitCarry(
+        { reason: 'attention', reasons: ['hostActions'], ticks: 1, elapsedMs: 1, last: now },
+        items,
+        'new',
+      );
+      expect(merged.reasons).toEqual(['hostActions', 'warnings', 'carriedHandoff']);
+      expect(merged.last?.report.hostActions).toEqual(['APP-1', 'APP-2', 'APP-3'].map(hostAction));
+      expect(merged.last?.report.warnings).toEqual(['APP-1', 'APP-2']);
+      expect(merged.last?.report.errors).toEqual([]);
+      expect(merged.last?.handoff).toBeUndefined();
+      expect(merged.last?.carriedHandoffs).toEqual([oldHandoff]);
+    });
   });
 });

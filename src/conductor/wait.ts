@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { TickReport } from './engine.js';
+import { withFileLock } from '../core/file-lock.js';
 import { writeJsonAtomic } from '../core/json-file.js';
 import { handoffCloseLine, type HandoffCloseResult } from './handoff-close.js';
 import type { HandoffStatus } from './handoff.js';
@@ -19,6 +20,7 @@ export interface WaitTickOutcome {
   report: TickReport;
   handoff?: HandoffStatus;
   handoffClose: HandoffCloseResult[];
+  carriedHandoffs?: HandoffStatus[];
 }
 
 export type WaitEndReason = 'attention' | 'timeout' | 'superseded';
@@ -44,6 +46,7 @@ export interface WaitLoopDeps {
   now: () => number;
   /** 다른 wait가 이어받았으면 false. 표식을 뺏긴 쪽은 tick을 더 돌리지 않고 끝난다 */
   stillOwner: () => boolean;
+  hasCarry?: () => boolean;
   /** 앞서 wait가 이미 호스트에 보여 준 경고와 오류, 닫기 결과. 같은 문장만으로는 다시 끝나지 않는다 */
   seen?: ReadonlySet<string>;
   /**
@@ -114,17 +117,18 @@ export async function waitForAttention(
   const floorMs = Math.min(MIN_SLEEP_MS, opts.intervalMs);
   for (;;) {
     if (!deps.stillOwner()) return result('superseded');
+    if (deps.hasCarry?.()) return result('attention');
     const tickStart = deps.now();
     last = await deps.runTick();
     ticks++;
-    if (!deps.stillOwner()) return result('superseded');
+    const reasons = attentionReasons(last, deps.seen, openGates);
+    if (!deps.stillOwner()) return result('superseded', reasons);
     const tickMs = deps.now() - tickStart;
     if (!last.report.skipped) {
       observed ??= new Set();
       for (const line of shownLines(last)) observed.add(line);
     }
-    const reasons = attentionReasons(last, deps.seen, openGates);
-    if (reasons.length > 0) return result('attention', reasons);
+    if (reasons.length > 0 || deps.hasCarry?.()) return result('attention', reasons);
     if (!last.report.skipped) openGates = last.report.counts.openGates;
     const left = opts.maxWaitMs - (deps.now() - start);
     if (left <= 0) return result('timeout');
@@ -134,6 +138,7 @@ export async function waitForAttention(
 }
 
 const OWNER_FILE = 'wait.owner';
+const CARRY_DIR = 'wait-carry';
 const SEEN_FILE = 'wait-seen.json';
 const SEEN_MAX = 200;
 export const WAIT_REPORT_FILE = 'wait-last.json';
@@ -150,7 +155,7 @@ export function claimWaitOwner(
   const path = join(stateDir, OWNER_FILE);
   const owner = { token: randomUUID(), sessionId: sessionId ?? null };
   const expected = JSON.stringify(owner);
-  writeJsonAtomic(path, owner, { mode: 0o600, indent: 0 });
+  withWaitOwnerLock(stateDir, () => writeJsonAtomic(path, owner, { mode: 0o600, indent: 0 }));
   const read = () => {
     try {
       return readFileSync(path, 'utf8');
@@ -160,6 +165,121 @@ export function claimWaitOwner(
   };
   // 끝날 때 표식을 지우지 않는다. 확인하고 지우는 사이에 새 wait가 쓴 표식을 지울 수 있어서다. 남은 표식은 다음 wait가 덮어쓴다
   return { stillOwner: () => read() === expected };
+}
+
+export function withWaitOwnerLock<T>(stateDir: string, fn: () => T): T {
+  return withFileLock(join(stateDir, `${OWNER_FILE}.lock`), fn);
+}
+
+interface WaitCarry {
+  reasons: string[];
+  outcome: WaitTickOutcome;
+}
+
+function carryFiles(stateDir: string): string[] {
+  const dir = join(stateDir, CARRY_DIR);
+  try {
+    return readdirSync(dir)
+      .filter((name) => /^\d{16}-[a-f0-9-]+\.json$/.test(name))
+      .sort()
+      .map((name) => join(dir, name));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw e;
+  }
+}
+
+export function hasWaitCarry(stateDir: string): boolean {
+  return carryFiles(stateDir).length > 0;
+}
+
+export function saveWaitCarry(
+  stateDir: string,
+  outcome: WaitTickOutcome,
+  reasons: string[],
+  seen: ReadonlySet<string>,
+): void {
+  if (reasons.length === 0) return;
+  const prefix = String(Date.parse(outcome.report.at)).padStart(16, '0');
+  const path = join(stateDir, CARRY_DIR, `${prefix}-${randomUUID()}.json`);
+  const { report } = outcome;
+  const fresh = {
+    ...report,
+    errors: report.errors.filter((line) => !seen.has(line)),
+    warnings: report.warnings.filter((line) => !seen.has(line)),
+  };
+  writeJsonAtomic(path, { reasons, outcome: { ...outcome, report: fresh } } satisfies WaitCarry, {
+    mode: 0o600,
+    indent: 0,
+  });
+}
+
+/** 결과를 쓰다 실패하면 다음 wait가 원래 순서대로 다시 가져갈 수 있게 돌려놓는다. */
+export function consumeWaitCarry(stateDir: string, deliver: (carried: WaitCarry[]) => void): void {
+  const claimed: { from: string; to: string }[] = [];
+  try {
+    for (const from of carryFiles(stateDir)) {
+      const to = `${from}.claimed-${randomUUID()}`;
+      try {
+        renameSync(from, to);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw e;
+      }
+      claimed.push({ from, to });
+    }
+    deliver(claimed.map(({ to }) => JSON.parse(readFileSync(to, 'utf-8')) as WaitCarry));
+  } catch (err) {
+    for (const { from, to } of claimed) renameSync(to, from);
+    throw err;
+  }
+  for (const { to } of claimed) rmSync(to);
+}
+
+export function mergeWaitCarry(
+  result: WaitResult,
+  carried: WaitCarry[],
+  sessionId?: string,
+): WaitResult {
+  if (carried.length === 0) return result;
+  const outcomes = carried.map(({ outcome }) => outcome);
+  if (result.last) outcomes.push(result.last);
+  const latest = outcomes.at(-1)!;
+  const reports = outcomes.filter(({ report }) => !report.skipped).map(({ report }) => report);
+  const reasons = new Set(carried.flatMap((item) => item.reasons).concat(result.reasons));
+  // 인계 판단은 세션마다 달라서 다른 세션의 컨텍스트 사용량으로 다시 인계하면 안 된다.
+  const handoff = outcomes
+    .map((outcome) => outcome.handoff)
+    .filter((status) => status?.sessionId === sessionId)
+    .at(-1);
+  if (!handoff?.due && reasons.delete('handoff')) reasons.add('carriedHandoff');
+  const carriedHandoffs = carried.flatMap(({ outcome }) =>
+    outcome.handoff && outcome.handoff !== handoff ? [outcome.handoff] : [],
+  );
+  const last: WaitTickOutcome = {
+    report: {
+      ...(reports.at(-1) ?? latest.report),
+      created: reports.flatMap((r) => r.created),
+      launched: reports.flatMap((r) => r.launched),
+      escalated: reports.flatMap((r) => r.escalated),
+      hostActions: reports.flatMap((r) => r.hostActions),
+      slackPosted: reports.flatMap((r) => r.slackPosted),
+      jira: reports.flatMap((r) => r.jira),
+      humanOwned: reports.flatMap((r) => r.humanOwned),
+      errors: [...new Set(reports.flatMap((r) => r.errors))],
+      warnings: [...new Set(reports.flatMap((r) => r.warnings))],
+    },
+    ...(handoff ? { handoff } : {}),
+    ...(carriedHandoffs.length ? { carriedHandoffs } : {}),
+    handoffClose: outcomes.flatMap((o) => o.handoffClose),
+  };
+  return {
+    ...result,
+    reason: 'attention',
+    reasons: [...reasons],
+    last,
+    observed: [...(result.observed ?? []), ...shownLines(last)],
+  };
 }
 
 export function readSeen(stateDir: string): Set<string> {

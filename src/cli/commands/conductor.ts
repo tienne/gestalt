@@ -100,10 +100,15 @@ import type { ConductorConfig } from '../../conductor/scheduler.js';
 import { draftSlack } from '../../conductor/slack.js';
 import {
   claimWaitOwner,
+  consumeWaitCarry,
+  hasWaitCarry,
+  mergeWaitCarry,
   readSeen,
+  saveWaitCarry,
   shownLines,
   WAIT_REPORT_FILE,
   waitForAttention,
+  withWaitOwnerLock,
   writeSeen,
   type WaitLoopDeps,
   type WaitResult,
@@ -669,6 +674,7 @@ function tickJson(o: WaitTickOutcome): Record<string, unknown> {
   return {
     ...o.report,
     ...(o.handoff ? { handoff: o.handoff } : {}),
+    ...(o.carriedHandoffs ? { carriedHandoffs: o.carriedHandoffs } : {}),
     ...(o.handoffClose.length > 0 ? { handoffClose: o.handoffClose } : {}),
   };
 }
@@ -749,17 +755,27 @@ export async function conductorWaitCommand(
         sleep: loop.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
         now: loop.now ?? (() => Date.now()),
         stillOwner: owner.stillOwner,
+        hasCarry: () => hasWaitCarry(ctx.store.dir),
         seen,
         openGatesBefore: ctx.store.openGates().length,
       },
       { maxWaitMs: maxWaitSec * 1000, intervalMs: ctx.config.pollIntervalSec * 1000 },
     );
-    // superseded는 이어받은 wait가 본 목록을 맡는다. 건너뛴 tick뿐이었으면 무엇이 풀렸는지 몰라 그대로 둔다
-    if (result.reason !== 'superseded' && result.observed) {
-      const shown = result.reason === 'attention' && result.last ? shownLines(result.last) : [];
-      writeSeen(ctx.store.dir, seen, result.observed, shown);
-    }
-    printWaitResult(ctx, opts, result);
+    withWaitOwnerLock(ctx.store.dir, () => {
+      if (result.reason === 'superseded' || !owner.stillOwner()) {
+        if (result.last) saveWaitCarry(ctx.store.dir, result.last, result.reasons, seen);
+        printWaitResult(ctx, opts, { ...result, reason: 'superseded', reasons: [] });
+        return;
+      }
+      consumeWaitCarry(ctx.store.dir, (carried) => {
+        const merged = mergeWaitCarry(result, carried, sessionId);
+        if (merged.observed) {
+          const shown = merged.reason === 'attention' && merged.last ? shownLines(merged.last) : [];
+          writeSeen(ctx.store.dir, seen, merged.observed, shown);
+        }
+        printWaitResult(ctx, opts, merged);
+      });
+    });
   } catch (e) {
     for (const r of handoffClose) console.error(handoffCloseLine(r));
     exitWithError(e);
