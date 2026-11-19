@@ -138,6 +138,14 @@ Step 0 전에 두 가지를 정한다. 대상에 맞는 어휘 팩과 질문에 
 (문서 레포를 지도로 그리거나 기술 그림에 엮으려면 지식 문서 지도)
 ```
 
+### 읽기 예산
+
+Step 1~5의 탐색은 파일 읽기가 대부분이다. 한 뷰에 도구 호출 40번 안쪽을 목표로 잡는다.
+
+- **파일은 머리 80줄부터 읽는다.** 모듈의 역할과 export는 대개 위쪽에 있다. 근거 줄을 찾을 때는 `grep -n`으로 줄을 짚고 그 근처만 읽는다. 파일 전체는 머리로 역할을 못 잡았을 때만 연다.
+- **서로 기대지 않는 파일은 한 턴에 같이 읽는다.** 모듈 여러 개의 머리를 하나씩 따로 부르지 않는다.
+- **서비스가 4개를 넘으면 나눠 맡긴다.** 서비스마다 서브에이전트를 하나씩 띄워 그 서비스의 IR 조각을 쓰게 하고 [분석 합치기](#분석-합치기)로 모은다. 서브에이전트에는 이 SKILL.md 경로와 맡은 서비스, 레포 경로만 넘긴다. 합친 뒤 최상위 `summary`와 `note`는 다시 쓴다(합치기에서 버려진다).
+
 ---
 
 ## Step 0 — start
@@ -487,14 +495,38 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 - 그 노드가 무엇을 하는지 한 문장으로 쓴다. 카드에서는 한 줄을 넘으면 말줄임표로 잘리고 전체는 툴팁과 서랍에서 보인다. 그래서 앞쪽에 핵심을 둔다.
 - 출처가 이미 있는 노드는 거기서 가져와 한 줄로 줄인다. 스킬은 SKILL.md 프런트매터의 `description`, MCP 도구는 도구 등록의 description, 에이전트는 AGENT.md의 `description`이나 첫 문단이다. 트리거 문구나 사용 예시는 걷어내고 하는 일만 남긴다.
 - 출처가 없으면 코드에서 읽은 대로 쓴다. 화면은 사용자가 거기서 하는 일, API는 무엇을 돌려주거나 바꾸는지, 테이블은 무엇을 담는지다.
+- **지금 하는 일만 쓴다.** 예전에 하던 일이나 앞으로 할 일, 계획은 넣지 않는다.
+- **출처 문장은 본문과 맞을 때만 옮긴다.** README나 프런트매터가 코드보다 넓게 말하면 코드에서 확인한 만큼만 쓴다.
+- **"어디서 쓴다"는 실선이 있을 때만 쓴다.** 누가 이 노드를 부른다고 적으려면 그 둘을 잇는 실선 엣지가 IR에 있어야 한다.
+- **예시를 지어내지 않는다.** "예: A, B, C"를 쓰려면 셋 다 코드에 있어야 한다.
+- **형제 노드끼리 구별되게 쓴다.** 같은 부모 아래 카드들이 같은 문장이면 읽는 사람이 고를 수 없다. 서로 다른 점을 앞에 둔다.
+- **동사로 끝낸다.** "~모듈", "~처리"처럼 명사로 끝내지 않는다. 60자를 넘기지 않는다.
+
+| ✗                                                                   | ✓                                                    | 걸린 규칙            |
+| ------------------------------------------------------------------- | ---------------------------------------------------- | -------------------- |
+| 주문 생성 및 결제 요청 처리 모듈. 추후 정산도 맡을 예정             | 주문을 만들고 결제 승인을 요청해요.                  | 지금 하는 일, 동사   |
+| 모든 알림을 보내요. (README 문장, 코드에는 메일 발송만 있음)        | 주문 확인 메일을 보내요.                             | 출처 문장과 본문     |
+| 앱과 웹이 모두 이 API를 불러요. (웹에서 오는 실선 없음)             | 장바구니에 담긴 상품 목록을 돌려줘요.                | 쓰임 주장과 실선     |
+| 쿠폰, 포인트, 마일리지 할인을 계산해요. (마일리지는 코드에 없음)    | 쿠폰과 포인트 할인액을 계산해요.                     | 예시 날조            |
+| 형제 둘이 모두 "주문을 처리해요."                                   | "새 주문을 저장해요." / "취소된 주문을 환불해요."    | 형제 구별            |
 - 빈 채로 두면 validate가 `warnings`에 `NODE_DESCRIPTION_MISSING`을 싣는다. 에러가 아니라 render는 막지 않는다. 경고에 실린 `nodeIds`를 채워 다시 validate한다.
 - 상태 흐름 그림이 한 장에 읽히는 양을 넘으면 `warnings`에 `LIFECYCLE_OVER_BUDGET`이 실린다. 이것도 render를 막지 않는다. 경고의 `counts`를 보고 세부 상태를 하나로 합치거나 흐름을 둘로 나눈다.
 - 서비스 블루프린트의 단계 열이 6을 넘으면 `warnings`에 `BLUEPRINT_OVER_BUDGET`이 실린다. render는 막지 않는다. 같은 화면에서 이어지는 단계를 합치거나 흐름을 나눈다.
 - 테이블 관계 그림이 테이블 5개, 한 테이블의 컬럼 8개, 외래 키 선 6개 중 하나라도 넘으면 `warnings`에 `ER_OVER_BUDGET`이 실린다. render는 막지 않는다. 질문에 걸린 테이블만 남기거나 그림을 나눈다.
 
+### 레벨 요약과 일러두기
+
+드릴다운 레벨마다 맨 위에 붙일 요약을 `summary`에 쓴다. 레벨에 처음 들어온 사람이 카드를 하나씩 누르기 전에 이 글로 방향을 잡는다.
+
+- **최상위 `summary`**: 전체 레벨의 요약이다. 이 그림이 무엇을 보여 주는지와 어디서부터 읽으면 되는지를 1~3문장, 200자 안쪽으로 쓴다.
+- **노드 `summary`**: 그 노드를 누르면 열리는 레벨의 요약이다. `service`, `micro_app`, `gateway`, `app_module`, `feature`처럼 레벨을 여는 노드와 그룹 부모에 단다. 안에 무엇이 있고 어느 카드부터 보면 되는지를 1~2문장, 120자 안쪽으로 쓴다. 카드 한 줄 설명(`description`)과 겹치지 않게 레벨 안쪽을 말한다.
+- **최상위 `note`**: 요약에 안 맞는 일러두기다. 이번에 읽은 범위와 뺀 것, 선 모양 읽는 법처럼 그림을 오해하지 않게 하는 말을 쓴다. 필요할 때만 단다.
+- 요약에도 위 [노드 설명](#노드-설명) 규칙이 그대로 걸린다. 지금 하는 일만, 실선으로 확인한 쓰임만 쓴다.
+- summary가 빠진 레벨이 있으면 validate가 `warnings`에 `LEVEL_SUMMARY_MISSING`을 싣는다. `levelIds`와 그 레벨을 여는 `nodeIds`를 보고 채운다. 최상위 레벨(`root`)은 IR 최상위 `summary`로 채운다.
+
 ### 페이지 글
 
-페이지에 그대로 보이는 글은 **사용자가 이 분석을 시킨 프롬프트의 언어로** 쓴다. 코드와 주석, 기획 문서가 영어여도 옮겨 쓴다. 미해결 질문(`question`), 노드 `description`, 기능영역 이름, `displayName`, 구간 `label`, 흐름의 `title`과 `description`, 행위자와 단계와 전이의 `label`, 전이의 `trigger`와 `condition`, `stateLabels` 값이 그 자리다. 코드 식별자인 노드 `label`과 단계 `state`만 코드에 있는 그대로 둔다. 한국어라면 읽는 사람에게 말하는 해요체로 쓴다. 번역투나 AI 말투는 피하고 [`ai-tell-quick-rules.md`](../../role-agents/_shared/references/ai-tell-quick-rules.md)를 따른다.
+페이지에 그대로 보이는 글은 **사용자가 이 분석을 시킨 프롬프트의 언어로** 쓴다. 코드와 주석, 기획 문서가 영어여도 옮겨 쓴다. 미해결 질문(`question`), 노드 `description`, 최상위와 노드 `summary`, 최상위 `note`, 기능영역 이름, `displayName`, 구간 `label`, 흐름의 `title`과 `description`, 행위자와 단계와 전이의 `label`, 전이의 `trigger`와 `condition`, `stateLabels` 값이 그 자리다. 코드 식별자인 노드 `label`과 단계 `state`만 코드에 있는 그대로 둔다. 한국어라면 읽는 사람에게 말하는 해요체로 쓴다. 번역투나 AI 말투는 피하고 [`ai-tell-quick-rules.md`](../../role-agents/_shared/references/ai-tell-quick-rules.md)를 따른다.
 
 ### 근거 규칙
 
@@ -596,6 +628,8 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 `label`은 기술 이름이라 코드에 있는 그대로 둔다 (예: `acme-order-api`). 사람이 그 서버를 부르는 이름(예: 주문 서버)은 `displayName`에 따로 단다. 박스 첫 줄에 크게 나오고 label은 둘째 줄로 내려간다.
 
 - **대상**: `service`, `gateway`, `app_module`이다. `external_service`는 찾으면 단다. `feature`는 처음부터 사람 말로 짓는 노드라 따로 달지 않는다.
+- **label이 파일 경로나 파일 이름이면 kind와 상관없이 반드시 단다.** `src/interview/engine.ts`, `memory.json`, `sqlite:.gestalt/events.db`처럼 슬래시가 들어가거나 확장자로 끝나거나 `scheme:경로` 꼴인 label은 카드 제목으로 읽히지 않는다. 엔드포인트의 `GET /items` 꼴은 여기 들지 않는다. 빠지면 validate가 `warnings`에 `NODE_TITLE_PATHLIKE`를 싣는다.
+- **`displayName`은 사용자 언어로 쓴다.** [페이지 글](#페이지-글)과 같은 언어다. README에 영어 이름(예: `Order Service`)이 있어도 한국어 사용자면 "주문 서버"처럼 옮겨 쓰고 원래 이름은 근거에 남는다. 그림의 설명 글이 대부분 한글인데 `displayName`에 한글이 없으면 validate가 `warnings`에 `DISPLAY_NAME_LANGUAGE`를 싣는다. 제품 이름처럼 옮기면 안 되는 고유명사면 경고를 그대로 두고 보고에 이유를 적는다.
 - **찾는 순서**: 아래 순서로 보고 먼저 나온 이름을 쓴다.
   1. 모듈 README의 소개 문단
   2. 레포 README와 저장소 설명
@@ -603,7 +637,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
   4. 레포 지시문(`CLAUDE.md`, `AGENTS.md`)의 역할 설명
 - **이름이 그대로 있으면** `displayName`만 단다.
 - **설명 문장만 있으면** 그 문장을 줄여 이름을 짓고 `displayNameInferred: true`를 함께 단다. 박스에 "추정" 배지가 붙는다. `displayName` 없이 `displayNameInferred`만 쓰면 `IR_PARSE_ERROR`다.
-- **아무 근거도 없으면** 달지 않는다. label만 나와도 된다. 이름을 짐작해 채우지 않는다.
+- **아무 근거도 없으면** 달지 않는다. label만 나와도 된다. 이름을 짐작해 채우지 않는다. 단 label이 경로나 파일 이름이면 그 파일 머리를 읽고 코드가 하는 일로 이름을 짓는다. `displayNameInferred: true`를 함께 달고 읽은 파일을 `code` 근거로 단다.
 - **이름을 뽑은 자리를 그 노드 `evidence` 끝에 근거로 단다.** 레포 파일(README, 지시문)이면 `code` 근거, KB나 저장소 설명이면 `doc` 근거다. `doc` 근거는 `private`이고 `excerpt`를 넣지 않는다.
 - **KB 페이지는 링크만 남긴다.** 운영 문서에 비밀번호나 토큰 같은 비밀이 같이 적혀 있는 경우가 있다. 이름만 읽어 오고 페이지 내용을 인용하지 않는다.
 - `displayName`은 병합 키가 아니다. 재실행 때 이름을 바꾸거나 새로 달아도 노드 id는 그대로다.
@@ -614,10 +648,13 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
 { "action": "validate", "view": "screen-chain", "ir": { ... } }
 ```
 
-- 성공하면 `{ ok: true, autoUnresolved, drawable }`이다. `drawable`에 빠진 노드와 엣지가 있으면 왜 빠졌는지 `autoUnresolved`에서 확인한다.
+- 성공하면 `{ ok: true, autoUnresolved, drawable, stats, signals }`이다. `drawable`에 빠진 노드와 엣지가 있으면 왜 빠졌는지 `autoUnresolved`에서 확인한다.
+- `stats`는 render 응답의 것과 같은 수치다(노드와 엣지 수, 그리는 엣지와 빠진 엣지, 열린 질문 수, screen-chain이면 `screenToEndpointRatio`와 `endpointMatchRatio`). `signals`는 수치가 문턱을 넘었을 때만 항목이 생긴다. `SCREEN_ENDPOINT_RATIO_LOW`는 엔드포인트를 부르는 화면이 화면 전체의 60%가 안 된다는 뜻이다. 호출 사슬([3-2](#3-2-호출-사슬))을 덜 따라간 것이니 엔드포인트가 안 붙은 화면부터 다시 본다. 항목마다 `value`, `threshold`, `hint`가 있다.
 - 성공해도 `warnings`가 올 수 있다. 어느 경고도 render를 막지 않는다. 고치는 법은 [노드 설명](#노드-설명)에 모아 두었다.
   - `NODE_DESCRIPTION_MISSING`은 그리는 노드 중 `description`이 빈 노드를 `nodeIds`에 모아 준다. 그 카드에는 설명 줄이 없으니 채운다.
   - 예산 경고(`LIFECYCLE_OVER_BUDGET`, `BLUEPRINT_OVER_BUDGET`, `ER_OVER_BUDGET`)에는 `nodeIds`가 없다. 넘친 그림의 id를 `subjectId`에, 넘친 개수를 `counts`에 담는다. 그림을 나누거나 줄이라는 신호다.
+  - 작성 품질 경고 넷이 있다. `NODE_TITLE_PATHLIKE`(카드 제목이 경로나 파일 이름, `nodeIds`)는 [표시 이름을 단다](#표시-이름을-단다)대로 `displayName`을 단다. `DISPLAY_NAME_LANGUAGE`(사용자 언어가 아닌 표시 이름, `nodeIds`)는 표시 이름을 옮겨 쓴다. `LEVEL_SUMMARY_MISSING`(요약 없는 레벨, `levelIds`와 `nodeIds`)은 [레벨 요약과 일러두기](#레벨-요약과-일러두기)대로 채운다. `FLOW_STEP_DESCRIPTION_MISSING`(설명 없는 흐름 단계, `flowId`와 `stepIds`)은 단계마다 거기서 누가 무엇을 하는지 한 문장을 단다.
+  - **작성 품질 경고와 `NODE_DESCRIPTION_MISSING`이 오면 채워서 validate를 한 번 더 돈다.** 그래도 남은 경고는 render를 막지 않으니 그대로 render하고 보고에 남은 경고와 이유를 적는다.
   - `INFRA_PLACEMENT_CONFLICT`는 노드에 직접 적은 `provider`나 `region`이 `placedIn`, `parent`, `account`로 물려받은 값과 다를 때 온다. 근거를 다시 보고 한쪽을 지운다.
   - render 응답에도 같은 `warnings`가 실린다. render에는 `DELTA_OVER_BUDGET`, `SECRET_MASKED`, `IGNORED_FILE_TRACKED`, `LABEL_CHANGED_ID_LOST`, `MERGE_KEY_DUPLICATE`, `FLOW_DROPPED`가 더 올 수 있다. 읽는 법은 [Step 8](#step-8--render와-보고)에 있다.
 - 실패하면 `errors[]`에 `code`와 `nodeId`나 `edgeId`가 온다. 질문별 그림 에러면 `projectionId`와 `messageId`가 오고 구간 에러면 `phaseId`가 함께 온다. 오타로 보이는 자리에는 `suggestion`이 하나 붙는다. 그 값이 맞는지 IR에서 확인한 뒤 고친다. 확인 없이 그대로 바꾸지 않는다.
