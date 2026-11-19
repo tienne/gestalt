@@ -215,6 +215,31 @@ test('웹 터미널은 보기 전용이라 카드 이동이 없고 바깥 글은
   lacks(missing, '/Users/someone')
 })
 
+test('웹 터미널은 워커가 쓴 다음 할 일과 대기 사유, bypass, 보고 요약과 계정 이름을 싣지 않는다', () => {
+  const html = terminalFragment(
+    view({
+      orders: [
+        order('ord-a', {
+          worker: 'w1',
+          workerKind: 'orca-worktree',
+          account: 'work-acct',
+          checkpoint: { skill: 'ship', phase: 'ci', next: 'cat /Users/someone/.npmrc', completedSkills: [] },
+          waiting: { reason: 'ghp_waitTOKEN 만료', since: '2026-11-13T02:00:00.000Z' },
+          bypasses: [{ need: 'cleanup', action: 'rm -rf /Users/someone/tmp', at: '2026-11-13T02:10:00.000Z' }]
+        })
+      ],
+      recentEvents: [
+        { at: '2026-11-13T02:20:00.000Z', type: 'report', orderId: 'ord-a', summary: 'done · ghp_reportTOKEN' },
+        { at: '2026-11-13T02:21:00.000Z', type: 'waiting', orderId: 'ord-a', summary: '/Users/someone/wait' },
+        { at: '2026-11-13T02:22:00.000Z', type: 'bypass', orderId: 'ord-a', summary: 'cleanup · /Users/someone/bypass' }
+      ]
+    }),
+    NOW
+  )
+  for (const secret of ['/Users/someone', 'TOKEN', 'work-acct']) lacks(html, secret)
+  has(html, 'ord-a')
+})
+
 test('서버는 ?view=terminal에 터미널 페이지를 같은 규칙으로 돌려준다', async () => {
   const server = new MobileServer(() => view({ orders: [order('ord-a', { title: '터미널 주문' })] }))
   const port = await server.start(0)

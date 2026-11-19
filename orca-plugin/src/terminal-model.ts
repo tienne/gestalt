@@ -57,7 +57,11 @@ export const GATE_LABEL: Record<string, string> = {
   'no-procedure': '처리 절차 없음'
 }
 
-export const gateLabel = (type: string) => GATE_LABEL[type] ?? type
+/** 이벤트 유형처럼 바깥에서 온 키로 표를 찾는다. constructor 같은 이름이 Object 원형의 함수를 꺼내지 않게 제 키만 본다 */
+export const lookup = (table: Record<string, string>, key: string): string | undefined =>
+  Object.hasOwn(table, key) ? table[key] : undefined
+
+export const gateLabel = (type: string) => lookup(GATE_LABEL, type) ?? type
 
 /** 경과 시간. 상태줄 오른쪽에 붙는다 */
 export function duration(fromMs: number | null, now: number): string {
@@ -94,8 +98,11 @@ export function eventText(e: EventView): string {
 export type StateTone = 'run' | 'wait' | 'gate' | 'limit' | 'idle'
 export type StateLine = { tone: StateTone; text: string; aside: string }
 
-/** 상태줄. 한도, 열린 게이트, 워커 대기, 그 밖 순으로 하나만 고른다 */
-export function stateLine(o: OrderView, gates: readonly GateView[], now: number): StateLine {
+/**
+ * 상태줄. 한도, 열린 게이트, 워커 대기, 그 밖 순으로 하나만 고른다.
+ * 대기 사유는 워커가 쓴 글이라 경로나 토큰이 섞일 수 있어서 showFreeText가 꺼지면 사유 대신 '대기'만 적는다
+ */
+export function stateLine(o: OrderView, gates: readonly GateView[], now: number, showFreeText = true): StateLine {
   if (o.rateLimitedAt) {
     const until = clock(o.rateLimitResetsAt)
     return { tone: 'limit', text: `rate-limit${until ? ` ~${until}` : ''}`, aside: duration(ms(o.rateLimitedAt), now) }
@@ -104,19 +111,20 @@ export function stateLine(o: OrderView, gates: readonly GateView[], now: number)
   if (gate) return { tone: 'gate', text: `${gateLabel(gate.type)} 대기`, aside: duration(ms(gate.openedAt), now) }
   if (o.status === 'waiting-gate') return { tone: 'gate', text: 'waiting-gate', aside: duration(ms(o.updatedAt), now) }
   if (o.waiting) {
-    return { tone: 'wait', text: waitText(o.waiting.reason, o.waiting.until), aside: duration(ms(o.waiting.since), now) }
+    const reason = showFreeText ? o.waiting.reason : '대기'
+    return { tone: 'wait', text: waitText(reason, o.waiting.until), aside: duration(ms(o.waiting.since), now) }
   }
   const last = Math.max(ms(o.checkpoint?.savedAt) ?? 0, ms(o.updatedAt) ?? 0) || null
   const tone: StateTone = o.status === 'running' ? 'run' : o.status === 'escalated' ? 'gate' : 'idle'
   return { tone, text: o.status, aside: last === null ? '' : `${duration(last, now)} 전` }
 }
 
-/** 카드 둘째 줄. 레포, 지라 키, PR, 계정이나 워커 종류, 기준 브랜치 */
-export function metaOf(o: OrderView): string[] {
+/** 카드 둘째 줄. 레포, 지라 키, PR, 계정이나 워커 종류, 기준 브랜치. 계정 이름은 showAccount가 켜졌을 때만 */
+export function metaOf(o: OrderView, showAccount = true): string[] {
   const parts = [o.repo ? splitRepo(o.repo).name : '']
   if (o.issue) parts.push(o.issue)
   if (o.pr) parts.push(o.pr)
-  if (o.account) parts.push(`acct ${o.account}`)
+  if (o.account && showAccount) parts.push(`acct ${o.account}`)
   else if (o.workerKind === 'subagent') parts.push('subagent')
   if (o.baseBranch) parts.push(`⤷ ${o.baseBranch}`)
   return parts.filter(Boolean)
@@ -149,7 +157,8 @@ export type TerminalModel = {
 
 const STATUS_RANK = new Map<string, number>(ORDER_STATUSES.map((s, i) => [s, i]))
 
-export function terminalModel(v: ConductorView, now: number): TerminalModel {
+/** showPrivate가 꺼지면 인증 없는 폰 페이지용이라 계정 이름과 워커가 쓴 글(다음 할 일, bypass, 대기 사유)을 싣지 않는다 */
+export function terminalModel(v: ConductorView, now: number, showPrivate = true): TerminalModel {
   const live = v.orders.filter((o) => !isTerminal(o.status))
   const liveIds = new Set(live.map((o) => o.id))
   // 부모가 화면에 카드로 있으면 하위 주문은 부모 카드 안에 줄로 넣는다
@@ -167,12 +176,12 @@ export function terminalModel(v: ConductorView, now: number): TerminalModel {
     return {
       order: o,
       kind: o.worker ? kindKey(o.workerKind) : 'none',
-      meta: metaOf(o),
+      meta: metaOf(o, showPrivate),
       chips: chainChips(o),
       progress: progressOf(o),
-      state: stateLine(o, v.gates, now),
-      ...(o.checkpoint?.next ? { next: o.checkpoint.next } : {}),
-      ...(last ? { bypass: last.action } : {}),
+      state: stateLine(o, v.gates, now, showPrivate),
+      ...(showPrivate && o.checkpoint?.next ? { next: o.checkpoint.next } : {}),
+      ...(showPrivate && last ? { bypass: last.action } : {}),
       children: live.filter((c) => c.parentOrderId === o.id)
     }
   })

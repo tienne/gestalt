@@ -39,6 +39,7 @@ test('stateLine은 한도, 게이트, 대기, 그 밖 순으로 고른다', () =
   assert.equal(stateLine({ ...base, rateLimitedAt: '2026-11-12T00:00:00.000Z', waiting }, gates, now).tone, 'limit')
   assert.deepEqual(stateLine({ ...base, waiting }, gates, now), { tone: 'gate', text: '머지 승인 대기', aside: '18분' })
   assert.deepEqual(stateLine({ ...base, waiting }, [], now), { tone: 'wait', text: 'CI 대기', aside: '7분' })
+  assert.deepEqual(stateLine({ ...base, waiting }, [], now, false), { tone: 'wait', text: '대기', aside: '7분' }, '폰 페이지에는 대기 사유를 안 싣는다')
   assert.deepEqual(stateLine({ ...base, updatedAt: '2026-11-12T00:57:00.000Z' }, [], now), {
     tone: 'run',
     text: 'running',
@@ -51,6 +52,7 @@ test('metaOf는 레포 이름, 지라 키, PR, 계정이나 서브에이전트, 
   assert.deepEqual(metaOf({ ...base, issue: 'PROJ-12', account: 'work' }), ['web', 'PROJ-12', 'acct work'])
   assert.deepEqual(metaOf({ ...base, pr: 'api#48', workerKind: 'subagent' }), ['web', 'api#48', 'subagent'])
   assert.deepEqual(metaOf({ ...base, baseBranch: 'feat/search' }), ['web', '⤷ feat/search'])
+  assert.deepEqual(metaOf({ ...base, issue: 'PROJ-12', account: 'work' }, false), ['web', 'PROJ-12'], '폰 페이지에는 계정 이름을 안 싣는다')
 })
 
 test('terminalModel은 끝나지 않은 주문만 카드로 만들고 하위 주문은 부모 카드 안에 넣는다', () => {

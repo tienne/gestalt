@@ -4,7 +4,7 @@
 import { esc } from './html'
 import { ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
 import type { AgentState, ConductorView, EventView, WorkerLive } from './protocol'
-import { clock, duration, eventText, gateLabel, terminalModel, waitText, type Card, type TerminalModel } from './terminal-model'
+import { clock, duration, eventText, gateLabel, lookup, terminalModel, waitText, type Card, type TerminalModel } from './terminal-model'
 
 export type TerminalMarkupOptions = {
   now: number
@@ -14,6 +14,8 @@ export type TerminalMarkupOptions = {
   private: boolean
   loadError?: string | null
   openError?: string | null
+  /** 이동은 했지만 워커 터미널이 아니라 워크트리만 열었을 때의 안내 */
+  openNote?: string | null
   /** 상세를 펼쳐 둔 주문. 웹 페이지는 폴링 스크립트가 data-key로 펼침을 지키니 안 넘긴다 */
   open?: ReadonlySet<string>
   /** 펼친 카드에 붙일 워커 터미널. interactive일 때만 그린다 */
@@ -22,8 +24,8 @@ export type TerminalMarkupOptions = {
 
 type Part = string | false | null | undefined
 const join = (...parts: Part[]) => parts.filter(Boolean).join('')
-const div = (cls: string, ...body: Part[]) => `<div class="${cls}">${join(...body)}</div>`
-const span = (cls: string, text: string) => `<span${cls ? ` class="${cls}"` : ''}>${esc(text)}</span>`
+const div = (cls: string, ...body: Part[]) => `<div class="${esc(cls)}">${join(...body)}</div>`
+const span = (cls: string, text: string) => `<span${cls ? ` class="${esc(cls)}"` : ''}>${esc(text)}</span>`
 const kv = (k: string, v: string) => div('kv', span('', k), span('', v))
 const SEP = '<div class="sep"></div>'
 
@@ -45,12 +47,12 @@ function conductorBox(v: ConductorView, m: TerminalModel, now: number): string {
     info && (info.compactions !== undefined || info.disconnectedWorkers !== undefined) && SEP,
     info?.compactions !== undefined && kv('컴팩트', `${info.compactions}회`),
     info?.disconnectedWorkers !== undefined && kv('끊긴 워커', String(info.disconnectedWorkers)),
-    !info && SEP,
-    !info && div('muted', '옛 CLI라 슬롯 최대값과 PR 감시, 컴팩트 칸이 빠졌어요.'),
     '<div class="sep motto"></div>',
     div('muted motto', '코드는 안 고친다.<br>배정하고 끌고 간다.')
   )
 }
+
+const TERMINAL_FIELDS_TEXT = 'gestalt CLI가 낡아 워커 단계와 최근 이벤트가 빠졌어요. gestalt를 새 버전으로 올리면 채워져요.'
 
 const dkv = (k: string, v: string) => div('dkv', span('muted', k), span('', v))
 
@@ -62,13 +64,14 @@ function liveBlock(o: Card['order'], live: WorkerLive | 'loading' | undefined, n
   if (!live.found) return div('muted', esc(live.error ?? '이 주문의 워크트리를 오르카에서 못 찾았어요.'))
   const a = live.agent
   return join(
-    a && dkv('에이전트', `${a.kind ?? '에이전트'} · ${AGENT_STATE[a.state] ?? a.state} · ${duration(a.since, now)}째`),
+    a && dkv('에이전트', `${a.kind ?? '에이전트'} · ${lookup(AGENT_STATE, a.state) ?? a.state} · ${duration(a.since, now)}째`),
     a?.task && dkv('작업', a.task),
     live.lines && live.lines.length > 0
       ? `<pre class="tail" data-tail="${esc(o.id)}">${esc(live.lines.join('\n'))}</pre>`
       : live.terminalId && !live.error && div('muted', '터미널 출력이 아직 없어요.'),
+    live.fallbackTerminal && div('muted', '워커 에이전트를 못 찾아 워크트리의 첫 터미널을 보여 줘요. 워커 터미널이 아닐 수 있어요.'),
     live.error && div('muted', esc(live.error)),
-    `<button class="go" data-go="${esc(o.id)}">${live.terminalId ? '터미널로 이동' : '워크트리로 이동'}</button>`
+    `<button class="go" data-go="${esc(o.id)}" data-focus="${esc(`go:${o.id}`)}">${live.terminalId ? '터미널로 이동' : '워크트리로 이동'}</button>`
   )
 }
 
@@ -80,16 +83,16 @@ function detail(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string 
   const body = join(
     o.worker && dkv('워커', [o.worker, o.workerKind, o.workerStatus].filter(Boolean).join(' · ')),
     cp && dkv('체크포인트', `${cp.skill}${cp.phase ? ` → ${cp.phase}` : ''}${cp.round ? ` r${cp.round}` : ''}${cp.savedAt ? ` · ${clock(cp.savedAt)} 저장` : ''}`),
-    cp?.next && dkv('다음', cp.next),
-    o.waiting && dkv('대기', `${waitText(o.waiting.reason, o.waiting.until)} · ${clock(o.waiting.since)}부터`),
+    opts.private && cp?.next && dkv('다음', cp.next),
+    o.waiting && dkv('대기', `${waitText(opts.private ? o.waiting.reason : '대기', o.waiting.until)} · ${clock(o.waiting.since)}부터`),
     o.branch && dkv('브랜치', o.branch),
     opts.private && o.worktreePath && dkv('경로', o.worktreePath),
     ...v.gates.filter((g) => g.orderId === o.id).map((g) => dkv(gateLabel(g.type), g.reason)),
-    events.length > 0 && div('d-ev', div('muted', '최근 이벤트'), ...events.map(detailEvent)),
+    events.length > 0 && div('d-ev', div('muted', '최근 이벤트'), ...events.map((e) => detailEvent(e, opts.private))),
     opts.interactive && div('live', liveBlock(o, opts.live?.[o.id], opts.now))
   )
   const open = opts.open?.has(o.id) ? ' open' : ''
-  return `<details class="more" data-key="${esc(`ord:${o.id}`)}"${open}><summary>상세</summary>${div('d', body)}</details>`
+  return `<details class="more" data-key="${esc(`ord:${o.id}`)}"${open}><summary data-focus="${esc(`sum:${o.id}`)}">상세</summary>${div('d', body)}</details>`
 }
 
 function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
@@ -98,7 +101,9 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
   const canOpen = interactive && Boolean(o.workspaceId)
   const pct = c.progress === null ? null : Math.round(c.progress * 100)
   const attrs = interactive
-    ? ` data-order="${esc(o.id)}" tabindex="0"${canOpen ? ' data-open title="두 번 누르면 워커 터미널로 가요"' : ''}`
+    ? ` data-order="${esc(o.id)}" data-focus="${esc(`card:${o.id}`)}" tabindex="0" role="group" aria-label="${esc(`${o.id} ${o.title}`)}"${
+        canOpen ? ' data-open aria-keyshortcuts="Enter" title="두 번 누르거나 Enter를 누르면 워커 터미널로 가요"' : ''
+      }`
     : ''
   const body = join(
     div('t', esc(`${o.id} · ${o.title}`)),
@@ -142,11 +147,29 @@ const EVENT_TONE: Record<string, string> = {
 
 const EVENT_LABEL: Record<string, string> = { 'gate-opened': 'gate', 'gate-resolved': 'gate ✓' }
 
-const detailEvent = (e: EventView) =>
-  div('r', span('muted', clock(e.at)), span(EVENT_TONE[e.type] ?? '', EVENT_LABEL[e.type] ?? e.type), span('', e.type === 'waiting' && e.until ? waitText(e.summary, e.until, ' · ') : e.summary))
+/**
+ * 인증 없는 폰 페이지에 요약을 싣는 이벤트. report, waiting, bypass 요약은 워커가 쓴 글이라
+ * 경로나 토큰이 섞일 수 있어서 시각과 유형, 주문 id만 남긴다
+ */
+const PUBLIC_SUMMARY = new Set(['checkpoint', 'gate-opened', 'gate-resolved'])
+const showSummary = (e: EventView, showPrivate: boolean) => showPrivate || PUBLIC_SUMMARY.has(e.type)
+const eventTag = (e: EventView) => span(lookup(EVENT_TONE, e.type) ?? '', lookup(EVENT_LABEL, e.type) ?? e.type)
 
-const eventRow = (e: EventView) =>
-  div('r', span('muted', clock(e.at, true)), span(EVENT_TONE[e.type] ?? '', EVENT_LABEL[e.type] ?? e.type), span('ell', eventText(e)))
+const detailEvent = (e: EventView, showPrivate: boolean) =>
+  div(
+    'r',
+    span('muted', clock(e.at)),
+    eventTag(e),
+    showSummary(e, showPrivate) && span('', e.type === 'waiting' && e.until ? waitText(e.summary, e.until, ' · ') : e.summary)
+  )
+
+const eventRow = (e: EventView, showPrivate: boolean) =>
+  div(
+    'r',
+    span('muted', clock(e.at, true)),
+    eventTag(e),
+    span('ell', showSummary(e, showPrivate) ? eventText(e) : (e.orderId ?? ''))
+  )
 
 const LEGEND: [string, string][] = [
   ['var(--t-orange)', 'orca-worktree'],
@@ -163,7 +186,7 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
     const where = opts.private ? `${v.stateDir ?? '상태 폴더'}에 events.jsonl이` : '컨덕터 저장소가'
     return div('empty', esc(`${where} 아직 없어요. 컨덕터가 첫 주문을 받으면 여기에 보여요.`))
   }
-  const m = terminalModel(v, opts.now)
+  const m = terminalModel(v, opts.now, opts.private)
   return join(
     div(
       'bar',
@@ -181,7 +204,9 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
     v.state === 'error' &&
       div('alert', esc(opts.private ? `gestalt CLI가 실패했어요. ${v.error ?? ''}` : 'gestalt CLI가 실패했어요. 이유는 데스크톱 오르카에서 봐 주세요.')),
     v.outdatedCli && div('alert', esc(OUTDATED_CLI_TEXT)),
+    v.terminalFieldsMissing && div('alert', esc(TERMINAL_FIELDS_TEXT)),
     opts.openError && div('alert', esc(`워크트리를 못 열었어요. ${opts.openError}`)),
+    opts.openNote && div('alert', esc(opts.openNote)),
     div(
       'grid',
       conductorBox(v, m, opts.now),
@@ -192,7 +217,7 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
         gateBoxes(m, v)
       )
     ),
-    div('log', div('muted', 'event log'), m.events.length ? div('log-rows', ...m.events.map(eventRow)) : div('muted', '아직 이벤트가 없어요.')),
+    div('log', div('muted', 'event log'), m.events.length ? div('log-rows', ...m.events.map((e) => eventRow(e, opts.private))) : div('muted', '아직 이벤트가 없어요.')),
     div(
       'status',
       '<span class="cmd">$ gestalt conductor watch <span class="cursor"></span></span>',
@@ -206,10 +231,10 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
 
 /** 터미널 화면의 CSS. 480px 이하면 사이드바 레이아웃(세로로 쌓기, 최근 이벤트 8줄)으로 바뀐다 */
 export const TERMINAL_STYLE = `
-:root { color-scheme: dark; --t-bg:#14161c; --t-line:#2a2f3a; --t-fg:#c9ced8; --t-dim:#6b7280; --t-orange:#f0915a; --t-blue:#7aa7ff; --t-green:#5fd38d; --t-purple:#a78bfa; --t-yellow:#f2c94c; --t-red:#f26d6d; }
+:root { color-scheme: dark; --t-bg:#14161c; --t-line:#2a2f3a; --t-fg:#c9ced8; --t-dim:#8b93a1; --t-orange:#f0915a; --t-blue:#7aa7ff; --t-green:#5fd38d; --t-purple:#a78bfa; --t-yellow:#f2c94c; --t-red:#f26d6d; }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--t-fg); }
-.term { font: 12px/1.5 ui-monospace, "SF Mono", Menlo, "D2Coding", monospace; min-height: 100vh; display: flex; flex-direction: column; }
+.term { font: 12px/1.5 ui-monospace, "SF Mono", Menlo, "D2Coding", monospace; min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
 .bar { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-bottom: 1px solid var(--t-line); color: var(--t-dim); font-size: 11px; }
 .bar .dot { width: 10px; height: 10px; border-radius: 50%; }
 .bar-title { margin: 0 auto; }
@@ -263,7 +288,7 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .live { margin-top: 6px; border-top: 1px dashed var(--t-line); padding-top: 4px; display: grid; gap: 2px; }
 .tail { margin: 4px 0 0; padding: 6px 8px; background: #0e1015; border: 1px solid var(--t-line); max-height: 200px; overflow: auto; white-space: pre; font: inherit; font-size: 11px; color: var(--t-fg); }
 .go { justify-self: start; margin-top: 6px; font: inherit; font-weight: 700; color: var(--t-bg); background: var(--t-orange); border: 0; padding: 2px 10px; cursor: pointer; }
-.go:focus-visible { outline: 1px solid var(--t-fg); outline-offset: 2px; }
+.go:focus-visible, .more > summary:focus-visible { outline: 1px solid var(--t-fg); outline-offset: 2px; }
 .flow { display: flex; justify-content: center; color: var(--t-dim); margin: 6px 0; font-size: 11px; white-space: nowrap; overflow: hidden; }
 .gates { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 .gbox { border: 1px solid var(--t-yellow); padding: 6px 12px; text-align: center; max-width: 340px; }

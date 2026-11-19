@@ -322,7 +322,7 @@ const TERMINAL_PAGE_STYLE = `${TERMINAL_STYLE}
 .webnav a { color: var(--t-dim); text-decoration: none; }
 #offline { display: none; color: var(--t-red); }
 body.offline #offline { display: inline; }
-.webnav + .term { min-height: calc(100vh - 31px); }
+.webnav + .term { min-height: calc(100vh - 31px); min-height: calc(100dvh - 31px); }
 /* 폴링이 본문을 갈아 끼우면 스크롤이 맨 위로 돌아가서 웹에서는 스크롤 칸 없이 최근 12줄만 보인다 */
 .log-rows { max-height: none; overflow: visible; }
 .log .r:nth-last-child(n + 13) { display: none; }
