@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -913,6 +914,89 @@ describe('architecture e2e — 가짜 FE와 BE 레포에서 뷰 두 개 렌더',
       const out = await render(ir);
       expect(out.ok).toBe(false);
       expect(out.errors).toEqual([expect.objectContaining({ code: 'LIVE_COMMAND_NOT_READ_ONLY' })]);
+    });
+  });
+
+  describe('재실행 — 승계와 커밋 비교', () => {
+    const git = (root: string, ...args: string[]): string =>
+      execFileSync('git', ['-C', root, '-c', 'core.hooksPath=/dev/null', ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+
+    beforeEach(() => {
+      for (const root of [webRoot, apiRoot]) {
+        git(root, 'init', '-q');
+        git(root, 'config', 'user.email', 'test@example.com');
+        git(root, 'config', 'user.name', 'test');
+        git(root, 'config', 'commit.gpgsign', 'false');
+        git(root, 'add', '-A');
+        git(root, 'commit', '-q', '-m', 'init');
+      }
+    });
+
+    type Freshness = {
+      status: string;
+      staleEvidenceFiles: string[];
+      repos: Array<{ repo: string; status: string }>;
+    };
+    const freshness = async (): Promise<Freshness> => {
+      const out = (await handleArchitecturePassthrough(
+        { action: 'status', repoRoot: base },
+        process.cwd(),
+      )) as { views: Record<string, { freshness: Freshness } | null> };
+      return out.views['screen-chain']!.freshness;
+    };
+
+    it('label과 id가 바뀌어도 설명과 답을 잇고 파일 이동은 status와 movedTo로 알린다', async () => {
+      const first = buildScreenChain().ir;
+      first.nodes.find((n) => n.id === 'mod-orders')!.description = '주문 조회 서비스';
+      first.unresolved.push({
+        id: 'q-orders-owner',
+        subject: { nodeId: 'mod-orders' },
+        question: '주문 조회는 어느 팀이 맡나?',
+        answer: '주문 팀',
+      });
+      expect((await render(first)).ok).toBe(true);
+      expect(await freshness()).toMatchObject({ status: 'fresh', staleEvidenceFiles: [] });
+
+      const next = buildScreenChain().ir;
+      const mod = next.nodes.find((n) => n.id === 'mod-orders')!;
+      mod.id = 'mod-order-query';
+      mod.label = 'OrderQueryService';
+      for (const e of next.edges) {
+        if (e.from === 'mod-orders') e.from = 'mod-order-query';
+        if (e.to === 'mod-orders') e.to = 'mod-order-query';
+      }
+      const second = await render(next);
+      expect(second.ok).toBe(true);
+      const saved = JSON.parse(readFileSync(second.irPath, 'utf-8')) as ArchitectureIr;
+      const kept = saved.nodes.find((n) => n.id === 'mod-orders');
+      expect(kept).toMatchObject({ label: 'OrderQueryService', description: '주문 조회 서비스' });
+      expect(saved.unresolved.find((q) => q.id === 'q-orders-owner')?.answer).toBe('주문 팀');
+
+      const ordersSvc = 'src/orders/orders.service.ts';
+      git(apiRoot, 'mv', ordersSvc, 'src/orders/order-query.service.ts');
+      git(apiRoot, 'commit', '-q', '-m', 'rename orders service');
+      const after = await freshness();
+      expect(after.status).toBe('stale');
+      expect(after.repos.map((r) => [r.repo, r.status])).toEqual([
+        ['web', 'fresh'],
+        ['api', 'stale'],
+      ]);
+      expect(after.staleEvidenceFiles).toEqual([`api:${ordersSvc}`]);
+
+      const check = (await handleArchitecturePassthrough(
+        { action: 'validate', repoRoot: base, ir: next },
+        process.cwd(),
+      )) as { ok: boolean; errors: Array<{ code: string; movedTo?: string[] }> };
+      expect(check.ok).toBe(false);
+      const moved = check.errors.filter((e) => e.code === 'CODE_EVIDENCE_NOT_FOUND');
+      expect(moved.length).toBeGreaterThan(0);
+      for (const e of moved) {
+        expect(e.movedTo).toHaveLength(1);
+        expect(e.movedTo![0]).toMatch(/^api:src\/orders\/order-query\.service\.ts:\d+$/);
+      }
     });
   });
 });

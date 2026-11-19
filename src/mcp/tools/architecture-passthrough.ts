@@ -40,7 +40,7 @@ import {
 } from '../../architecture/delta-renderer.js';
 import { computeDrilldown, shouldDrillDown } from '../../architecture/drilldown.js';
 import { renderArchitectureHtml, renderDrilldownHtml } from '../../architecture/html-renderer.js';
-import { parseArchitectureIr } from '../../architecture/ir-schema.js';
+import { findUnknownFields, parseArchitectureIr } from '../../architecture/ir-schema.js';
 import {
   iconModeFromEnv,
   resolveVendorIcons,
@@ -50,9 +50,11 @@ import { assignStages, computeLayout } from '../../architecture/layout.js';
 import { mergeArchitectureIrs } from '../../architecture/merge.js';
 import {
   ArchitectureStore,
-  mergeWithPrevious,
+  mergeWithPreviousDetailed,
   previousRunSummary,
+  type PreviousMergeReport,
 } from '../../architecture/store.js';
+import { createGitMoveFinder, readHead, viewFreshness } from '../../architecture/git-facts.js';
 import {
   ARCHITECTURE_VIEWS,
   type ArchitectureIr,
@@ -63,6 +65,7 @@ import {
   validateArchitectureIr,
   type BudgetWarning,
   type IgnoredFileTrackedWarning,
+  type FindMovedFile,
   type ValidatedIr,
   type ValidateArchitectureIrResult,
 } from '../../architecture/validator.js';
@@ -93,6 +96,10 @@ interface ArchitectureToolError {
   nodeId?: string;
   edgeId?: string;
   evidenceIndex?: number;
+  /** UNKNOWN_FIELD가 가리키는 입력 JSON 경로 */
+  path?: string;
+  /** 쓰려던 것으로 보이는 값 하나 */
+  suggestion?: string;
 }
 
 interface ArchitectureFailure {
@@ -132,7 +139,24 @@ function parseIr(raw: unknown, label = ''): { ok: true; ir: ArchitectureIr } | A
   };
 }
 
-function prepareIr(input: ArchitectureInput, repoRoot: string): Prepared {
+/**
+ * strict는 세션이 막 쓴 IR을 받는 validate와 render에만 켠다. zod가 모르는 키를 버리면
+ * 오타 칸(discription)이 에러 없이 사라지기 때문이다. 저장된 IR을 다시 읽는 자리(load, merge, 문서 액션)는
+ * 예전 IR이 막히지 않게 그대로 느슨하게 둔다
+ */
+function unknownFieldErrors(raw: unknown): ArchitectureToolError[] {
+  return findUnknownFields(raw).map((field) => ({
+    code: 'UNKNOWN_FIELD',
+    message:
+      field.suggestion === undefined
+        ? `${field.path}: 스키마에 없는 칸 "${field.key}"다. 지우거나 스키마의 칸 이름으로 고친다.`
+        : `${field.path}: 스키마에 없는 칸 "${field.key}"다. "${field.suggestion}"의 오타인지 확인한다.`,
+    path: field.path,
+    ...(field.suggestion === undefined ? {} : { suggestion: field.suggestion }),
+  }));
+}
+
+function prepareIr(input: ArchitectureInput, repoRoot: string, strict = false): Prepared {
   let raw: unknown = input.ir;
   if (raw === undefined && input.irPath !== undefined) {
     const read = readIrFile(input.irPath, repoRoot);
@@ -141,8 +165,10 @@ function prepareIr(input: ArchitectureInput, repoRoot: string): Prepared {
   }
   if (raw === undefined)
     return fail('MISSING_INPUT', `${input.action}에는 ir이나 irPath가 필요하다.`);
+  const unknown = strict ? unknownFieldErrors(raw) : [];
   const parsed = parseIr(raw);
-  if (!parsed.ok) return parsed;
+  if (!parsed.ok) return { ok: false, errors: [...unknown, ...parsed.errors] };
+  if (unknown.length > 0) return { ok: false, errors: unknown };
   const ir = parsed.ir;
   if (input.view !== undefined && input.view !== ir.view) {
     return fail('VIEW_MISMATCH', `view(${input.view})와 ir.view(${ir.view})가 다르다.`);
@@ -150,14 +176,26 @@ function prepareIr(input: ArchitectureInput, repoRoot: string): Prepared {
   return { ok: true, ir, repoRoot };
 }
 
-function validate(ir: ArchitectureIr, repoRoot: string, checkFiles: boolean | undefined) {
+function validate(
+  ir: ArchitectureIr,
+  repoRoot: string,
+  checkFiles: boolean | undefined,
+  findMoved?: FindMovedFile,
+) {
   // IR의 root는 상대경로로 적히기도 한다. 서버 cwd가 아니라 repoRoot 기준으로 풀어야 근거 파일을 찾는다
   const repoRoots = Object.fromEntries(
     ir.repos.flatMap((r) =>
       r.root === undefined ? [] : [[r.id, isAbsolute(r.root) ? r.root : resolve(repoRoot, r.root)]],
     ),
   );
-  return validateArchitectureIr(ir, { repoRoots, checkFiles });
+  return validateArchitectureIr(ir, { repoRoots, checkFiles, ...(findMoved ? { findMoved } : {}) });
+}
+
+/** 없는 근거 파일의 새 경로를 git rename 기록에서 찾는다. 지난 저장 IR의 head가 있으면 그 뒤만 본다 */
+function moveFinderFor(prev: ArchitectureIr | null): FindMovedFile {
+  const heads = new Map<string, string>();
+  for (const r of prev?.repos ?? []) if (r.head !== undefined) heads.set(r.id, r.head);
+  return createGitMoveFinder(heads);
 }
 
 function asFailure(result: Extract<ValidateArchitectureIrResult, { ok: false }>) {
@@ -347,9 +385,10 @@ function handleMatchEndpoints(input: ArchitectureInput): object {
 }
 
 function handleValidate(input: ArchitectureInput, repoRoot: string): object {
-  const prepared = prepareIr(input, repoRoot);
+  const prepared = prepareIr(input, repoRoot, true);
   if (!prepared.ok) return prepared;
-  const result = validate(prepared.ir, repoRoot, input.checkFiles);
+  const prev = new ArchitectureStore(repoRoot).load(prepared.ir.view);
+  const result = validate(prepared.ir, repoRoot, input.checkFiles, moveFinderFor(prev));
   if (!result.ok) return asFailure(result);
   const { drawableNodeIds, drawableEdgeIds, autoUnresolved, warnings } = result.value;
   return {
@@ -366,16 +405,18 @@ async function handleRender(
   repoRoot: string,
   opts: ArchitectureHandlerOptions,
 ): Promise<object> {
-  const prepared = prepareIr(input, repoRoot);
+  const prepared = prepareIr(input, repoRoot, true);
   if (!prepared.ok) return prepared;
-  const first = validate(prepared.ir, repoRoot, input.checkFiles);
-  if (!first.ok) return asFailure(first);
-
   const store = new ArchitectureStore(repoRoot);
   const prev = store.load(prepared.ir.view);
-  const merged = prev ? mergeWithPrevious(prev, prepared.ir) : prepared.ir;
+  const findMoved = moveFinderFor(prev);
+  const first = validate(prepared.ir, repoRoot, input.checkFiles, findMoved);
+  if (!first.ok) return asFailure(first);
+
+  const mergeResult = prev ? mergeWithPreviousDetailed(prev, prepared.ir) : null;
+  const merged = mergeResult?.ir ?? prepared.ir;
   // 병합이 id를 바꾸므로 그린 대상도 병합 결과로 다시 뽑는다
-  const second = validate(merged, repoRoot, input.checkFiles);
+  const second = validate(merged, repoRoot, input.checkFiles, findMoved);
   if (!second.ok) return asFailure(second);
   // excerpt를 코드와 대조하는 검증이 끝난 뒤에 가린다. 앞에서 가리면 가린 글자가 코드와 안 맞아 근거가 틀렸다고 나온다.
   // 이 뒤로는 그림, 저장, 공유본, delta가 전부 가린 사본만 본다
@@ -410,9 +451,11 @@ async function handleRender(
     sharedHtml = renderArchitectureHtml(validated, layout, { audience: 'shared' });
   }
 
-  // 자동 질문도 저장해 둬야 사람이 답을 달고 다음 실행이 그 답을 물려받는다
+  // 자동 질문도 저장해 둬야 사람이 답을 달고 다음 실행이 그 답을 물려받는다.
+  // 커밋 해시는 저장 IR에만 남긴다. HTML에 넣으면 커밋마다 바이트가 바뀌어 결정적 렌더가 깨진다
   const toSave = {
     ...validated.ir,
+    repos: withRepoHeads(validated.ir.repos, repoRoot),
     unresolved: [...validated.ir.unresolved, ...validated.autoUnresolved],
   };
   const irPath = store.save(toSave);
@@ -434,6 +477,7 @@ async function handleRender(
   const commit = commitPolicyAfterRender(repoRoot, opts);
   const warnings = [
     ...maskWarningMessages(validated.warnings),
+    ...maskWarningMessages(mergeResult?.report.warnings ?? []),
     ...secretMaskedWarnings(secretHits),
     ...(delta.warning ? maskWarningMessages([delta.warning]) : []),
     ...(commit.warning ? [commit.warning] : []),
@@ -463,8 +507,31 @@ async function handleRender(
       ...(iconStats !== undefined ? { iconStats } : {}),
     },
     delta: delta.result,
+    ...(mergeResult ? { merge: mergeSummary(mergeResult.report) } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
     sourcesUsed: validated.ir.sourcesUsed,
+  };
+}
+
+function absRepoRoot(repo: ArchitectureIr['repos'][number], repoRoot: string): string {
+  if (repo.root === undefined) return repoRoot;
+  return isAbsolute(repo.root) ? repo.root : resolve(repoRoot, repo.root);
+}
+
+/** 레포마다 지금 HEAD를 적는다. git이 아니면 head를 빼서 옛 값이 지금 것처럼 남지 않게 한다 */
+function withRepoHeads(repos: ArchitectureIr['repos'], repoRoot: string): ArchitectureIr['repos'] {
+  return repos.map((r) => {
+    const { head: _old, ...rest } = r;
+    const head = readHead(absRepoRoot(r, repoRoot));
+    return head === undefined ? rest : { ...rest, head };
+  });
+}
+
+function mergeSummary(report: PreviousMergeReport) {
+  return {
+    descriptionCarried: report.descriptionCarried.length,
+    ...(report.relabeled.length > 0 ? { relabeled: report.relabeled } : {}),
+    ...(report.flowsCarried.length > 0 ? { flowsCarried: report.flowsCarried } : {}),
   };
 }
 
@@ -868,7 +935,12 @@ function handleStatus(repoRoot: string): object {
   const views: Record<string, unknown> = {};
   for (const view of ARCHITECTURE_VIEWS) {
     const prev = store.load(view);
-    views[view] = prev ? previousRunSummary(prev) : null;
+    views[view] = prev
+      ? {
+          ...previousRunSummary(prev),
+          freshness: viewFreshness(prev, (r) => absRepoRoot(r, repoRoot)),
+        }
+      : null;
   }
   return { views };
 }

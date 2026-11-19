@@ -4,6 +4,9 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { maskIrSecrets } from '../../../src/architecture/secret-mask.js';
 import { ArchitectureStore } from '../../../src/architecture/store.js';
+import { findUnknownFields } from '../../../src/architecture/ir-schema.js';
+import { handleArchitecturePassthrough } from '../../../src/mcp/tools/architecture-passthrough.js';
+import { architectureInputSchema } from '../../../src/mcp/schemas.js';
 import { LEGACY_IRS, renderBoth, sha256 } from '../../fixtures/architecture-legacy/render.js';
 
 // 팩 구조로 옮기기 전 렌더러로 뽑은 해시다. 어휘를 팩으로 옮기거나 새 팩과 모양을 더해도 옛 그림은 바이트까지 같아야 한다.
@@ -58,6 +61,53 @@ describe('비밀값 가림 이전에 저장된 IR', () => {
       const html = await renderBoth(masked.ir);
       expect(html.private).toContain('<meta http-equiv="Content-Security-Policy"');
       expect(html.shared).toContain("connect-src 'none'");
+    });
+  }
+});
+
+describe('커밋 해시 이전에 저장된 IR', () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
+  });
+
+  const call = async (repoRoot: string, args: Record<string, unknown>) =>
+    (await handleArchitecturePassthrough(
+      architectureInputSchema.parse({ repoRoot, ...args }),
+      process.cwd(),
+      {
+        // gh를 부르지 않는다
+        resolveVisibility: () => ({ verdict: 'private', source: 'gh', visibility: 'PRIVATE' }),
+      },
+    )) as Record<string, unknown>;
+
+  for (const [name, build] of Object.entries(LEGACY_IRS)) {
+    it(`${name} IR은 strict 입력을 통과하고 status는 unknown, render까지 된다`, async () => {
+      const ir = build();
+      expect(ir.repos.every((r) => r.head === undefined)).toBe(true);
+      expect(findUnknownFields(ir)).toEqual([]);
+
+      const root = resolve('.gestalt-test', `legacy-head-${randomUUID()}`);
+      roots.push(root);
+      mkdirSync(join(root, '.gestalt', 'architecture'), { recursive: true });
+      writeFileSync(
+        join(root, '.gestalt', 'architecture', `${ir.view}.json`),
+        JSON.stringify(ir, null, 2),
+      );
+
+      const status = await call(root, { action: 'status' });
+      const view = (status['views'] as Record<string, { freshness: unknown } | null>)[ir.view];
+      expect(view!.freshness).toMatchObject({
+        status: 'unknown',
+        staleEvidenceFiles: [],
+        repos: ir.repos.map((r) => ({ repo: r.id, status: 'unknown', reason: 'no_head' })),
+      });
+
+      // 근거 파일은 픽스처에 없으므로 파일 대조만 끈다
+      const validated = await call(root, { action: 'validate', ir, checkFiles: false });
+      expect(validated['errors']).toEqual([]);
+      const rendered = await call(root, { action: 'render', ir, checkFiles: false });
+      expect(rendered['ok']).toBe(true);
     });
   }
 });

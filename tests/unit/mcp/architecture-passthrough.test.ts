@@ -166,6 +166,51 @@ describe('ges_architecture validate', () => {
   });
 });
 
+describe('입력 IR의 오타 칸', () => {
+  function typoIr(): Record<string, unknown> {
+    const ir = makeIr() as unknown as { nodes: Array<Record<string, unknown>> };
+    ir.nodes[0]!['discription'] = '오타 난 설명';
+    return ir as unknown as Record<string, unknown>;
+  }
+
+  type ToolError = { code: string; path?: string; suggestion?: string };
+
+  it.each(['validate', 'render'] as const)(
+    '%s는 UNKNOWN_FIELD와 제안 하나로 거부한다',
+    async (action) => {
+      const result = await call({ action, ir: typoIr() });
+      expect(result['ok']).toBe(false);
+      const errors = result['errors'] as ToolError[];
+      const unknown = errors.filter((e) => e.code === 'UNKNOWN_FIELD');
+      expect(unknown).toHaveLength(1);
+      expect(unknown[0]).toMatchObject({
+        path: 'nodes[0].discription',
+        suggestion: 'description',
+      });
+      expect(typeof unknown[0]!.suggestion).toBe('string');
+    },
+  );
+
+  it('render가 거부하면 산출 파일을 쓰지 않는다', async () => {
+    await call({ action: 'render', ir: typoIr() });
+    expect(existsSync(join(repoRoot, '.gestalt', 'architecture', 'screen-chain.json'))).toBe(false);
+  });
+
+  it('비슷한 칸이 없으면 제안 없이 거부한다', async () => {
+    const ir = makeIr() as unknown as Record<string, unknown>;
+    ir['zzzzzzzz'] = 1;
+    const result = await call({ action: 'validate', ir });
+    const unknown = (result['errors'] as ToolError[]).find((e) => e.code === 'UNKNOWN_FIELD');
+    expect(unknown?.path).toBe('zzzzzzzz');
+    expect(unknown?.suggestion).toBeUndefined();
+  });
+
+  it('오타 칸이 없는 IR은 그대로 통과한다', async () => {
+    const result = await call({ action: 'validate', ir: makeIr() });
+    expect(result['ok']).toBe(true);
+  });
+});
+
 describe('ges_architecture render', () => {
   it('두 번 그려도 HTML 바이트가 같다', async () => {
     const first = await call({ action: 'render', ir: makeIr() });
@@ -842,5 +887,108 @@ describe('ges_architecture render의 커밋 정책', () => {
     expect(out['ok']).toBe(true);
     expect(out['visibility']).toBeUndefined();
     expect(existsSync(out['htmlPath'] as string)).toBe(true);
+  });
+});
+
+describe('ges_architecture render의 커밋 해시와 승계 보고', () => {
+  function git(...args: string[]): string {
+    return execFileSync('git', ['-C', repoRoot, '-c', 'core.hooksPath=/dev/null', ...args], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  }
+
+  beforeEach(() => {
+    git('init', '-q');
+    git('config', 'user.email', 'test@example.com');
+    git('config', 'user.name', 'test');
+    git('config', 'commit.gpgsign', 'false');
+    git('add', 'src');
+    git('commit', '-q', '-m', 'init');
+  });
+
+  function savedIr(result: Record<string, unknown>): ArchitectureIr {
+    return JSON.parse(readFileSync(result['irPath'] as string, 'utf-8')) as ArchitectureIr;
+  }
+
+  it('저장 IR에만 지금 HEAD를 적고 HTML에는 넣지 않는다', async () => {
+    const head = git('rev-parse', 'HEAD');
+    const result = await call({ action: 'render', ir: makeIr() });
+    expect(savedIr(result).repos[0]!.head).toBe(head);
+    expect(readFileSync(result['htmlPath'] as string, 'utf-8')).not.toContain(head);
+    expect(readFileSync(result['sharedHtmlPath'] as string, 'utf-8')).not.toContain(head);
+  });
+
+  it('입력에 적힌 옛 head는 지금 HEAD로 덮어쓴다', async () => {
+    const ir = makeIr();
+    ir.repos[0]!.head = 'abcdef0';
+    const result = await call({ action: 'render', ir });
+    expect(savedIr(result).repos[0]!.head).toBe(git('rev-parse', 'HEAD'));
+  });
+
+  it('description을 빼고 다시 그리면 이어받고 응답에 그 수를 싣는다', async () => {
+    const first = makeIr();
+    first.nodes[0]!.description = '첫 화면';
+    const firstResult = await call({ action: 'render', ir: first });
+    expect(firstResult['merge']).toBeUndefined();
+
+    const second = await call({ action: 'render', ir: makeIr() });
+    expect(second['merge']).toMatchObject({ descriptionCarried: 1 });
+    expect(savedIr(second).nodes.find((n) => n.id === 'n-home')?.description).toBe('첫 화면');
+  });
+
+  it('status는 저장 head와 지금 HEAD를 비교해 바뀐 근거 파일을 알려 준다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    const fresh = (await call({ action: 'status' }))['views'] as Record<
+      string,
+      { freshness: { status: string; staleEvidenceFiles: string[] } } | null
+    >;
+    expect(fresh['screen-chain']!.freshness).toMatchObject({
+      status: 'fresh',
+      staleEvidenceFiles: [],
+    });
+
+    writeFileSync(join(repoRoot, 'src/orders.ts'), 'a\nB\nc\n');
+    git('commit', '-q', '-am', 'edit orders');
+    const stale = (await call({ action: 'status' }))['views'] as typeof fresh;
+    expect(stale['screen-chain']!.freshness).toMatchObject({
+      status: 'stale',
+      staleEvidenceFiles: ['web:src/orders.ts'],
+    });
+  });
+
+  it('근거 파일이 git에서 옮겨졌으면 movedTo 후보를 붙인다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    git('mv', 'src/orders.ts', 'src/order-service.ts');
+    git('commit', '-q', '-m', 'move orders');
+    for (const action of ['validate', 'render'] as const) {
+      const result = await call({ action, ir: makeIr() });
+      expect(result['ok']).toBe(false);
+      const errors = result['errors'] as Array<{ code: string; movedTo?: string[] }>;
+      const notFound = errors.filter((e) => e.code === 'CODE_EVIDENCE_NOT_FOUND');
+      expect(notFound.length).toBeGreaterThan(0);
+      for (const e of notFound) expect(e.movedTo).toEqual(['web:src/order-service.ts:2']);
+    }
+  });
+
+  it('label과 id가 함께 바뀐 노드를 근거 파일로 잇고 relabeled로 알린다', async () => {
+    const first = makeIr();
+    first.nodes[2]!.description = '주문 모듈';
+    await call({ action: 'render', ir: first });
+
+    const next = makeIr();
+    const mod = next.nodes[2]!;
+    mod.id = 'n-order-domain';
+    mod.label = 'OrderDomainModule';
+    next.edges[1]!.to = 'n-order-domain';
+    const result = await call({ action: 'render', ir: next });
+    expect(result['ok']).toBe(true);
+    const merge = result['merge'] as { relabeled?: Array<{ id: string; label: string }> };
+    expect(merge.relabeled).toEqual([
+      expect.objectContaining({ id: 'n-orders-module', label: 'OrderDomainModule' }),
+    ]);
+    const saved = savedIr(result).nodes.find((n) => n.id === 'n-orders-module');
+    expect(saved?.label).toBe('OrderDomainModule');
+    expect(saved?.description).toBe('주문 모듈');
   });
 });
