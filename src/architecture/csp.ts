@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { liveConnectSrc } from './live-port.js';
 
 export type CspAudience = 'private' | 'shared';
 
@@ -40,11 +41,13 @@ const SHARED_DIRECTIVES = (scripts: string, styles: string): string[] => [
 ];
 
 /**
- * 본인용 정책. 지금은 connect-src를 따로 적지 않아 default-src 'none'을 따르므로 통신은 공유본처럼 막힌다.
- * 로컬 서버와 주고받는 기능이 들어오면 여기에만 connect-src를 더한다. 공유본 정책과 섞지 않으려고 따로 둔다
+ * 본인용 정책. 라이브 Ask가 127.0.0.1 라이브 서버와 주고받으므로 connect-src에 그 주소 한 줄만 연다.
+ * 서버가 다른 포트를 잡으면 서빙할 때 이 지시문만 바꿔 끼운다. 공유본 정책과 섞지 않으려고 따로 둔다
  */
-const PRIVATE_DIRECTIVES = (scripts: string, styles: string): string[] =>
-  baseDirectives(scripts, styles);
+const PRIVATE_DIRECTIVES = (scripts: string, styles: string): string[] => [
+  ...baseDirectives(scripts, styles),
+  liveConnectSrc(),
+];
 
 function hashList(bodies: readonly string[]): string {
   // 같은 본문이 두 번 나와도 해시는 한 번만 적는다. 정렬해 두면 렌더 순서가 바뀌어도 같은 문자열이 나온다
