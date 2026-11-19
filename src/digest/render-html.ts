@@ -176,7 +176,12 @@ export function renderDigestHtml(
       shownSlides.set(c.source, deck);
       return slideCiteHtml(c, deck);
     }
-    return `<sup><button type="button" class="cite" data-key="${c.key}" data-from="${c.from}" data-to="${c.to}" aria-label="출처 ${c.key + 1}">[${c.key + 1}]</button></sup>`;
+    const attrs = `class="cite" data-key="${c.key}" data-from="${c.from}" data-to="${c.to}" aria-label="출처 ${c.key + 1}"`;
+    const label = `[${c.key + 1}]`;
+    const url = isYoutube ? watchUrlAt(meta, at(c.key)) : null;
+    return url
+      ? `<sup><a ${attrs} href="${e(url)}" target="_blank" rel="noopener">${label}</a></sup>`
+      : `<sup><button type="button" ${attrs}>${label}</button></sup>`;
   };
 
   const sec = (c: Cite) => segments[c.key]?.startSec ?? 0;
@@ -816,7 +821,7 @@ body[data-tab="ext"] .minimap{display:none}
 .sub-body.has-shots .shot img{max-height:50vh}
 .shot figcaption{margin-top:4px;font-size:.92em;color:var(--muted)}
 #zoom-dialog .zoom-body img{display:block;max-width:100%;width:auto;height:auto;max-height:calc(92vh - 64px);object-fit:contain;margin:0 auto}
-.cite{border:0;background:none;padding:0 1px;color:var(--accent);cursor:pointer;font-size:.8em}
+.cite{border:0;background:none;padding:0 1px;color:var(--accent);cursor:pointer;font-size:.8em;text-decoration:none}
 .kw{border:0;background:none;padding:0;border-bottom:1px dashed var(--accent);cursor:pointer}
 .extra dt{font-weight:600;margin-top:8px}
 .extra dd{margin:0 0 4px 0;color:var(--muted)}

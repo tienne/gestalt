@@ -34,13 +34,15 @@ export const VIEWER_JS =
     var mm = (m < 10 ? '0' : '') + m, rr = (r < 10 ? '0' : '') + r;
     return h > 0 || data.long ? h + ':' + mm + ':' + rr : mm + ':' + rr;
   }
+  function watchAt(sec) { return data.watchBase + '&t=' + Math.floor(sec) + 's'; }
+  function plainClick(ev) { return ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey; }
   function timeLink(sec) {
     var a = document.createElement(data.watchBase ? 'a' : 'span');
     a.className = 'ts';
     a.textContent = fmt(sec);
     a.setAttribute('data-sec', String(sec));
     if (data.watchBase) {
-      a.href = data.watchBase + '&t=' + Math.floor(sec) + 's';
+      a.href = watchAt(sec);
       a.target = '_blank';
       a.rel = 'noopener';
     }
@@ -84,13 +86,14 @@ export const VIEWER_JS =
 
   // 플레이어 어댑터. 유튜브와 로컬 영상이 같은 꼴을 내서 따라가기 코드는 둘을 가리지 않는다
   function createPlayer() {
-    var player = { live: false, seek: function(){}, cue: function(){}, currentTime: function(){ return null; }, state: function(){ return -1; } };
+    var player = { live: false, canSeek: function(){ return false; }, seek: function(){}, cue: function(){}, currentTime: function(){ return null; }, state: function(){ return -1; } };
     if (isFile || !holder) return player;
     if (data.localVideo) return createVideoPlayer(player);
     if (!data.videoId) return player;
     // live는 처음부터 켜 둬야 소섹션 따라가기와 미니 플레이어가 설치된다. 화면은 준비될 때까지 썸네일을 보인다
     player.live = true;
-    var ready = false, failed = false, yt = null, pending = null, pendingCue = null;
+    var ready = false, failed = false, yt = null, pendingCue = null;
+    player.canSeek = function(){ return ready; };
     function fail() {
       if (failed) return;
       failed = true;
@@ -100,7 +103,7 @@ export const VIEWER_JS =
       if (slot) slot.classList.remove('is-floating');
     }
     player.seek = function(sec){
-      if (!ready) { pending = sec; return; }
+      if (!ready) return;
       yt.seekTo(sec, true);
       if (yt.playVideo) yt.playVideo();
     };
@@ -115,23 +118,22 @@ export const VIEWER_JS =
     player.state = function(){ return ready && yt.getPlayerState ? yt.getPlayerState() : -1; };
     window.onYouTubeIframeAPIReady = function(){
       if (failed) return;
-      yt = new YT.Player('player-frame', {
-        videoId: data.videoId,
-        playerVars: { playsinline: 1, rel: 0, origin: location.origin },
-        events: {
-          onReady: function(){
-            if (failed) return;
-            ready = true;
-            holder.classList.add('is-live');
-            if (pending !== null) player.seek(pending);
-            else if (pendingCue !== null) player.cue(pendingCue);
-            pending = null;
-            pendingCue = null;
-          },
-          // 101, 150, 153은 임베드가 막힌 영상이라 썸네일과 새 탭 링크로 돌아간다
-          onError: function(ev){ if (ev && (ev.data === 101 || ev.data === 150 || ev.data === 153)) fail(); }
-        }
-      });
+      try {
+        yt = new YT.Player('player-frame', {
+          videoId: data.videoId,
+          playerVars: { playsinline: 1, rel: 0, origin: location.origin },
+          events: {
+            onReady: function(){
+              if (failed) return;
+              ready = true;
+              holder.classList.add('is-live');
+              if (pendingCue !== null) player.cue(pendingCue);
+              pendingCue = null;
+            },
+            onError: fail
+          }
+        });
+      } catch (e) { fail(); }
     };
     var api = document.createElement('script');
     api.src = 'https://www.youtube.com/iframe_api';
@@ -147,6 +149,7 @@ export const VIEWER_JS =
     var video = document.getElementById('player-video');
     if (!video) return player;
     player.live = true;
+    player.canSeek = function(){ return player.live; };
     holder.classList.add('is-live');
     var ready = false, failed = false, pending = null, pendingCue = null;
     function fail() {
@@ -237,12 +240,12 @@ export const VIEWER_JS =
   function setupTimeLinks(player) {
     document.addEventListener('click', function(ev){
       var el = ev.target.closest ? ev.target.closest('[data-sec]') : null;
-      if (!el) return;
-      if (!player.live) {
+      if (!el || !plainClick(ev)) return;
+      if (!player.canSeek()) {
         // 도식 노드는 a가 아니라 href가 없다. 시각 링크와 같게 새 탭으로 연다
         if (el.tagName.toLowerCase() === 'a' || !data.watchBase) return;
         ev.preventDefault();
-        window.open(data.watchBase + '&t=' + Math.floor(Number(el.getAttribute('data-sec'))) + 's', '_blank', 'noopener');
+        window.open(watchAt(Number(el.getAttribute('data-sec'))), '_blank', 'noopener');
         return;
       }
       ev.preventDefault();
@@ -375,7 +378,7 @@ export const VIEWER_JS =
     return b;
   }
 
-  function setupPopups(docPane) {
+  function setupPopups(docPane, player) {
     var pop = document.createElement('div');
     pop.id = 'digest-pop';
     pop.className = 'pop';
@@ -470,7 +473,12 @@ export const VIEWER_JS =
       var t = ev.target;
       var cite = t.closest ? t.closest('.cite') : null;
       var kw = t.closest ? t.closest('.kw') : null;
-      if (cite) { ev.preventDefault(); if (popFor === cite) closePop(); else openCite(cite); return; }
+      if (cite) {
+        if (data.watchBase && (!player.canSeek() || !plainClick(ev))) { closePop(); return; }
+        ev.preventDefault();
+        if (popFor === cite) closePop(); else openCite(cite);
+        return;
+      }
       if (kw) { ev.preventDefault(); if (popFor === kw) closePop(); else openKeyword(kw); return; }
       if (!pop.contains(t)) closePop();
     });
@@ -1460,7 +1468,7 @@ export const VIEWER_JS =
   var player = createPlayer();
   setupTimeLinks(player);
   var docPane = setupDocPane();
-  var popups = setupPopups(docPane);
+  var popups = setupPopups(docPane, player);
   setupScriptFollow(player);
   var sectionMarks = setupSectionMarks();
   var motion = setupMotion();

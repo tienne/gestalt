@@ -77,7 +77,7 @@ describe('renderDigestHtml 마커', () => {
   it('출처는 문장 번호를 1부터 보이고 범위를 data 속성으로 싣는다', () => {
     const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
     expect(html).toMatch(
-      /class="cite" data-key="1" data-from="1" data-to="\d+" aria-label="출처 2">\[2\]/,
+      /class="cite" data-key="1" data-from="1" data-to="\d+" aria-label="출처 2" href="https:\/\/www\.youtube\.com\/watch\?v=[^"]+&amp;t=\d+s" target="_blank" rel="noopener">\[2\]/,
     );
   });
 
@@ -185,6 +185,7 @@ describe('renderDigestHtml 플레이어', () => {
     expect(html).toContain('id="player-slot"');
     expect(html).not.toContain('<div id="player-frame">');
     expect(html).toContain('<span class="ts" data-sec="10">00:10</span>');
+    expect(html).toContain('<button type="button" class="cite" data-key="1"');
     expect(dataOf(html).videoId).toBeNull();
     expect(dataOf(html).localVideo).toBe(true);
     expect(html).not.toContain('시각 링크는 유튜브 새 탭으로');
