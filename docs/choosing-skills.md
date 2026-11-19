@@ -163,6 +163,7 @@
 | `research`     | 경쟁 서비스               | 경쟁사 조사부터 화면 캡처, 비교표, 판단, 열린 질문까지 한 문서로 낸다                           | [research-pipeline.md](./research-pipeline.md) |
 | `market-scan`  | 경쟁 서비스               | 서비스 지형을 훑어 레퍼런스 후보를 고른다. 화면 캡처와 분석은 하지 않는다                       | [research-pipeline.md](./research-pipeline.md) |
 | `screen-ref`   | 경쟁 서비스               | 화면 지도를 만들고 캡처한다. 개인정보는 가짜 값으로 바꿔 저장하고 해석은 쓰지 않는다            | [research-pipeline.md](./research-pipeline.md) |
+| `device`       | 실기기, 에뮬레이터          | 용도와 OS 버전으로 도구를 고르고 셋업한 뒤 앱 화면을 읽고 조작한다. `research`가 앱 화면을 모을 때 부른다 |                                                |
 | `ux-research`  | 모아 둔 경쟁 화면         | 사용자 관점과 비즈니스 관점으로 와우 포인트와 페인 포인트를 쓴다                                | [research-pipeline.md](./research-pipeline.md) |
 | `reverse-plan` | 모아 둔 경쟁 화면         | 화면이 왜 그렇게 만들어졌는지 본업에서 거꾸로 짚고 가져올 것과 안 가져올 것을 가른다            | [research-pipeline.md](./research-pipeline.md) |
 | `architecture` | 레포나 문서               | 근거가 있는 연결만 실선으로 긋는 아키텍처 그림을 그린다                                         |                                                |
