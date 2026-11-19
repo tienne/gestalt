@@ -9,6 +9,7 @@ import type {
   ArchitectureNode,
 } from '../../../src/architecture/types.js';
 import { architectureInputSchema } from '../../../src/mcp/schemas.js';
+import type { MergeReport } from '../../../src/architecture/merge.js';
 import { FAKE_PASSWORD, FAKE_TOKEN } from '../architecture/fake-secrets.js';
 import {
   handleArchitecturePassthrough,
@@ -457,6 +458,34 @@ describe('ges_architecture filter_tools / match_endpoints', () => {
     });
     expect(result['matches']).toEqual([{ feCallId: 'fe1', beRouteId: 'be1', viaPrefix: null }]);
     expect(result['unmatched']).toEqual([]);
+    expect(result['learnedPrefixes']).toEqual([]);
+    expect(result).not.toHaveProperty('suggestedNote');
+  });
+
+  it('match_endpoints는 beRoutes의 mountPrefix를 붙여 잇고 못 맞춘 호출에는 후보만 단다', async () => {
+    const result = await call({
+      action: 'match_endpoints',
+      feCalls: [
+        { id: 'fe1', method: 'GET', path: '/api/orders/${id}' },
+        { id: 'fe2', method: 'GET', path: '/shop/orders/${id}/items' },
+      ],
+      beRoutes: [
+        { id: 'be1', method: 'GET', path: '/orders/{orderId}', repo: 'api', mountPrefix: '/api' },
+        { id: 'be2', method: 'GET', path: '/v2/orders/{orderId}/items', repo: 'api' },
+      ],
+    });
+    expect(result['matches']).toEqual([
+      { feCallId: 'fe1', beRouteId: 'be1', viaPrefix: '/api', matchedBy: 'mount_prefix' },
+    ]);
+    expect(result['unmatched']).toEqual([
+      {
+        feCallId: 'fe2',
+        reason: 'no_route',
+        candidates: [],
+        suggested: [{ beRouteId: 'be2', score: 6, fePrefix: '/shop', routePrefix: '/v2' }],
+      },
+    ]);
+    expect(result['suggestedNote']).toContain('1개');
   });
 
   it('match_endpoints는 nameRefs를 팩 matcher 규칙으로 잇는다', async () => {
@@ -516,6 +545,33 @@ describe('ges_architecture merge', () => {
     const result = await call({ action: 'merge', irs: [product('a', 'acme-shop'), makeIr('b')] });
     expect(result['ok']).toBe(true);
     expect((result['ir'] as ArchitectureIr).nodes.length).toBe(7);
+  });
+
+  it('받는 핸들러를 못 찾은 FE 엔드포인트는 알림으로 싣고 mountPrefixes를 주면 잇는다', async () => {
+    const fe = product('a', 'acme-shop');
+    fe.nodes = fe.nodes.filter((n) => n.id !== 'a-orders-module');
+    fe.edges = fe.edges.filter((e) => e.id !== 'a-e2');
+    fe.nodes.find((n) => n.id === 'a-orders-api')!.label = 'GET /api/orders';
+    const be = product('b', 'acme-api');
+
+    const loose = await call({ action: 'merge', irs: [fe, be] });
+    expect(loose['ok']).toBe(true);
+    const report = loose['report'] as MergeReport;
+    expect(report.crossRepoEdges).toEqual([]);
+    expect(report.unlinkedEndpoints).toEqual([
+      { nodeId: 'a-orders-api', label: 'GET /api/orders', repo: 'acme-shop' },
+    ]);
+    expect(loose['nextAction']).toContain('unlinkedEndpoints의 1개');
+
+    const mounted = await call({
+      action: 'merge',
+      irs: [fe, be],
+      mountPrefixes: { 'acme-api': '/api' },
+    });
+    const linked = mounted['report'] as MergeReport;
+    expect(linked.crossRepoEdges).toHaveLength(1);
+    expect(linked).not.toHaveProperty('unlinkedEndpoints');
+    expect(mounted['nextAction']).not.toContain('unlinkedEndpoints');
   });
 
   it('입력 하나가 깨졌으면 몇 번째인지 알려준다', async () => {

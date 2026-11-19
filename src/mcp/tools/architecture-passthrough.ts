@@ -342,7 +342,8 @@ function handleStart(
       '세션에 붙은 MCP 도구 이름을 filter_tools에 넘겨 allowed만 쓴다. ambiguous는 부르지 않는다.',
       'schemaPath의 JSON Schema대로 IR을 만든다. 실선 엣지에는 code나 spec 근거가 있어야 한다.',
       '클라우드 조회 결과는 live 근거로 싣는다. 명령의 하위 명령은 readOnlyCliRule.verbs로 시작해야 하고 응답 원문은 excerpt에 넣지 않는다.',
-      'FE 호출과 BE 라우트가 모이면 match_endpoints로 이어 붙이고, validate로 확인한 뒤 render한다.',
+      'FE 호출과 BE 라우트가 모이면 match_endpoints로 이어 붙이고, validate로 확인한 뒤 render한다. 서버가 context-path나 global prefix를 붙이면 beRoutes의 mountPrefix에 적는다.',
+      'match_endpoints의 suggested는 경로 뒤쪽이 닮은 후보일 뿐이다. 양쪽 줄을 읽어 같은 API일 때만 엣지를 긋고 후보 여럿을 추정 엣지로 만들지 않는다.',
     ],
   };
 }
@@ -364,13 +365,20 @@ function handleMatchEndpoints(input: ArchitectureInput): object {
       'match_endpoints에는 feCalls와 beRoutes, skillToolCalls와 serverTools, nameRefs 중 하나가 필요하다.',
     );
   }
+  const endpoints = http
+    ? matchEndpoints({
+        feCalls: input.feCalls!,
+        beRoutes: input.beRoutes!,
+        prefixCandidates: input.prefixCandidates,
+      })
+    : null;
+  const suggestedCalls = endpoints?.unmatched.filter((u) => u.suggested !== undefined).length ?? 0;
   return {
-    ...(http
-      ? matchEndpoints({
-          feCalls: input.feCalls!,
-          beRoutes: input.beRoutes!,
-          prefixCandidates: input.prefixCandidates,
-        })
+    ...(endpoints ?? {}),
+    ...(suggestedCalls > 0
+      ? {
+          suggestedNote: `못 맞춘 호출 ${suggestedCalls}개에 suggested 후보가 있다. 점수로 고른 후보라 그대로 잇지 않는다. FE 호출 줄과 BE 라우트 줄을 읽어 같은 API일 때만 IR에 엣지를 적는다.`,
+        }
       : {}),
     ...(mcp
       ? {
@@ -641,10 +649,15 @@ function handleMerge(input: ArchitectureInput, repoRoot: string): object {
   const result = mergeArchitectureIrs(irs, {
     prefixCandidates: input.prefixCandidates,
     groupNames: input.groupNames,
+    mountPrefixes: input.mountPrefixes,
   });
   if (!result.ok) return result;
+  const unlinked = result.report.unlinkedEndpoints?.length ?? 0;
   const nextAction =
-    '합친 IR을 validate로 확인한 뒤 render한다. render는 repoRoot의 같은 뷰 IR과 병합하므로 원래 분석 레포가 아닌 따로 둔 디렉토리를 repoRoot로 준다.';
+    '합친 IR을 validate로 확인한 뒤 render한다. render는 repoRoot의 같은 뷰 IR과 병합하므로 원래 분석 레포가 아닌 따로 둔 디렉토리를 repoRoot로 준다.' +
+    (unlinked > 0
+      ? ` report.unlinkedEndpoints의 ${unlinked}개는 다른 분석에서 받는 핸들러를 못 찾은 FE 엔드포인트다. 오류가 아니라 알림이다. suggested가 있으면 양쪽 줄을 읽어 같은 API일 때만 엣지를 더한다.`
+      : '');
   if (input.outPath === undefined) {
     return { ok: true, ir: result.ir, report: result.report, nextAction };
   }

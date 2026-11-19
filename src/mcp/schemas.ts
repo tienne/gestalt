@@ -989,6 +989,12 @@ const beRouteSchema = z.object({
   method: z.string(),
   path: z.string(),
   repo: z.string(),
+  mountPrefix: z
+    .string()
+    .optional()
+    .describe(
+      '라우트 앞에 붙는 context-path나 global prefix. 라우트 경로에 이미 들어 있으면 비운다',
+    ),
 });
 
 const skillToolCallSchema = z.object({
@@ -1098,6 +1104,12 @@ export const architectureInputSchema = guardObject(
       .array(z.string())
       .optional()
       .describe('match_endpoints, merge: FE 경로 앞에 붙는 게이트웨이 prefix 후보'),
+    mountPrefixes: z
+      .record(z.string(), z.string())
+      .optional()
+      .describe(
+        'merge: 레포 이름(repos의 name) → 그 레포 라우트 앞에 붙는 context-path나 global prefix. match_endpoints는 beRoutes의 mountPrefix를 쓴다',
+      ),
     docRoots: z.array(docRootSchema).optional().describe('scan_docs에 필요. 훑을 문서 레포 목록'),
     docPatterns: docPatternsSchema
       .optional()
