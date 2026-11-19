@@ -37,8 +37,9 @@ import {
   type ErLayout,
   type ErModel,
 } from './er-layout.js';
+import { cspMeta } from './csp.js';
 import { computeFlowLayout, type FlowLevel } from './flow-layout.js';
-import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
+import { markBidi, renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
 import {
   datastoreEngine,
   iconUse,
@@ -214,8 +215,9 @@ function byId<T extends { id: string }>(a: T, b: T): number {
   return compareStr(a.id, b.id);
 }
 
+/** HTML 글자와 속성 값으로 넣을 글자를 이스케이프한다. bidi 제어 문자는 눈에 보이는 표식으로 바꾼다 */
 export function escapeHtml(s: string): string {
-  return s
+  return markBidi(s)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -241,9 +243,11 @@ export function stableStringify(value: unknown): string {
   return `{${parts.join(',')}}`;
 }
 
-// script 블록 안에서 HTML 파서가 끝 태그나 주석 시작으로 읽을 수 있는 조각만 JSON 이스케이프로 바꾼다
-function embedJson(json: string): string {
-  return json.replace(/<\//g, '<\\/').replace(/<!--/g, '\\u003c!--');
+// script 블록 안에서는 HTML 파서가 </script, <!--, <script 같은 조각을 태그로 읽는다. JSON 문자열 안에만 나올 수 있는
+// 글자라 \uXXXX로 바꿔도 JSON.parse 결과는 같다. U+2028과 U+2029는 예전 엔진에서 줄바꿈으로 읽혀 함께 바꾼다
+const JSON_UNSAFE = /[<>&\u2028\u2029]/g;
+export function embedJson(json: string): string {
+  return json.replace(JSON_UNSAFE, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 
 function round2(v: number): number {
@@ -2655,9 +2659,12 @@ interface PageSpec {
   frameLabels?: boolean;
   /** 인프라 레벨이 있을 때 그 아이콘 수. 있을 때만 인프라 스타일과 코드를 싣는다 */
   infra?: { official: number; fallback: number };
+  /** CSP 정책을 고른다. 공유본은 통신을 명시적으로 막는다 */
+  audience: ArchitectureAudience;
 }
 
 function renderPage({
+  audience,
   ir,
   payload,
   sections,
@@ -2695,6 +2702,17 @@ function renderPage({
     );
   const soloActor = drawnFlows.some((f) => f.actors.length === 1);
   const hasCaptures = ir.nodes.some((n) => n.capture !== undefined);
+  const styleBody = `${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}${ers ? `\n${ER_CSS}` : ''}${frameLabels ? `\n${FRAME_LABEL_CSS}` : ''}${infra !== undefined ? `${hasViews ? '' : `\n${VIEW_STRIP_CSS}`}\n${INFRA_CSS}` : ''}`;
+  const clientScript = clientScriptFor(
+    vocab,
+    hasFlows && flows.flows.some((f) => f.service === undefined),
+    hasViews,
+    mixedBundles,
+    hasSequences,
+    flowBranches,
+    hasCaptures,
+    infra !== undefined,
+  );
   return [
     '<!doctype html>',
     infra !== undefined
@@ -2702,10 +2720,11 @@ function renderPage({
       : '<html lang="ko">',
     '<head>',
     '<meta charset="utf-8">',
+    cspMeta(audience, { scripts: [THEME_BOOT_SCRIPT, clientScript], styles: [styleBody] }),
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}${ers ? `\n${ER_CSS}` : ''}${frameLabels ? `\n${FRAME_LABEL_CSS}` : ''}${infra !== undefined ? `${hasViews ? '' : `\n${VIEW_STRIP_CSS}`}\n${INFRA_CSS}` : ''}</style>`,
+    `<style>${styleBody}</style>`,
     '</head>',
     '<body>',
     renderIconSprite(vocab, infra !== undefined ? { infra: true } : {}),
@@ -2759,7 +2778,7 @@ function renderPage({
       ? '<div id="flow-pop" class="pop" role="dialog" aria-label="흐름 고르기" tabindex="-1" hidden><h3>흐름</h3><ul class="flow-list"></ul></div>'
       : '') + (hasViews ? `\n${renderViewsPop(views)}` : ''),
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
-    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews, mixedBundles, hasSequences, flowBranches, hasCaptures, infra !== undefined)}</script>`,
+    `<script>${clientScript}</script>`,
     '</body>',
     '</html>',
     '',
@@ -2791,7 +2810,7 @@ export function renderArchitectureHtml(
     microHosts: new Set(payload.microHosts ?? []),
     ...docCoverSpec(payload.nodes, payload.docOverlay),
   });
-  return renderPage({ ir, payload, sections: section, drill: false });
+  return renderPage({ audience: opts.audience, ir, payload, sections: section, drill: false });
 }
 
 /**
@@ -3070,6 +3089,7 @@ export function renderDrilldownHtml(
     )
     .join('\n');
   return renderPage({
+    audience: opts.audience,
     ir,
     payload,
     sections,

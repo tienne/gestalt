@@ -18,6 +18,7 @@ import type {
 } from '../../../src/architecture/types.js';
 import { redactForSharing, validateArchitectureIr } from '../../../src/architecture/validator.js';
 import { renderBoth } from '../../fixtures/architecture-legacy/render.js';
+import { cspCoversInline, cspOf, directive } from './csp-check.js';
 
 const EV = [{ type: 'code' as const, location: 'web:src/a.ts:1', visibility: 'public' as const }];
 
@@ -217,6 +218,18 @@ describe('renderDeltaHtml', () => {
 
   it('같은 입력이면 같은 바이트를 낸다', async () => {
     expect(await page()).toBe(await page());
+  });
+
+  it('CSP meta가 인라인 본문을 해시로 덮고 공유본은 통신을 막는다', async () => {
+    const delta = computeArchitectureDelta(snap(beforeIr()), snap(afterIr()));
+    const scope = deltaScope(delta);
+    const laid = await computeDeltaLayout(delta, scope);
+    const priv = renderDeltaHtml(delta, scope, laid, { audience: 'private' });
+    const shared = renderDeltaHtml(delta, scope, laid, { audience: 'shared' });
+    expect(cspCoversInline(priv)).toBe(true);
+    expect(cspCoversInline(shared)).toBe(true);
+    expect(directive(cspOf(shared)!, 'connect-src')).toBe("'none'");
+    expect(cspOf(priv)).not.toBe(cspOf(shared));
   });
 });
 

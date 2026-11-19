@@ -6,6 +6,7 @@ import {
   type DeltaChange,
   type DeltaScope,
 } from './delta.js';
+import { cspMeta } from './csp.js';
 import { THEME_BOOT_SCRIPT } from './html-client.js';
 import { escapeHtml, viewTitle } from './html-renderer.js';
 import { renderTokenCss } from './html-theme.js';
@@ -201,15 +202,17 @@ export function renderDeltaHtml(
   const scopeNote = scope.scoped
     ? `<p class="dl-note">전체 구성 요소 ${scope.total.components}개 가운데 바뀐 것과 바로 이웃한 ${scope.nodeIds.size}개만 그렸어요.</p>`
     : '';
+  const styleBody = `${renderTokenCss()}\n${DELTA_CSS}\n@media (min-width: ${2 * minW + LEDGER_W + PAGE_CHROME}px) { .dl-hint { display: none; } }`;
   return [
     '<!doctype html>',
     '<html lang="ko">',
     '<head>',
     '<meta charset="utf-8">',
+    cspMeta(opts.audience, { scripts: [THEME_BOOT_SCRIPT], styles: [styleBody] }),
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderTokenCss()}\n${DELTA_CSS}\n@media (min-width: ${2 * minW + LEDGER_W + PAGE_CHROME}px) { .dl-hint { display: none; } }</style>`,
+    `<style>${styleBody}</style>`,
     '</head>',
     `<body data-audience="${opts.audience}">`,
     '<header class="dl-head">',

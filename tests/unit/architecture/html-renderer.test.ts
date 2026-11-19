@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   computeDrilldown,
@@ -11,6 +12,9 @@ import {
   type Evidence,
   type ValidatedIr,
 } from '../../../src/architecture/index.js';
+import { markBidi } from '../../../src/architecture/html-client.js';
+import { cspCoversInline, cspOf, directive, executableScripts } from './csp-check.js';
+import { embedJson, escapeHtml } from '../../../src/architecture/html-renderer.js';
 import { computeLayout, type LayoutResult } from '../../../src/architecture/layout.js';
 
 const codeEv: Evidence = { type: 'code', location: 'web:src/home.tsx:3', visibility: 'public' };
@@ -152,18 +156,54 @@ describe('renderArchitectureHtml', () => {
     expect(html).not.toContain('<b>bold</b>');
   });
 
-  it('IR 문자열 안의 </script>를 끊지 않게 바꾼다', async () => {
+  function dataBlockOf(html: string): string {
+    const start = html.indexOf('<script id="ir"');
+    const body = html.slice(html.indexOf('>', start) + 1);
+    return body.slice(0, body.indexOf('</script>'));
+  }
+
+  it.each([
+    ['</script>', '</script><script>alert(1)</script>'],
+    ['<!--', '<!-- <script>alert(1)</script> -->'],
+    ['<script', '<script src=x>'],
+    ['CDATA 끝', 'a ]]> b & c'],
+    ['줄 구분 문자', 'a\u2028b\u2029c'],
+    ['bidi 제어 문자', 'invoice\u202Efdp.exe \u2066x\u2069'],
+  ])(
+    'IR 문자열 안의 %s 를 데이터 블록에 글자 그대로 남기지 않고 JSON.parse로 되살린다',
+    async (_name, text) => {
+      const ir = makeIr();
+      ir.nodes[1] = { ...node('api'), description: text };
+      const { v, layout } = await prepare(ir);
+      const html = renderArchitectureHtml(v, layout, { audience: 'private' });
+      const json = dataBlockOf(html);
+      expect(json).not.toMatch(/[<>&\u2028\u2029]/);
+      expect(JSON.parse(json).nodes.find((n: { id: string }) => n.id === 'api').description).toBe(
+        text,
+      );
+    },
+  );
+
+  it('bidi 제어 문자는 화면 글자에서 눈에 보이는 표식으로 바뀐다', async () => {
     const ir = makeIr();
-    ir.nodes[1] = { ...node('api'), description: '</script><script>alert(1)</script>' };
+    ir.nodes[1] = { ...node('api', 'pay\u202Egnp.js'), description: 'x\u2067y\u200F' };
     const { v, layout } = await prepare(ir);
     const html = renderArchitectureHtml(v, layout, { audience: 'private' });
-    const dataBlock = html.slice(html.indexOf('<script id="ir"'));
-    const end = dataBlock.indexOf('</script>');
-    const json = dataBlock.slice(dataBlock.indexOf('>') + 1, end);
-    expect(json).toContain('<\\/script>');
-    expect(JSON.parse(json).nodes.find((n: { id: string }) => n.id === 'api').description).toBe(
-      '</script><script>alert(1)</script>',
-    );
+    const outside = html.replace(dataBlockOf(html), '');
+    expect(outside).not.toMatch(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/);
+    expect(outside).toContain('pay[U+202E]gnp.js');
+    // 데이터 블록에는 원문이 이스케이프된 채 남는다
+    expect(
+      JSON.parse(dataBlockOf(html)).nodes.find((n: { id: string }) => n.id === 'api').label,
+    ).toBe('pay\u202Egnp.js');
+  });
+
+  it('클라이언트 스크립트가 글자를 넣을 때 bidi 표식 함수를 거친다', async () => {
+    const { v, layout } = await prepare(makeIr());
+    const html = renderArchitectureHtml(v, layout, { audience: 'private' });
+    expect(html).toContain('function mark(s)');
+    expect(html).toContain('e.textContent = mark(text)');
+    expect(html).not.toContain('doc.createTextNode(textOf');
   });
 
   it('위쪽 바의 질문 수와 질문 팝오버가 답 없는 것과 자동 질문을 합쳐 보여준다', async () => {
@@ -627,6 +667,83 @@ describe('카드 설명 줄과 클릭 대상 속성', () => {
       '이 종류는',
     ]) {
       expect(html).toContain(piece);
+    }
+  });
+});
+
+describe('글자 넣는 자리의 안전장치', () => {
+  it('html-client.ts는 HTML을 해석하는 DOM API를 쓰지 않는다', () => {
+    const src = readFileSync(
+      new URL('../../../src/architecture/html-client.ts', import.meta.url),
+      'utf8',
+    );
+    expect(src).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
+  });
+
+  it('markBidi는 제어 문자마다 고정 표식을 달고 두 번 불러도 같다', () => {
+    const once = markBidi('a\u202Eb\u2066c\u061Cd\u200Ee');
+    expect(once).toBe('a[U+202E]b[U+2066]c[U+061C]d[U+200E]e');
+    expect(markBidi(once)).toBe(once);
+    expect(markBidi('평범한 글자')).toBe('평범한 글자');
+  });
+
+  it('escapeHtml도 bidi 표식을 단다', () => {
+    expect(escapeHtml('<a>\u202E')).toBe('&lt;a&gt;[U+202E]');
+  });
+
+  it('embedJson 결과는 JSON.parse로 원래 값이 된다', () => {
+    const value = { s: '</script><!--<script>]]>&\u2028\u2029\\<' };
+    const out = embedJson(JSON.stringify(value));
+    expect(out).not.toMatch(/[<>&\u2028\u2029]/);
+    expect(JSON.parse(out)).toEqual(value);
+  });
+});
+
+describe('CSP meta', () => {
+  it('공유본은 통신을 막고 본인용은 다른 정책 문자열을 쓰며 둘 다 인라인 본문을 해시로 덮는다', async () => {
+    const { v, layout } = await prepare(makeIr());
+    const shared = renderArchitectureHtml(v, layout, { audience: 'shared' });
+    const priv = renderArchitectureHtml(v, layout, { audience: 'private' });
+    const sharedPolicy = cspOf(shared)!;
+    const privatePolicy = cspOf(priv)!;
+    expect(directive(sharedPolicy, 'connect-src')).toBe("'none'");
+    expect(directive(sharedPolicy, 'default-src')).toBe("'none'");
+    expect(privatePolicy).not.toBe(sharedPolicy);
+    // 본인용도 외부 통신을 새로 열지 않는다. connect-src가 없으면 default-src 'none'을 따른다
+    expect(directive(privatePolicy, 'default-src')).toBe("'none'");
+    expect(directive(privatePolicy, 'connect-src') ?? "'none'").toBe("'none'");
+    for (const p of [sharedPolicy, privatePolicy]) {
+      expect(p).not.toMatch(/unsafe-eval|https?:|\*/);
+      expect(directive(p, 'script-src')).not.toContain('unsafe-inline');
+      expect(directive(p, 'img-src')).toBe('data:');
+    }
+    expect(cspCoversInline(shared)).toBe(true);
+    expect(cspCoversInline(priv)).toBe(true);
+    expect(executableScripts(priv)).toHaveLength(2);
+  });
+
+  it('meta는 charset 바로 뒤에 온다', async () => {
+    const { v, layout } = await prepare(makeIr());
+    const html = renderArchitectureHtml(v, layout, { audience: 'private' });
+    expect(html).toMatch(/<meta charset="utf-8">\n<meta http-equiv="Content-Security-Policy"/);
+  });
+
+  it('같은 IR을 두 번 그리면 해시가 같다', async () => {
+    const a = await prepare(makeIr());
+    const b = await prepare(makeIr());
+    for (const audience of ['private', 'shared'] as const) {
+      expect(cspOf(renderArchitectureHtml(a.v, a.layout, { audience }))).toBe(
+        cspOf(renderArchitectureHtml(b.v, b.layout, { audience })),
+      );
+    }
+  });
+
+  it('드릴다운 HTML도 인라인 본문을 해시로 덮는다', async () => {
+    const { v } = await prepare(makeIr());
+    const drill = await computeDrilldown(v);
+    for (const audience of ['private', 'shared'] as const) {
+      const html = renderDrilldownHtml(v, drill, { audience });
+      expect(cspCoversInline(html)).toBe(true);
     }
   });
 });

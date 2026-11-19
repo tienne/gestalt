@@ -57,7 +57,7 @@ const CAPTURE_CODE = `  var CAPTURE_SOURCE = { browser: '실행 화면', figma: 
     var fig = el('figure', 'capture');
     var img = el('img');
     img.src = cp.image;
-    img.alt = nameOf(n) + ' 화면 캡처';
+    img.alt = mark(nameOf(n)) + ' 화면 캡처';
     fig.appendChild(img);
     var note = (withCaption ? nameOf(n) + ': ' : '') + (CAPTURE_SOURCE[cp.source] || cp.source) + ', ' + cp.env + ', ' + cp.capturedAt;
     fig.appendChild(el('figcaption', 'desc', note));
@@ -159,7 +159,7 @@ const DOC_FUNCS = `  var GAP_TEXT = { gap: '빈 곳', unverified: '확인 안 �
     if (sc && sc.thumbnail) {
       var img = el('img', 'doc-thumb');
       img.src = sc.thumbnail;
-      img.alt = nameOf(n) + ' 화면';
+      img.alt = mark(nameOf(n)) + ' 화면';
       body.appendChild(img);
     }
     var mix = d.evidenceMix ? Object.keys(d.evidenceMix).sort() : [];
@@ -171,7 +171,7 @@ const DOC_FUNCS = `  var GAP_TEXT = { gap: '빈 곳', unverified: '확인 안 �
       mix.forEach(function (k, i) {
         var seg = el('span', 'mix-' + (i % 6));
         seg.style.width = (d.evidenceMix[k] / total * 100).toFixed(1) + '%';
-        seg.title = k + ' ' + d.evidenceMix[k];
+        seg.title = mark(k) + ' ' + d.evidenceMix[k];
         bar.appendChild(seg);
         factRow(legend, k, String(d.evidenceMix[k]));
       });
@@ -478,6 +478,19 @@ export const SEQ_KEYS = `    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight
     }
 `;
 
+// 글자 순서를 뒤집어 보이게 하는 제어 문자(RLO, LRI 같은 것). 화면에 넣을 때는 눈에 보이는 고정 표식으로 바꿔
+// 파일 이름이나 확장자가 거꾸로 읽히는 속임수를 막는다. 서버 렌더와 클라이언트가 이 문자 집합을 같이 쓴다
+export const BIDI_CONTROL_CLASS = '\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069';
+const BIDI_CONTROL = new RegExp(`[${BIDI_CONTROL_CLASS}]`, 'g');
+
+/** bidi 제어 문자를 `[U+202E]` 같은 표식으로 바꾼다. 표식에는 제어 문자가 없어서 여러 번 불러도 결과가 같다 */
+export function markBidi(s: string): string {
+  return s.replace(
+    BIDI_CONTROL,
+    (c) => `[U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}]`,
+  );
+}
+
 export const THEME_STORAGE_KEY = 'gestalt-architecture-theme';
 const HINT_STORAGE_KEY = 'gestalt-architecture-hint';
 
@@ -596,10 +609,16 @@ ${FOCUS_SOURCE}
   // MCP 도구는 IR에선 endpoint지만 칩과 색은 따로 단다. types.ts의 displayKindOf와 같은 규칙이다
   function dkind(n) { return !n ? '' : ${c.components ? COMPONENT_DKIND : ''}n.kind === 'endpoint' && n.protocol === 'mcp' ? 'mcp_tool' : n.kind; }
   function evidenceText(t) { return EVIDENCE_TEXT[t] || t; }
+  function mark(s) {
+    return String(s).replace(/[${BIDI_CONTROL_CLASS}]/g, function (ch) {
+      return '[U+' + ('000' + ch.charCodeAt(0).toString(16).toUpperCase()).slice(-4) + ']';
+    });
+  }
+  function textNode(s) { return doc.createTextNode(mark(s)); }
   function el(tag, cls, text) {
     var e = doc.createElement(tag);
     if (cls) e.className = cls;
-    if (text !== undefined) e.textContent = text;
+    if (text !== undefined) e.textContent = mark(text);
     return e;
   }
   function svgEl(tag, attrs) {
@@ -712,7 +731,7 @@ ${c.infra ? INFRA_FACTS : ''}    if (n.mcpServer) factRow(basics, 'MCP 서버', 
     var chips = el('div', 'chips');
     var chip = el('span', 'chip ' + chipKind);
     chip.appendChild(icon(chipIcon));
-    chip.appendChild(doc.createTextNode(chipText));
+    chip.appendChild(textNode(chipText));
     chips.appendChild(chip);
     if (sub) chips.appendChild(el('span', 'repo', sub));
     head.appendChild(chips);
@@ -754,7 +773,7 @@ ${c.infra ? INFRA_FACTS : ''}    if (n.mcpServer) factRow(basics, 'MCP 서버', 
       var b = el('button');
       b.type = 'button';
       b.appendChild(icon(iconOf(id)));
-      b.appendChild(doc.createTextNode(textOf(id)));
+      b.appendChild(textNode(textOf(id)));
       b.addEventListener('click', function () { onClick(id); });
       li.appendChild(b);
       ul.appendChild(li);
@@ -900,7 +919,7 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     var chips = el('div', 'chips');
     var chip = el('span', 'chip k-' + dkind(n));
     chip.appendChild(icon('i-' + dkind(n)));
-    chip.appendChild(doc.createTextNode(${c.components ? COMPONENT_CHIP : ''}kindText(dkind(n))));
+    chip.appendChild(textNode(${c.components ? COMPONENT_CHIP : ''}kindText(dkind(n))));
     chips.appendChild(chip);
     chips.appendChild(el('span', 'repo', n.repo));
     head.appendChild(chips);
@@ -923,7 +942,7 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
       if (canEnter) {
         var b = el('button', 'enter');
         b.type = 'button';
-        b.appendChild(doc.createTextNode('상세보기'));
+        b.appendChild(textNode('상세보기'));
         b.addEventListener('click', function () { showLevel(target); });
         actions.appendChild(b);
       }
@@ -932,7 +951,7 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
         f.type = 'button';
         f.title = '이 항목과 이어진 것만 보기 (F)';
         f.appendChild(icon('u-focus'));
-        f.appendChild(doc.createTextNode('포커스'));
+        f.appendChild(textNode('포커스'));
         f.addEventListener('click', function () { showFocus(id); });
         actions.appendChild(f);
       }
@@ -1384,7 +1403,7 @@ ${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
     ids.forEach(function (i) {
       var li = el('li', '');
       li.appendChild(el('span', 'pb p-' + (i % PRODUCT_COLORS), names[i] || ''));
-      li.appendChild(doc.createTextNode(names[i] || ''));
+      li.appendChild(textNode(names[i] || ''));
       li.appendChild(el('small', '', '전용 카드 ' + sec.querySelectorAll('.node[data-band="' + (i + 1) + '"]').length + '개'));
       list.appendChild(li);
     });
@@ -1534,9 +1553,9 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
       var chip = el('span', 'pf pf-' + p);
       chip.setAttribute('role', 'img');
       chip.setAttribute('aria-label', platName(p, f));
-      chip.title = platName(p, f);
+      chip.title = mark(platName(p, f));
       chip.appendChild(icon('p-' + p));
-      chip.appendChild(doc.createTextNode(chipText(p, f)));
+      chip.appendChild(textNode(chipText(p, f)));
       parent.appendChild(chip);
     });
   }
@@ -1553,7 +1572,7 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
     d.style.height = h + 'px';
     var kc = el('span', 'kc');
     kc.appendChild(icon('i-' + kind));
-    kc.appendChild(doc.createTextNode(MICRO_HOSTS[id] ? HOST_SHORT : ${c.components ? COMPONENT_CHIP : ''}KIND_SHORT[kind] || kind));
+    kc.appendChild(textNode(MICRO_HOSTS[id] ? HOST_SHORT : ${c.components ? COMPONENT_CHIP : ''}KIND_SHORT[kind] || kind));
     d.appendChild(kc);
     var nm = el('span', 'nm');
     nm.appendChild(el('span', 't', label(id)));
@@ -1571,7 +1590,7 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
       d.appendChild(l2);
     } else if (sub) d.appendChild(sub);
     if (hasDesc(n)) d.appendChild(el('span', 'ds', n.description));
-    d.title = (n && n.displayName ? n.displayName + (guess ? ' (' + GUESS + ')' : '') + '\\n' + n.label : label(id)) + (hasDesc(n) ? '\\n' + n.description : '');
+    d.title = mark((n && n.displayName ? n.displayName + (guess ? ' (' + GUESS + ')' : '') + '\\n' + n.label : label(id)) + (hasDesc(n) ? '\\n' + n.description : ''));
     d.setAttribute('aria-label', label(id) + ', ' + kindText(kind));
     if (enterMap[id]) {
       var more = el('span', 'go', '›');
@@ -1685,7 +1704,7 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
       g.setAttribute('role', 'button');
       g.setAttribute('aria-label', name);
       var t = svgEl('title', {});
-      t.textContent = name;
+      t.textContent = mark(name);
       g.appendChild(t);
       g.appendChild(svgEl('path', { 'class': 'hit', d: p.d, 'stroke-width': Math.max(12, p.w + 8) }));
       var line = svgEl('path', { 'class': 'edge', d: p.d, 'stroke-width': p.w });
@@ -1699,7 +1718,7 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
         var pill = svgEl('g', { 'class': 'pill', transform: 'translate(' + p.mid.x + ',' + p.mid.y + ')' });
         pill.appendChild(svgEl('rect', { x: -pw / 2, y: -9, width: pw, height: 18, rx: 9 }));${c.mixedBundles ? MIXED_PILL : ''}
         var pt = svgEl('text', {});
-        pt.textContent = text;
+        pt.textContent = mark(text);
         pill.appendChild(pt);
         g.appendChild(pill);
       }
@@ -1727,7 +1746,7 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
       var bt = el('div', 'band-title', b.band === 0 ? '같이 쓰는 카드' : '');
       if (b.band > 0) {
         bt.appendChild(el('i', 'sw p-' + ((b.band - 1) % PRODUCT_COLORS)));
-        bt.appendChild(doc.createTextNode((o.groups[b.band - 1] || '') + ' 전용'));
+        bt.appendChild(textNode((o.groups[b.band - 1] || '') + ' 전용'));
       }
       bt.setAttribute('data-band', b.band);
       bt.style.left = BAND_TITLE_X + 'px';
@@ -1963,7 +1982,7 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     focusSec.hidden = false;
     active = focusSec;
     focusId = nodeId;
-    focusName.textContent = label(nodeId);
+    focusName.textContent = mark(label(nodeId));
     focusChip.hidden = false;
     syncFocusBtn();
     fit('smart');
