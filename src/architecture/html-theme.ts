@@ -155,7 +155,7 @@ export function iconUse(id: string, cls = ''): string {
 }
 
 // 제품 브릭 색. 흰 글자를 올리므로 두 테마 다 같은 진한 색을 쓴다. 제품이 이보다 많으면 처음 색부터 다시 돈다
-const PRODUCT_PALETTE = [
+export const PRODUCT_PALETTE = [
   '#0f766e',
   '#c2410c',
   '#be185d',
@@ -206,8 +206,8 @@ const LIGHT_TOKENS = `
   --edge: #7b8494;
   --edge-alpha: 0.55;
   --edge-strong: #3f4753;
-  --lane: rgba(100, 116, 139, 0.085);
-  --lane-line: rgba(100, 116, 139, 0.16);
+  --lane: rgba(100, 116, 139, 0.05);
+  --lane-line: rgba(100, 116, 139, 0.1);
   --warn: #b45309;
   --warn-soft: #fef3c7;
   --ok: #15803d;
@@ -219,8 +219,10 @@ const LIGHT_TOKENS = `
   --frame-line: #0369a1;
   --loads: #0369a1;
   --hit: #f59e0b;
-  --brick-base: #ffffff;
-  --brick-tint: 24%;
+  --text-2: #3f4450;
+  --card: #ffffff;
+  --card-edge: rgba(15, 23, 42, 0.12);
+  --card-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.04);
   --shadow-hover: 0 6px 16px rgba(16, 24, 40, 0.1);
   --shadow-pop: 0 12px 32px rgba(16, 24, 40, 0.14), 0 2px 6px rgba(16, 24, 40, 0.06);
@@ -241,8 +243,8 @@ const DARK_TOKENS = `
   --edge: #8d96a8;
   --edge-alpha: 0.5;
   --edge-strong: #dde1e8;
-  --lane: rgba(148, 163, 184, 0.06);
-  --lane-line: rgba(148, 163, 184, 0.13);
+  --lane: rgba(148, 163, 184, 0.04);
+  --lane-line: rgba(148, 163, 184, 0.09);
   --warn: #fbbf24;
   --warn-soft: rgba(251, 191, 36, 0.14);
   --ok: #4ade80;
@@ -254,8 +256,10 @@ const DARK_TOKENS = `
   --frame-line: #7dd3fc;
   --loads: #7dd3fc;
   --hit: #fbbf24;
-  --brick-base: #171a21;
-  --brick-tint: 44%;
+  --text-2: #b4b8c0;
+  --card: #1a1d24;
+  --card-edge: rgba(255, 255, 255, 0.09);
+  --card-shadow: 0 0 0 transparent;
   --shadow: none;
   --shadow-hover: 0 6px 18px rgba(0, 0, 0, 0.4);
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
@@ -304,6 +308,16 @@ button { font: inherit; color: inherit; }
 .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; }
 .search input::-webkit-search-cancel-button { display: none; }
 .search .count { font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.search-list {
+  position: fixed; z-index: 30; margin: 0; padding: 4px; list-style: none; max-height: min(360px, 60vh); overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-pop);
+}
+.search-list[hidden] { display: none; }
+.search-list li { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.search-list li[aria-selected="true"], .search-list li:hover { background: var(--accent-soft); }
+.search-list .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--text); }
+.search-list .lv { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
+.search-list .empty { cursor: default; font-size: 12px; color: var(--muted); }
 .btn {
   height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; flex: none;
   border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 13px; cursor: pointer; white-space: nowrap;
@@ -334,10 +348,13 @@ button { font: inherit; color: inherit; }
 .stage.panning { cursor: grabbing; }
 .viewport { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .viewport.glide { transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.2, 1); }
+@media (prefers-reduced-motion: reduce) { .viewport.glide { transition: none; } }
 .level { position: relative; }
 .level[hidden] { display: none; }
 .links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
 .lane { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
+/* service와 server 레벨의 바깥 맥락 레인. 레벨 안 카드와 갈리게 채움을 빼고 점선으로 긋는다 */
+.lane.outside { fill: none; stroke: var(--border-strong); stroke-dasharray: 5 5; }
 .frame { fill: var(--frame); stroke: var(--frame-line); stroke-width: 1.25; stroke-opacity: 0.6; }
 .band-line { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 4 4; }
 .band-title {
@@ -356,26 +373,20 @@ button { font: inherit; color: inherit; }
   font-size: 11px; font-weight: 600; color: var(--muted); background: var(--surface); border: 1px solid var(--border); font-variant-numeric: tabular-nums;
 }
 .node {
-  --brick: color-mix(in srgb, var(--kind) var(--brick-tint), var(--brick-base));
-  --brick-edge: color-mix(in srgb, var(--kind) 42%, var(--brick));
-  --thick: 0 3px 0 var(--brick-edge);
+  --brick: var(--card);
+  --brick-edge: var(--card-edge);
+  --thick: var(--card-shadow);
   position: absolute; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 2px; align-content: center;
-  padding: 0 20px 0 10px; cursor: pointer;
-  background: var(--brick); border: 1px solid var(--brick-edge); border-radius: 4px; box-shadow: var(--thick);
+  padding: 0 20px 0 12px; cursor: pointer;
+  background: var(--card); border: 1px solid var(--card-edge); border-radius: 10px; box-shadow: var(--thick);
   transition: box-shadow 0.15s, border-color 0.15s, opacity 0.15s;
 }
-/* 카드 위 돌기. 하나를 그리고 box-shadow로 셋을 더 찍는다. 그림자 사본도 모서리 둥글기를 따라간다 */
-.node::before {
-  content: ''; position: absolute; left: 12px; top: -6px; width: 14px; height: 5px; border-radius: 3px 3px 0 0;
-  background: var(--brick-edge); box-shadow: 20px 0 var(--brick-edge), 40px 0 var(--brick-edge), 60px 0 var(--brick-edge);
-}
-/* 같이 쓰는 카드는 돌기 자리에 제품 브릭을 꽂는다 */
-.node.shared::before { display: none; }
+.node.outside { border-style: dashed; border-color: var(--border-strong); }
+.lane-title .more { font-size: 11px; font-weight: 600; color: var(--muted); }
 .pbricks { position: absolute; left: 8px; right: 8px; bottom: calc(100% + 1px); display: flex; gap: 2px; }
 .pb {
   flex: none; height: 17px; padding: 0 6px; border-radius: 3px 3px 0 0;
   font: 700 10.5px/17px var(--font); color: #fff; background: var(--p); white-space: nowrap;
-  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--p) 70%, #000);
 }
 .pb.more {
   border: 1px solid var(--border-strong); border-bottom: 0; line-height: 15px; cursor: pointer;
@@ -386,7 +397,7 @@ button { font: inherit; color: inherit; }
 /* +N 드롭다운. 캔버스는 확대와 스크롤 상자 안이라 그 안에 두면 잘린다. 화면 기준으로 띄운다 */
 .pmenu {
   position: fixed; z-index: 40; min-width: 168px; padding: 6px;
-  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 3px 0 var(--border-strong);
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: var(--shadow-pop);
 }
 .pmenu[hidden] { display: none; }
 .pmenu h3 { margin: 2px 6px 6px; font-size: 11px; font-weight: 600; color: var(--muted); }
@@ -406,7 +417,7 @@ button { font: inherit; color: inherit; }
 .kc {
   grid-row: 1; display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 6px 0 4px; border-radius: 5px; align-self: center;
   font-size: 10.5px; font-weight: 650; line-height: 1; white-space: nowrap;
-  color: color-mix(in srgb, var(--kind) 72%, var(--text)); background: color-mix(in srgb, var(--kind) 13%, transparent);
+  color: color-mix(in srgb, var(--kind) 64%, var(--text)); background: color-mix(in srgb, var(--kind) 13%, transparent);
 }
 .kc svg { width: 12px; height: 12px; flex: none; color: var(--kind); }
 .kc svg.brand, .pf svg.brand { color: var(--brand); }
@@ -428,12 +439,10 @@ button { font: inherit; color: inherit; }
 .flow-badge {
   flex: none; display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 0 6px; border-radius: 8px;
   font-size: 10.5px; font-weight: 700; line-height: 16px; color: var(--on-accent);
-  background: var(--accent); box-shadow: 0 2px 0 color-mix(in srgb, var(--accent) 60%, #000);
+  background: var(--accent);
 }
 .flow-badge svg { width: 12px; height: 12px; flex: none; }
 .flow-badge:hover { background: color-mix(in srgb, var(--accent) 85%, var(--text)); }
-/* 파스텔 브릭 위에서 연한 배지는 묻힌다. 카드 안 추정 배지는 꽉 채운다 */
-.node .guess { color: var(--bg); background: var(--warn); }
 .go { position: absolute; right: 8px; bottom: 4px; font-size: 14px; line-height: 1; color: var(--muted); }
 .pf {
   flex: none; display: inline-flex; align-items: center; gap: 3px; height: 16px; margin-left: 4px; padding: 0 4px;
@@ -446,7 +455,7 @@ button { font: inherit; color: inherit; }
 /* 설명 줄은 행을 정하지 않는다. 둘째 줄이 있으면 셋째 줄, 없으면 둘째 줄로 자동 배치된다 */
 .ds {
   grid-column: 1 / -1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  font: 11px/16px var(--font); color: var(--muted);
+  font: 12px/17px var(--font); color: var(--text-2);
 }
 .l2 .pf:first-child { margin-left: 0; }
 /* 도메인 흐름. 행위자 줄은 번갈아 옅게 칠해 줄 경계를 읽히게 하고, 옆 흐름은 정상 흐름과 색으로 가른다 */
@@ -542,6 +551,21 @@ button { font: inherit; color: inherit; }
   font-size: 12px; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
 }
 .hint[hidden] { display: none; }
+.overview {
+  position: absolute; top: 12px; right: 16px; z-index: 5; width: max-content; max-width: min(320px, calc(100% - 32px));
+  font-size: 12px; color: var(--text-2); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
+}
+.overview > summary { padding: 6px 12px; font-weight: 650; color: var(--text); cursor: pointer; list-style: none; }
+.overview > summary::-webkit-details-marker { display: none; }
+.overview > summary::after { content: '▾'; margin-left: 6px; color: var(--muted); }
+.overview[open] > summary::after { content: '▴'; }
+.ov-body { max-height: min(50vh, 360px); overflow-y: auto; padding: 0 12px 10px; }
+.ov-sum { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--text); }
+.ov-note { margin: 0 0 8px; line-height: 1.5; }
+.ov-h { margin: 8px 0 4px; font-size: 11px; font-weight: 650; color: var(--muted); }
+.ov-stats { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin: 0; }
+.ov-stats dt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
 .hint button { flex: none; border: 0; background: none; width: 20px; height: 20px; padding: 2px; border-radius: 5px; cursor: pointer; color: var(--muted); }
 .hint button:hover { background: var(--surface-2); }
 .hint svg { width: 16px; height: 16px; display: block; }
@@ -670,7 +694,7 @@ export const FLOW_BRANCH_CSS = `.node.flow-step.decision {
 .flow-step.decision .dshape { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .flow-step.decision .dshape polygon {
   fill: var(--brick); stroke: var(--brick-edge); stroke-width: 1.5; stroke-linejoin: round;
-  filter: drop-shadow(0 3px 0 var(--brick-edge)); transition: stroke 0.15s, stroke-width 0.15s;
+  filter: drop-shadow(var(--card-shadow)); transition: stroke 0.15s, stroke-width 0.15s;
 }
 .flow-step.decision .nm, .flow-step.decision .l2 { position: relative; }
 .flow-step.decision .nm .t { font-size: 12px; line-height: 15px; }
@@ -710,7 +734,7 @@ export const LIFECYCLE_CSS = `:root { --lc-fail: #dc2626; }
 .lc-band.lc-terminal rect { stroke: var(--border-strong); }
 .lc-band-t { font-size: 12.5px; font-weight: 700; fill: var(--text); }
 .lc-band-n { font-weight: 400; fill: var(--muted); }
-.node.lc-state.o-done, .node.lc-state.o-cancel, .node.lc-state.o-fail, .node.lc-state.o-end { border: 3px double var(--brick-edge); }
+.node.lc-state.o-done, .node.lc-state.o-cancel, .node.lc-state.o-fail, .node.lc-state.o-end { border: 3px double color-mix(in srgb, var(--kind) 55%, var(--card)); }
 .node.lc-state.o-done { --kind: var(--ok); }
 .node.lc-state.o-cancel { --kind: var(--muted); }
 .node.lc-state.o-fail { --kind: var(--lc-fail); }
@@ -920,7 +944,8 @@ export const VIEW_CSS = `.view-q { position: absolute; top: 18px; margin: 0; fon
 ${VIEW_STRIP_CSS}`;
 
 /** 순서도가 있는 그림에만 붙이는 스타일. 보기 전환 단추, 단계별 카드, 따라가기 지도와 단계 목록 */
-export const SEQ_VIEW_CSS = `.seq-bar {
+export const SEQ_VIEW_CSS = `#seq-bar:not([hidden]) ~ .overview { display: none; }
+.seq-bar {
   position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 12; box-sizing: border-box;
   display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; max-width: calc(100% - 32px); padding: 6px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);

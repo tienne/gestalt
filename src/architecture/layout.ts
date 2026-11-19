@@ -206,11 +206,12 @@ export interface GraphLayoutEdge {
 const NODE_HEIGHT = 48;
 // 표시 이름과 기술 이름을 두 줄로 쌓는 카드. 글자 수와 무관하게 고정해야 좌표가 입력에만 묶인다
 export const NODE_HEIGHT_TWO_LINES = 60;
-/** 이름 아래 설명 줄이 더하는 높이. 11px 글꼴의 16px 줄에 행 간격 2px다 */
-export const NODE_DESC_LINE = 18;
-// 설명 줄은 11px 글꼴 기준으로 잰다. 긴 설명이 카드를 끝없이 넓히지 않게 안쪽 폭은 상한까지만 늘리고 나머지는 말줄임으로 자른다
-const DESC_CHAR_WIDTH = 5.5;
-const DESC_MAX_INNER = 200;
+/** 이름 아래 설명 줄이 더하는 높이. 12px 글꼴의 17px 줄에 행 간격 2px다 */
+export const NODE_DESC_LINE = 19;
+// 설명 줄은 12px 글꼴 기준으로 잰다. 헤드리스 크롬 measureText로 한글과 영문 설명을 재 보니 칸당 최대 5.6px이라 7% 여유를 둔다.
+// 긴 설명이 카드를 끝없이 넓히지 않게 안쪽 폭은 상한(한글 열여덟 자)까지만 늘리고 나머지는 말줄임으로 자른다
+export const DESC_CHAR_WIDTH = 6;
+export const DESC_MAX_INNER = 216;
 /** "추정" 배지가 첫 줄에서 차지하는 폭. 앞 여백과 알약 테두리, 한글 두 자 */
 export const INFERRED_BADGE_UNITS = 5;
 /** 카드 왼쪽 색 띠와 안쪽 여백. 종류 칩은 이 뒤에서 시작한다 */

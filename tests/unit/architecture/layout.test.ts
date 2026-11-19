@@ -362,14 +362,15 @@ describe('stackBands', () => {
 describe('카드 설명 줄 높이', () => {
   const DESC = '주문 목록을 한 번에 불러오는 조회예요.';
 
-  it('설명이 있으면 한 줄 카드는 66, 두 줄 카드는 78이다', () => {
-    expect(NODE_DESC_LINE).toBe(18);
+  it('설명이 있으면 한 줄 카드는 67, 두 줄 카드는 79다', () => {
+    // 12px 글꼴의 17px 줄에 행 간격 2px
+    expect(NODE_DESC_LINE).toBe(19);
     expect(
       measureNode('GET /orders', undefined, undefined, undefined, { description: DESC }).height,
-    ).toBe(66);
+    ).toBe(67);
     expect(
       measureNode('GET /orders', '주문 목록', undefined, undefined, { description: DESC }).height,
-    ).toBe(78);
+    ).toBe(79);
   });
 
   it('설명이 없거나 비었거나 공백뿐이면 높이도 폭도 그대로다', () => {
@@ -381,7 +382,7 @@ describe('카드 설명 줄 높이', () => {
     }
   });
 
-  it('긴 설명은 폭을 안쪽 200px 상한까지만 넓힌다', () => {
+  it('긴 설명은 폭을 안쪽 216px 상한까지만 넓힌다', () => {
     const short = measureNode('a', undefined, undefined, undefined, { description: '짧음' });
     const long = measureNode('a', undefined, undefined, undefined, {
       description: '가'.repeat(60),
@@ -390,8 +391,8 @@ describe('카드 설명 줄 높이', () => {
       description: '가'.repeat(600),
     });
     expect(long.width).toBeGreaterThan(short.width);
-    // 앞 여백 12 + 뒤 여백 20 + 안쪽 200
-    expect(long.width).toBe(232);
+    // 앞 여백 12 + 뒤 여백 20 + 안쪽 216
+    expect(long.width).toBe(248);
     expect(huge.width).toBe(long.width);
   });
 
@@ -412,7 +413,7 @@ describe('카드 설명 줄 높이', () => {
       [],
     );
     const h = (id: string): number => result.nodes.find((n) => n.id === id)!.height;
-    expect(h('a')).toBe(66);
+    expect(h('a')).toBe(67);
     expect(h('b')).toBe(48);
     expect(h('c')).toBe(48);
   });
@@ -422,7 +423,7 @@ describe('카드 설명 줄 높이', () => {
     ir.nodes[0] = { ...ir.nodes[0]!, description: DESC };
     const { nodes, edges } = allIds(ir);
     const result = await computeLayout(ir, nodes, edges);
-    expect(result.nodes.find((n) => n.id === 'screen-home')!.height).toBe(66);
+    expect(result.nodes.find((n) => n.id === 'screen-home')!.height).toBe(67);
     expect(result.nodes.find((n) => n.id === 'screen-cart')!.height).toBe(48);
   });
 });
