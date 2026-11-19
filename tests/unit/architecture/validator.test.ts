@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -619,5 +619,20 @@ describe('옮겨진 근거 파일의 movedTo 후보', () => {
     });
     expect(error?.code).toBe('CODE_EVIDENCE_NOT_FOUND');
     expect(error?.movedTo).toBeUndefined();
+  });
+});
+
+describe('문서의 에러 코드 표', () => {
+  it('docs/architecture-view.md 검증 규칙 표가 validator 에러 코드와 같다', () => {
+    const doc = readFileSync(resolve('docs/architecture-view.md'), 'utf-8');
+    const start = doc.indexOf('## 검증 규칙');
+    const end = doc.indexOf('`checkFiles: false`', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const section = doc.slice(start, end);
+    const documented = [...section.matchAll(/^\| `([A-Z_]+)` +\|/gm)].map((m) => m[1]!);
+    expect([...documented].sort()).toEqual([...ARCHITECTURE_VALIDATION_ERROR_CODES].sort());
+    expect(documented).toHaveLength(54);
+    expect(section).toContain('아래 쉰넷은 IR 전체를 거부한다');
   });
 });

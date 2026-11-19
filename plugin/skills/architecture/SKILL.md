@@ -616,18 +616,19 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
   - `NODE_DESCRIPTION_MISSING`은 그리는 노드 중 `description`이 빈 노드를 `nodeIds`에 모아 준다. 그 카드에는 설명 줄이 없으니 채운다.
   - 예산 경고(`LIFECYCLE_OVER_BUDGET`, `BLUEPRINT_OVER_BUDGET`, `ER_OVER_BUDGET`)에는 `nodeIds`가 없다. 넘친 그림의 id를 `subjectId`에, 넘친 개수를 `counts`에 담는다. 그림을 나누거나 줄이라는 신호다.
   - `INFRA_PLACEMENT_CONFLICT`는 노드에 직접 적은 `provider`나 `region`이 `placedIn`, `parent`, `account`로 물려받은 값과 다를 때 온다. 근거를 다시 보고 한쪽을 지운다.
-  - render 응답에도 같은 `warnings`가 실린다. render에는 `DELTA_OVER_BUDGET`, `SECRET_MASKED`, `IGNORED_FILE_TRACKED`가 더 올 수 있다. 읽는 법은 [Step 8](#step-8--render와-보고)에 있다.
-- 실패하면 `errors[]`에 `code`와 `nodeId`나 `edgeId`가 온다. 질문별 그림 에러면 `projectionId`와 `messageId`가 오고 구간 에러면 `phaseId`가 함께 온다.
+  - render 응답에도 같은 `warnings`가 실린다. render에는 `DELTA_OVER_BUDGET`, `SECRET_MASKED`, `IGNORED_FILE_TRACKED`, `LABEL_CHANGED_ID_LOST`, `MERGE_KEY_DUPLICATE`가 더 올 수 있다. 읽는 법은 [Step 8](#step-8--render와-보고)에 있다.
+- 실패하면 `errors[]`에 `code`와 `nodeId`나 `edgeId`가 온다. 질문별 그림 에러면 `projectionId`와 `messageId`가 오고 구간 에러면 `phaseId`가 함께 온다. 오타로 보이는 자리에는 `suggestion`이 하나 붙는다. 그 값이 맞는지 IR에서 확인한 뒤 고친다. 확인 없이 그대로 바꾸지 않는다.
 
 | 에러 코드                                               | 고치는 법                                                                                                                                                                                                                 |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `IR_PARSE_ERROR`                                        | 스키마 위반이다. 메시지의 필드를 `schemaPath`와 맞춘다                                                                                                                                                                    |
 | `VIEW_MISMATCH`                                         | `view` 인자와 `ir.view`를 맞춘다                                                                                                                                                                                          |
+| `UNKNOWN_FIELD`                                         | 스키마에 없는 칸을 적었다. `path`의 칸 이름을 `suggestion`으로 고치거나 지운다. 오타 난 칸은 예전엔 조용히 버려져 설명이 사라졌다                                                                                         |
 | `SOLID_EDGE_WITHOUT_EVIDENCE`                           | code나 spec 근거를 찾아 달거나, 못 찾으면 점선으로 바꾼다                                                                                                                                                                 |
-| `CODE_EVIDENCE_NOT_FOUND`                               | `grep -n`으로 줄을 다시 찾는다. `repoId`가 `repos`에 있는지, 경로가 상대 경로인지 본다                                                                                                                                    |
+| `CODE_EVIDENCE_NOT_FOUND`                               | `grep -n`으로 줄을 다시 찾는다. `repoId`가 `repos`에 있는지, 경로가 상대 경로인지 본다. `movedTo`가 오면 git이 파일을 옮긴 것이다. 그 경로에서 줄을 다시 확인해 위치를 고친다                                             |
 | `PRIVATE_EXCERPT_PRESENT`                               | 그 근거의 `excerpt`를 지운다                                                                                                                                                                                              |
-| `DANGLING_EDGE`                                         | 엣지가 가리키는 노드를 `nodes`에 넣거나 엣지를 뺀다                                                                                                                                                                       |
-| `PARENT_NOT_FOUND`                                      | parent가 가리키는 노드를 `nodes`에 넣거나 parent를 뺀다                                                                                                                                                                   |
+| `DANGLING_EDGE`                                         | 엣지가 가리키는 노드를 `nodes`에 넣거나 엣지를 뺀다. `suggestion`이 오면 그 id의 오타인지 먼저 본다                                                                                                                       |
+| `PARENT_NOT_FOUND`                                      | parent가 가리키는 노드를 `nodes`에 넣거나 parent를 뺀다. `suggestion`이 오면 그 id의 오타인지 먼저 본다                                                                                                                   |
 | `PARENT_CYCLE`                                          | parent를 따라가면 자기로 돌아온다. 서비스에서 기능영역, 화면으로 내려가는 한 방향만 남긴다                                                                                                                                |
 | `INVALID_PARENT_KIND`                                   | 위 포함 규칙에 맞게 parent를 고친다. 화면이 화면을 담거나 HTTP 엔드포인트에 parent를 달면 여기 걸린다                                                                                                                     |
 | `SERVES_SERVICE_WITH_APPS`                              | `micro_app`이 달린 서비스를 `serves`로 가리켰다. 그 사슬이 서빙하는 호스트나 리모트 앱으로 `to`를 옮긴다                                                                                                                  |
@@ -702,6 +703,7 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 - `ignoreFilePath`: 퍼블릭일 때만 온다. 본인용 HTML과 저장 IR을 막는 줄을 써 둔 `.gitignore` 경로다
 - `levels`: 드릴다운으로 그렸을 때만 온다. 항목마다 `id`, `title`, `nodes`, `edges`가 있다. `id`는 `root`(전체), `service:<id>`, `feature:<id>`, `server:<id>`, `flow:<id>`, `group:<id>`, `view:<id>`, `infra` 꼴이다
 - `viewPaths`: 질문별 그림이 있을 때만 온다. 그림마다 `.gestalt/architecture/views/<view>.<그림 id>.json`에 그 그림과 가리킨 노드, 엣지, 질문만 따로 저장한 경로다. lifecycle과 blueprint는 가리킨 흐름(`flow`)을, er은 외래 키 대상 테이블과 `auto:fk:` 질문을 함께 싣는다. 다른 세션이 질문 하나의 답만 읽어 갈 때 이 파일을 건넨다
+- `merge`: 지난 실행 IR이 있을 때만 온다. `descriptionCarried`는 지난 설명을 이어받은 노드 수, `relabeled`는 label이 바뀌었는데 같은 id나 같은 근거 파일로 이어 준 노드, `flowsCarried`는 지난 IR에서 이어받은 흐름 id다. `relabeled`가 있으면 의도한 이름 변경이 맞는지 보고에 한 줄 적는다
 - `delta`: 이전 실행과 비교한 결과. 늘 온다. `status`는 넷 중 하나다
   - `no_previous`: 비교할 이전 그림이 없다. 처음 그렸거나 저장된 이전 그림을 지금 규칙으로 읽지 못했다. 파일을 안 만든다
   - `unchanged`: 그려지는 노드와 연결이 지난번과 같다. 지난 구조 변경 그림은 그대로 둔다
@@ -738,6 +740,8 @@ Step 4.5에서 클라우드를 조회했으면 어느 프로필로 언제 조회
 `warnings`에 `DELTA_OVER_BUDGET`이 오면 구조 변경 그림 한 장에 담기에 변경이 많다는 뜻이다. 그림은 그대로 썼다. 바뀐 영역을 나눠 단계별로 다시 그리기를 권한다.
 
 `SECRET_MASKED`가 오면 그 위치(`nodeId`나 `flowId` 같은 주인 id와 `field`)의 글자를 `[비밀값]`으로 가렸다는 뜻이다. 보고에 위치만 한 줄로 적고 값을 짐작해 옮기지 않는다. 다음 실행 IR에서는 그 칸에 비밀값을 적지 않는다.
+
+`LABEL_CHANGED_ID_LOST`가 오면 설명이나 답이 달려 있던 지난 노드가 이번 IR의 어느 노드와도 이어지지 않았다는 뜻이다. label과 id를 함께 바꿨을 때 난다. `candidates`에서 같은 대상인 노드를 골라 `previousId`를 id로 다시 적고 render한다. 고를 수 없으면 사용자에게 어느 노드인지 묻는다. `MERGE_KEY_DUPLICATE`가 오면 같은 kind와 repo, label을 쓰는 노드가 여럿이라 첫 노드만 지난 id를 받았다는 뜻이다. label을 서로 다르게 고친다.
 
 `IGNORED_FILE_TRACKED`가 오면 퍼블릭 레포인데 막아야 할 산출물을 git이 이미 추적하고 있다는 뜻이다. `paths`와 경고 문구의 `git rm --cached` 명령을 그대로 보여주고 실행할지는 사용자에게 맡긴다. 직접 실행하지 않는다.
 
