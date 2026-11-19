@@ -259,17 +259,15 @@ export class ConductorStore {
     appendFileSync(path, `${prefix}${JSON.stringify(event)}\n`, 'utf-8');
     if (repair) applyEvent(this.state, repair);
     applyEvent(this.state, event);
-    if (this.deferDepth === 0) this.flushSnapshot();
   }
 
   /** 사람과 도구가 읽는 사본을 지금 상태로 쓴다 */
   flushSnapshot(): void {
-    writeJsonAtomic(join(this.dir, SNAPSHOT_FILE), this.state);
+    writeJsonAtomic(join(this.dir, SNAPSHOT_FILE), this.state, { indent: 0 });
   }
 
   /**
-   * fn이 도는 동안 append마다 사본을 다시 쓰지 않고 끝에 한 번만 쓴다.
-   * 사본은 줄지 않는 목록까지 통째로 담아 이벤트마다 쓰면 tick 하나가 수십 번 직렬화한다
+   * 사본은 누적 기록까지 통째로 담아 비용이 크므로 필요한 작업이 끝날 때 한 번만 쓴다.
    */
   async deferSnapshot<T>(fn: () => Promise<T>): Promise<T> {
     this.deferDepth += 1;
