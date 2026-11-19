@@ -610,6 +610,8 @@ describe('gestalt conductor', () => {
     expect(existsSync(join(stateDir, 'wait-seen.json'))).toBe(false);
     const carryDir = join(stateDir, 'wait-carry');
     expect(readdirSync(carryDir)).toHaveLength(1);
+    const seenFile = join(stateDir, 'wait-seen.json');
+    writeFileSync(seenFile, JSON.stringify(['전에 본 경고']));
 
     await conductorWaitCommand({ stateDir, json: true, maxWaitSec: 1, prWatch: false });
     expect(last()).toMatchObject({
@@ -623,6 +625,10 @@ describe('gestalt conductor', () => {
       },
     });
     expect(readdirSync(carryDir)).toEqual([]);
+    expect(JSON.parse(readFileSync(seenFile, 'utf-8'))).toEqual([
+      '전에 본 경고',
+      expect.stringContaining('ord-expired'),
+    ]);
 
     const idle = { json: true, stateDir, maxWaitSec: 1, prWatch: false };
     let clock = 0;

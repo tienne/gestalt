@@ -278,7 +278,7 @@ export function mergeWaitCarry(
     reason: 'attention',
     reasons: [...reasons],
     last,
-    observed: [...(result.observed ?? []), ...shownLines(last)],
+    ...(result.observed ? { observed: [...result.observed, ...shownLines(last)] } : {}),
   };
 }
 
@@ -302,11 +302,11 @@ export function readSeen(stateDir: string): Set<string> {
 export function writeSeen(
   stateDir: string,
   prev: ReadonlySet<string>,
-  observed: readonly string[],
+  observed: readonly string[] | undefined,
   shown: readonly string[],
 ): void {
-  const still = new Set(observed);
-  const kept = [...prev].filter((s) => still.has(s));
+  const still = observed ? new Set(observed) : undefined;
+  const kept = still ? [...prev].filter((s) => still.has(s)) : [...prev];
   const merged = [...kept, ...shown.filter((s) => !kept.includes(s))].slice(-SEEN_MAX);
   writeJsonAtomic(join(stateDir, SEEN_FILE), merged);
 }

@@ -769,8 +769,8 @@ export async function conductorWaitCommand(
       }
       consumeWaitCarry(ctx.store.dir, (carried) => {
         const merged = mergeWaitCarry(result, carried, sessionId);
-        if (merged.observed) {
-          const shown = merged.reason === 'attention' && merged.last ? shownLines(merged.last) : [];
+        const shown = merged.reason === 'attention' && merged.last ? shownLines(merged.last) : [];
+        if (merged.observed || shown.length > 0) {
           writeSeen(ctx.store.dir, seen, merged.observed, shown);
         }
         printWaitResult(ctx, opts, merged);
