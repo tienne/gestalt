@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.147.0] - 2026-11-19
+
+### Added
+
+- **컨덕터의 배포 대기와 오르카 정리에 기한을 넣었어요(#150).** `deployWaitMaxSec`의 기본값은 86,400초(24시간)예요. 머지 뒤 기한까지 배포 신호가 없으면 지라를 옮기지 않고 주문을 `done`으로 바꿔요. 첫 tick에는 이미 기한이 지난 배포 대기 `merged` 주문이 한꺼번에 `done`으로 바뀌고 주문별 경고가 남아요.
+  - `orcaReleaseRetryMaxSec`의 기본값은 7,200초(2시간)예요. 살아 있는 워커의 release가 거절되면 첫 거절 시각부터 재시도해요. 기한까지 거절이 이어지거나 생존을 확인할 수 없으면 게이트를 열어요. 새 워커를 띄울 자리가 없어도 재시도해요. 앞 워커가 복귀하면 그 주문을 이어 가게 해요.
+
+### Changed
+
+- **스냅샷을 쓰는 횟수를 줄였어요.** tick과 `order remove`를 마친 뒤에만 들여쓰기 없는 스냅샷을 써요. 체크포인트를 남길 때는 이벤트 로그만 써요.
+
+### Fixed
+
+- **wait가 바뀌어도 진행 중이던 tick 결과를 이어받아요.** 이전 wait는 소유권을 잃으면 `superseded`로 끝나고 전달할 결과를 별도 파일에 남겨요. 새 wait는 파일을 오래된 순서로 한 번씩 가져가 배포 경고와 지라 작업을 전달해요. 세션 ID를 가진 컨덕터가 살아 있을 때는 세션 ID 없는 wait가 감시를 가져갈 수 없어요.
+  - 큰 넘김 보고서는 알림에 고유 경로를 실어요. 나중 wait가 공용 보고서를 갱신해도 먼저 나온 파일을 읽을 수 있어요.
+
 ## [0.146.0] - 2026-11-18
 
 ### Added
