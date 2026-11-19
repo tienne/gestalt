@@ -445,7 +445,7 @@ class Conductor {
       try {
         if (terminalId && (await this.orca.host.call('terminal.focus', { terminalId })).focused) {
           if (!fallback) return { opened: true }
-          return errors.length > 0 ? { opened: true, fallbackTerminal: true, fallbackReason: missed } : { opened: true, fallbackTerminal: true }
+          return { opened: true, fallbackTerminal: true, ...(errors.length > 0 ? { fallbackReason: errors.join(' ') } : {}) }
         }
         if (terminalId) missed = [...errors, '터미널로 못 옮겨 갔어요.'].join(' ')
       } catch (e) {
