@@ -148,7 +148,8 @@ test('워커 에이전트 터미널을 못 찾은 상세는 출력 대신 안내
     live: { 'ord-a': { found: true, noWorkerTerminal: true } }
   })
   has(html, '터미널을 못 찾아 출력은 안 보여 줘요')
-  has(html, '>워크트리로 이동</button>')
+  has(html, '첫 터미널로 가고 터미널이 없으면 워크트리만 열어요')
+  has(html, '>터미널로 이동</button>')
   lacks(html, 'class="tail"')
   has(html, '<div class="alert">워크트리만 열었어요.</div>')
   lacks(html, '워크트리를 못 열었어요')

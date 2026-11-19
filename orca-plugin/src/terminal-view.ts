@@ -29,10 +29,12 @@ const root = document.createElement('div')
 root.className = 'term'
 // root는 다시 그릴 때마다 통째로 바뀌어서 스크린 리더가 안내를 놓친다. 안내는 바깥의 고정 영역에 따로 싣는다
 const SR_ONLY = 'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap'
-const statusRegion = Object.assign(document.createElement('div'), { role: 'status' })
-const alertRegion = Object.assign(document.createElement('div'), { role: 'alert' })
-for (const r of [statusRegion, alertRegion]) r.style.cssText = SR_ONLY
+const statusRegion = document.createElement('div')
+const alertRegion = document.createElement('div')
+statusRegion.setAttribute('role', 'status')
 statusRegion.setAttribute('aria-live', 'polite')
+alertRegion.setAttribute('role', 'alert')
+for (const r of [statusRegion, alertRegion]) r.style.cssText = SR_ONLY
 
 async function load(): Promise<void> {
   try {
@@ -51,7 +53,10 @@ async function openWorker(orderId: string): Promise<void> {
   try {
     const out = await orca.plugin.request('worker.open', { orderId })
     if (!out.opened) state.openError = out.error ?? '이유를 못 받았어요.'
-    else if (out.fallbackTerminal) state.openNote = '워커 에이전트를 못 찾아 워크트리의 첫 터미널로 옮겼어요. 워커 터미널이 아닐 수 있어요.'
+    else if (out.fallbackTerminal)
+      state.openNote = ['워커 에이전트의 터미널을 못 찾아 워크트리의 첫 터미널로 옮겼어요. 워커 터미널이 아닐 수 있어요.', out.fallbackReason]
+        .filter(Boolean)
+        .join(' ')
     else if (out.worktreeOnly) state.openNote = out.error ?? '워크트리만 열었어요.'
   } catch (e) {
     state.openError = errorText(e)
@@ -208,19 +213,19 @@ export function mountTerminal(): void {
     pruneOpen()
     render()
   })
+  // 숨은 동안 놓친 conductor.changed가 있을 수 있어 보이면 상태를 다시 받는다
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return
-    syncPoll()
+    void load()
     if (state.open.size > 0) void readOpen()
-    else render()
   })
   window.addEventListener('pagehide', stopTimers)
   // 뒤로 가기 캐시에서 돌아오면 pagehide가 멈춘 타이머를 다시 건다
   window.addEventListener('pageshow', (e) => {
     if (!e.persisted) return
     startClock()
-    syncPoll()
-    void readOpen()
+    void load()
+    if (state.open.size > 0) void readOpen()
   })
   startClock()
   render()

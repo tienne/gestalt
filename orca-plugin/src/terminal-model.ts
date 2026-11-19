@@ -103,10 +103,7 @@ export function eventText(e: EventView): string {
 export type StateTone = 'run' | 'wait' | 'gate' | 'limit' | 'idle'
 export type StateLine = { tone: StateTone; text: string; aside: string }
 
-/**
- * 상태줄. 한도, 열린 게이트, 워커 대기, 그 밖 순으로 하나만 고른다.
- * showFreeText는 orderWaitText로 넘긴다
- */
+/** 상태줄. 한도, 열린 게이트, 워커 대기, 그 밖 순으로 하나만 고른다 */
 export function stateLine(o: OrderView, gates: readonly GateView[], now: number, showFreeText = true): StateLine {
   if (o.rateLimitedAt) {
     const until = clock(o.rateLimitResetsAt)

@@ -70,9 +70,9 @@ function liveBlock(o: Card['order'], live: WorkerLive | 'loading' | undefined, n
       ? `<pre class="tail" data-tail="${esc(o.id)}">${esc(live.lines.join('\n'))}</pre>`
       : live.terminalId && !live.error && div('muted', '터미널 출력이 아직 없어요.'),
     live.noWorkerTerminal &&
-      div('muted', '워커 에이전트의 터미널을 못 찾아 출력은 안 보여 줘요. 이동하면 워크트리의 첫 터미널을 열어요.'),
+      div('muted', '워커 에이전트의 터미널을 못 찾아 출력은 안 보여 줘요. 이동하면 워크트리의 첫 터미널로 가고 터미널이 없으면 워크트리만 열어요.'),
     live.error && div('muted', esc(live.error)),
-    `<button class="go" data-go="${esc(o.id)}" data-focus="${esc(`go:${o.id}`)}">${live.terminalId ? '터미널로 이동' : '워크트리로 이동'}</button>`
+    `<button class="go" data-go="${esc(o.id)}" data-focus="${esc(`go:${o.id}`)}">터미널로 이동</button>`
   )
 }
 
