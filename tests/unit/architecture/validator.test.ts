@@ -578,3 +578,46 @@ describe('에러 코드 배열', () => {
     );
   });
 });
+
+describe('옮겨진 근거 파일의 movedTo 후보', () => {
+  const movedEv: Evidence = {
+    type: 'code',
+    location: 'web:src/old-home.tsx:2',
+    visibility: 'public',
+  };
+
+  function notFound(opts: Parameters<typeof validateArchitectureIr>[1]) {
+    const result = validateArchitectureIr(makeIr([node('a', [movedEv])]), opts);
+    expect(result.ok).toBe(false);
+    return result.ok ? undefined : result.errors.find((e) => e.code === 'CODE_EVIDENCE_NOT_FOUND');
+  }
+
+  it('findMoved가 지금 있는 파일을 돌려주면 위치 후보를 싣는다', () => {
+    const calls: string[] = [];
+    const error = notFound({
+      findMoved: (repoId, _root, relPath) => {
+        calls.push(`${repoId}:${relPath}`);
+        return ['src/home.tsx'];
+      },
+    });
+    expect(calls).toEqual(['web:src/old-home.tsx']);
+    expect(error?.movedTo).toEqual(['web:src/home.tsx:2']);
+    expect(error?.message).toContain('web:src/home.tsx:2');
+  });
+
+  it('후보 파일이 지금도 없으면 버린다', () => {
+    const error = notFound({ findMoved: () => ['src/also-gone.tsx'] });
+    expect(error?.movedTo).toBeUndefined();
+  });
+
+  it('findMoved가 없거나 던지면 예전처럼 에러만 낸다', () => {
+    expect(notFound({})?.movedTo).toBeUndefined();
+    const error = notFound({
+      findMoved: () => {
+        throw new Error('git 없음');
+      },
+    });
+    expect(error?.code).toBe('CODE_EVIDENCE_NOT_FOUND');
+    expect(error?.movedTo).toBeUndefined();
+  });
+});

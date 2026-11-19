@@ -237,13 +237,20 @@ export interface ValidateArchitectureIrOptions {
   repoRoots?: Record<string, string>;
   /** 기본 true. false면 code 근거의 파일 존재와 줄 범위를 확인하지 않는다 */
   checkFiles?: boolean;
+  /**
+   * 근거 파일이 없을 때 git에서 옮겨 간 경로를 찾는다. 레포 루트 기준 상대 경로 목록을 돌려준다.
+   * validator는 git을 직접 부르지 않는다. 호출하는 쪽(MCP 도구)이 git 기반 구현을 넣는다
+   */
+  findMoved?: FindMovedFile;
 }
+
+export type FindMovedFile = (repoId: string, root: string, relPath: string) => readonly string[];
 
 export type ValidateArchitectureIrResult =
   | { ok: true; value: ValidatedIr }
   | { ok: false; errors: ArchitectureValidationError[] };
 
-const CODE_LOCATION_RE = /^([^:]+):(.+):(\d+)$/;
+export const CODE_LOCATION_RE = /^([^:]+):(.+):(\d+)$/;
 /** AWS 계정 ID 꼴(숫자 12자리). 앞뒤가 숫자면 더 긴 수의 일부라 계정 ID로 보지 않는다 */
 export const ACCOUNT_ID_RE = /(?<!\d)\d{12}(?!\d)/g;
 // CloudFront 배포 ID 꼴. 대문자 id나 이름과 헷갈릴 수 있어 이름은 cdn 노드에서만, 질문 글자는 통째로 가린다
@@ -258,6 +265,8 @@ export function deriveLineStyle(evidence: Evidence[]): LineStyle {
 interface CodeLocationVerdict {
   /** 파일이나 줄 범위가 틀렸다. 오류로 낸다 */
   problem?: string;
+  /** 파일이 없을 때 옮겨 간 자리로 고쳐 쓴 위치 후보(<repo>:<새 경로>:<줄>) */
+  movedTo?: string[];
   /** excerpt가 그 줄과 다르다. 경고로 낸다 */
   mismatch?: { message: string; candidates: number[] };
 }
@@ -268,6 +277,7 @@ function checkCodeLocation(
   excerpt: string | undefined,
   repoRoots: Record<string, string>,
   cache: SourceFileCache,
+  findMoved?: FindMovedFile,
 ): CodeLocationVerdict {
   const match = CODE_LOCATION_RE.exec(location);
   if (!match) {
@@ -291,8 +301,12 @@ function checkCodeLocation(
   }
   const check = checkLineExcerpt(readSourceLines(resolved.abs, cache), line, excerpt);
   switch (check.status) {
-    case 'missing_file':
-      return { problem: `code 근거 위치 "${location}"의 파일이 레포 "${repoId}"에 없다.` };
+    case 'missing_file': {
+      const problem = `code 근거 위치 "${location}"의 파일이 레포 "${repoId}"에 없다.`;
+      const movedTo = movedLocations(repoId, root, relPath, line, cache, findMoved);
+      if (movedTo.length === 0) return { problem };
+      return { problem: `${problem} git에서 ${movedTo.join(', ')}(으)로 옮겨진 것 같다.`, movedTo };
+    }
     case 'out_of_range':
       return {
         problem: `code 근거 위치 "${location}"의 줄 번호 ${line}이 파일 범위(1~${check.lineCount}) 밖이다.`,
@@ -316,6 +330,33 @@ function checkCodeLocation(
   }
 }
 
+/** 옮겨 간 후보 중 지금 실제로 있는 파일만 남긴다. 줄 번호는 그대로 두고 세션이 excerpt로 다시 맞춘다 */
+function movedLocations(
+  repoId: string,
+  root: string,
+  relPath: string,
+  line: number,
+  cache: SourceFileCache,
+  findMoved: FindMovedFile | undefined,
+): string[] {
+  if (!findMoved) return [];
+  let candidates: readonly string[];
+  try {
+    candidates = findMoved(repoId, root, relPath);
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const candidate of candidates) {
+    if (candidate === relPath) continue;
+    const resolved = resolveInsideRoot(root, candidate);
+    if (!resolved.ok || readSourceLines(resolved.abs, cache) === null) continue;
+    const location = `${repoId}:${candidate}:${line}`;
+    if (!out.includes(location)) out.push(location);
+  }
+  return out;
+}
+
 function checkEvidenceList(
   evidence: Evidence[],
   owner:
@@ -330,6 +371,7 @@ function checkEvidenceList(
     repoRoots: Record<string, string>;
     cache: SourceFileCache;
     warnings: ExcerptMismatchWarning[];
+    findMoved?: FindMovedFile;
   },
   errors: ArchitectureValidationError[],
 ): void {
@@ -362,6 +404,7 @@ function checkEvidenceList(
         ev.visibility === 'public' ? ev.excerpt : undefined,
         ctx.repoRoots,
         ctx.cache,
+        ctx.findMoved,
       );
       if (verdict.problem) {
         errors.push({
@@ -369,6 +412,7 @@ function checkEvidenceList(
           message: verdict.problem,
           ...owner,
           evidenceIndex,
+          ...(verdict.movedTo ? { movedTo: verdict.movedTo } : {}),
         });
       } else if (verdict.mismatch) {
         ctx.warnings.push({
@@ -1680,6 +1724,7 @@ export function validateArchitectureIr(
     repoRoots,
     cache: new Map<string, string[] | null>(),
     warnings: excerptWarnings,
+    ...(opts.findMoved ? { findMoved: opts.findMoved } : {}),
   };
   const errors: ArchitectureValidationError[] = [];
   const nodeIds = new Set(ir.nodes.map((n) => n.id));

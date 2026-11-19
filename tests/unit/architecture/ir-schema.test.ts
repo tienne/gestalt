@@ -353,6 +353,42 @@ describe('인프라 배치 필드 (provider, region, exposure, placedIn, engine)
   });
 });
 
+describe('repos[].head (렌더 시점 커밋)', () => {
+  const withHead = (head: unknown): Record<string, unknown> => {
+    const ir = minimalIr();
+    (ir.repos as Array<Record<string, unknown>>)[0]!.head = head;
+    return ir;
+  };
+
+  it('없어도 통과한다 (예전 IR)', () => {
+    expect(parseArchitectureIr(minimalIr()).ok).toBe(true);
+  });
+
+  it('16진수 7~64자를 받는다', () => {
+    expect(parseArchitectureIr(withHead('a1b2c3d')).ok).toBe(true);
+    expect(parseArchitectureIr(withHead('0'.repeat(40))).ok).toBe(true);
+    expect(parseArchitectureIr(withHead('0'.repeat(64))).ok).toBe(true);
+  });
+
+  it('16진수가 아니거나 길이가 맞지 않으면 거부한다', () => {
+    expect(parseArchitectureIr(withHead('HEAD')).ok).toBe(false);
+    expect(parseArchitectureIr(withHead('abc')).ok).toBe(false);
+    expect(parseArchitectureIr(withHead('g'.repeat(40))).ok).toBe(false);
+  });
+
+  it('JSON 스키마에도 같은 패턴의 선택 칸으로 있다', () => {
+    const schema = JSON.parse(
+      readFileSync(resolve(__dirname, '../../../schemas/architecture-ir.schema.json'), 'utf-8'),
+    ) as {
+      definitions: {
+        repo: { required: string[]; properties: Record<string, { pattern?: string }> };
+      };
+    };
+    expect(schema.definitions.repo.properties.head?.pattern).toBe('^[0-9a-f]{7,64}$');
+    expect(schema.definitions.repo.required).not.toContain('head');
+  });
+});
+
 describe('findUnknownFields (입력 오타 칸)', () => {
   it('스키마에 맞는 IR은 빈 목록', () => {
     expect(findUnknownFields(minimalIr())).toEqual([]);

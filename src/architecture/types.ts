@@ -387,6 +387,8 @@ export interface ArchitectureRepo {
    */
   root?: string;
   remote?: string;
+  /** render가 저장할 때 적는 그 시점 커밋. 다음 status가 지금 HEAD와 비교해 낡은 근거를 찾는다 */
+  head?: string;
 }
 
 /**

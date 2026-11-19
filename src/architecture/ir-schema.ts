@@ -335,6 +335,11 @@ const repoSchema = z.object({
   name: z.string().min(1),
   root: z.string().min(1).optional(),
   remote: z.string().optional(),
+  /** render가 저장 IR에만 채우는 렌더 시점 커밋. status가 이걸 현재 HEAD와 비교한다 */
+  head: z
+    .string()
+    .regex(/^[0-9a-f]{7,64}$/)
+    .optional(),
 });
 
 const groupSchema = z.object({
