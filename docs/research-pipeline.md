@@ -104,7 +104,7 @@ market-scan ──▶ screen-ref ──┬──▶ ux-research
 
 1. 레퍼런스 DB. 국내는 유아이볼, 해외는 Mobbin
 2. 웹 서비스를 브라우저로 직접 캡처
-3. Android 에뮬레이터와 Maestro
+3. Android 에뮬레이터와 Maestro, 즉석 탐색이면 mobile-mcp
 4. iOS 27 이상 실기기면 iph, 그 아래 버전이면 실기기와 mobile-mcp, 또는 iPhone 미러링
 5. 공개 영상과 스토어 스크린샷
 6. 확인 못함으로 적고 0번 전제에 한계로 남기기
