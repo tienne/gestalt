@@ -212,7 +212,7 @@ MCP로 쓰는 출처는 응답에 `mcpServer`가 붙는다. 그 출처의 도구
 
 1. 레퍼런스 DB. 국내는 유아이볼, 해외는 Mobbin. MCP가 있으면 MCP를, 없으면 로그인된 브라우저를 쓴다.
 2. 웹 서비스. 브라우저로 직접 캡처한다.
-3. 모바일 앱. [`device`](../device/SKILL.md) 스킬을 `purpose: research`로 부른다. 도구 고르기와 셋업, 조작은 그 스킬이 맡는다. 셋업을 못 하거나 사용자가 설치를 거절하면 4번으로 내려간다. device가 돌려준 `screenshots`는 임시 폴더의 원본 경로다. 열지 말고 그 경로를 아래 `redact_image`에 넘겨 치환본만 본다. 치환을 마치면 device가 그 임시 폴더를 지운다. 조작 중에 읽는 접근성 트리는 이동과 화면 지도 `entryPath`에만 쓰고 그 밖의 결과물에는 옮기지 않는다. `entryPath`에는 device가 돌려준 `navPath`를 적는다.
+3. 모바일 앱. [`device`](../device/SKILL.md) 스킬을 `purpose: research`로 부른다. 도구 고르기와 셋업, 조작은 그 스킬이 맡는다. 셋업을 못 하거나 사용자가 설치를 거절하면 4번으로 내려간다. device가 돌려준 `screenshots`는 임시 폴더의 원본 경로다. 열지 말고 그 경로를 아래 `redact_image`에 넘겨 치환본만 본다. 마지막 `redact_image`가 끝나면 device가 돌려준 `rawDir`를 `rm -rf`로 지운다. 스크린샷이 하나도 없어도, `pii`가 `unchecked`여도 지운다. 조작 중에 읽는 접근성 트리는 이동과 화면 지도 `entryPath`에만 쓰고 그 밖의 결과물에는 옮기지 않는다. `entryPath`에는 device가 돌려준 `navPath`를 적는다.
 4. 공개 영상과 스토어 스크린샷.
 5. 확인 못함. 0번 전제에 한계로 적는다.
 
@@ -244,7 +244,7 @@ ges_research { action: "redact_script", slug: "<slug>", observe: true }
 ges_research { action: "redact_image", slug: "<slug>", imagePath: "<캡처 경로>", captureId: "<id>" }
 ```
 
-결과는 `captures/<id>.<확장자>`로 저장된다. 원본은 기본으로 지우지 않고 경고만 한다. 사용자가 원하면 `deleteSource: true`로 치환 뒤 지운다. device가 임시 폴더에 찍은 원본은 이 옵션과 상관없이 device가 끝낼 때 폴더째 지운다.
+결과는 `captures/<id>.<확장자>`로 저장된다. 원본은 기본으로 지우지 않고 경고만 한다. 사용자가 원하면 `deleteSource: true`로 치환 뒤 지운다. device가 임시 폴더에 찍은 원본은 이 옵션과 상관없이 research가 `rawDir`째 지운다.
 
 캡처마다 `pii` 상태를 `research.json`에 적는다.
 
