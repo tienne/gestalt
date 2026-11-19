@@ -1047,6 +1047,36 @@ describe('컨덕터 tick', () => {
     },
   );
 
+  it('다른 워커가 슬롯을 모두 써도 앞 워커의 release 재시도와 기한 판정은 계속한다', async () => {
+    const { store, advance } = clockedStore();
+    store.addOrder(order({ id: 'ord-1', status: 'queued', workerId: 'wrk-1' }));
+    store.addOrder(order({ id: 'ord-2', createdAt: '2026-11-01T00:00:01.000Z' }));
+    store.startWorker(worker('ord-1', { id: 'wrk-1', kind: 'orca-worktree', status: 'stopped' }));
+    const orca = fakeLauncher('orca-worktree');
+    let attempts = 0;
+    orca.launcher.release = async () => {
+      attempts++;
+      throw new OrcaReleaseLiveError('liveness live');
+    };
+    const { deps: d } = deps({
+      config: { ...config, maxConcurrentWorkers: 1, orcaReleaseRetryMaxSec: 2 },
+      launchers: { 'orca-worktree': orca.launcher },
+      orcaAvailable: true,
+    });
+
+    const first = await tick(store, d, { force: true });
+    expect(first.launched).toEqual([expect.objectContaining({ orderId: 'ord-2' })]);
+    advance(1000);
+    expect((await tick(store, d, { force: true })).escalated).toEqual([]);
+    expect(attempts).toBe(2);
+    advance(1000);
+    const expired = await tick(store, d, { force: true });
+    expect(attempts).toBe(3);
+    expect(expired.escalated).toHaveLength(1);
+    expect(expired.launched).toEqual([]);
+    expect(store.order('ord-1')?.status).toBe('escalated');
+  });
+
   it('앞 워커의 release만 대기하는 주문은 다른 주문의 배정을 막지 않는다', async () => {
     const { store } = clockedStore();
     store.addOrder(order({ id: 'ord-1', status: 'queued', workerId: 'wrk-1' }));

@@ -47,7 +47,6 @@ import {
   rateLimitedWorkers,
   resumeLaunchFor,
   wakeFromRateLimit,
-  type ResumeLaunch,
   type ShipReader,
 } from './resume.js';
 import type { ConductorConfig } from './scheduler.js';
@@ -859,10 +858,19 @@ async function launchQueued(
   deps: EngineDeps,
   report: TickReport,
 ): Promise<void> {
+  // 이미 기다리기 시작한 release의 기한은 새 워커를 띄울 자리가 없어도 확인한다.
+  const retried = new Map<string, Awaited<ReturnType<typeof retirePrevious>>>();
+  for (const order of store.queuedOrders()) {
+    const previous = order.workerId ? store.worker(order.workerId) : undefined;
+    if (previous?.status !== 'stopped' || !previous.releaseRefusedAt) continue;
+    retried.set(order.id, await retirePrevious(store, deps, report, order, previous));
+  }
+
   const plan = planSlots(store, deps.config.maxConcurrentWorkers);
   let remaining = plan.free;
   for (const order of [...plan.toStart, ...plan.waiting]) {
     if (remaining === 0) break;
+    if (retried.get(order.id) === 'deferred') continue;
     remaining--;
     const account = await ensureAccount(store, order, deps.config.accounts, deps.accounts);
     if (!account.ok) continue;
@@ -880,8 +888,8 @@ async function launchQueued(
     }
 
     const resume = resumeLaunchFor(store, order, deps.readShip);
-    if (resume) {
-      const retirement = await retirePrevious(store, deps, report, order, resume);
+    if (resume && !retried.has(order.id)) {
+      const retirement = await retirePrevious(store, deps, report, order, resume.previous);
       if (retirement === 'deferred') remaining++;
       if (retirement !== 'released') continue;
     }
@@ -960,9 +968,8 @@ async function retirePrevious(
   deps: EngineDeps,
   report: TickReport,
   order: Order,
-  resume: ResumeLaunch,
+  previous: Worker,
 ): Promise<'released' | 'deferred' | 'escalated'> {
-  const { previous } = resume;
   if (previous.kind !== 'orca-worktree') return 'released';
   const launcher = deps.launchers['orca-worktree'];
   try {
