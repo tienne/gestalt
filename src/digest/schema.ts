@@ -170,12 +170,23 @@ export const transcriptSchema = z
     });
   });
 
+const comparisonEvidenceSchema = z.object({ cite: citeSchema, quote: textSchema.optional() });
+
+const comparisonSchema = z.object({
+  note: textSchema,
+  video: comparisonEvidenceSchema,
+  slides: comparisonEvidenceSchema,
+});
+
+export type SlideComparison = z.infer<typeof comparisonSchema>;
+
 export interface Bullet {
   text: string;
   cite: z.infer<typeof citeSchema>;
   children?: Bullet[];
   /** 읽기 렌즈의 의심 표시. 이 불릿의 주장과 원문 표나 다른 문단이 어긋나는 자리다 */
   doubt?: Doubt;
+  comparison?: SlideComparison;
 }
 
 // 3단 이상은 스키마가 아니라 lint가 잡는다. 어느 불릿이 깊은지 경로로 알려주려고
@@ -185,6 +196,7 @@ export const bulletSchema: z.ZodType<Bullet> = z.lazy(() =>
     cite: citeSchema,
     children: z.array(bulletSchema).optional(),
     doubt: doubtSchema.optional(),
+    comparison: comparisonSchema.optional(),
   }),
 );
 

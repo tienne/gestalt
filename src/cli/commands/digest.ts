@@ -1,3 +1,4 @@
+import { readSlideContext } from '../../digest/slides.js';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadConfig } from '../../core/config.js';
@@ -21,6 +22,7 @@ import {
   templateMap,
   type TemplateLoad,
 } from '../../digest/templates.js';
+import { ingestDigestSlides } from '../../lens/digest-slides.js';
 import { applyTranslation } from '../../digest/translate.js';
 
 /**
@@ -66,6 +68,7 @@ export async function digestIngestCommand(
     whisperModel?: string;
     ocr?: boolean;
     ocrInterval?: string;
+    slides?: string;
   },
 ): Promise<void> {
   try {
@@ -78,6 +81,9 @@ export async function digestIngestCommand(
       whisper: opts.whisper,
       whisperModel: opts.whisperModel,
     });
+    const slides = opts.slides
+      ? await ingestDigestSlides(opts.slides, r.slug, { repoRoot: rootOf(opts) })
+      : undefined;
     // OCR이 실패해도 수집 결과는 남아 있어서 slug와 경로를 출력하고 종료 코드로만 알린다
     let ocr: OcrResult | { error: string } | undefined;
     if (opts.ocr) {
@@ -88,7 +94,7 @@ export async function digestIngestCommand(
         process.exitCode = 1;
       }
     }
-    emit(ocr ? { ...r, ocr } : r, opts.json, () => {
+    emit({ ...r, ...(ocr && { ocr }), ...(slides && { slides }) }, opts.json, () => {
       console.log(`${r.title} (${mmss(r.durationSec)})`);
       console.log(`자막: ${r.captionSource} [${r.captionTrack}] → 문장 ${r.segmentCount}개`);
       console.log(`slug: ${r.slug}`);
@@ -98,6 +104,13 @@ export async function digestIngestCommand(
         console.log(
           `문장 번호가 바뀌어 기존 요약을 옮겼어요(문장 ${before}개 → ${r.segmentCount}개): ${r.staleDigest.movedTo}`,
         );
+      }
+      if (slides?.status === 'failed') console.error(`슬라이드 PDF 수집 실패: ${slides.error}`);
+      if (slides?.status === 'ok') {
+        console.log(`슬라이드 출처: ${slides.source}`);
+        console.log(`슬라이드 텍스트: ${slides.transcriptPath}`);
+        console.log(`슬라이드 원문 정보: ${slides.sourcePath}`);
+        for (const warning of slides.warnings) console.error(`슬라이드 경고: ${warning}`);
       }
       if (ocr && 'error' in ocr) console.log(`화면 글자를 못 읽었어요: ${ocr.error}`);
       else if (ocr) printOcr(ocr);
@@ -228,6 +241,7 @@ export function digestValidateCommand(slug: string, opts: DigestCommonOptions): 
       comments: commentsMap(store, slug) ?? undefined,
       scenes: sceneSecs(store, slug),
       ...lensSourceForLint(store, slug),
+      ...readSlideContext(store, slug),
       knowledge: knowledgeContext(store, slug),
     });
     const errors = lintErrors(issues);
