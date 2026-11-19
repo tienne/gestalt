@@ -143,8 +143,8 @@ export type WorkerLive = {
   found: boolean
   agent?: { kind: string | null; title: string | null; state: AgentState; since: number; task: string | null }
   terminalId?: string
-  /** 워커 에이전트를 못 찾아 워크트리의 첫 터미널을 골랐다. 워커 터미널이 아닐 수 있다 */
-  fallbackTerminal?: true
+  /** 워커 에이전트의 터미널을 못 찾았다. 다른 터미널을 워커 것처럼 보여 주지 않으려고 출력은 안 읽는다 */
+  noWorkerTerminal?: true
   /** 워커 터미널의 마지막 줄들. 오래된 줄부터 */
   lines?: string[]
   /** 일부를 못 읽었으면 그 이유 */
@@ -153,7 +153,9 @@ export type WorkerLive = {
 
 export type WorkerOpenResult = {
   opened: boolean
-  /** 워커 터미널로는 못 가고 워크트리만 열었다. error에 이유가 있다 */
+  /** 워커 에이전트를 못 찾아 워크트리의 첫 터미널로 갔다. 워커 터미널이 아닐 수 있다 */
+  fallbackTerminal?: true
+  /** 터미널로는 못 가고 워크트리만 열었다. error에 이유까지 담은 문장이 있다 */
   worktreeOnly?: true
   error?: string
 }

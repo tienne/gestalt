@@ -71,16 +71,17 @@ export function tailLines(lines: readonly string[]): string[] {
 }
 
 /**
- * 워크트리에서 워커 에이전트가 도는 터미널을 고른다. agent:read를 아직 승인하지 않았거나
- * 에이전트를 못 찾으면 워크트리의 첫 터미널을 고르고 fallback을 켠다
+ * 워크트리에서 워커 에이전트가 도는 터미널을 고른다. firstTerminal을 켜면 에이전트 터미널을 못 찾았을 때
+ * 워크트리의 첫 터미널을 고르고 fallback을 켠다. 첫 터미널도 못 고르면 fallback은 꺼진 채 이유를 errors에 남긴다
  */
 export async function workerTerminal(
   host: Pick<OrcaWorkerApi['host'], 'has' | 'call'>,
-  workspaceId: string
+  workspaceId: string,
+  opts: { firstTerminal?: boolean } = {}
 ): Promise<{ agent?: AgentRow; terminalId?: string; fallback: boolean; errors: string[] }> {
   const errors: string[] = []
   let agent: AgentRow | undefined
-  if (!host.has('agents.list')) errors.push('이 오르카는 에이전트 상태 읽기를 지원하지 않아요.')
+  if (!host.has('agents.list')) errors.push('이 오르카는 에이전트 상태를 읽는 기능을 지원하지 않아요.')
   else {
     try {
       agent = pickAgent((await host.call('agents.list', { workspaceId })).agents)
@@ -88,17 +89,20 @@ export async function workerTerminal(
       errors.push(`에이전트 상태를 못 읽었어요. ${message(e)}`)
     }
   }
-  let terminalId = agent?.terminalId ?? undefined
-  const fallback = !terminalId
-  if (fallback && !host.has('terminal.list')) errors.push('이 오르카는 터미널 목록 읽기를 지원하지 않아요.')
-  else if (fallback) {
+  const agentTerminal = agent?.terminalId ?? undefined
+  const base = { ...(agent ? { agent } : {}), errors }
+  if (agentTerminal) return { ...base, terminalId: agentTerminal, fallback: false }
+  if (!opts.firstTerminal) return { ...base, fallback: false }
+  let terminalId: string | undefined
+  if (!host.has('terminal.list')) errors.push('이 오르카는 터미널 목록을 읽는 기능을 지원하지 않아요.')
+  else {
     try {
       terminalId = (await host.call('terminal.list', { workspaceId })).terminals[0]?.id
     } catch (e) {
       errors.push(`터미널 목록을 못 읽었어요. ${message(e)}`)
     }
   }
-  return { ...(agent ? { agent } : {}), ...(terminalId ? { terminalId } : {}), fallback: fallback && Boolean(terminalId), errors }
+  return terminalId ? { ...base, terminalId, fallback: true } : { ...base, fallback: false }
 }
 
 /** CLI가 stateDir을 안 알려 주는 옛 버전일 때만 쓴다. 설정 파일의 stateDir은 못 읽는다 */
@@ -433,20 +437,21 @@ class Conductor {
   async openWorker(orderId: string): Promise<WorkerOpenResult> {
     const ws = await this.workspaceOf(orderId)
     if ('error' in ws) return { opened: false, error: ws.error }
-    let missed = '이 오르카는 터미널 이동을 지원하지 않아요.'
+    let missed = '이 오르카는 터미널로 옮기는 기능을 지원하지 않아요.'
     if (this.orca.host.has('terminal.focus')) {
-      const { terminalId, errors } = await workerTerminal(this.orca.host, ws.workspaceId)
+      const { terminalId, fallback, errors } = await workerTerminal(this.orca.host, ws.workspaceId, { firstTerminal: true })
       missed = errors.join(' ') || '워커 터미널을 못 찾았어요.'
       try {
-        if (terminalId && (await this.orca.host.call('terminal.focus', { terminalId })).focused) return { opened: true }
-        if (terminalId) missed = '터미널로 못 옮겨 갔어요.'
+        if (terminalId && (await this.orca.host.call('terminal.focus', { terminalId })).focused)
+          return fallback ? { opened: true, fallbackTerminal: true } : { opened: true }
+        if (terminalId) missed = [...errors, '터미널로 못 옮겨 갔어요.'].join(' ')
       } catch (e) {
-        missed = `터미널로 못 옮겨 갔어요. ${message(e)}`
+        missed = [...errors, `터미널로 못 옮겨 갔어요. ${message(e)}`].join(' ')
       }
     }
     try {
       await this.orca.host.call('workspace.open', { workspaceId: ws.workspaceId })
-      return { opened: true, worktreeOnly: true, error: missed }
+      return { opened: true, worktreeOnly: true, error: `${missed} 워크트리만 열었어요.` }
     } catch (e) {
       return { opened: false, error: message(e) }
     }
@@ -455,14 +460,15 @@ class Conductor {
   async workerDetail(orderId: string): Promise<WorkerLive> {
     const ws = await this.workspaceOf(orderId)
     if ('error' in ws) return { found: false, error: ws.error }
-    const { agent, terminalId, fallback, errors } = await workerTerminal(this.orca.host, ws.workspaceId)
+    // 첫 터미널로 물러나지 않는다. 다른 일을 하는 터미널의 출력을 워커 출력처럼 보여 주게 된다
+    const { agent, terminalId, errors } = await workerTerminal(this.orca.host, ws.workspaceId)
     const out: WorkerLive = { found: true }
-    if (fallback) out.fallbackTerminal = true
     if (agent)
       out.agent = { kind: agent.agent, title: agent.title, state: agent.state, since: agent.stateStartedAt, task: agent.task?.title ?? null }
-    if (terminalId) {
+    if (!terminalId) out.noWorkerTerminal = true
+    else {
       out.terminalId = terminalId
-      if (!this.orca.host.has('terminal.read')) errors.push('이 오르카는 터미널 출력 읽기를 지원하지 않아요.')
+      if (!this.orca.host.has('terminal.read')) errors.push('이 오르카는 터미널 출력을 읽는 기능을 지원하지 않아요.')
       else {
         try {
           out.lines = tailLines((await this.orca.host.call('terminal.read', { terminalId, maxLines: TAIL_READ })).lines)

@@ -138,17 +138,19 @@ test('모르는 이벤트 유형은 Object 원형에서 클래스나 이름을 �
   has(html, '<span>constructor</span>')
 })
 
-test('워커 에이전트를 못 찾아 고른 터미널과 워크트리만 연 이동은 따로 알린다', () => {
+test('워커 에이전트 터미널을 못 찾은 상세는 출력 대신 안내를 싣고 이동 안내는 따로 띄운다', () => {
   const html = terminalMarkup(view([order('ord-a', { workspaceId: 'ws-1' })]), {
     now: NOW,
     interactive: true,
     private: true,
-    openNote: '터미널을 못 찾아 워크트리만 열었어요.',
+    openNote: '워크트리만 열었어요.',
     open: new Set(['ord-a']),
-    live: { 'ord-a': { found: true, terminalId: 't-1', fallbackTerminal: true, lines: ['$ ls'] } }
+    live: { 'ord-a': { found: true, noWorkerTerminal: true } }
   })
-  has(html, '워크트리의 첫 터미널을 보여 줘요')
-  has(html, '<div class="alert">터미널을 못 찾아 워크트리만 열었어요.</div>')
+  has(html, '터미널을 못 찾아 출력은 안 보여 줘요')
+  has(html, '>워크트리로 이동</button>')
+  lacks(html, 'class="tail"')
+  has(html, '<div class="alert">워크트리만 열었어요.</div>')
   lacks(html, '워크트리를 못 열었어요')
 })
 

@@ -388,7 +388,7 @@ test('agent:read를 승인하지 않았으면 워크트리 첫 터미널로 가�
     assert.deepEqual(await worker.request('worker.open', { orderId: 'ord-a' }), {
       opened: true,
       worktreeOnly: true,
-      error: '터미널로 못 옮겨 갔어요.'
+      error: '에이전트 상태를 못 읽었어요. agents.list needs the agent:read capability 터미널로 못 옮겨 갔어요. 워크트리만 열었어요.'
     })
     assert.deepEqual(h.callsOf('terminal.focus'), [{ terminalId: 'term-1' }])
     assert.deepEqual(h.callsOf('workspace.open'), [{ workspaceId: 'ws-a' }])
@@ -473,16 +473,22 @@ function oldHost(methods: string[], results: Record<string, unknown>) {
 
 test('workerTerminal은 옛 오르카에 없는 기능을 이유로 남기고 부르지 않는다', async () => {
   const none = oldHost([], {})
-  assert.deepEqual(await main.workerTerminal(none.host, 'ws-a'), {
+  assert.deepEqual(await main.workerTerminal(none.host, 'ws-a', { firstTerminal: true }), {
     fallback: false,
-    errors: ['이 오르카는 에이전트 상태 읽기를 지원하지 않아요.', '이 오르카는 터미널 목록 읽기를 지원하지 않아요.']
+    errors: ['이 오르카는 에이전트 상태를 읽는 기능을 지원하지 않아요.', '이 오르카는 터미널 목록을 읽는 기능을 지원하지 않아요.']
   })
   assert.deepEqual(none.calls, [])
 
   const listOnly = oldHost(['terminal.list'], { 'terminal.list': { terminals: [{ id: 'term-1' }] } })
-  const out = await main.workerTerminal(listOnly.host, 'ws-a')
+  const out = await main.workerTerminal(listOnly.host, 'ws-a', { firstTerminal: true })
   assert.equal(out.terminalId, 'term-1')
   assert.equal(out.fallback, true, '에이전트 없이 고른 첫 터미널은 fallback으로 표시한다')
+})
+
+test('workerTerminal은 firstTerminal 없이는 첫 터미널로 물러나지 않는다', async () => {
+  const h = oldHost(['agents.list', 'terminal.list'], { 'agents.list': { agents: [] }, 'terminal.list': { terminals: [{ id: 'term-1' }] } })
+  assert.deepEqual(await main.workerTerminal(h.host, 'ws-a'), { fallback: false, errors: [] })
+  assert.deepEqual(h.calls, ['agents.list'])
 })
 
 test('workerTerminal은 에이전트 터미널을 찾으면 터미널 목록을 안 읽는다', async () => {
@@ -511,7 +517,7 @@ test('worker.open은 terminal.focus가 실패하면 그 이유를 싣고 워크�
   })
 })
 
-test('worker.detail은 에이전트 없이 고른 터미널을 fallbackTerminal로 알린다', async () => {
+test('worker.detail은 워커 에이전트 터미널을 못 찾으면 다른 터미널의 출력을 안 읽는다', async () => {
   const s = store(STATUS)
   const h = liveHost(s.dir, {
     'agents.list': { agents: [] },
@@ -521,9 +527,23 @@ test('worker.detail은 에이전트 없이 고른 터미널을 fallbackTerminal�
   await run(s, h, async (worker) => {
     await worker.request('conductor.refresh')
     const live = await worker.request('worker.detail', { orderId: 'ord-a' })
-    assert.equal(live.terminalId, 'term-1')
-    assert.equal(live.fallbackTerminal, true)
-    assert.deepEqual(live.lines, ['$ ls'])
+    assert.deepEqual(live, { found: true, noWorkerTerminal: true })
+    assert.deepEqual(h.callsOf('terminal.list'), [])
+    assert.deepEqual(h.callsOf('terminal.read'), [])
+  })
+})
+
+test('worker.open은 워커 에이전트가 없으면 첫 터미널로 가고 fallbackTerminal로 알린다', async () => {
+  const s = store(STATUS)
+  const h = liveHost(s.dir, {
+    'agents.list': { agents: [] },
+    'terminal.list': { terminals: [{ id: 'term-1' }], truncated: false },
+    'terminal.focus': { focused: true }
+  })
+  await run(s, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    assert.deepEqual(await worker.request('worker.open', { orderId: 'ord-a' }), { opened: true, fallbackTerminal: true })
+    assert.deepEqual(h.callsOf('terminal.focus'), [{ terminalId: 'term-1' }])
   })
 })
 

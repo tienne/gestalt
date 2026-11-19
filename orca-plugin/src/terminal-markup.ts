@@ -4,7 +4,7 @@
 import { esc } from './html'
 import { ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
 import type { AgentState, ConductorView, EventView, WorkerLive } from './protocol'
-import { clock, duration, eventText, gateLabel, lookup, terminalModel, waitText, type Card, type TerminalModel } from './terminal-model'
+import { clock, duration, eventText, gateLabel, lookup, orderWaitText, terminalModel, type Card, type TerminalModel } from './terminal-model'
 
 export type TerminalMarkupOptions = {
   now: number
@@ -14,7 +14,7 @@ export type TerminalMarkupOptions = {
   private: boolean
   loadError?: string | null
   openError?: string | null
-  /** 이동은 했지만 워커 터미널이 아니라 워크트리만 열었을 때의 안내 */
+  /** 이동은 했지만 워커 터미널이 아닌 곳으로 갔을 때의 안내. 워커가 이유까지 담아 지은 문장이다 */
   openNote?: string | null
   /** 상세를 펼쳐 둔 주문. 웹 페이지는 폴링 스크립트가 data-key로 펼침을 지키니 안 넘긴다 */
   open?: ReadonlySet<string>
@@ -69,13 +69,17 @@ function liveBlock(o: Card['order'], live: WorkerLive | 'loading' | undefined, n
     live.lines && live.lines.length > 0
       ? `<pre class="tail" data-tail="${esc(o.id)}">${esc(live.lines.join('\n'))}</pre>`
       : live.terminalId && !live.error && div('muted', '터미널 출력이 아직 없어요.'),
-    live.fallbackTerminal && div('muted', '워커 에이전트를 못 찾아 워크트리의 첫 터미널을 보여 줘요. 워커 터미널이 아닐 수 있어요.'),
+    live.noWorkerTerminal &&
+      div('muted', '워커 에이전트의 터미널을 못 찾아 출력은 안 보여 줘요. 이동하면 워크트리의 첫 터미널을 열어요.'),
     live.error && div('muted', esc(live.error)),
     `<button class="go" data-go="${esc(o.id)}" data-focus="${esc(`go:${o.id}`)}">${live.terminalId ? '터미널로 이동' : '워크트리로 이동'}</button>`
   )
 }
 
-/** 카드 아래 펼치는 상세. 컨덕터가 아는 것은 어느 화면에서나, 워커 터미널은 데스크톱에서만 */
+/**
+ * 카드 아래 펼치는 상세. 워커 id와 브랜치, 체크포인트의 스킬과 단계는 컨덕터가 정한 값이라 칩과 이벤트 로그에도
+ * 이미 나와서 폰에도 싣는다. 워커가 쓴 글(다음 할 일, 대기 사유)과 경로, 워커 터미널은 데스크톱에서만 그린다
+ */
 function detail(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
   const o = c.order
   const cp = o.checkpoint
@@ -84,7 +88,7 @@ function detail(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string 
     o.worker && dkv('워커', [o.worker, o.workerKind, o.workerStatus].filter(Boolean).join(' · ')),
     cp && dkv('체크포인트', `${cp.skill}${cp.phase ? ` → ${cp.phase}` : ''}${cp.round ? ` r${cp.round}` : ''}${cp.savedAt ? ` · ${clock(cp.savedAt)} 저장` : ''}`),
     opts.private && cp?.next && dkv('다음', cp.next),
-    o.waiting && dkv('대기', `${waitText(opts.private ? o.waiting.reason : '대기', o.waiting.until)} · ${clock(o.waiting.since)}부터`),
+    o.waiting && dkv('대기', `${orderWaitText(o.waiting, opts.private)} · ${clock(o.waiting.since)}부터`),
     o.branch && dkv('브랜치', o.branch),
     opts.private && o.worktreePath && dkv('경로', o.worktreePath),
     ...v.gates.filter((g) => g.orderId === o.id).map((g) => dkv(gateLabel(g.type), g.reason)),
