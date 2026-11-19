@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadConfig } from '../../core/config.js';
 import { COMMENTS_DEFAULT_MAX, commentsMap, fetchComments } from '../../digest/comments.js';
@@ -428,15 +428,17 @@ export function parsePort(value: string): number {
 }
 
 export async function digestServeCommand(
-  slug: string,
+  slug: string | undefined,
   opts: DigestCommonOptions & { port?: string; browser?: boolean; allowHost?: string[] },
 ): Promise<void> {
   try {
     const repoRoot = rootOf(opts);
     const allowHosts = (opts.allowHost ?? []).map((h) => h.trim().toLowerCase());
-    const r = renderDigestFiles(slug, opts);
+    const r = slug ? renderDigestFiles(slug, opts) : undefined;
+    const root = new DigestStore(repoRoot).root;
+    mkdirSync(root, { recursive: true });
     // 뷰어의 템플릿 요청은 이 목록에 있는 id만 세션에 넘긴다
-    const server = new DigestServer(new DigestStore(repoRoot).root, {
+    const server = new DigestServer(root, {
       templates: templatesOf(opts).templates,
       allowHosts,
     });
@@ -451,10 +453,10 @@ export async function digestServeCommand(
       }
       throw e;
     }
-    const url = `http://127.0.0.1:${server.port}/${slug}/`;
+    const url = `http://127.0.0.1:${server.port}/${slug ? `${slug}/` : ''}`;
     emit({ ...r, url }, opts.json, () => {
-      for (const w of r.warnings) console.log(`경고: ${w}`);
-      console.log(`뷰어: ${url}`);
+      for (const w of r?.warnings ?? []) console.log(`경고: ${w}`);
+      console.log(`${slug ? '뷰어' : '요약 보관함'}: ${url}`);
       for (const h of allowHosts) console.log(`받는 이름: ${h}`);
       console.log('끝내려면 Ctrl+C');
     });

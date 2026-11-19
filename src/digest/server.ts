@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, sep } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+import { renderDigestLibrary } from './library.js';
 import { parseTranscript, type SourceKind } from './schema.js';
 import {
   frameSessionRequest,
@@ -265,7 +266,19 @@ export class DigestServer {
     if (!this.hosts.has(host)) return this.deny(res, 403, 'Forbidden');
     if (isRequest) return this.handleRequest(req, res);
 
-    const decoded = safeDecode((req.url ?? '/').split('?')[0]!);
+    const [path, ...query] = (req.url ?? '/').split('?');
+    if (path === '/') {
+      const body = renderDigestLibrary(this.root, new URLSearchParams(query.join('?')));
+      res.writeHead(200, {
+        ...BASE_HEADERS,
+        'Content-Type': MIME['.html']!,
+        'Content-Length': String(Buffer.byteLength(body)),
+        'Content-Security-Policy':
+          "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      });
+      return void res.end(req.method === 'HEAD' ? undefined : body);
+    }
+    const decoded = safeDecode(path!);
     if (decoded === null || decoded.includes('\0')) return this.deny(res, 400, 'Bad Request');
     const rel = decoded.endsWith('/') ? `${decoded}digest.html` : decoded;
     const parts = rel.split('/');

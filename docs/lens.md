@@ -59,6 +59,7 @@ LLM이 도는 곳은 글을 쓰는 단계뿐이다. 수집과 검사, 렌더는 
 CLI 서브커맨드 전체는 `gestalt lens --help`와 [mcp-reference.md의 CLI](./mcp-reference.md#cli)에 있다. 직접 쓸 만한 것은 둘이다.
 
 ```bash
+gestalt digest serve                 # 이 레포에 저장된 영상 요약과 렌즈 보관함
 gestalt digest serve <slug>          # 이미 만든 뷰어를 다시 띄운다
 gestalt digest export <slug> --md    # 마크다운만 낸다
 ```

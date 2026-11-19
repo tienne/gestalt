@@ -58,6 +58,7 @@ LLM이 도는 곳은 요약과 번역, 윤문을 맡는 에이전트 단계뿐�
 CLI 서브커맨드 전체는 `gestalt digest --help`와 [mcp-reference.md의 CLI](./mcp-reference.md#cli)에 있다. 직접 쓸 만한 것은 둘이다.
 
 ```bash
+gestalt digest serve                 # 이 레포에 저장된 영상 요약과 렌즈 보관함
 gestalt digest serve <slug>                       # 이미 만든 뷰어를 다시 띄운다
 gestalt digest export <slug> --md --report <key>  # 첫 리포트가 아닌 리포트의 마크다운을 낸다
 ```

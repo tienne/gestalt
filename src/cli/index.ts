@@ -699,8 +699,8 @@ export function createCli(): Command {
     );
 
   digest
-    .command('serve <slug>')
-    .description('뷰어를 로컬 서버(127.0.0.1)로 띄운다. 유튜브 재생과 따라가기는 여기서만 된다')
+    .command('serve [slug]')
+    .description('뷰어를 로컬 서버(127.0.0.1)로 띄운다. slug를 생략하면 요약 보관함을 연다')
     .option('--port <n>', '포트 (기본: 7893부터 빈 곳)')
     .option('--no-browser', '브라우저를 열지 않는다')
     .option(
