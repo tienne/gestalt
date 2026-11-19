@@ -2855,7 +2855,14 @@ export function renderDrilldownHtml(
   const nodeById = new Map(base.nodes.map((n) => [n.id, n]));
   // 레벨 제목은 원본 이름으로 지었으므로 공유본에서는 노드 이름과 같이 가린다
   const levels = drilldown.levels.map((l) =>
-    shared ? { ...l, title: maskSharedText(l.title), layout: maskLayoutText(l.layout) } : l,
+    shared
+      ? {
+          ...l,
+          title: maskSharedText(l.title),
+          ...(l.summary !== undefined ? { summary: maskSharedText(l.summary) } : {}),
+          layout: maskLayoutText(l.layout),
+        }
+      : l,
   );
   const payload = {
     ...base,
@@ -2864,10 +2871,13 @@ export function renderDrilldownHtml(
       kind: l.kind,
       ...(l.focusId !== undefined ? { focusId: l.focusId } : {}),
       title: l.title,
+      ...(l.summary !== undefined ? { summary: l.summary } : {}),
       trail: l.trail,
       edges: l.edges,
     })),
     enter: drilldown.enter,
+    // 공유본이면 ir이 가린 사본이라 일러두기도 가린 글자로 실린다
+    ...(ir.note !== undefined && ir.note.trim() !== '' ? { note: ir.note } : {}),
   };
   // 좌표는 원본으로 냈고 글자만 공유본에서 가린다. 단계 id는 가리지 않아 그대로 맞물린다
   const flowById = new Map((ir.flows ?? []).map((f) => [f.id, f]));

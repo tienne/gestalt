@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeDrilldown,
+  drillLevelOwners,
+  INFRA_LEVEL_ID,
   mergeArchitectureIrs,
   shouldDrillDown,
   validateArchitectureIr,
@@ -11,8 +13,10 @@ import {
   type Evidence,
   type ValidatedIr,
 } from '../../../src/architecture/index.js';
-import { renderBoth } from '../../fixtures/architecture-legacy/render.js';
+import { LEGACY_IRS, renderBoth } from '../../fixtures/architecture-legacy/render.js';
 import { harnessIr, partnerIr, webIr } from '../../fixtures/architecture-legacy/irs.js';
+import { infraIr } from '../../fixtures/architecture-categories/infra.js';
+import { awsIr } from '../../fixtures/architecture-infra/vendors.js';
 
 const codeEv: Evidence = { type: 'code', location: 'web:src/a.ts:1', visibility: 'public' };
 const docEv: Evidence = { type: 'doc', location: 'https://docs.acme.test/a', visibility: 'public' };
@@ -477,5 +481,101 @@ describe('computeDrilldown 설명 줄이 있는 카드', () => {
       }
     }
     expect(compared).toBeGreaterThan(0);
+  });
+});
+
+describe('drillLevelOwners', () => {
+  const withInfraOnlyDeploy = (): ArchitectureIr => {
+    const ir = LEGACY_IRS.deploy!();
+    ir.nodes = ir.nodes.map((n) =>
+      n.id === 'dt-api' ? { ...n, provider: 'aws' as const, region: 'ap-northeast-2' } : n,
+    );
+    return ir;
+  };
+  const cases: Array<[string, () => ArchitectureIr]> = [
+    ['fixture', fixture],
+    ['partner', partnerIr],
+    ...Object.entries(LEGACY_IRS),
+    ['infra tree', infraIr],
+    ['aws', awsIr],
+    ['인프라 때문에만 드릴다운', withInfraOnlyDeploy],
+  ];
+
+  it.each(cases)(
+    '%s: computeDrilldown의 레벨 id와 kind를 infra만 빼고 같은 순서로 낸다',
+    async (_, build) => {
+      const v = validated(build());
+      const owners = drillLevelOwners(v);
+      const { levels } = await computeDrilldown(v);
+      expect(owners.map((o) => [o.levelId, o.kind])).toEqual(
+        levels.filter((l) => l.id !== INFRA_LEVEL_ID).map((l) => [l.id, l.kind]),
+      );
+    },
+  );
+
+  it('픽스처들이 레벨 종류 여섯을 하나씩은 만든다', () => {
+    const kinds = new Set(
+      cases.flatMap(([, build]) => drillLevelOwners(validated(build())).map((o) => o.kind)),
+    );
+    expect([...kinds].sort()).toEqual(['app', 'feature', 'group', 'root', 'server', 'service']);
+  });
+
+  it('root는 주인이 없고 나머지는 레벨을 여는 노드 id를 주인으로 둔다', () => {
+    for (const [, build] of cases) {
+      const v = validated(build());
+      for (const o of drillLevelOwners(v)) {
+        if (o.kind === 'root') {
+          expect(o.ownerId).toBeUndefined();
+          continue;
+        }
+        expect(o.levelId).toBe(`${o.kind}:${o.ownerId!}`);
+        expect(v.drawableNodeIds.has(o.ownerId!)).toBe(true);
+      }
+    }
+  });
+});
+
+describe('computeDrilldown 레벨 요약', () => {
+  const summaryOf = (levels: DrillLevel[]) =>
+    Object.fromEntries(levels.filter((l) => 'summary' in l).map((l) => [l.id, l.summary]));
+
+  it('root는 IR의 summary, 나머지는 레벨을 여는 노드의 summary를 싣고 공백뿐이면 칸이 없다', async () => {
+    const ir = fixture();
+    ir.summary = '주문과 장바구니를 다루는 웹';
+    const summaries: Record<string, string> = {
+      'svc-web': '고객용 웹 서비스',
+      'svc-admin': '   ',
+      'f-orders': '주문 목록과 상세',
+      gw: '모든 API가 지나는 게이트웨이',
+      's-list': '레벨을 안 여는 노드',
+    };
+    ir.nodes = ir.nodes.map((n) =>
+      summaries[n.id] !== undefined ? { ...n, summary: summaries[n.id]! } : n,
+    );
+    const { levels } = await computeDrilldown(validated(ir));
+    expect(summaryOf(levels)).toEqual({
+      root: '주문과 장바구니를 다루는 웹',
+      'service:svc-web': '고객용 웹 서비스',
+      'feature:f-orders': '주문 목록과 상세',
+      'server:gw': '모든 API가 지나는 게이트웨이',
+    });
+  });
+
+  it('summary를 안 적으면 어느 레벨에도 칸이 없다', async () => {
+    const { levels } = await computeDrilldown(validated(fixture()));
+    expect(summaryOf(levels)).toEqual({});
+  });
+
+  it('인프라 레벨 때문에만 드릴다운이 된 평면 root도 IR의 summary를 싣고 infra 레벨은 비운다', async () => {
+    const ir = LEGACY_IRS.deploy!();
+    ir.summary = '배포 사슬';
+    ir.nodes = ir.nodes.map((n) =>
+      n.id === 'dt-api'
+        ? { ...n, provider: 'aws' as const, region: 'ap-northeast-2', summary: '레벨 없음' }
+        : n,
+    );
+    const { levels } = await computeDrilldown(validated(ir));
+    expect(levels.map((l) => l.id)).toEqual(['root', 'infra']);
+    expect(summaryOf(levels)).toEqual({ root: '배포 사슬' });
   });
 });

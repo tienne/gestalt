@@ -487,6 +487,78 @@ describe('renderDrilldownHtml', () => {
     expect(html).toContain('function label(id) { return nodes[id] ? nameOf(nodes[id]) : id; }');
     expect(await render(ir, 'private')).toBe(html);
   });
+
+  describe('레벨 요약과 일러두기', () => {
+    interface DataBlock {
+      note?: string;
+      levels: Array<{ id: string; summary?: string }>;
+    }
+    const dataOf = (html: string): DataBlock => {
+      const start = html.indexOf('<script id="ir"');
+      const body = html.slice(html.indexOf('>', start) + 1);
+      return JSON.parse(body.slice(0, body.indexOf('</script>'))) as DataBlock;
+    };
+    const summaries = (data: DataBlock) =>
+      Object.fromEntries(data.levels.filter((l) => 'summary' in l).map((l) => [l.id, l.summary]));
+    const annotated = (): ArchitectureIr => {
+      const ir = drillIr();
+      ir.summary = '쇼핑 서비스 전체 그림';
+      ir.note = '결제 쪽은 이 그림에 없다';
+      ir.nodes = ir.nodes.map((n) => (n.id === 'shop' ? { ...n, summary: '쇼핑 화면과 API' } : n));
+      return ir;
+    };
+
+    it('값이 있는 레벨에만 summary를 싣고 note는 데이터 블록 맨 위에 싣는다', async () => {
+      const data = dataOf(await render(annotated(), 'private'));
+      expect(summaries(data)).toEqual({
+        root: '쇼핑 서비스 전체 그림',
+        'service:shop': '쇼핑 화면과 API',
+      });
+      expect(data.note).toBe('결제 쪽은 이 그림에 없다');
+    });
+
+    it('없거나 공백뿐이면 키를 안 싣고 HTML 바이트가 칸 없는 때와 같다', async () => {
+      const plain = await render(drillIr(), 'private');
+      const data = dataOf(plain);
+      expect(summaries(data)).toEqual({});
+      expect('note' in data).toBe(false);
+      const blank = drillIr();
+      blank.summary = '  ';
+      blank.note = '\n';
+      expect(await render(blank, 'private')).toBe(plain);
+      // 노드 원본은 nodes에 그대로 실리니 레벨 칸만 본다
+      const blankNode = drillIr();
+      blankNode.nodes = blankNode.nodes.map((n) => (n.id === 'shop' ? { ...n, summary: ' ' } : n));
+      expect(summaries(dataOf(await render(blankNode, 'private')))).toEqual({});
+    });
+
+    it('데이터 블록만 달라지고 CSP 해시는 그대로 인라인 본문을 덮는다', async () => {
+      for (const audience of ['private', 'shared'] as const) {
+        const plain = await render(drillIr(), audience);
+        const html = await render(annotated(), audience);
+        expect(cspOf(html)).toBe(cspOf(plain));
+        expect(cspCoversInline(html)).toBe(true);
+        expect(await render(annotated(), audience)).toBe(html);
+      }
+    });
+
+    it('공유본은 레벨 요약과 일러두기의 계정 ID를 가린다', async () => {
+      const ir = annotated();
+      ir.summary = '계정 123456789012의 전체 그림';
+      ir.note = '계정 123456789012 기준';
+      ir.nodes = ir.nodes.map((n) =>
+        n.id === 'shop' ? { ...n, summary: '계정 123456789012에서 도는 쇼핑' } : n,
+      );
+      const shared = await render(ir, 'shared');
+      expect(shared).not.toContain('123456789012');
+      const data = dataOf(shared);
+      expect(summaries(data)).toEqual({
+        root: '계정 [계정 ID]의 전체 그림',
+        'service:shop': '계정 [계정 ID]에서 도는 쇼핑',
+      });
+      expect(data.note).toBe('계정 [계정 ID] 기준');
+    });
+  });
 });
 
 describe('renderArchitectureHtml — 제품 띠', () => {

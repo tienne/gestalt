@@ -55,6 +55,8 @@ export interface DrillLevel {
   kind: DrillLevelKind;
   focusId?: string;
   title: string;
+  /** root는 IR의 summary, 노드가 여는 레벨은 그 노드의 summary. 공백뿐이면 칸이 없다. infra는 늘 없다 */
+  summary?: string;
   /** root부터 이 레벨까지의 레벨 id. 빵부스러기가 이 순서로 그린다 */
   trail: string[];
   nodeIds: string[];
@@ -1319,10 +1321,12 @@ async function flatRootWithInfra(
     validated.drawableNodeIds,
     validated.drawableEdgeIds,
   );
+  const summary = summaryText(validated.ir.summary);
   const root: DrillLevel = {
     id: ROOT_LEVEL_ID,
     kind: 'root',
     title: '전체',
+    ...(summary !== undefined ? { summary } : {}),
     trail: [ROOT_LEVEL_ID],
     nodeIds: [...g.nodeById.keys()].sort(compareStr),
     edges: g.edges.map((e) => ({
@@ -1345,15 +1349,63 @@ async function flatRootWithInfra(
   };
 }
 
-export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldown> {
+/** 인프라 레벨 때문에만 드릴다운이 되는 그림이면 인프라 레벨에 들 노드 id를 낸다. 아니면 undefined다 */
+function flatInfraIds(validated: ValidatedIr, g: Graph): string[] | undefined {
+  if (drillsWithoutInfra(validated)) return undefined;
+  const infraIds = infraLevelNodeIds(g);
+  return infraIds.length > 0 ? infraIds : undefined;
+}
+
+/** 레벨 id에서 그 레벨을 여는 노드 id를 꺼낸다. root와 infra는 여는 노드가 없다 */
+function levelOwnerId(level: { id: string; kind: DrillLevelKind }): string | undefined {
+  const prefix = `${level.kind}:`;
+  return level.id.startsWith(prefix) ? level.id.slice(prefix.length) : undefined;
+}
+
+/** 공백뿐인 요약은 없는 것과 같다. 빈 칸을 실으면 화면이 빈 패널을 그린다 */
+function summaryText(text: string | undefined): string | undefined {
+  return text !== undefined && text.trim() !== '' ? text : undefined;
+}
+
+function levelSummary(
+  validated: ValidatedIr,
+  g: Graph,
+  level: { id: string; kind: DrillLevelKind },
+): string | undefined {
+  if (level.kind === 'root') return summaryText(validated.ir.summary);
+  const owner = levelOwnerId(level);
+  return owner === undefined ? undefined : summaryText(g.nodeById.get(owner)?.summary);
+}
+
+export interface DrillLevelOwner {
+  levelId: string;
+  kind: DrillLevelKind;
+  /** 이 레벨을 여는 노드. root는 없다 */
+  ownerId?: string;
+}
+
+/**
+ * computeDrilldown이 만들 레벨을 배치 없이 동기로 뽑는다. root가 맨 앞이고 나머지는 id 순이다.
+ * 인프라 레벨은 배치 뒤에 붙고 여는 노드가 없어 뺀다
+ */
+export function drillLevelOwners(validated: ValidatedIr): DrillLevelOwner[] {
   const g = buildGraph(validated);
-  if (!drillsWithoutInfra(validated)) {
-    const infraIds = infraLevelNodeIds(g);
-    if (infraIds.length > 0) return flatRootWithInfra(validated, g, infraIds);
-  }
-  const facts = computeServiceFacts([...g.nodeById.values()], g.edges);
+  const drafts: Array<{ id: string; kind: DrillLevelKind }> =
+    flatInfraIds(validated, g) !== undefined
+      ? [{ id: ROOT_LEVEL_ID, kind: 'root' }]
+      : levelDrafts(validated, g).drafts;
+  return drafts.map((d) => {
+    const ownerId = levelOwnerId(d);
+    return { levelId: d.id, kind: d.kind, ...(ownerId !== undefined ? { ownerId } : {}) };
+  });
+}
+
+/** 배치 전 레벨 초안. root가 맨 앞이고 나머지는 id 순이다 */
+function levelDrafts(
+  validated: ValidatedIr,
+  g: Graph,
+): { drafts: LevelDraft[]; enter: Record<string, string> } {
   const sorted = [...g.nodeById.values()].sort(byId);
-  const bands = bandGroupsOf(validated.ir);
   const apps = indexMicroApps(sorted, g.edges);
   const tree = irVocabulary(validated.ir).drilldown === 'tree' ? groupDrafts(g) : undefined;
   const drafts: LevelDraft[] = tree?.drafts ?? [rootLevel(g, apps)];
@@ -1446,7 +1498,16 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
   }
 
   const [root, ...rest] = drafts;
-  const ordered = [root!, ...rest.sort(byId)];
+  return { drafts: [root!, ...rest.sort(byId)], enter };
+}
+
+export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldown> {
+  const g = buildGraph(validated);
+  const flatIds = flatInfraIds(validated, g);
+  if (flatIds !== undefined) return flatRootWithInfra(validated, g, flatIds);
+  const facts = computeServiceFacts([...g.nodeById.values()], g.edges);
+  const bands = bandGroupsOf(validated.ir);
+  const { drafts: ordered, enter } = levelDrafts(validated, g);
   const levels: DrillLevel[] = [];
   const staged = assignStages(validated.ir);
   const flowLevels = computeFlowLevels(validated);
@@ -1491,11 +1552,13 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
     const banded = stackBands(liftColumns(grouped), bands, validated.ir.edges, d.groups);
     const rects = d.frames !== undefined ? frameRects(banded, d.frames) : banded;
     const layout = d.groups !== undefined ? groupRects(rects, d.groups) : rects;
+    const summary = levelSummary(validated, g, d);
     levels.push({
       id: d.id,
       kind: d.kind,
       ...(d.focusId !== undefined ? { focusId: d.focusId } : {}),
       title: d.title,
+      ...(summary !== undefined ? { summary } : {}),
       trail: d.trail,
       nodeIds,
       edges: d.edges,
