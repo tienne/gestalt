@@ -1,7 +1,7 @@
 import { assert, test } from 'orca/testing'
 import { createHash } from 'node:crypto'
 import { request } from 'node:http'
-import { mobileFragment, mobilePage, shortPr } from './mobile'
+import { mobileFragment, mobilePage, screenOf, shortPr, terminalFragment, terminalPage } from './mobile'
 import { allowedHost, MobileServer } from './mobile-server'
 import type { ConductorView, OrderView } from './protocol'
 
@@ -130,10 +130,10 @@ test('루프백과 테일넷 이름으로 들어온 요청만 받는다', () => 
 
 type Reply = { status: number; body: string; headers: Record<string, string | string[] | undefined> }
 
-function hit(port: number, opts: { method?: string; headers?: Record<string, string> } = {}): Promise<Reply> {
+function hit(port: number, opts: { method?: string; headers?: Record<string, string>; path?: string } = {}): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const req = request(
-      { host: '127.0.0.1', port, path: '/', method: opts.method ?? 'GET', headers: opts.headers },
+      { host: '127.0.0.1', port, path: opts.path ?? '/', method: opts.method ?? 'GET', headers: opts.headers },
       (res) => {
         let body = ''
         res.setEncoding('utf8')
@@ -174,4 +174,68 @@ test('서버는 GET만 받고 낯선 Host는 막고 헤더에 따라 본문만 �
     await server.stop()
   }
   assert.equal(server.listening, null)
+})
+
+test('터미널 화면은 경로 대신 쿼리로 가려서 테일스케일 접두사와 끝 슬래시를 몰라도 된다', () => {
+  assert.equal(screenOf('/?view=terminal'), 'terminal')
+  assert.equal(screenOf('/conductor?view=terminal&x=1'), 'terminal')
+  assert.equal(screenOf('/'), 'home')
+  assert.equal(screenOf('/terminal'), 'home')
+  assert.equal(screenOf(undefined), 'home')
+  has(mobilePage('<p>본문</p>'), 'href="?view=terminal"')
+  const page = terminalPage('<p>본문</p>')
+  has(page, 'href="?"')
+  has(page, '<main id="main" class="term"><p>본문</p></main>')
+  has(page, "'x-conductor-fragment': '1'")
+})
+
+test('웹 터미널은 보기 전용이라 카드 이동이 없고 바깥 글은 이스케이프하며 경로와 CLI 오류 원문을 싣지 않는다', () => {
+  const html = terminalFragment(
+    view({
+      orders: [order('ord-a', { title: '<script>alert(1)</script>', worker: 'w1', workerKind: 'orca-worktree', workspaceId: 'ws-1' })],
+      gates: [{ id: 'g-1', type: 'merge', orderId: 'ord-a', reason: '"><img src=x onerror=alert(1)>' }],
+      recentEvents: [{ at: '2026-11-13T02:58:00.000Z', type: 'report', orderId: 'ord-a', summary: '<b>끝</b>' }]
+    }),
+    NOW
+  )
+  lacks(html, '<script>')
+  lacks(html, '<img')
+  lacks(html, '<b>끝</b>')
+  has(html, '&lt;script&gt;alert(1)&lt;/script&gt;')
+  lacks(html, 'data-open')
+  lacks(html, 'data-order')
+  lacks(html, 'tabindex')
+  const failed = terminalFragment(view({ state: 'error', error: 'spawn /Users/someone/bin/gestalt ENOENT' }), NOW)
+  has(failed, 'gestalt CLI가 실패했어요')
+  lacks(failed, '/Users/someone')
+  const missing = terminalFragment(view({ state: 'missing', stateDir: '/Users/someone/.gestalt/conductor' }), NOW)
+  has(missing, '저장소가 아직 없어요')
+  lacks(missing, '/Users/someone')
+})
+
+test('서버는 ?view=terminal에 터미널 페이지를 같은 규칙으로 돌려준다', async () => {
+  const server = new MobileServer(() => view({ orders: [order('ord-a', { title: '터미널 주문' })] }))
+  const port = await server.start(0)
+  const path = '/?view=terminal'
+  try {
+    const page = await hit(port, { path })
+    assert.equal(page.status, 200)
+    has(page.body, '<title>컨덕터 터미널</title>')
+    has(page.body, '터미널 주문')
+    const scripts = [...page.body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]!)
+    assert.equal(scripts.length, 1)
+    const hash = createHash('sha256').update(scripts[0]!).digest('base64')
+    has(String(page.headers['content-security-policy']), `script-src 'sha256-${hash}'`)
+
+    const fragment = await hit(port, { path, headers: { 'x-conductor-fragment': '1' } })
+    lacks(fragment.body, '<!doctype html>')
+    has(fragment.body, 'GESTALT CONDUCTOR')
+    lacks((await hit(port, { headers: { 'x-conductor-fragment': '1' } })).body, 'GESTALT CONDUCTOR')
+
+    assert.equal((await hit(port, { path, headers: { host: 'evil.example.com' } })).status, 403)
+    assert.equal((await hit(port, { path, method: 'POST' })).status, 405)
+    assert.equal((await hit(port, { path, method: 'HEAD' })).body, '')
+  } finally {
+    await server.stop()
+  }
 })
