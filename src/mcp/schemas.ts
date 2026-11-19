@@ -975,6 +975,7 @@ export const ARCHITECTURE_ACTIONS = [
   'scan_docs',
   'link_docs',
   'stale_docs',
+  'serve',
 ] as const;
 
 const feCallSchema = z.object({
@@ -1046,13 +1047,15 @@ export const architectureInputSchema = guardObject(
     action: z
       .enum(ARCHITECTURE_ACTIONS)
       .describe(
-        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트, 스킬의 MCP 도구 호출과 서버 도구 등록 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 뷰마다 이전 실행 요약, merge: 따로 돌린 분석 IR 여럿을 하나로 합치기, scan_docs: 문서 레포의 md를 훑어 근거 표시와 구멍, 질문 안내 표, 화면 색인을 뽑고 지식 문서 지도 초안 쓰기, link_docs: scan_docs 결과를 기술 IR(irPath)에 엮어 지식과 아키텍처 초안과 빈 곳, 낡은 곳, 어긋난 곳 신호 쓰기, stale_docs: 바뀐 파일(changedFiles나 diffBase)로 손봐야 할 문서 고르기',
+        'start: 이전 실행과 맥락 후보 목록, filter_tools: 읽기 전용 도구 이름 거르기, match_endpoints: FE 호출과 BE 라우트, 스킬의 MCP 도구 호출과 서버 도구 등록 맞추기, validate: IR 검증만, render: 검증 후 병합하고 HTML 저장, status: 뷰마다 이전 실행 요약, merge: 따로 돌린 분석 IR 여럿을 하나로 합치기, scan_docs: 문서 레포의 md를 훑어 근거 표시와 구멍, 질문 안내 표, 화면 색인을 뽑고 지식 문서 지도 초안 쓰기, link_docs: scan_docs 결과를 기술 IR(irPath)에 엮어 지식과 아키텍처 초안과 빈 곳, 낡은 곳, 어긋난 곳 신호 쓰기, stale_docs: 바뀐 파일(changedFiles나 diffBase)로 손봐야 할 문서 고르기, serve: 본인용 그림을 127.0.0.1 라이브 서버로 띄워 뷰어 질문을 이 세션으로 받기',
       ),
     repoRoot: z.string().optional().describe('저장소 경로 (기본값: 현재 작업 디렉토리)'),
     view: z
       .enum(ARCHITECTURE_VIEWS)
       .optional()
-      .describe('start에 필요. validate와 render에서 주면 ir.view와 같아야 한다'),
+      .describe(
+        'start에 필요. validate와 render에서 주면 ir.view와 같아야 한다. serve에서 주면 그 그림의 liveUrl을 싣는다',
+      ),
     ir: z.unknown().optional().describe('validate와 render에 필요. ArchitectureIR JSON'),
     irPath: z
       .string()

@@ -40,6 +40,11 @@ import {
 } from '../../architecture/delta-renderer.js';
 import { computeDrilldown, shouldDrillDown } from '../../architecture/drilldown.js';
 import { renderArchitectureHtml, renderDrilldownHtml } from '../../architecture/html-renderer.js';
+import {
+  ArchitectureLiveServer,
+  type ArchitectureLiveServerDeps,
+  type ArchitectureLiveServerOptions,
+} from '../../architecture/live-server.js';
 import { findUnknownFields, parseArchitectureIr } from '../../architecture/ir-schema.js';
 import {
   iconModeFromEnv,
@@ -269,6 +274,66 @@ export interface ArchitectureHandlerOptions {
   projectsRoot?: string;
   /** 레포 공개 여부 판정. 기본은 gh로 묻는다. 테스트는 네트워크 없이 돌게 바꿔 끼운다 */
   resolveVisibility?: (repoRoot: string) => RepoVisibility;
+  /** serve가 띄울 라이브 서버의 포트와 세션 연결. 테스트는 0번 포트와 가짜 세션을 넣는다 */
+  live?: ArchitectureLiveServerOptions & { deps?: ArchitectureLiveServerDeps };
+}
+
+// 레포마다 라이브 서버 하나. MCP 서버 프로세스가 살아 있는 동안 유지하고 다시 serve하면 같은 서버를 돌려준다
+const liveServers = new Map<string, ArchitectureLiveServer>();
+
+/** 떠 있는 라이브 서버를 전부 내린다. 테스트 정리용 */
+export async function stopArchitectureLiveServers(): Promise<void> {
+  const servers = [...liveServers.values()];
+  liveServers.clear();
+  await Promise.all(servers.map((s) => s.stop()));
+}
+
+function runningLiveServer(repoRoot: string): ArchitectureLiveServer | undefined {
+  const server = liveServers.get(repoRoot);
+  return server?.running ? server : undefined;
+}
+
+async function handleServe(
+  input: ArchitectureInput,
+  repoRoot: string,
+  opts: ArchitectureHandlerOptions,
+): Promise<object> {
+  let server = liveServers.get(repoRoot);
+  if (server === undefined) {
+    server = new ArchitectureLiveServer(repoRoot, opts.live?.deps);
+    liveServers.set(repoRoot, server);
+  }
+  let port: number;
+  try {
+    port = await server.start({
+      ...(opts.live?.port !== undefined ? { port: opts.live.port } : {}),
+      ...(opts.live?.attempts !== undefined ? { attempts: opts.live.attempts } : {}),
+    });
+  } catch (e) {
+    liveServers.delete(repoRoot);
+    return fail('SERVE_FAILED', `라이브 서버를 띄우지 못했다. ${(e as Error).message ?? e}`);
+  }
+  const store = new ArchitectureStore(repoRoot);
+  // 이미 그린 본인용 HTML만 주소로 싣는다. 아직 안 그린 그림은 render 뒤에 열 수 있다
+  const views = ARCHITECTURE_VIEWS.filter((v) => existsSync(store.htmlPath(v, 'private')));
+  const session = server.sessionAlive();
+  return {
+    ok: true,
+    url: server.url,
+    port,
+    session,
+    ...(input.view !== undefined ? { liveUrl: server.liveUrl(input.view) } : {}),
+    liveUrls: Object.fromEntries(views.map((v) => [v, server.liveUrl(v)])),
+    ...(input.view !== undefined && !views.includes(input.view)
+      ? { message: `${input.view} 그림이 아직 없다. render로 그린 뒤 liveUrl을 연다.` }
+      : {}),
+    ...(session
+      ? {}
+      : {
+          warning:
+            '그림을 띄운 Claude Code 세션을 찾지 못했다. 뷰어의 질문 입력창은 세션이 잡힐 때까지 숨겨진다.',
+        }),
+  };
 }
 
 interface CommitPolicyOutcome {
@@ -513,6 +578,7 @@ async function handleRender(
     },
   );
   const commit = commitPolicyAfterRender(repoRoot, opts);
+  const live = runningLiveServer(repoRoot);
   const warnings = [
     ...maskWarningMessages(validated.warnings),
     ...maskWarningMessages(mergeResult?.report.warnings ?? []),
@@ -528,6 +594,8 @@ async function handleRender(
     sharedHtmlPath,
     openPath: input.audience === 'shared' ? sharedHtmlPath : htmlPath,
     ...(viewPaths.length > 0 ? { viewPaths } : {}),
+    // 라이브 서버가 떠 있을 때만 싣는다. 열린 뷰어는 이 주소에서 ETag 변화를 보고 스스로 갱신한다
+    ...(live !== undefined ? { liveUrl: live.liveUrl(view) } : {}),
     ...(commit.visibility ? { visibility: commit.visibility } : {}),
     ...(commit.ignoreFilePath !== undefined ? { ignoreFilePath: commit.ignoreFilePath } : {}),
     ...(drilldown
@@ -1020,5 +1088,7 @@ export async function handleArchitecturePassthrough(
       return handleLinkDocs(input, repoRoot);
     case 'stale_docs':
       return handleStaleDocs(input, repoRoot);
+    case 'serve':
+      return handleServe(input, repoRoot, opts);
   }
 }

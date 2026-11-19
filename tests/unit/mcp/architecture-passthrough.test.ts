@@ -13,8 +13,10 @@ import type { MergeReport } from '../../../src/architecture/merge.js';
 import { FAKE_PASSWORD, FAKE_TOKEN } from '../architecture/fake-secrets.js';
 import {
   handleArchitecturePassthrough,
+  stopArchitectureLiveServers,
   type ArchitectureHandlerOptions,
 } from '../../../src/mcp/tools/architecture-passthrough.js';
+import type { LiveSessionBridge } from '../../../src/architecture/live-session.js';
 import {
   resolveRepoVisibility,
   type RepoVisibility,
@@ -1119,5 +1121,62 @@ describe('ges_architecture render의 커밋 해시와 승계 보고', () => {
     const saved = savedIr(result).nodes.find((n) => n.id === 'n-orders-module');
     expect(saved?.label).toBe('OrderDomainModule');
     expect(saved?.description).toBe('주문 모듈');
+  });
+});
+
+describe('ges_architecture serve', () => {
+  // 실제 세션을 찾지 않고 소켓도 안 연다
+  const sessionOn: LiveSessionBridge = {
+    alive: () => true,
+    send: () => Promise.resolve({ ok: true as const }),
+  };
+  const sessionOff: LiveSessionBridge = { ...sessionOn, alive: () => false };
+  const live = (session: LiveSessionBridge): ArchitectureHandlerOptions => ({
+    live: { port: 0, attempts: 1, deps: { session } },
+  });
+
+  afterEach(async () => {
+    await stopArchitectureLiveServers();
+  });
+
+  it('render 전에는 liveUrl을 싣지 않고 serve 뒤 render는 liveUrl을 싣는다', async () => {
+    const before = await call({ action: 'render', ir: makeIr() });
+    expect(before).not.toHaveProperty('liveUrl');
+
+    const served = await call({ action: 'serve', view: 'screen-chain' }, live(sessionOn));
+    expect(served['ok']).toBe(true);
+    const port = served['port'] as number;
+    expect(served['url']).toBe(`http://127.0.0.1:${port}`);
+    expect(served['liveUrl']).toBe(`http://127.0.0.1:${port}/screen-chain.html`);
+    expect(served['liveUrls']).toEqual({
+      'screen-chain': `http://127.0.0.1:${port}/screen-chain.html`,
+    });
+    expect(served['session']).toBe(true);
+    expect(served).not.toHaveProperty('warning');
+
+    const after = await call({ action: 'render', ir: makeIr() });
+    expect(after['liveUrl']).toBe(`http://127.0.0.1:${port}/screen-chain.html`);
+  });
+
+  it('다시 serve하면 같은 포트를 돌려준다', async () => {
+    const first = await call({ action: 'serve' }, live(sessionOn));
+    const second = await call({ action: 'serve' }, live(sessionOn));
+    expect(second['port']).toBe(first['port']);
+    expect(first['liveUrls']).toEqual({});
+  });
+
+  it('아직 안 그린 그림이면 안내를 싣고 세션이 없으면 경고를 싣는다', async () => {
+    const served = await call({ action: 'serve', view: 'deploy-path' }, live(sessionOff));
+    expect(served['ok']).toBe(true);
+    expect(served['session']).toBe(false);
+    expect(String(served['message'])).toContain('render');
+    expect(String(served['warning'])).toContain('숨겨진다');
+  });
+
+  it('서버를 내리면 render가 liveUrl을 싣지 않는다', async () => {
+    await call({ action: 'serve' }, live(sessionOn));
+    await stopArchitectureLiveServers();
+    const result = await call({ action: 'render', ir: makeIr() });
+    expect(result).not.toHaveProperty('liveUrl');
   });
 });
