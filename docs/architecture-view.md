@@ -714,7 +714,7 @@ LLM이 쓴 글자에 API 키나 비밀번호가 섞여 들어와도 네 산출�
 | `base-uri`, `form-action`                   | `'none'`                              | `'none'`          |
 | `connect-src`                               | 적지 않음 (`default-src`를 따라 막힘) | `'none'`          |
 
-공유본은 `connect-src 'none'`을 직접 적어 어디로도 요청을 못 보내게 한다. 본인용은 지금도 `default-src 'none'`을 따라 외부 통신이 막혀 있지만 나중에 로컬 서버와 통신할 자리를 따로 열 수 있게 정책을 공유본과 나눠 두었다. `style-src-attr 'unsafe-inline'`은 레이아웃 좌표를 `style` 속성으로 넣기 때문에 남긴다.
+공유본은 `connect-src 'none'`을 직접 적어 어디로도 요청을 못 보내게 한다. 본인용은 지금도 `default-src 'none'`을 따라 외부 통신이 막혀 있지만 나중에 로컬 서버와 통신할 자리를 따로 열 수 있게 정책을 공유본과 나눠 두었다. `style-src-attr 'unsafe-inline'`은 레이아웃 좌표를 `style` 속성으로 넣기 때문에 남긴다. Safari 15.4나 Firefox 108보다 오래된 브라우저는 `style-src-attr`를 몰라 `style-src`의 해시 규칙만 보므로 `style` 속성이 막혀 배치가 깨질 수 있다.
 
 데이터 블록(`<script type="application/json">`)에 IR을 실을 때는 `<`, `>`, `&`와 줄 구분 문자(U+2028, U+2029)를 `\u` 이스케이프로 바꾼다. 그래서 글자 칸에 `</script>`나 `<!--`가 들어와도 블록이 일찍 닫히지 않는다. 페이지 스크립트는 글자를 `textContent`로만 넣고 `innerHTML`을 쓰지 않는다. 글자 방향을 뒤집는 bidi 제어 문자는 보이는 표식으로 바꿔 그린다.
 
