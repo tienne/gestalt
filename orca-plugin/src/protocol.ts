@@ -155,6 +155,8 @@ export type WorkerOpenResult = {
   opened: boolean
   /** 워커 에이전트를 못 찾아 워크트리의 첫 터미널로 갔다. 워커 터미널이 아닐 수 있다 */
   fallbackTerminal?: true
+  /** 첫 터미널로 간 원인. 에이전트 상태를 못 읽은 것처럼 사람이 풀 수 있는 이유일 때만 싣는다 */
+  fallbackReason?: string
   /** 터미널로는 못 가고 워크트리만 열었다. error에 이유까지 담은 문장이 있다 */
   worktreeOnly?: true
   error?: string

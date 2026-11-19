@@ -86,23 +86,24 @@ export async function workerTerminal(
     try {
       agent = pickAgent((await host.call('agents.list', { workspaceId })).agents)
     } catch (e) {
-      errors.push(`에이전트 상태를 못 읽었어요. ${message(e)}`)
+      errors.push(`에이전트 상태를 못 읽었어요(${message(e)}).`)
     }
   }
   const agentTerminal = agent?.terminalId ?? undefined
-  const base = { ...(agent ? { agent } : {}), errors }
-  if (agentTerminal) return { ...base, terminalId: agentTerminal, fallback: false }
-  if (!opts.firstTerminal) return { ...base, fallback: false }
+  const found = agent ? { agent } : {}
+  if (agentTerminal) return { ...found, terminalId: agentTerminal, fallback: false, errors }
+  if (!opts.firstTerminal) return { ...found, fallback: false, errors }
   let terminalId: string | undefined
   if (!host.has('terminal.list')) errors.push('이 오르카는 터미널 목록을 읽는 기능을 지원하지 않아요.')
   else {
     try {
       terminalId = (await host.call('terminal.list', { workspaceId })).terminals[0]?.id
+      if (!terminalId) errors.push('워크트리에 열린 터미널이 없어요.')
     } catch (e) {
-      errors.push(`터미널 목록을 못 읽었어요. ${message(e)}`)
+      errors.push(`터미널 목록을 못 읽었어요(${message(e)}).`)
     }
   }
-  return terminalId ? { ...base, terminalId, fallback: true } : { ...base, fallback: false }
+  return terminalId ? { ...found, terminalId, fallback: true, errors } : { ...found, fallback: false, errors }
 }
 
 /** CLI가 stateDir을 안 알려 주는 옛 버전일 때만 쓴다. 설정 파일의 stateDir은 못 읽는다 */
@@ -440,13 +441,15 @@ class Conductor {
     let missed = '이 오르카는 터미널로 옮기는 기능을 지원하지 않아요.'
     if (this.orca.host.has('terminal.focus')) {
       const { terminalId, fallback, errors } = await workerTerminal(this.orca.host, ws.workspaceId, { firstTerminal: true })
-      missed = errors.join(' ') || '워커 터미널을 못 찾았어요.'
+      missed = errors.join(' ')
       try {
-        if (terminalId && (await this.orca.host.call('terminal.focus', { terminalId })).focused)
-          return fallback ? { opened: true, fallbackTerminal: true } : { opened: true }
+        if (terminalId && (await this.orca.host.call('terminal.focus', { terminalId })).focused) {
+          if (!fallback) return { opened: true }
+          return errors.length > 0 ? { opened: true, fallbackTerminal: true, fallbackReason: missed } : { opened: true, fallbackTerminal: true }
+        }
         if (terminalId) missed = [...errors, '터미널로 못 옮겨 갔어요.'].join(' ')
       } catch (e) {
-        missed = [...errors, `터미널로 못 옮겨 갔어요. ${message(e)}`].join(' ')
+        missed = [...errors, `터미널로 못 옮겨 갔어요(${message(e)}).`].join(' ')
       }
     }
     try {
@@ -473,7 +476,7 @@ class Conductor {
         try {
           out.lines = tailLines((await this.orca.host.call('terminal.read', { terminalId, maxLines: TAIL_READ })).lines)
         } catch (e) {
-          errors.push(`터미널을 못 읽었어요. ${message(e)}`)
+          errors.push(`터미널을 못 읽었어요(${message(e)}).`)
         }
       }
     }

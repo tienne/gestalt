@@ -388,7 +388,7 @@ test('agent:read를 승인하지 않았으면 워크트리 첫 터미널로 가�
     assert.deepEqual(await worker.request('worker.open', { orderId: 'ord-a' }), {
       opened: true,
       worktreeOnly: true,
-      error: '에이전트 상태를 못 읽었어요. agents.list needs the agent:read capability 터미널로 못 옮겨 갔어요. 워크트리만 열었어요.'
+      error: '에이전트 상태를 못 읽었어요(agents.list needs the agent:read capability). 터미널로 못 옮겨 갔어요. 워크트리만 열었어요.'
     })
     assert.deepEqual(h.callsOf('terminal.focus'), [{ terminalId: 'term-1' }])
     assert.deepEqual(h.callsOf('workspace.open'), [{ workspaceId: 'ws-a' }])
@@ -485,6 +485,14 @@ test('workerTerminal은 옛 오르카에 없는 기능을 이유로 남기고 �
   assert.equal(out.fallback, true, '에이전트 없이 고른 첫 터미널은 fallback으로 표시한다')
 })
 
+test('workerTerminal은 워크트리에 터미널이 하나도 없으면 그 이유를 남긴다', async () => {
+  const h = oldHost(['agents.list', 'terminal.list'], { 'agents.list': { agents: [] }, 'terminal.list': { terminals: [] } })
+  assert.deepEqual(await main.workerTerminal(h.host, 'ws-a', { firstTerminal: true }), {
+    fallback: false,
+    errors: ['워크트리에 열린 터미널이 없어요.']
+  })
+})
+
 test('workerTerminal은 firstTerminal 없이는 첫 터미널로 물러나지 않는다', async () => {
   const h = oldHost(['agents.list', 'terminal.list'], { 'agents.list': { agents: [] }, 'terminal.list': { terminals: [{ id: 'term-1' }] } })
   assert.deepEqual(await main.workerTerminal(h.host, 'ws-a'), { fallback: false, errors: [] })
@@ -544,6 +552,46 @@ test('worker.open은 워커 에이전트가 없으면 첫 터미널로 가고 fa
     await worker.request('conductor.refresh')
     assert.deepEqual(await worker.request('worker.open', { orderId: 'ord-a' }), { opened: true, fallbackTerminal: true })
     assert.deepEqual(h.callsOf('terminal.focus'), [{ terminalId: 'term-1' }])
+  })
+})
+
+test('agent:read를 승인하지 않아 첫 터미널로 갔으면 그 이유를 fallbackReason에 싣는다', async () => {
+  const s = store(STATUS)
+  const h = liveHost(
+    s.dir,
+    { 'terminal.list': { terminals: [{ id: 'term-1' }], truncated: false }, 'terminal.focus': { focused: true } },
+    ['notifications:show', 'workspace:read', 'workspace:write', 'settings:own', 'storage:own']
+  )
+  await run(s, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    assert.deepEqual(await worker.request('worker.open', { orderId: 'ord-a' }), {
+      opened: true,
+      fallbackTerminal: true,
+      fallbackReason: '에이전트 상태를 못 읽었어요(agents.list needs the agent:read capability).'
+    })
+  })
+})
+
+test('첫 터미널로 가다 terminal.focus가 던지면 앞의 이유와 함께 싣고 워크트리만 연다', async () => {
+  const s = store(STATUS)
+  const h = liveHost(
+    s.dir,
+    {
+      'terminal.list': { terminals: [{ id: 'term-1' }], truncated: false },
+      'terminal.focus': () => {
+        throw new Error('터미널이 닫혔어요')
+      }
+    },
+    ['notifications:show', 'workspace:read', 'workspace:write', 'settings:own', 'storage:own']
+  )
+  await run(s, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    assert.deepEqual(await worker.request('worker.open', { orderId: 'ord-a' }), {
+      opened: true,
+      worktreeOnly: true,
+      error: '에이전트 상태를 못 읽었어요(agents.list needs the agent:read capability). 터미널로 못 옮겨 갔어요(터미널이 닫혔어요). 워크트리만 열었어요.'
+    })
+    assert.deepEqual(h.callsOf('workspace.open'), [{ workspaceId: 'ws-a' }])
   })
 })
 
