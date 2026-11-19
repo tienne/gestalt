@@ -600,6 +600,8 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 | `INFRA_PLACEMENT_CONFLICT`       | 노드에 적은 `provider`나 `region`이 `placedIn`, `parent`, `account`에서 물려받을 값과 다르다. 필드마다 하나씩 오고 `field`는 `provider`나 `region`, `nodeIds`는 걸린 노드 id다. 그림은 노드에 적은 값을 따른다. [인프라 구성 레벨](#인프라-구성-레벨)에서 설명한다                                                                                                                       |
 | `DELTA_OVER_BUDGET`              | 구조 변경 그림이 바뀐 곳 주변으로 좁혀도 구성 요소 8개, 관계 10개, 변경 목록 8줄 중 하나를 넘는다. render에서만 오고 `subjectId`는 view, `counts`는 그린 구성 요소 수와 관계 수, 변경 목록 줄 수다                                                                                                                                                                                       |
 | `CODE_EVIDENCE_EXCERPT_MISMATCH` | public `code` 근거에 적은 `excerpt`가 그 줄 내용과 다르다. 코드가 바뀌어 줄이 밀렸을 때 난다. 앞뒤 공백을 걷고 줄이 excerpt로 시작하면 맞은 것으로 본다. 근거마다 하나씩 오고 근거의 주인 id와 `evidenceIndex`가 붙는다. `candidates`에는 위아래 200줄 안에서 excerpt와 맞는 줄 번호가 가까운 순으로 최대 3개 실린다. 못 찾았으면 비어 있다. 재실행 때 이 경고가 나오면 후보 줄로 고친다 |
+| `SECRET_MASKED`                  | render가 LLM 글자 칸에서 비밀값을 가렸다. 가린 자리마다 하나씩 오고 주인 id(`nodeId`, `edgeId`, `flowId`, `projectionId`, `questionId` 등)와 `field` 경로만 붙는다. 값은 싣지 않는다. render에서만 온다. [비밀값 가림](#비밀값-가림)에 있다                                                                                                                                              |
+| `IGNORED_FILE_TRACKED`           | 퍼블릭 레포인데 `.gitignore`가 막을 산출물을 git이 이미 추적한다. 파일이 여럿이어도 한 건이고 `paths`에 경로를 모은다. render에서만 오고 `git rm --cached`는 안내만 한다. [커밋 정책](#커밋-정책)에 있다                                                                                                                                                                                 |
 
 설명이 비면 카드에 설명 줄이 안 붙고 서랍에서도 그 노드가 무엇인지 안 나온다. 그래도 거부하지 않는 건 설명이 없다고 그림이 틀리지는 않아서다. 공백뿐인 설명을 없는 것으로 치는 판정은 레이아웃 높이와 같다 (`src/architecture/types.ts`의 `hasCardDescription`).
 
@@ -679,6 +681,62 @@ private 근거의 원문은 세 겹으로 막는다.
 두 HTML 모두 페이지가 쓰는 필드만 싣는다. `repos`는 `id`와 `name`만 들어가고 `root`와 `remote`는 빠진다. `sourcesUsed`도 HTML에 들어가지 않는다. 그래서 로컬 경로나 사용한 도구 이름이 공유본으로 새지 않는다.
 
 > ⚠️ 다른 사람에게 넘길 때는 `.shared.html`만 넘긴다. `.html`은 private 근거의 위치가 그대로 보이는 본인용이다.
+
+### 비밀값 가림
+
+LLM이 쓴 글자에 API 키나 비밀번호가 섞여 들어와도 네 산출물(본인용 HTML, 저장 IR JSON, 공유본 `.shared.html`, 구조 변경 그림 HTML)에 원문이 남지 않게 render가 가린다 (`src/architecture/secret-mask.ts`). 대상은 public 근거의 `excerpt`와 노드의 `label`, `displayName`, `description`부터 흐름과 질문별 그림, 질문 문장까지 LLM이 채운 글자 칸 전부다. 근거 `excerpt`를 코드 줄과 맞춰 보는 검증이 끝난 뒤에 가려서 가린 글자 때문에 대조가 어긋나지 않는다.
+
+가리는 규칙은 여섯 겹이다.
+
+1. 서비스가 정한 꼴이 뚜렷한 키 (GitHub, GitLab, Slack, AWS, Google, Stripe, OpenAI, Anthropic, npm, Hugging Face, SendGrid 등)
+2. `-----BEGIN ... PRIVATE KEY-----`부터 `END`까지. `END`가 없으면 글 끝까지 가린다
+3. JWT, 그리고 DB 접속 주소(`postgres://user:비밀번호@host`)의 비밀번호. 사용자와 호스트는 남긴다
+4. `password`, `apiKey`, `client_secret`, `token`처럼 비밀 같은 이름에 대입한 따옴표 값
+5. 이름이 없어도 따옴표 안에 든 무작위 긴 글자
+6. 산문 속 따옴표 없는 글자 중 대소문자와 숫자가 고루 섞인 생성 키 꼴
+
+놓치는 쪽보다 멀쩡한 값을 가리는 쪽을 택한다. 그래도 아래는 비밀이 아니라서 놔둔다. 환경변수와 템플릿 참조(`process.env.API_KEY`, `${API_TOKEN}`, `env(...)`), `changeme`나 `여기에-키-입력` 같은 안내 문구, 웹 페이지에 박으라고 만든 공개 키(`pk_live_`, `pk_test_` 등), 일반 URL과 비밀번호 없는 접속 주소, 프로젝트 파일 경로, UUID와 커밋 해시, ULID, CamelCase 식별자, 알파벳을 차례로 늘어놓은 지어낸 키가 여기 든다.
+
+가린 자리는 고정 표식 `[비밀값]`으로 바꾼다. 표식은 어느 규칙에도 안 걸려서 두 번 가려도 결과가 같다. 저장 IR은 디스크에 쓸 때 한 번 더 가린다. 공유본은 `redactForSharing`이 private 근거 축약과 계정 ID 가림을 마친 뒤 다시 가린다. 그래서 가림 이전에 저장한 IR을 다시 그려도 표식이 겹치지 않는다.
+
+가린 자리마다 render 응답에 `SECRET_MASKED` 경고가 한 건씩 온다. 같은 자리는 한 번만 싣는다. 경고에는 위치(`nodeId`나 `edgeId`, `flowId`, `projectionId`, `questionId` 같은 주인 id와 `field` 경로)만 들어가고 값이나 값의 일부는 안 들어간다. 경고 문구에 노드 이름이 섞이는 다른 경고도 같은 규칙으로 문구를 가린다.
+
+### 콘텐츠 보안 정책(CSP)
+
+두 HTML 모두 `<meta http-equiv="Content-Security-Policy">`를 싣는다. 인라인 `<script>`와 `<style>` 본문마다 sha256 해시를 뽑아 허용 목록에 넣으므로 render가 쓴 스크립트 말고는 돌지 않는다. 같은 IR이면 해시도 같아서 렌더 바이트는 그대로 결정적이다. 인라인 이벤트 핸들러(`onclick=` 등)는 쓰지 않는다.
+
+| 지시어                                      | 본인용                                | 공유본            |
+| ------------------------------------------- | ------------------------------------- | ----------------- |
+| `default-src`                               | `'none'`                              | `'none'`          |
+| `script-src`, `style-src`, `style-src-elem` | 본문 해시                             | 본문 해시         |
+| `style-src-attr`                            | `'unsafe-inline'`                     | `'unsafe-inline'` |
+| `img-src`                                   | `data:`                               | `data:`           |
+| `base-uri`, `form-action`                   | `'none'`                              | `'none'`          |
+| `connect-src`                               | 적지 않음 (`default-src`를 따라 막힘) | `'none'`          |
+
+공유본은 `connect-src 'none'`을 직접 적어 어디로도 요청을 못 보내게 한다. 본인용은 지금도 `default-src 'none'`을 따라 외부 통신이 막혀 있지만 나중에 로컬 서버와 통신할 자리를 따로 열 수 있게 정책을 공유본과 나눠 두었다. `style-src-attr 'unsafe-inline'`은 레이아웃 좌표를 `style` 속성으로 넣기 때문에 남긴다.
+
+데이터 블록(`<script type="application/json">`)에 IR을 실을 때는 `<`, `>`, `&`와 줄 구분 문자(U+2028, U+2029)를 `\u` 이스케이프로 바꾼다. 그래서 글자 칸에 `</script>`나 `<!--`가 들어와도 블록이 일찍 닫히지 않는다. 페이지 스크립트는 글자를 `textContent`로만 넣고 `innerHTML`을 쓰지 않는다. 글자 방향을 뒤집는 bidi 제어 문자는 보이는 표식으로 바꿔 그린다.
+
+### 커밋 정책
+
+render는 그릴 때마다 레포 공개 여부를 보고 `.gestalt/architecture/.gitignore`를 맞춘다. 공개 여부는 이 순서로 정한다.
+
+1. `git remote get-url origin`으로 원격 주소를 읽는다. 원격이 없으면 퍼블릭으로 본다.
+2. GitHub 주소가 아니면 퍼블릭으로 본다.
+3. `gh repo view <owner/repo> --json visibility`로 묻는다 (타임아웃 5초). `PRIVATE`면 프라이빗, `PUBLIC`이면 퍼블릭이다. 엔터프라이즈 조직 안에서만 보이는 `INTERNAL`도 퍼블릭으로 본다.
+4. gh가 없거나 실패했거나 응답을 못 읽었으면 퍼블릭으로 본다.
+
+애매하면 퍼블릭으로 보는 이유는 본인용 산출물이 공개 레포에 올라가는 쪽이 더 큰 사고라서다. 공개 여부를 못 읽어도 render는 막히지 않는다.
+
+| 공개 여부 | `.gitignore`가 막는 파일                                                               | 커밋할 수 있는 파일                              |
+| --------- | -------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| 퍼블릭    | 본인용 HTML(`*.html`), 저장 IR(`*.json`), 질문별 그림(`views/`), 본인용 구조 변경 그림 | `<그림>.shared.html`, `<그림>.delta.shared.html` |
+| 프라이빗  | 없음                                                                                   | 전부                                             |
+
+render가 쓰는 줄은 `# >>> gestalt architecture`와 `# <<< gestalt architecture` 표식 사이의 관리 구역에만 있다. 사람이 그 밖에 적은 줄은 건드리지 않는다. 프라이빗이 되면 관리 구역만 걷어내고 관리 구역만 있던 파일은 지운다.
+
+퍼블릭인데 막을 파일을 git이 이미 추적하고 있으면 `IGNORED_FILE_TRACKED` 경고가 한 건 온다. 파일이 여럿이어도 한 건이고 `paths`에 레포 루트 기준 경로를 모은다. 문구에는 `git rm --cached -- <경로>` 명령을 안내만 한다. 서버는 이 명령을 실행하지 않으므로 다음 커밋에서 뺄지는 사람이 정한다. 프라이빗이던 레포가 퍼블릭으로 바뀐 경우도 다음 render 때 `.gitignore`를 갱신하고 이 경고를 내는 데까지만 한다. 이미 커밋된 이력은 손대지 않는다.
 
 ---
 
@@ -1425,19 +1483,21 @@ render는 이 순서로 돈다.
 
 성공 응답이다.
 
-| 키               | 내용                                                                                                                                                |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ok`             | `true`                                                                                                                                              |
-| `irPath`         | 저장한 IR 경로                                                                                                                                      |
-| `htmlPath`       | 본인용 HTML 경로                                                                                                                                    |
-| `sharedHtmlPath` | 공유용 HTML 경로                                                                                                                                    |
-| `openPath`       | `audience`에 따라 둘 중 하나                                                                                                                        |
-| `viewPaths`      | 질문별 그림 파일 경로 목록. 쓴 파일이 있을 때만 온다                                                                                                |
-| `levels`         | `{ id, title, nodes, edges }[]`. 드릴다운으로 그렸을 때만 온다. `nodes`와 `edges`는 그 레벨에 그린 수다. 엣지는 묶음 엣지 하나를 하나로 센다        |
-| `stats`          | [render stats](#render-stats)                                                                                                                       |
-| `sourcesUsed`    | 병합 결과의 `sourcesUsed`                                                                                                                           |
-| `delta`          | 지난 그림과 비교한 결과. `status`가 `no_previous`, `unchanged`, `created`, `failed` 중 하나다. 자세한 꼴은 [구조 변경 그림](#구조-변경-그림)에 있다 |
-| `warnings`       | validate와 같은 [경고](#검증-규칙) 목록. 있을 때만 온다                                                                                             |
+| 키               | 내용                                                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ok`             | `true`                                                                                                                                                                   |
+| `irPath`         | 저장한 IR 경로                                                                                                                                                           |
+| `htmlPath`       | 본인용 HTML 경로                                                                                                                                                         |
+| `sharedHtmlPath` | 공유용 HTML 경로                                                                                                                                                         |
+| `openPath`       | `audience`에 따라 둘 중 하나                                                                                                                                             |
+| `viewPaths`      | 질문별 그림 파일 경로 목록. 쓴 파일이 있을 때만 온다                                                                                                                     |
+| `levels`         | `{ id, title, nodes, edges }[]`. 드릴다운으로 그렸을 때만 온다. `nodes`와 `edges`는 그 레벨에 그린 수다. 엣지는 묶음 엣지 하나를 하나로 센다                             |
+| `stats`          | [render stats](#render-stats)                                                                                                                                            |
+| `sourcesUsed`    | 병합 결과의 `sourcesUsed`                                                                                                                                                |
+| `delta`          | 지난 그림과 비교한 결과. `status`가 `no_previous`, `unchanged`, `created`, `failed` 중 하나다. 자세한 꼴은 [구조 변경 그림](#구조-변경-그림)에 있다                      |
+| `visibility`     | `{ verdict, source, fallbackReason? }`. 커밋 정책을 정한 레포 공개 여부다. `verdict`는 `public`이나 `private`, `source`는 `gh`나 `fallback`이다. 판정에 실패하면 안 온다 |
+| `ignoreFilePath` | 관리 구역을 쓴 `.gitignore` 경로. 퍼블릭일 때만 온다                                                                                                                     |
+| `warnings`       | validate와 같은 [경고](#검증-규칙) 목록. 있을 때만 온다                                                                                                                  |
 
 ### `status`
 

@@ -616,7 +616,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
   - `NODE_DESCRIPTION_MISSING`은 그리는 노드 중 `description`이 빈 노드를 `nodeIds`에 모아 준다. 그 카드에는 설명 줄이 없으니 채운다.
   - 예산 경고(`LIFECYCLE_OVER_BUDGET`, `BLUEPRINT_OVER_BUDGET`, `ER_OVER_BUDGET`)에는 `nodeIds`가 없다. 넘친 그림의 id를 `subjectId`에, 넘친 개수를 `counts`에 담는다. 그림을 나누거나 줄이라는 신호다.
   - `INFRA_PLACEMENT_CONFLICT`는 노드에 직접 적은 `provider`나 `region`이 `placedIn`, `parent`, `account`로 물려받은 값과 다를 때 온다. 근거를 다시 보고 한쪽을 지운다.
-  - render 응답에도 같은 `warnings`가 실린다. render에는 `DELTA_OVER_BUDGET`이 더 올 수 있다. 읽는 법은 [Step 8](#step-8--render와-보고)에 있다.
+  - render 응답에도 같은 `warnings`가 실린다. render에는 `DELTA_OVER_BUDGET`, `SECRET_MASKED`, `IGNORED_FILE_TRACKED`가 더 올 수 있다. 읽는 법은 [Step 8](#step-8--render와-보고)에 있다.
 - 실패하면 `errors[]`에 `code`와 `nodeId`나 `edgeId`가 온다. 질문별 그림 에러면 `projectionId`와 `messageId`가 오고 구간 에러면 `phaseId`가 함께 온다.
 
 | 에러 코드                                               | 고치는 법                                                                                                                                                                                                                 |
@@ -698,6 +698,8 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 - `htmlPath`: 근거 링크와 인용이 다 보이는 본인용
 - `sharedHtmlPath`: private 근거의 위치와 인용을 빼고 출처 종류만 남긴 공유용. 다른 사람에게 넘길 때는 이 파일만 넘긴다
 - `irPath`: 다음 실행의 출발점
+- `visibility`: 커밋 정책을 정한 레포 공개 여부. `verdict`는 `public`이나 `private`이고 `source`가 `fallback`이면 gh로 확인을 못 해 퍼블릭으로 본 것이다. `fallbackReason`에 이유가 온다
+- `ignoreFilePath`: 퍼블릭일 때만 온다. 본인용 HTML과 저장 IR을 막는 줄을 써 둔 `.gitignore` 경로다
 - `levels`: 드릴다운으로 그렸을 때만 온다. 항목마다 `id`, `title`, `nodes`, `edges`가 있다. `id`는 `root`(전체), `service:<id>`, `feature:<id>`, `server:<id>`, `flow:<id>`, `group:<id>`, `view:<id>`, `infra` 꼴이다
 - `viewPaths`: 질문별 그림이 있을 때만 온다. 그림마다 `.gestalt/architecture/views/<view>.<그림 id>.json`에 그 그림과 가리킨 노드, 엣지, 질문만 따로 저장한 경로다. lifecycle과 blueprint는 가리킨 흐름(`flow`)을, er은 외래 키 대상 테이블과 `auto:fk:` 질문을 함께 싣는다. 다른 세션이 질문 하나의 답만 읽어 갈 때 이 파일을 건넨다
 - `delta`: 이전 실행과 비교한 결과. 늘 온다. `status`는 넷 중 하나다
@@ -734,6 +736,10 @@ Step 4.5에서 클라우드를 조회했으면 어느 프로필로 언제 조회
 **구조 변경은 `delta.status`대로 알린다.** `created`면 바뀐 건수를 변경어별로 한 줄에 적고 구조 변경 그림 경로를 준다 (예: "지난번보다 생김 2, 빠짐 1, 다시 이음 1. 구조 변경 그림은 `.gestalt/architecture/screen-chain.delta.html`"). 이 그림은 이전과 이번을 같은 좌표에 나란히 놓고 가운데 변경 목록을 둔다. 공유할 때는 `.delta.shared.html`을 넘긴다. `scoped`가 오면 전체 몇 개 중 몇 개만 그렸는지 덧붙인다. `unchanged`면 "지난번과 구조가 같다" 한 줄이면 된다. `no_previous`는 따로 알리지 않는다. 처음 그린 그림이면 당연한 결과다. `failed`면 본 그림은 정상으로 보고하고 "구조 변경 그림은 못 만들었다"와 `message`를 한 줄로 덧붙인다. 디스크에 남은 구조 변경 파일을 이번 결과처럼 건네지 않는다.
 
 `warnings`에 `DELTA_OVER_BUDGET`이 오면 구조 변경 그림 한 장에 담기에 변경이 많다는 뜻이다. 그림은 그대로 썼다. 바뀐 영역을 나눠 단계별로 다시 그리기를 권한다.
+
+`SECRET_MASKED`가 오면 그 위치(`nodeId`나 `flowId` 같은 주인 id와 `field`)의 글자를 `[비밀값]`으로 가렸다는 뜻이다. 보고에 위치만 한 줄로 적고 값을 짐작해 옮기지 않는다. 다음 실행 IR에서는 그 칸에 비밀값을 적지 않는다.
+
+`IGNORED_FILE_TRACKED`가 오면 퍼블릭 레포인데 막아야 할 산출물을 git이 이미 추적하고 있다는 뜻이다. `paths`와 경고 문구의 `git rm --cached` 명령을 그대로 보여주고 실행할지는 사용자에게 맡긴다. 직접 실행하지 않는다.
 
 Step 5에서 레포를 새로 받았으면 무엇을 어디에 받았는지 한 줄로 덧붙인다 (예: "`org/api-server`를 `~/.gestalt/architecture/clones/github.com/org/api-server`에 받았다").
 
@@ -871,3 +877,9 @@ Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다.
 | 클라우드 조회 결과 (`live`)                                                          | `private`  | 금지        |
 
 private 근거는 공유용 HTML에서 위치와 인용이 빠지고 출처 종류만 남는다. 저장되는 IR에도 private 본문은 들어가지 않는다. `live` 근거는 `public`으로 적어도 공유본에서 명령과 위치를 빼고 조회 시각만 남긴다. 노드 이름에 든 계정 ID와 CDN 배포 ID도 공유본에서 가려진다. `screen` 노드의 `capture`는 공개 범위와 상관없이 공유본에서 통째로 빠진다.
+
+LLM이 채운 글자 칸(근거 `excerpt`, `label`, `description`, 흐름과 질문 문장 등)에 API 키나 비밀번호, 개인 키, JWT, 접속 주소 비밀번호처럼 보이는 값이 있으면 render가 본인용 HTML, 저장 IR, 공유본, 구조 변경 그림 네 곳 모두에서 `[비밀값]`으로 가린다. 환경변수 참조나 안내 문구, 공개 키, UUID와 커밋 해시는 놔둔다. 그래도 IR에 비밀값을 옮겨 적지 않는 게 먼저다. 가렸다고 알리는 `SECRET_MASKED` 경고에는 위치만 오고 값은 안 온다.
+
+공유본은 외부 통신을 막는 CSP(`connect-src 'none'`)가 붙는다. 본인용은 정책을 따로 두지만 지금도 외부로 요청을 보내지 않는다.
+
+커밋할 파일은 레포 공개 여부로 갈린다. 퍼블릭 레포(원격이 없거나 GitHub 밖이거나 gh로 확인을 못 한 경우와 `INTERNAL` 포함)면 render가 `.gestalt/architecture/.gitignore`에 본인용 HTML과 저장 IR, 질문별 그림 파일을 막는 줄을 써 두고 `.shared.html`만 커밋하게 둔다. 프라이빗 레포면 아무것도 막지 않는다. render가 쓰는 줄은 `# >>> gestalt architecture` 표식 구역 안에만 있고 사람이 적은 줄은 건드리지 않는다.
