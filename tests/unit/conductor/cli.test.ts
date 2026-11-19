@@ -30,6 +30,8 @@ import {
   conductorWorkerReportCommand,
 } from '../../../src/cli/commands/conductor.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
+import { registerSession } from '../../../src/conductor/handoff.js';
+import { touchSessionTick } from '../../../src/conductor/session-owner.js';
 import { claimWaitOwner } from '../../../src/conductor/wait.js';
 import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
 
@@ -170,6 +172,142 @@ describe('gestalt conductor', () => {
     });
     expect(orders.find((o) => o['id'] === parent)).not.toHaveProperty('parentOrderId');
     expect(orders.find((o) => o['id'] === child)).toMatchObject({ parentOrderId: parent });
+  });
+
+  it('status JSON에 스킬 체인과 체크포인트, 워커 대기, 최근 이벤트를 싣는다', () => {
+    const stateDir = tempStateDir();
+    const store = ConductorStore.open(stateDir);
+    const o = order({ skillChain: ['interview', 'spec', 'ship', 'merge'], status: 'running' });
+    store.addOrder(o);
+    const w = worker(o.id, {
+      kind: 'orca-worktree',
+      account: 'work',
+      rateLimitedAt: '2026-11-01T01:00:00.000Z',
+      rateLimitResetsAt: '2026-11-01T05:00:00.000Z',
+      waiting: { reason: 'CI 대기', since: '2026-11-01T00:30:00.000Z' },
+    });
+    store.startWorker(w);
+    store.updateOrder(o.id, { workerId: w.id });
+    store.saveCheckpoint({
+      orderId: o.id,
+      workerId: w.id,
+      skill: 'ship',
+      phase: 'copilot',
+      round: 2,
+      next: 'Copilot 코멘트 3개 반영',
+      completedSkills: ['interview', 'spec'],
+      shipDir: '/tmp/ship',
+      refs: ['/tmp/plan.md'],
+      savedAt: '2026-11-01T00:20:00.000Z',
+    });
+    store.append({
+      type: 'report-applied',
+      at: '2026-11-01T00:30:00.000Z',
+      name: 'r1.json',
+      report: {
+        workerId: w.id,
+        status: 'waiting',
+        summary: '기다려요',
+        refs: [],
+        wait: { reason: 'CI 대기' },
+      },
+    });
+    store.append({
+      type: 'bypass',
+      at: '2026-11-01T00:31:00.000Z',
+      record: {
+        orderId: o.id,
+        need: 'cleanup',
+        action: '로컬 리뷰 생략',
+        at: '2026-11-01T00:31:00.000Z',
+      },
+    });
+    store.openGate({
+      id: 'gate-1',
+      orderId: o.id,
+      type: 'merge',
+      status: 'open',
+      reason: '<b>머지</b> 승인',
+      refs: [],
+      openedAt: '2026-11-01T00:32:00.000Z',
+    });
+
+    conductorStatusCommand({ stateDir, json: true });
+    const status = last();
+    const row = (status['orders'] as Record<string, unknown>[])[0]!;
+    expect(row).toMatchObject({
+      skillChain: ['interview', 'spec', 'ship', 'merge'],
+      checkpoint: {
+        skill: 'ship',
+        phase: 'copilot',
+        round: 2,
+        next: 'Copilot 코멘트 3개 반영',
+        completedSkills: ['interview', 'spec'],
+      },
+      waiting: { reason: 'CI 대기', since: '2026-11-01T00:30:00.000Z' },
+      account: 'work',
+      rateLimitedAt: '2026-11-01T01:00:00.000Z',
+      rateLimitResetsAt: '2026-11-01T05:00:00.000Z',
+    });
+    expect(row['checkpoint']).not.toHaveProperty('refs');
+    expect(row['checkpoint']).not.toHaveProperty('shipDir');
+    expect(status['recentEvents']).toEqual([
+      { at: expect.any(String), type: 'checkpoint', orderId: o.id, summary: 'ship → copilot r2' },
+      { at: '2026-11-01T00:30:00.000Z', type: 'waiting', orderId: o.id, summary: 'CI 대기' },
+      {
+        at: '2026-11-01T00:31:00.000Z',
+        type: 'bypass',
+        orderId: o.id,
+        summary: 'cleanup · 로컬 리뷰 생략',
+      },
+      {
+        at: expect.any(String),
+        type: 'gate-opened',
+        orderId: o.id,
+        summary: 'merge · <b>머지</b> 승인',
+      },
+    ]);
+    expect(status['conductor']).toMatchObject({
+      maxWorkers: expect.any(Number),
+      pollIntervalSec: expect.any(Number),
+      activeWorkers: 1,
+      queuedOrders: 0,
+      prWatchRepos: expect.any(Array),
+      disconnectedWorkers: 0,
+    });
+    expect(status['conductor']).not.toHaveProperty('compactions');
+  });
+
+  it('status JSON은 끊긴 워커와 살아 있는 컨덕터 세션의 컴팩트 횟수를 싣고 지운 주문의 이벤트는 뺀다', () => {
+    const stateDir = tempStateDir();
+    const store = ConductorStore.open(stateDir);
+    const o = order({ status: 'running' });
+    store.addOrder(o);
+    const w = worker(o.id, { status: 'stopped', stopReason: 'disconnected' });
+    store.startWorker(w);
+    store.updateOrder(o.id, { workerId: w.id });
+    const gone = order({ status: 'done' });
+    store.addOrder(gone);
+    store.append({
+      type: 'bypass',
+      at: '2026-11-01T00:31:00.000Z',
+      record: {
+        orderId: gone.id,
+        need: 'cleanup',
+        action: '지운 주문',
+        at: '2026-11-01T00:31:00.000Z',
+      },
+    });
+    store.removeOrder(gone.id);
+    const sid = 'session-abc';
+    registerSession(stateDir, sid, '/w', new Date());
+    touchSessionTick(stateDir, sid, new Date());
+    writeFileSync(join(stateDir, 'sessions', sid, 'compactions'), '1\n');
+
+    conductorStatusCommand({ stateDir, json: true });
+    const status = last();
+    expect(status['conductor']).toMatchObject({ disconnectedWorkers: 1, compactions: 1 });
+    expect(status['recentEvents']).toEqual([]);
   });
 
   it('잘못된 값은 stderr와 exit 1로 끝낸다', () => {

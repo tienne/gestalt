@@ -39,6 +39,7 @@ import {
   isSessionId,
   resolveHandoffModel,
   launchHandoff,
+  readCompactions,
   readHandoffRecord,
   readSessionRegisteredAt,
   recordHandoff,
@@ -54,6 +55,7 @@ import {
   touchSessionTick,
 } from '../../conductor/session-owner.js';
 import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
+import { readRecentEvents } from '../../conductor/recent-events.js';
 import { resolveGate } from '../../conductor/gates.js';
 import {
   intakeOrder,
@@ -492,6 +494,13 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
             ...(o.issueKey ? { issue: o.issueKey } : {}),
             ...(o.humanOwnedAt ? { humanOwnedAt: o.humanOwnedAt } : {}),
             ...(limited.has(o.id) ? { rateLimit: limited.get(o.id) } : {}),
+            // 오르카 터미널 화면이 워커가 어느 스킬의 어느 단계에 있는지 그릴 때 쓴다
+            skillChain: o.skillChain,
+            ...checkpointOf(store, o.id),
+            ...(w?.waiting ? { waiting: w.waiting } : {}),
+            ...(w?.account ? { account: w.account } : {}),
+            ...(w?.rateLimitedAt ? { rateLimitedAt: w.rateLimitedAt } : {}),
+            ...(w?.rateLimitResetsAt ? { rateLimitResetsAt: w.rateLimitResetsAt } : {}),
             ...(opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
               ? { lastSummary: store.snapshot.reports[o.id]?.at(-1)?.summary ?? null }
               : {}),
@@ -506,6 +515,8 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
           reason: g.reason,
           openedAt: g.openedAt,
         })),
+        conductor: conductorSummary({ store, config }),
+        recentEvents: readRecentEvents(store.dir, store.snapshot),
       });
     }
     console.log(`마지막 tick: ${store.snapshot.lastTickAt ?? '없음'}`);
@@ -535,6 +546,49 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
     for (const b of bypassesOf.get('') ?? []) console.log(`bypass ${b.at}  ${b.need}  ${b.action}`);
     for (const g of gates) console.log(`게이트 ${g.id}  ${g.type}  ${g.reason}`);
   });
+}
+
+/** 주문의 마지막 체크포인트. 재개에만 쓰는 refs와 shipDir는 싣지 않는다 */
+function checkpointOf(store: ConductorStore, orderId: string): { checkpoint?: object } {
+  const c = store.snapshot.checkpoints[orderId];
+  if (!c) return {};
+  return {
+    checkpoint: {
+      skill: c.skill,
+      ...(c.phase ? { phase: c.phase } : {}),
+      ...(c.round !== undefined && c.round !== null ? { round: c.round } : {}),
+      next: c.next,
+      completedSkills: c.completedSkills,
+      savedAt: c.savedAt,
+    },
+  };
+}
+
+/**
+ * 컨덕터 자체의 값. 저장소와 설정에서 이미 아는 것만 싣는다.
+ * 컴팩트 횟수는 살아 있는 컨덕터 세션을 찾았을 때만 싣는다
+ */
+function conductorSummary(ctx: Ctx): Record<string, unknown> {
+  const { store, config } = ctx;
+  const disconnected = store
+    .workers()
+    .filter(
+      (w) =>
+        w.status === 'stopped' &&
+        w.stopReason === 'disconnected' &&
+        store.order(w.orderId)?.workerId === w.id &&
+        !TERMINAL_ORDER_STATUSES.has(store.order(w.orderId)!.status),
+    ).length;
+  const session = findActiveConductor(store.dir, '', Date.now(), activeConductorWindowMs(config));
+  return {
+    pollIntervalSec: config.pollIntervalSec,
+    maxWorkers: config.maxConcurrentWorkers,
+    activeWorkers: store.activeWorkers().length,
+    queuedOrders: store.queuedOrders().length,
+    prWatchRepos: config.prWatchRepos,
+    disconnectedWorkers: disconnected,
+    ...(session ? { compactions: readCompactions(store.dir, session.sessionId).count } : {}),
+  };
 }
 
 function rateLimitLine(e: RateLimitedEntry): string {
