@@ -30,6 +30,7 @@ import {
   buildWorkerPrompt,
   chooseWorkerKind,
   ensureAccount,
+  OrcaReleaseLiveError,
   type AccountSwitcher,
   type HostAction,
   type LauncherSet,
@@ -859,7 +860,10 @@ async function launchQueued(
   report: TickReport,
 ): Promise<void> {
   const plan = planSlots(store, deps.config.maxConcurrentWorkers);
-  for (const order of plan.toStart) {
+  let remaining = plan.free;
+  for (const order of [...plan.toStart, ...plan.waiting]) {
+    if (remaining === 0) break;
+    remaining--;
     const account = await ensureAccount(store, order, deps.config.accounts, deps.accounts);
     if (!account.ok) continue;
 
@@ -876,7 +880,11 @@ async function launchQueued(
     }
 
     const resume = resumeLaunchFor(store, order, deps.readShip);
-    if (resume && !(await retirePrevious(store, deps, report, order, resume))) continue;
+    if (resume) {
+      const retirement = await retirePrevious(store, deps, report, order, resume);
+      if (retirement === 'deferred') remaining++;
+      if (retirement !== 'released') continue;
+    }
     const worker: Worker = {
       id: newId('wrk'),
       orderId: order.id,
@@ -944,7 +952,7 @@ async function launchQueued(
  * 재개로 새 오르카 워커를 띄우기 전에 앞 워커 터미널을 거둔다. 워크트리는 지우지 않는다.
  *
  * 앞 터미널을 남긴 채 띄우면 한도가 풀리거나 계정이 바뀐 앞 워커가 다시 움직여 한 주문을 둘이
- * 진행한다. 그래서 거두기가 실패하면 새 워커를 안 띄우고 재개 게이트로 사람에게 올린다.
+ * 진행한다. 앞 워커가 살아 있으면 다음 tick에 거두기를 다시 시도한다. 기한을 넘기면 사람에게 올린다.
  * git 워크트리와 서브에이전트 워커는 지금처럼 앞 워커를 건드리지 않는다.
  */
 async function retirePrevious(
@@ -953,15 +961,17 @@ async function retirePrevious(
   report: TickReport,
   order: Order,
   resume: ResumeLaunch,
-): Promise<boolean> {
+): Promise<'released' | 'deferred' | 'escalated'> {
   const { previous } = resume;
-  if (previous.kind !== 'orca-worktree') return true;
+  if (previous.kind !== 'orca-worktree') return 'released';
   const launcher = deps.launchers['orca-worktree'];
   try {
     if (!launcher) throw new Error('오르카 런처가 없어 앞 워커 터미널을 못 거둬요');
     await launcher.release(previous, { requireClosed: true });
-    return true;
+    if (previous.releaseRefusedAt) store.updateWorker(previous.id, { releaseRefusedAt: undefined });
+    return 'released';
   } catch (err) {
+    if (shouldRetryRelease(store, deps, previous, err)) return 'deferred';
     const gate = escalateResume(
       store,
       order,
@@ -969,8 +979,30 @@ async function retirePrevious(
       `앞 워커 터미널을 못 거뒀어요: ${message(err)}`,
     );
     report.escalated.push(gate.id);
+    return 'escalated';
+  }
+}
+
+/** 연속 거절의 첫 시각만 남겨야 재시도마다 이벤트가 쌓이지 않는다. */
+function shouldRetryRelease(
+  store: ConductorStore,
+  deps: EngineDeps,
+  worker: Worker,
+  err: unknown,
+): boolean {
+  if (!(err instanceof OrcaReleaseLiveError)) {
+    if (worker.releaseRefusedAt) store.updateWorker(worker.id, { releaseRefusedAt: undefined });
     return false;
   }
+  const now = store.timestamp();
+  if (!worker.releaseRefusedAt) {
+    store.updateWorker(worker.id, { releaseRefusedAt: now });
+    return true;
+  }
+  return (
+    Date.parse(now) - Date.parse(worker.releaseRefusedAt) <
+    deps.config.orcaReleaseRetryMaxSec * 1000
+  );
 }
 
 /**
@@ -1123,7 +1155,10 @@ async function cleanupWorkers(
     const mine = cleanupGates.filter((g) => g.payload?.workerId === w.id);
     if (mine.some((g) => g.status === 'open')) continue;
     if (mine.some((g) => g.decision === 'approved')) {
-      store.updateWorker(w.id, { status: 'released' });
+      store.updateWorker(w.id, {
+        status: 'released',
+        ...(w.releaseRefusedAt ? { releaseRefusedAt: undefined } : {}),
+      });
       continue;
     }
     targets.push({
@@ -1167,9 +1202,13 @@ async function cleanupWorkers(
           at,
         },
       });
-      store.updateWorker(w.id, { status: 'released' });
+      store.updateWorker(w.id, {
+        status: 'released',
+        ...(w.releaseRefusedAt ? { releaseRefusedAt: undefined } : {}),
+      });
       return;
     }
+    if (shouldRetryRelease(store, deps, w, r.reason)) return;
     const { gate } = openOrReuse(store, {
       type: 'no-procedure',
       reason: `${w.id} 정리에 실패했어요: ${message(r.reason)}`,

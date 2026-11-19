@@ -130,6 +130,9 @@ export interface Launcher {
   peek?(worker: Worker): Promise<WorkerPeek>;
 }
 
+/** 오르카가 아직 살아 있는 워커를 거두지 못했을 때 재시도할 수 있다 */
+export class OrcaReleaseLiveError extends Error {}
+
 export interface ReleaseOptions {
   /** 워커 워크트리까지 지운다. 컨덕터는 머지된 주문의 오르카 워커에만 켠다 */
   removeWorktree?: boolean;
@@ -1282,7 +1285,7 @@ export class OrcaLauncher implements Launcher {
     // 터미널을 거둔 뒤에도 worker-show는 되지만 순서에 기대지 않으려고 먼저 읽는다
     const workspace = opts.removeWorktree ? await this.workspaceOf(worker) : undefined;
     const out = await this.releaseTerminal(worker);
-    if (opts.requireClosed) await this.assertClosed(worker, out);
+    await this.assertClosed(worker, out, opts.requireClosed === true);
     if (workspace) await this.removeWorktree(worker, workspace, opts.parentWorktree);
   }
 
@@ -1290,7 +1293,7 @@ export class OrcaLauncher implements Launcher {
    * worker-release를 부른다. 오르카는 settled 워커만 release를 받는데, 워커가 컨덕터에만 보고하고
    * worker_done 없이 나가면 dispatch가 ready로 남아 dispatch_inactive로 거절된다.
    * 그때 프로세스가 이미 끝났으면 worker-stop으로 dispatch를 stopped로 바꾼 뒤 다시 release한다.
-   * 끝나지 않았거나 liveness를 모르는 워커는 컨덕터가 임의로 멈추지 않고 실패로 올린다
+   * 살아 있거나 liveness를 모르면 임의로 멈추지 않는다.
    */
   private async releaseTerminal(worker: Worker): Promise<string> {
     const args = ['orchestration', 'worker-release', `--dispatch=${worker.handle!}`, '--json'];
@@ -1299,10 +1302,11 @@ export class OrcaLauncher implements Launcher {
     if (errorCode(r.stdout) !== 'dispatch_inactive')
       throw new Error(failMessage(this.opts.orcaCommand, args, r));
     const shown = await this.show(worker);
-    if (!shown.liveness || !GONE_LIVENESS.has(shown.liveness))
-      throw new Error(
-        `${worker.id}의 오르카 dispatch가 아직 안 끝나 release를 거절당했어요(liveness ${shown.liveness ?? '모름'}). 살아 있는 워커는 멈추지 않았어요. ${stopCommandFor(worker)} 승인해 주세요`,
-      );
+    if (!shown.liveness || !GONE_LIVENESS.has(shown.liveness)) {
+      const detail = `${worker.id}의 오르카 dispatch가 아직 안 끝나 release를 거절당했어요(liveness ${shown.liveness ?? '모름'}). 살아 있는 워커는 멈추지 않았어요. ${stopCommandFor(worker)} 승인해 주세요`;
+      if (shown.liveness === 'live') throw new OrcaReleaseLiveError(detail);
+      throw new Error(detail);
+    }
     // exited나 gone이면 show와 stop 사이에 live로 돌아가지 않는다고 본다. 오르카 문서로 확인하지 못한 가정이다.
     // stop은 dispatch를 stopped로 바꾸기만 하고 터미널은 retained로 남긴다. release까지 불러야 거둔다
     await mustRun(
@@ -1318,14 +1322,19 @@ export class OrcaLauncher implements Launcher {
    * worker-release가 터미널을 닫았는지 본다. 끝나지 않은 워커의 터미널은 오르카가 안 닫고
    * retained로 돌려준다. 그때는 프로세스가 이미 끝났을 때만 받아들인다
    */
-  private async assertClosed(worker: Worker, releaseOut: string): Promise<void> {
+  private async assertClosed(
+    worker: Worker,
+    releaseOut: string,
+    requireClosed: boolean,
+  ): Promise<void> {
     const state = stringField(resultOf(releaseOut), 'state');
     if (state && CLOSED_RELEASE_STATES.has(state)) return;
+    if (!requireClosed && state !== 'retained' && state !== 'release_pending') return;
     const shown = await this.show(worker);
     if (shown.liveness && GONE_LIVENESS.has(shown.liveness)) return;
-    throw new Error(
-      `${worker.id}의 오르카 터미널을 못 거뒀어요(release ${state ?? '응답 없음'}, liveness ${shown.liveness ?? '모름'}). 앞 워커가 살아 있을 수 있어 새 워커를 안 띄웠어요. ${stopCommandFor(worker)} 승인해 주세요`,
-    );
+    const detail = `${worker.id}의 오르카 터미널을 못 거뒀어요(release ${state ?? '응답 없음'}, liveness ${shown.liveness ?? '모름'}). ${stopCommandFor(worker)} 승인해 주세요`;
+    if (shown.liveness === 'live') throw new OrcaReleaseLiveError(detail);
+    throw new Error(detail);
   }
 
   /**

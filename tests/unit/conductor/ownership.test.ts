@@ -38,6 +38,7 @@ const config: ConductorConfig = {
   rateLimitEscalateAfterSec: 21600,
   waitingEscalateAfterSec: 21600,
   deployWaitMaxSec: 86400,
+  orcaReleaseRetryMaxSec: 7200,
   defaultScope: 'approval',
   resultMaxChars: 2000,
   accounts: {},
