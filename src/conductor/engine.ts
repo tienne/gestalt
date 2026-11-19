@@ -862,8 +862,14 @@ async function launchQueued(
   const retried = new Map<string, Awaited<ReturnType<typeof retirePrevious>>>();
   for (const order of store.queuedOrders()) {
     const previous = order.workerId ? store.worker(order.workerId) : undefined;
-    if (previous?.status !== 'stopped' || !previous.releaseRefusedAt) continue;
-    retried.set(order.id, await retirePrevious(store, deps, report, order, previous));
+    if (!previous?.releaseRefusedAt) continue;
+    if (previous.status === 'running') {
+      // release 대기 사이에 한도가 풀린 워커가 같은 주문을 계속 진행한다.
+      store.updateWorker(previous.id, { releaseRefusedAt: undefined });
+      store.updateOrder(order.id, { status: 'running' });
+    } else if (previous.status === 'stopped') {
+      retried.set(order.id, await retirePrevious(store, deps, report, order, previous));
+    }
   }
 
   const plan = planSlots(store, deps.config.maxConcurrentWorkers);

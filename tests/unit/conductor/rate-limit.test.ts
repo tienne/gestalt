@@ -3,6 +3,7 @@ import { inboxDirOf, tick, writeReport, type EngineDeps } from '../../../src/con
 import { resolveGate } from '../../../src/conductor/gates.js';
 import {
   OrcaLauncher,
+  OrcaReleaseLiveError,
   type CommandRunner,
   type Launcher,
   type ReleaseOptions,
@@ -564,6 +565,42 @@ describe('오르카 워커 재개', () => {
     expect(c.store.order('ord-1')?.status).toBe('escalated');
     expect(r.escalated).toHaveLength(1);
     expect(c.store.openGates('ord-1')[0]?.reason).toMatch(/앞 워커 터미널을 못 거뒀어요: retained/);
+  });
+
+  it('release 대기 중 한도가 풀리면 앞 워커가 같은 주문을 이어 간다', async () => {
+    const { store } = stoppedOrcaOrder();
+    store.updateWorker('wrk-1', { stopReason: 'rate-limit', rateLimitedAt: store.timestamp() });
+    store.updateOrder('ord-1', { status: 'escalated' });
+    store.openGate({
+      id: 'gate-1',
+      orderId: 'ord-1',
+      type: 'no-procedure',
+      status: 'open',
+      reason: '세션 한도 대기 기한 초과',
+      refs: [],
+      openedAt: store.timestamp(),
+    });
+    resolveGate(store, 'gate-1', 'approved');
+    const orca = orcaLauncher(new OrcaReleaseLiveError('liveness live'));
+    const d: EngineDeps = {
+      config,
+      launchers: { 'orca-worktree': orca.launcher },
+      orcaAvailable: true,
+      env: {},
+    };
+    expect((await tick(store, d, { force: true })).launched).toEqual([]);
+    expect(store.order('ord-1')?.status).toBe('queued');
+    expect(store.worker('wrk-1')?.releaseRefusedAt).toBeDefined();
+
+    writeReport(
+      inboxDirOf(store, d),
+      { workerId: 'wrk-1', status: 'progress', summary: '작업 재개' },
+      2000,
+    );
+    expect((await tick(store, d, { force: true })).launched).toEqual([]);
+    expect(store.order('ord-1')).toMatchObject({ status: 'running', workerId: 'wrk-1' });
+    expect(store.worker('wrk-1')?.releaseRefusedAt).toBeUndefined();
+    expect(orca.calls).toEqual(['release:wrk-1:closed']);
   });
 
   it('한도에 걸린 워커는 tick 보고에 보인다', async () => {
