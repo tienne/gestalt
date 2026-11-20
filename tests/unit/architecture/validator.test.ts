@@ -703,6 +703,9 @@ describe('작성 품질 경고 (카드 제목, 표시 이름 언어, 레벨 요�
       'sqlite:.gestalt/events.db',
       'SKILL.md',
       'C:\\dir\\a.ts',
+      'sqlite:events.db',
+      'classpath:application.yml',
+      'app.sh',
     ]) {
       expect(isPathlikeTitle(t), t).toBe(true);
     }
@@ -714,6 +717,9 @@ describe('작성 품질 경고 (카드 제목, 표시 이름 언어, 레벨 요�
       'v1.2',
       '로그인/회원가입',
       '',
+      'kafka:orders',
+      'redis:cache',
+      'queue:emails',
     ]) {
       expect(isPathlikeTitle(t), t).toBe(false);
     }

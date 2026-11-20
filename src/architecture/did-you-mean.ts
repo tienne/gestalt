@@ -10,22 +10,24 @@ export function editDistance(a: string, b: string): number {
   if (s === t) return 0;
   if (s.length === 0) return t.length;
   if (t.length === 0) return s.length;
-  const rows = s.length + 1;
   const cols = t.length + 1;
-  const d: number[][] = Array.from({ length: rows }, () => new Array<number>(cols).fill(0));
-  for (let i = 0; i < rows; i += 1) d[i]![0] = i;
-  for (let j = 0; j < cols; j += 1) d[0]![j] = j;
-  for (let i = 1; i < rows; i += 1) {
+  // 맞바꿈 항이 두 줄 위를 읽어서 세 줄만 돌려 쓴다
+  let twoUp = new Array<number>(cols).fill(0);
+  let up = Array.from({ length: cols }, (_, j) => j);
+  let cur = new Array<number>(cols).fill(0);
+  for (let i = 1; i <= s.length; i += 1) {
+    cur[0] = i;
     for (let j = 1; j < cols; j += 1) {
       const cost = s[i - 1] === t[j - 1] ? 0 : 1;
-      let best = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + cost);
+      let best = Math.min(up[j]! + 1, cur[j - 1]! + 1, up[j - 1]! + cost);
       if (i > 1 && j > 1 && s[i - 1] === t[j - 2] && s[i - 2] === t[j - 1]) {
-        best = Math.min(best, d[i - 2]![j - 2]! + 1);
+        best = Math.min(best, twoUp[j - 2]! + 1);
       }
-      d[i]![j] = best;
+      cur[j] = best;
     }
+    [twoUp, up, cur] = [up, cur, twoUp];
   }
-  return d[rows - 1]![cols - 1]!;
+  return up[cols - 1]!;
 }
 
 /** 입력 길이의 1/3까지 틀려도 같은 말로 본다. 짧은 키는 1글자, 긴 키도 3글자까지만 */
@@ -39,10 +41,13 @@ export function suggestionThreshold(input: string): number {
  */
 export function suggestOne(input: string, candidates: Iterable<string>): string | undefined {
   const limit = suggestionThreshold(input);
+  const inputLength = input.toLowerCase().length;
   let best: string | undefined;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (const candidate of candidates) {
     if (candidate === input) continue;
+    // 거리는 길이 차보다 작을 수 없다. editDistance가 소문자로 비교하니 길이도 소문자로 잰다
+    if (Math.abs(candidate.toLowerCase().length - inputLength) > limit) continue;
     const distance = editDistance(input, candidate);
     if (distance > limit) continue;
     if (distance < bestDistance) {

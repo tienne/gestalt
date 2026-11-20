@@ -208,7 +208,7 @@ describe('matchEndpoints 2단계와 3단계, suggested', () => {
     ]);
   });
 
-  it('두 번 이상 쓰인 prefix를 배워 baseUrl 없는 호출에 붙여 본다', () => {
+  it('서로 다른 라우트 둘 이상에 쓰인 prefix를 배워 baseUrl 없는 호출에 붙여 본다', () => {
     const result = matchEndpoints({
       feCalls: [
         { id: 'fe-1', method: 'GET', path: '/orders', baseUrl: '/api/v1' },
@@ -246,6 +246,25 @@ describe('matchEndpoints 2단계와 3단계, suggested', () => {
     expect(result.matches.map((m) => m.feCallId)).toEqual(['fe-1']);
     expect(result.unmatched).toEqual([
       expect.objectContaining({ feCallId: 'fe-2', reason: 'no_route', candidates: [] }),
+    ]);
+  });
+
+  it('같은 라우트를 두 번 부른 호출은 support 하나로 세어 prefix를 배우지 않는다', () => {
+    const result = matchEndpoints({
+      feCalls: [
+        { id: 'fe-1', method: 'GET', path: '/orders', baseUrl: '/api/v1' },
+        { id: 'fe-2', method: 'GET', path: '/orders', baseUrl: '/api/v1' },
+        { id: 'fe-3', method: 'GET', path: '/orders/${id}/items' },
+      ],
+      beRoutes: [
+        route('be-list', 'GET', '/api/v1/orders'),
+        route('be-items', 'GET', '/api/v1/orders/{id}/items'),
+      ],
+    });
+    expect(result.learnedPrefixes).toEqual([]);
+    expect(result.matches.map((m) => m.feCallId)).toEqual(['fe-1', 'fe-2']);
+    expect(result.unmatched).toEqual([
+      expect.objectContaining({ feCallId: 'fe-3', reason: 'no_route', candidates: [] }),
     ]);
   });
 

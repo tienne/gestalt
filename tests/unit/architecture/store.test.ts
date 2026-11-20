@@ -672,6 +672,153 @@ describe('mergeWithPreviousDetailed', () => {
     );
   });
 
+  it('evidenceOk가 false를 낸 지난 흐름은 evidence_stale로 버리고 투영도 싣지 않는다', () => {
+    const stale = code('acme-web:src/gone.ts:3');
+    const prev = makeIr({
+      nodes: [node('home', 'Home'), node('cart', 'Cart')],
+      edges: [edge('e1', 'home', 'cart')],
+      flows: [
+        {
+          ...flow('checkout', ['home']),
+          steps: [
+            { id: 'checkout-s1', actor: 'user', label: '진입', refs: ['home'], evidence: stale },
+          ],
+        },
+        flow('browse', ['home']),
+      ],
+      projections: [
+        {
+          id: 'p1',
+          title: '홈에서 장바구니',
+          question: '홈에서 장바구니로 어떻게 가나요?',
+          shape: 'sequence',
+          messages: [
+            {
+              id: 'm1',
+              from: 'home',
+              to: 'cart',
+              label: '이동',
+              edge: 'e1',
+              evidence: stale,
+              lineStyle: 'solid',
+            },
+          ],
+        },
+      ],
+    });
+    const next = makeIr({
+      nodes: [node('home', 'Home'), node('cart', 'Cart')],
+      edges: [edge('e1', 'home', 'cart')],
+    });
+    const evidenceOk = (evidence: readonly { location: string }[]): boolean =>
+      evidence.every((ev) => !ev.location.includes('gone.ts'));
+
+    const { ir, report } = mergeWithPreviousDetailed(prev, next, { evidenceOk });
+
+    expect(ir.flows?.map((f) => f.id)).toEqual(['browse']);
+    expect(ir.projections).toBeUndefined();
+    expect(report.warnings).toContainEqual(
+      expect.objectContaining({
+        code: 'FLOW_DROPPED',
+        flowId: 'checkout',
+        reason: 'evidence_stale',
+      }),
+    );
+    // 파일 검사를 안 넘기면 근거로 버리지 않는다
+    expect(mergeWithPreviousDetailed(prev, next).ir.flows?.map((f) => f.id)).toEqual([
+      'checkout',
+      'browse',
+    ]);
+  });
+
+  it('짝지은 지난 노드가 id를 못 물려받으면 지난 흐름과 질문을 짝 노드의 이번 id로 옮긴다', () => {
+    const prev = makeIr({
+      nodes: [node('x', 'Home')],
+      flows: [flow('browse', ['x'])],
+      unresolved: [{ id: 'q1', subject: { nodeId: 'x' }, question: '?', answer: '답' }],
+    });
+    // 이번 IR의 다른 노드가 이미 x를 써서 Home은 지난 id를 못 받는다
+    const next = makeIr({ nodes: [node('home', 'Home'), node('x', 'Cart', { kind: 'endpoint' })] });
+
+    const { ir } = mergeWithPreviousDetailed(prev, next);
+
+    expect(ir.nodes.map((n) => n.id)).toEqual(['home', 'x']);
+    expect(ir.flows?.[0]!.steps[0]!.refs).toEqual(['home']);
+    expect(ir.unresolved.map((q) => q.subject.nodeId)).toEqual(['home']);
+  });
+
+  it('짝을 못 찾은 지난 노드의 id를 이번 IR의 다른 노드가 쓰면 흐름과 질문을 그 노드에 붙이지 않는다', () => {
+    const prev = makeIr({
+      nodes: [node('x', 'Home')],
+      flows: [flow('browse', ['x'])],
+      unresolved: [{ id: 'q1', subject: { nodeId: 'x' }, question: '?', answer: '답' }],
+    });
+    const next = makeIr({ nodes: [node('x', 'GET /cart', { kind: 'endpoint' })] });
+
+    const { ir, report } = mergeWithPreviousDetailed(prev, next);
+
+    expect(ir.flows).toBeUndefined();
+    expect(ir.unresolved).toEqual([]);
+    expect(report.warnings).toContainEqual(
+      expect.objectContaining({ code: 'FLOW_DROPPED', flowId: 'browse', reason: 'node_gone' }),
+    );
+  });
+
+  it('id로 이은 relabeled에 근거 파일이 겹치는지 싣고 code 근거가 없으면 뺀다', () => {
+    const prev = makeIr({
+      nodes: [
+        node('a', 'Alpha', { evidence: code('acme-web:src/a.tsx:1') }),
+        node('b', 'Beta', { evidence: code('acme-web:src/b.tsx:1') }),
+        node('c', 'Gamma'),
+      ],
+    });
+    const next = makeIr({
+      nodes: [
+        node('a', 'Alpha 2', { evidence: code('acme-web:src/a.tsx:9') }),
+        node('b', 'Beta 2', { evidence: code('acme-web:src/other.tsx:1') }),
+        node('c', 'Gamma 2'),
+      ],
+    });
+
+    const { report } = mergeWithPreviousDetailed(prev, next);
+
+    expect(report.relabeled).toEqual([
+      { id: 'a', previousLabel: 'Alpha', label: 'Alpha 2', matchedBy: 'id', evidenceOverlap: true },
+      { id: 'b', previousLabel: 'Beta', label: 'Beta 2', matchedBy: 'id', evidenceOverlap: false },
+      { id: 'c', previousLabel: 'Gamma', label: 'Gamma 2', matchedBy: 'id' },
+    ]);
+  });
+
+  it('라우터 파일처럼 같은 자리의 다른 노드와 같이 쓰는 근거 파일로는 잇지 않는다', () => {
+    const router = 'acme-web:src/router.tsx';
+    const prev = makeIr({
+      nodes: [
+        node('home', 'Home', { evidence: code(`${router}:3`) }),
+        node('old-promo', 'Promo', { description: '프로모션', evidence: code(`${router}:5`) }),
+      ],
+      unresolved: [{ id: 'q1', subject: { nodeId: 'old-promo' }, question: '?', answer: '답' }],
+    });
+    // Promo 화면을 지우고 Coupon 화면을 새로 더했다. 둘 다 라우터 파일만 근거로 단다
+    const next = makeIr({
+      nodes: [
+        node('home', 'Home', { evidence: code(`${router}:3`) }),
+        node('coupon', 'Coupon', { evidence: code(`${router}:5`) }),
+      ],
+    });
+
+    const { ir, report } = mergeWithPreviousDetailed(prev, next);
+
+    expect(ir.nodes.map((n) => [n.id, n.description])).toEqual([
+      ['home', undefined],
+      ['coupon', undefined],
+    ]);
+    expect(ir.unresolved).toEqual([]);
+    expect(report.relabeled).toEqual([]);
+    expect(report.warnings).toEqual([
+      expect.objectContaining({ code: 'LABEL_CHANGED_ID_LOST', previousId: 'old-promo' }),
+    ]);
+  });
+
   it('같은 입력이면 같은 결과를 낸다', () => {
     const shared = code('acme-web:src/a.tsx:1');
     const prev = makeIr({

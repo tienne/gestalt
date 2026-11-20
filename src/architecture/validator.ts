@@ -366,6 +366,23 @@ function checkCodeLocation(
   }
 }
 
+/**
+ * code 근거가 모두 지금 있는 파일의 범위 안 줄을 가리키는지 보는 함수를 만든다.
+ * validate가 CODE_EVIDENCE_NOT_FOUND로 막는 경우만 false다. excerpt 불일치는 경고라 따지지 않는다.
+ * 병합이 지난 흐름과 투영을 이어 싣기 전에 거르는 데 쓴다. 만든 함수끼리 파일 캐시를 함께 쓴다
+ */
+export function createCodeEvidenceCheck(
+  repoRoots: Record<string, string>,
+): (evidence: readonly Evidence[]) => boolean {
+  const cache: SourceFileCache = new Map();
+  return (evidence) =>
+    evidence.every(
+      (ev) =>
+        ev.type !== 'code' ||
+        checkCodeLocation(ev.location, undefined, repoRoots, cache).problem === undefined,
+    );
+}
+
 /** 옮겨 간 후보 중 지금 실제로 있는 파일만 남긴다. 줄 번호는 그대로 두고 세션이 excerpt로 다시 맞춘다 */
 function movedLocations(
   repoId: string,
@@ -2043,12 +2060,15 @@ const PATH_EXTENSIONS = new Set([
   'proto',
 ]);
 
-/** 공백과 한글이 없고 슬래시가 있거나 파일 확장자로 끝나거나 scheme:경로 꼴이면 경로로 본다 */
+// 콜론 뒤에 슬래시 없이 경로가 바로 붙는 scheme. kafka:orders나 redis:cache 같은 카드 이름과 가르려고 아는 것만 둔다
+const BARE_PATH_SCHEME_RE = /^(?:sqlite|file|classpath|jdbc|s3|gs):\S+$/i;
+
+/** 공백과 한글이 없고 슬래시가 있거나 파일 확장자로 끝나거나 아는 scheme:경로 꼴이면 경로로 본다 */
 export function isPathlikeTitle(title: string): boolean {
   const t = title.trim();
   if (t === '' || /\s/.test(t) || HANGUL_RE.test(t)) return false;
   if (/[\\/]/.test(t)) return true;
-  if (/^[a-z][a-z0-9+.-]*:[^\s]+$/.test(t)) return true;
+  if (BARE_PATH_SCHEME_RE.test(t)) return true;
   const ext = /\.([A-Za-z0-9]+)$/.exec(t);
   if (ext === null || !PATH_EXTENSIONS.has(ext[1]!.toLowerCase())) return false;
   // Next.js, Node.js처럼 대문자로 시작하는 프레임워크 이름은 파일이 아니다
@@ -2131,15 +2151,14 @@ function levelSummaryWarnings(validated: ValidatedIr): LevelSummaryMissingWarnin
   const levelIds: string[] = [];
   const nodeIds: string[] = [];
   for (const level of drillLevelOwners(validated)) {
-    const text =
-      level.kind === 'root'
-        ? validated.ir.summary
-        : level.ownerId !== undefined
-          ? nodeById.get(level.ownerId)?.summary
-          : undefined;
-    // 여는 노드가 IR에 없는 레벨(질문별 그림 같은)은 채울 자리가 없어 묻지 않는다
-    if (level.kind !== 'root' && (level.ownerId === undefined || !nodeById.has(level.ownerId))) {
-      continue;
+    let text: string | undefined;
+    if (level.kind === 'root') {
+      text = validated.ir.summary;
+    } else {
+      const owner = level.ownerId !== undefined ? nodeById.get(level.ownerId) : undefined;
+      // 여는 노드가 IR에 없는 레벨(질문별 그림 같은)은 채울 자리가 없어 묻지 않는다
+      if (owner === undefined) continue;
+      text = owner.summary;
     }
     if (hasCardDescription(text)) continue;
     levelIds.push(level.levelId);

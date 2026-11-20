@@ -133,7 +133,7 @@ Step 0 전에 두 가지를 정한다. 대상에 맞는 어휘 팩과 질문에 
 → Step 4.5 서빙 인프라와 클라우드 접근 → Step 5 레포를 넘는 연결
 → Step 6 IR 작성과 validate → Step 7 미해결 질문 루프
 → Step 8 render와 보고
-(재실행이면 Step 9가 Step 1~5를 좁힌다)
+(재실행이면 Step 9가 Step 1~5를 좁힌다. 클론 캐시와 체크아웃 갱신은 status보다 먼저 한다. references/rerun.md 4번)
 (따로 돌린 분석을 한 그림으로 모으려면 분석 합치기)
 (문서 레포를 지도로 그리거나 기술 그림에 엮으려면 지식 문서 지도)
 ```
@@ -263,7 +263,7 @@ Step 1~5의 탐색은 파일 읽기가 대부분이다. 한 뷰에 도구 호출
    { "action": "match_endpoints", "feCalls": [...], "beRoutes": [...], "prefixCandidates": ["/gateway"] }
    ```
 
-   - `matches`에 든 쌍만 `screen → endpoint` 실선(`calls`)으로 잇는다. `matchedBy`는 이은 방법이다. `base_url_join`(상대 경로 앞에 `baseUrl`을 붙임), `mount_prefix`(라우트 앞에 `mountPrefix`를 붙임), `learned_prefix`(같은 배치에서 같은 레포에 두 번 이상 쓰인 prefix)가 있다. 칸이 없으면 경로 그대로나 `baseUrl`, `prefixCandidates`를 떼어 맞춘 것이다. 응답의 `learnedPrefixes`는 그렇게 배운 prefix(`{ repo, prefix, support }`)다.
+   - `matches`에 든 쌍만 `screen → endpoint` 실선(`calls`)으로 잇는다. `matchedBy`는 이은 방법이다. `base_url_join`(상대 경로 앞에 `baseUrl`을 붙임), `mount_prefix`(라우트 앞에 `mountPrefix`를 붙임), `learned_prefix`(같은 배치에서 같은 레포의 서로 다른 라우트 둘 이상에 쓰인 prefix)가 있다. 칸이 없으면 경로 그대로나 `baseUrl`, `prefixCandidates`를 떼어 맞춘 것이다. 응답의 `learnedPrefixes`는 그렇게 배운 prefix(`{ repo, prefix, support }`)다.
    - `unmatched`(`no_route`, `ambiguous_prefix`, `multiple_routes`)는 눈으로 맞춰 실선을 긋지 않는다. `candidates`를 담아 `unresolved`에 질문으로 남긴다.
    - `no_route`에 `suggested`(최대 3개, `{ beRouteId, score, fePrefix, routePrefix }`)가 붙을 수 있다. 경로 뒤쪽이 닮은 점수 후보일 뿐이라 `matches`가 아니다. FE 호출 줄과 BE 라우트 줄을 직접 읽어 같은 API일 때만 엣지를 긋는다. 근거는 그 두 줄의 `code` 근거다. 후보 여럿을 추정 엣지로 만들지 않는다. 줄을 읽고도 확인하지 못하면 기존처럼 `unresolved` 질문으로 남긴다. `suggested`가 있으면 응답에 `suggestedNote`가 붙는다.
    - 실선의 근거 규칙은 그대로다. `code`나 `spec` 근거가 있어야 하고 import 줄은 근거가 아니다. `matches`든 `suggested`를 확인한 쌍이든 FE 호출 줄과 BE 라우트 줄이 근거다.
@@ -745,7 +745,7 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 - `ignoreFilePath`: 퍼블릭일 때만 온다. 본인용 HTML과 저장 IR을 막는 줄을 써 둔 `.gitignore` 경로다
 - `levels`: 드릴다운으로 그렸을 때만 온다. 항목마다 `id`, `title`, `nodes`, `edges`가 있다. `id`는 `root`(전체), `service:<id>`, `feature:<id>`, `server:<id>`, `flow:<id>`, `group:<id>`, `view:<id>`, `infra` 꼴이다
 - `viewPaths`: 질문별 그림이 있을 때만 온다. 그림마다 `.gestalt/architecture/views/<view>.<그림 id>.json`에 그 그림과 가리킨 노드, 엣지, 질문만 따로 저장한 경로다. lifecycle과 blueprint는 가리킨 흐름(`flow`)을, er은 외래 키 대상 테이블과 `auto:fk:` 질문을 함께 싣는다. 다른 세션이 질문 하나의 답만 읽어 갈 때 이 파일을 건넨다
-- `merge`: 지난 실행 IR이 있을 때만 온다. `descriptionCarried`는 지난 설명을 이어받은 노드 수, `relabeled`는 label이 바뀌었는데 같은 id나 같은 근거 파일로 이어 준 노드, `flowsCarried`는 지난 IR에서 이어받은 흐름 id, `flowsDropped`는 이어 싣지 못하고 사라진 흐름 id다. `relabeled`가 있으면 의도한 이름 변경이 맞는지 보고에 한 줄 적는다
+- `merge`: 지난 실행 IR이 있을 때만 온다. `descriptionCarried`는 지난 설명을 이어받은 노드 수, `relabeled`는 label이 바뀌었는데 같은 id나 같은 근거 파일로 이어 준 노드, `flowsCarried`는 지난 IR에서 이어받은 흐름 id, `flowsDropped`는 이어 싣지 못하고 사라진 흐름 id다. `relabeled`가 있으면 의도한 이름 변경이 맞는지 보고에 한 줄 적는다. `matchedBy`가 `id`이고 `evidenceOverlap`이 `false`면 근거 파일이 하나도 안 겹친다. 같은 대상인지 확인해 보고에 적는다
 - `delta`: 이전 실행과 비교한 결과. 늘 온다. `status`는 넷 중 하나다
   - `no_previous`: 비교할 이전 그림이 없다. 처음 그렸거나 저장된 이전 그림을 지금 규칙으로 읽지 못했다. 파일을 안 만든다
   - `unchanged`: 그려지는 노드와 연결이 지난번과 같다. 지난 구조 변경 그림은 그대로 둔다
@@ -783,7 +783,7 @@ Step 4.5에서 클라우드를 조회했으면 어느 프로필로 언제 조회
 
 `SECRET_MASKED`가 오면 그 위치(`nodeId`나 `flowId` 같은 주인 id와 `field`)의 글자를 `[비밀값]`으로 가렸다는 뜻이다. 보고에 위치만 한 줄로 적고 값을 짐작해 옮기지 않는다. 다음 실행 IR에서는 그 칸에 비밀값을 적지 않는다.
 
-`LABEL_CHANGED_ID_LOST`가 오면 설명이나 답이 달려 있던 지난 노드가 이번 IR의 어느 노드와도 이어지지 않았다는 뜻이다. label과 id를 함께 바꿨을 때 난다. `candidates`에서 같은 대상인 노드를 골라 `previousId`를 id로 다시 적고 render한다. 고를 수 없으면 사용자에게 어느 노드인지 묻는다. `MERGE_KEY_DUPLICATE`가 오면 같은 kind와 repo, label을 쓰는 노드가 여럿이라 첫 노드만 지난 id를 받았다는 뜻이다. label을 서로 다르게 고친다. `FLOW_DROPPED`가 오면 지난 흐름이 사라졌다는 뜻이다. `node_gone`은 흐름이 가리키던 코드가 없어진 것이라 보고에 한 줄 적고 넘어간다. `no_refs`나 `id_conflict`인데 아직 필요한 흐름이면 이번 IR에 다시 적는다.
+`LABEL_CHANGED_ID_LOST`는 설명이나 답이 달려 있던 지난 노드가 이번 IR의 어느 노드와도 이어지지 않았을 때 온다. label과 id를 함께 바꿨거나 그 노드가 정말 지워졌을 때 난다. `candidates`에서 같은 대상인 노드를 골라 `previousId`를 id로 다시 적고 render한다. 고를 수 없으면 사용자에게 어느 노드인지 묻는다. `candidates`에 같은 대상이 없고 지난 노드가 정말 지워졌으면 보고에 한 줄 적고 넘어간다. `MERGE_KEY_DUPLICATE`는 같은 kind와 repo, label을 쓰는 노드가 여럿이라 첫 노드만 지난 id를 받았을 때 온다. label을 서로 다르게 고친다. `FLOW_DROPPED`가 오면 지난 흐름이 사라진 것이다. `node_gone`은 흐름이 가리키던 코드가 없어진 것이라 보고에 한 줄 적고 넘어간다. `evidence_stale`은 단계나 전이의 `code` 근거 파일이 지워졌거나 줄이 범위를 벗어나 버린 것이다. `no_refs`나 `id_conflict`, `evidence_stale`인데 아직 필요한 흐름이면 이번 IR에 다시 적는다. `evidence_stale`이면 근거를 다시 찾아 적는다.
 
 `IGNORED_FILE_TRACKED`가 오면 퍼블릭 레포인데 막아야 할 산출물을 git이 이미 추적하고 있다는 뜻이다. `paths`와 경고 문구의 `git rm --cached` 명령을 그대로 보여주고 실행할지는 사용자에게 맡긴다. 직접 실행하지 않는다.
 

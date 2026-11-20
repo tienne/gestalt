@@ -15,6 +15,7 @@ import {
   type ArchitectureProjection,
   type ArchitectureView,
   type ContextSource,
+  type Evidence,
   type UnresolvedQuestion,
 } from './types.js';
 import {
@@ -51,6 +52,16 @@ export class ArchitectureStore {
   /** 없으면 null. 깨졌거나 스키마에 안 맞으면 `.corrupt-*`로 옮기고 null */
   load(view: ArchitectureView): ArchitectureIr | null {
     const raw = readJsonOrQuarantine(this.irPath(view), (value) => parseArchitectureIr(value).ok);
+    if (raw === undefined) return null;
+    const parsed = parseArchitectureIr(raw);
+    return parsed.ok ? parsed.value : null;
+  }
+
+  /** load와 같지만 깨졌거나 스키마에 안 맞아도 파일을 옮기지 않고 null만 돌려준다. 라이브 서버의 질문 확인처럼 읽기만 하는 자리에서 쓴다 */
+  peek(view: ArchitectureView): ArchitectureIr | null {
+    const raw = readJsonOrQuarantine(this.irPath(view), (value) => parseArchitectureIr(value).ok, {
+      quarantine: false,
+    });
     if (raw === undefined) return null;
     const parsed = parseArchitectureIr(raw);
     return parsed.ok ? parsed.value : null;
@@ -238,15 +249,46 @@ function keyText(node: Pick<ArchitectureNode, 'kind' | 'repo' | 'label'>): strin
   return `${node.kind}/${node.kind === 'micro_app' ? '*' : node.repo}/${normalizeLabel(node.label)}`;
 }
 
-// 줄 번호는 코드가 조금만 밀려도 바뀐다. 같은 노드인지는 어느 파일을 근거로 댔는지로 본다
-function codeFileSignature(node: ArchitectureNode): string | undefined {
-  const files = new Set(
+function codeFiles(node: ArchitectureNode): Set<string> {
+  return new Set(
     node.evidence
       .filter((ev) => ev.type === 'code')
       .map((ev) => ev.location.replace(/:\d+(?:-\d+)?$/, '')),
   );
-  if (files.size === 0) return undefined;
-  return [...files].sort().join('\n');
+}
+
+// 라우터 파일 하나에 화면 여럿이 걸리듯 같은 자리의 다른 노드도 근거로 댄 파일은 그 노드만의 표지가 아니다.
+// 이런 파일로 짝을 지으면 지운 화면의 id와 답이 새 화면으로 넘어간다
+function sharedCodeFiles(ir: ArchitectureIr): Set<string> {
+  const count = new Map<string, number>();
+  for (const node of ir.nodes) {
+    for (const file of codeFiles(node)) {
+      const key = `${slotKey(node)}\u0001${file}`;
+      count.set(key, (count.get(key) ?? 0) + 1);
+    }
+  }
+  return new Set([...count].flatMap(([key, n]) => (n > 1 ? [key] : [])));
+}
+
+// 줄 번호는 코드가 조금만 밀려도 바뀐다. 같은 노드인지는 어느 파일을 근거로 댔는지로 본다
+function codeFileSignature(
+  node: ArchitectureNode,
+  shared: ReadonlySet<string>,
+): string | undefined {
+  const slot = slotKey(node);
+  const files = [...codeFiles(node)].filter((file) => !shared.has(`${slot}\u0001${file}`));
+  if (files.length === 0) return undefined;
+  return files.sort().join('\n');
+}
+
+function evidenceOverlapOf(
+  prevNode: ArchitectureNode,
+  node: ArchitectureNode,
+): { evidenceOverlap?: boolean } {
+  const prevFiles = codeFiles(prevNode);
+  const files = codeFiles(node);
+  if (prevFiles.size === 0 || files.size === 0) return {};
+  return { evidenceOverlap: [...files].some((file) => prevFiles.has(file)) };
 }
 
 function edgeKey(edge: Pick<ArchitectureEdge, 'from' | 'to' | 'kind'>): string {
@@ -271,7 +313,10 @@ export type MergeWarning =
   | {
       code: 'FLOW_DROPPED';
       flowId: string;
-      /** node_gone: 가리키던 노드가 이번 IR에 없다. no_refs: 노드를 하나도 안 가리킨다. id_conflict: 이번 흐름과 단계나 전이 id가 겹친다 */
+      /**
+       * node_gone: 가리키던 노드가 이번 IR에 없다. no_refs: 노드를 하나도 안 가리킨다.
+       * evidence_stale: 단계나 전이의 code 근거 파일이 없거나 줄이 범위 밖이다. id_conflict: 이번 흐름과 단계나 전이 id가 겹친다
+       */
       reason: FlowDropReason;
       /** reason이 node_gone일 때 이번 IR에서 사라진 노드 id */
       missingNodeIds: string[];
@@ -290,6 +335,16 @@ export interface MergeRelabel {
   previousLabel: string;
   label: string;
   matchedBy: 'id' | 'evidence';
+  /** matchedBy가 id일 때만 온다. 지난 노드와 이번 노드의 code 근거 파일이 하나라도 겹치는지다. 어느 쪽이든 code 근거가 없으면 빠진다 */
+  evidenceOverlap?: boolean;
+}
+
+export interface MergeWithPreviousOptions {
+  /**
+   * 이어 실을 지난 흐름과 투영의 근거가 지금 코드에서도 맞는지 본다. false면 그 흐름이나 투영을 버린다.
+   * 병합은 파일을 읽지 않는다. 파일 검사를 하는 render만 넘긴다
+   */
+  evidenceOk?: (evidence: readonly Evidence[]) => boolean;
 }
 
 export interface PreviousMergeReport {
@@ -316,8 +371,12 @@ export interface PreviousMergeResult {
  * 재실행 IR(next)이 이전 IR(prev)의 id를 물려받게 맞춘다.
  * 입력은 바꾸지 않는다. 무엇을 이어받았는지 알릴 필요가 없으면 이 함수를, 알려야 하면 mergeWithPreviousDetailed를 쓴다.
  */
-export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): ArchitectureIr {
-  return mergeWithPreviousDetailed(prev, next).ir;
+export function mergeWithPrevious(
+  prev: ArchitectureIr,
+  next: ArchitectureIr,
+  options: MergeWithPreviousOptions = {},
+): ArchitectureIr {
+  return mergeWithPreviousDetailed(prev, next, options).ir;
 }
 
 /**
@@ -335,6 +394,7 @@ export function mergeWithPrevious(prev: ArchitectureIr, next: ArchitectureIr): A
 export function mergeWithPreviousDetailed(
   prev: ArchitectureIr,
   next: ArchitectureIr,
+  options: MergeWithPreviousOptions = {},
 ): PreviousMergeResult {
   const prevNodeByKey = new Map<string, ArchitectureNode>();
   for (const node of prev.nodes) {
@@ -371,6 +431,7 @@ export function mergeWithPreviousDetailed(
         previousLabel: prevNode.label,
         label: node.label,
         matchedBy,
+        ...(matchedBy === 'id' ? evidenceOverlapOf(prevNode, node) : {}),
       });
     }
   };
@@ -395,21 +456,23 @@ export function mergeWithPreviousDetailed(
   });
 
   // 근거 파일이 같은 후보가 어느 쪽이든 둘 이상이면 어느 것이 어느 것인지 모른다. 잘못 이으면 답이 엉뚱한 노드에 붙어 잇지 않는다
-  const bucketOf = (node: ArchitectureNode): string | undefined => {
-    const signature = codeFileSignature(node);
+  const prevShared = sharedCodeFiles(prev);
+  const nextShared = sharedCodeFiles(next);
+  const bucketOf = (node: ArchitectureNode, shared: ReadonlySet<string>): string | undefined => {
+    const signature = codeFileSignature(node, shared);
     return signature === undefined ? undefined : `${slotKey(node)}\u0001${signature}`;
   };
   const nextBuckets = new Map<string, number[]>();
   next.nodes.forEach((node, i) => {
     if (pairOf.has(i)) return;
-    const bucket = bucketOf(node);
+    const bucket = bucketOf(node, nextShared);
     if (bucket === undefined) return;
     nextBuckets.set(bucket, [...(nextBuckets.get(bucket) ?? []), i]);
   });
   const prevBuckets = new Map<string, ArchitectureNode[]>();
   for (const node of prev.nodes) {
     if (usedPrev.has(node)) continue;
-    const bucket = bucketOf(node);
+    const bucket = bucketOf(node, prevShared);
     if (bucket === undefined) continue;
     prevBuckets.set(bucket, [...(prevBuckets.get(bucket) ?? []), node]);
   }
@@ -494,6 +557,12 @@ export function mergeWithPreviousDetailed(
   }));
 
   const nodeKindById = new Map(nodes.map((n) => [n.id, n.kind]));
+  // 지난 흐름과 투영, 질문은 지난 노드 id로 적혀 있다. 짝지은 노드의 이번 id로 옮긴다.
+  // 짝을 못 찾은 지난 노드는 null이다. 그 id를 이번 IR의 다른 노드가 쓰고 있어도 같은 노드가 아니라서다
+  const finalIdOfPrev = new Map<string, string | null>();
+  for (const node of prev.nodes) finalIdOfPrev.set(node.id, null);
+  for (const [i, prevNode] of pairOf) finalIdOfPrev.set(prevNode.id, mapNodeId(next.nodes[i]!.id));
+  const resolvePrevNodeId = (id: string): string | null => finalIdOfPrev.get(id) ?? null;
   // 노드 id가 바뀌었으면 이번 흐름이 가리키는 쪽만 따라 바꾼다
   const nextFlows = next.flows?.map((f) => ({
     ...f,
@@ -507,6 +576,8 @@ export function mergeWithPreviousDetailed(
     prev.flows ?? [],
     nextFlows ?? [],
     nodeKindById,
+    resolvePrevNodeId,
+    options.evidenceOk,
   );
   warnings.push(...droppedFlows.map(flowDroppedWarning));
   const flows =
@@ -536,6 +607,8 @@ export function mergeWithPreviousDetailed(
     nodeKindById,
     edgeById,
     new Map(flows?.map((f) => [f.id, f]) ?? []),
+    resolvePrevNodeId,
+    options.evidenceOk,
   );
   const allProjections =
     projections !== undefined || carried.length > 0
@@ -553,14 +626,23 @@ export function mergeWithPreviousDetailed(
     a.subject.transitionId === b.subject.transitionId &&
     a.subject.messageId === b.subject.messageId;
 
-  for (const prevQ of prev.unresolved) {
-    if (!isAnswered(prevQ)) continue;
-    const { nodeId, edgeId, stepId, transitionId, messageId } = prevQ.subject;
+  for (const answeredQ of prev.unresolved) {
+    if (!isAnswered(answeredQ)) continue;
+    const { edgeId, stepId, transitionId, messageId } = answeredQ.subject;
+    const nodeId =
+      answeredQ.subject.nodeId !== undefined
+        ? resolvePrevNodeId(answeredQ.subject.nodeId)
+        : undefined;
+    if (nodeId === null) continue;
     if (nodeId !== undefined && !nodeIds.has(nodeId)) continue;
     if (edgeId !== undefined && !edgeIds.has(edgeId)) continue;
     if (stepId !== undefined && !stepIds.has(stepId)) continue;
     if (transitionId !== undefined && !transitionIds.has(transitionId)) continue;
     if (messageId !== undefined && !messageIds.has(messageId)) continue;
+    const prevQ: UnresolvedQuestion =
+      nodeId !== undefined
+        ? { ...answeredQ, subject: { ...answeredQ.subject, nodeId } }
+        : answeredQ;
 
     // 같은 대상에 같은 질문을 다시 물었으면 새로 추가하지 않고 답만 옮긴다
     const twin = unresolved.find(
@@ -684,7 +766,14 @@ function duplicateKeyWarnings(
   return warnings;
 }
 
-type FlowDropReason = 'node_gone' | 'no_refs' | 'id_conflict';
+type FlowDropReason = 'node_gone' | 'no_refs' | 'evidence_stale' | 'id_conflict';
+
+function flowEvidence(flow: ArchitectureFlow): Evidence[] {
+  return [
+    ...flow.steps.flatMap((st) => st.evidence),
+    ...flow.transitions.flatMap((t) => t.evidence),
+  ];
+}
 
 interface DroppedFlow {
   flowId: string;
@@ -698,6 +787,8 @@ function carryFlows(
   prev: readonly ArchitectureFlow[],
   next: readonly ArchitectureFlow[],
   nodeKindById: ReadonlyMap<string, ArchitectureNode['kind']>,
+  resolvePrevNodeId: (id: string) => string | null,
+  evidenceOk: ((evidence: readonly Evidence[]) => boolean) | undefined,
 ): { carried: ArchitectureFlow[]; dropped: DroppedFlow[] } {
   const flowIds = new Set(next.map((f) => f.id));
   // 단계와 전이 id는 흐름 전체에서 겹치면 안 된다. 겹치는 지난 흐름은 실으면 검증에서 막힌다
@@ -705,24 +796,46 @@ function carryFlows(
   const transitionIds = new Set(next.flatMap((f) => f.transitions.map((t) => t.id)));
   const carried: ArchitectureFlow[] = [];
   const dropped: DroppedFlow[] = [];
-  for (const flow of prev) {
-    if (flowIds.has(flow.id)) continue;
-    const refs = flow.steps.flatMap((st) => st.refs ?? []);
-    if (flow.service === undefined && refs.length === 0) {
-      dropped.push({ flowId: flow.id, reason: 'no_refs', missingNodeIds: [] });
+  for (const prevFlow of prev) {
+    if (flowIds.has(prevFlow.id)) continue;
+    const refs = prevFlow.steps.flatMap((st) => st.refs ?? []);
+    if (prevFlow.service === undefined && refs.length === 0) {
+      dropped.push({ flowId: prevFlow.id, reason: 'no_refs', missingNodeIds: [] });
       continue;
     }
+    const kindOfPrev = (id: string): ArchitectureNode['kind'] | undefined => {
+      const finalId = resolvePrevNodeId(id);
+      return finalId === null ? undefined : nodeKindById.get(finalId);
+    };
     const missing = [
-      ...(flow.service !== undefined && nodeKindById.get(flow.service) !== 'service'
-        ? [flow.service]
+      ...(prevFlow.service !== undefined && kindOfPrev(prevFlow.service) !== 'service'
+        ? [prevFlow.service]
         : []),
       ...refs.filter((id) => {
-        const kind = nodeKindById.get(id);
+        const kind = kindOfPrev(id);
         return kind === undefined || !FLOW_REF_KINDS.includes(kind);
       }),
     ];
     if (missing.length > 0) {
-      dropped.push({ flowId: flow.id, reason: 'node_gone', missingNodeIds: [...new Set(missing)] });
+      dropped.push({
+        flowId: prevFlow.id,
+        reason: 'node_gone',
+        missingNodeIds: [...new Set(missing)],
+      });
+      continue;
+    }
+    // 위에서 다 살아 있음을 확인해 null이 나오지 않는다
+    const toFinal = (id: string): string => resolvePrevNodeId(id) ?? id;
+    const flow: ArchitectureFlow = {
+      ...prevFlow,
+      ...(prevFlow.service !== undefined ? { service: toFinal(prevFlow.service) } : {}),
+      steps: prevFlow.steps.map((st) =>
+        st.refs !== undefined ? { ...st, refs: st.refs.map(toFinal) } : st,
+      ),
+    };
+    // 지난 흐름은 세션 IR에 없어 근거가 낡아도 고칠 자리가 안 보인다. 실으면 render 전체가 근거 오류로 막힌다
+    if (evidenceOk !== undefined && !evidenceOk(flowEvidence(flow))) {
+      dropped.push({ flowId: flow.id, reason: 'evidence_stale', missingNodeIds: [] });
       continue;
     }
     if (
@@ -746,13 +859,18 @@ function flowDroppedWarning(d: DroppedFlow): MergeWarning {
       ? `가리키던 노드 ${d.missingNodeIds.join(', ')}가 이번 IR에 없어`
       : d.reason === 'no_refs'
         ? '노드를 하나도 가리키지 않아'
-        : '이번 흐름과 단계나 전이 id가 겹쳐';
+        : d.reason === 'evidence_stale'
+          ? '단계나 전이의 code 근거가 지금 코드에 없어'
+          : '이번 흐름과 단계나 전이 id가 겹쳐';
   return {
     code: 'FLOW_DROPPED',
     flowId: d.flowId,
     reason: d.reason,
     missingNodeIds: d.missingNodeIds,
-    message: `지난 흐름 ${d.flowId}는 ${why} 이어 싣지 않았다. 아직 필요한 흐름이면 이번 IR에 다시 적는다.`,
+    message:
+      d.reason === 'evidence_stale'
+        ? `지난 흐름 ${d.flowId}는 ${why} 이어 싣지 않았다. 아직 필요한 흐름이면 근거를 다시 찾아 이번 IR에 적는다.`
+        : `지난 흐름 ${d.flowId}는 ${why} 이어 싣지 않았다. 아직 필요한 흐름이면 이번 IR에 다시 적는다.`,
   };
 }
 
@@ -762,13 +880,32 @@ function carryProjections(
   nodeKindById: ReadonlyMap<string, ArchitectureNode['kind']>,
   edgeById: ReadonlyMap<string, ArchitectureEdge>,
   flowById: ReadonlyMap<string, ArchitectureFlow>,
+  resolvePrevNodeId: (id: string) => string | null,
+  evidenceOk: ((evidence: readonly Evidence[]) => boolean) | undefined,
 ): ArchitectureProjection[] {
   const projectionIds = new Set(next.map((pr) => pr.id));
   const messageIds = new Set(next.flatMap((pr) => pr.messages.map((m) => m.id)));
   const out: ArchitectureProjection[] = [];
-  for (const pr of prev) {
-    if (projectionIds.has(pr.id)) continue;
-    if (pr.messages.some((m) => messageIds.has(m.id))) continue;
+  for (const prevPr of prev) {
+    if (projectionIds.has(prevPr.id)) continue;
+    if (prevPr.messages.some((m) => messageIds.has(m.id))) continue;
+    const pointed = [
+      ...(prevPr.participants ?? []),
+      ...(prevPr.sides ?? []).flatMap((side) => side.nodes),
+      ...prevPr.messages.flatMap((m) => [m.from, m.to]),
+    ];
+    if (pointed.some((id) => resolvePrevNodeId(id) === null)) continue;
+    const toFinal = (id: string): string => resolvePrevNodeId(id) ?? id;
+    const pr: ArchitectureProjection = {
+      ...prevPr,
+      ...(prevPr.participants !== undefined
+        ? { participants: prevPr.participants.map(toFinal) }
+        : {}),
+      ...(prevPr.sides !== undefined
+        ? { sides: prevPr.sides.map((side) => ({ ...side, nodes: side.nodes.map(toFinal) })) }
+        : {}),
+      messages: prevPr.messages.map((m) => ({ ...m, from: toFinal(m.from), to: toFinal(m.to) })),
+    };
     const listed = [...(pr.participants ?? []), ...(pr.sides ?? []).flatMap((side) => side.nodes)];
     if (!listed.every((id) => nodeKindById.has(id))) continue;
     if (erNonTableParticipants(pr, nodeKindById).length > 0) continue;
@@ -786,6 +923,7 @@ function carryProjections(
       );
     });
     if (!alive) continue;
+    if (evidenceOk !== undefined && !evidenceOk(pr.messages.flatMap((m) => m.evidence))) continue;
     projectionIds.add(pr.id);
     for (const m of pr.messages) messageIds.add(m.id);
     out.push(pr);

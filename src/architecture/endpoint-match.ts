@@ -57,6 +57,7 @@ export interface UnmatchedFeCall {
 export interface LearnedPrefix {
   prefix: string;
   repo: string;
+  /** 이 prefix로 맞은 서로 다른 라우트 수. 같은 라우트를 여러 번 불러도 하나로 센다 */
   support: number;
 }
 
@@ -164,11 +165,24 @@ interface PreparedRoute {
   mount: string | null;
 }
 
+/** 경로 템플릿 → 그 템플릿의 라우트. 칸 안 순서는 입력 순서다. ambiguous 후보 순서가 거기에 기댄다 */
+type RouteIndex = ReadonlyMap<string, readonly PreparedRoute[]>;
+
+function indexByTemplate(routes: readonly PreparedRoute[]): RouteIndex {
+  const index = new Map<string, PreparedRoute[]>();
+  for (const r of routes) {
+    const bucket = index.get(r.template);
+    if (bucket) bucket.push(r);
+    else index.set(r.template, [r]);
+  }
+  return index;
+}
+
 interface Attempt {
   template: string;
   /** null이면 맞은 라우트의 mountPrefix를 viaPrefix로 쓴다 */
   prefix: string | null;
-  routes: PreparedRoute[];
+  routes: RouteIndex;
 }
 
 type Outcome =
@@ -183,8 +197,8 @@ function decide(method: string, attempts: Attempt[], usePrefixField: boolean): O
   const hitBy = new Map<string, string | null>();
   let multiple: string[] | null = null;
   for (const attempt of attempts) {
-    const hits = attempt.routes.filter(
-      (r) => r.template === attempt.template && methodMatches(method, r.method),
+    const hits = (attempt.routes.get(attempt.template) ?? []).filter((r) =>
+      methodMatches(method, r.method),
     );
     if (hits.length > 1 && multiple === null) multiple = hits.map((r) => r.id);
     for (const r of hits) {
@@ -280,7 +294,7 @@ function suggestRoutes(
  *
  * 1단계는 경로 그대로와 baseUrl, prefixCandidates를 뗀 경로를 비교한다. 1단계에서 하나라도 맞으면 판정은 거기서 끝난다.
  * 2단계는 1단계에서 아무것도 못 맞춘 호출만 본다. 상대 경로 앞에 baseUrl을 붙인 경로와 mountPrefix를 붙인 라우트를 비교한다.
- * 3단계는 baseUrl 없는 호출 중 남은 것에 2단계까지 같은 레포에서 두 번 이상 쓰인 prefix를 붙이거나 떼서 다시 비교한다.
+ * 3단계는 baseUrl 없는 호출 중 남은 것에 2단계까지 같은 레포의 서로 다른 라우트 둘 이상에 쓰인 prefix를 붙이거나 떼서 다시 비교한다.
  * 끝까지 못 맞춘 호출에는 뒤쪽 조각을 맞춘 후보를 suggested로만 단다.
  */
 export function matchEndpoints(input: MatchEndpointsInput): MatchEndpointsResult {
@@ -299,21 +313,36 @@ export function matchEndpoints(input: MatchEndpointsInput): MatchEndpointsResult
   const mountedRoutes: PreparedRoute[] = routes
     .filter((r) => r.mount !== null)
     .map((r) => ({ ...r, template: joinPrefix(r.mount!, r.raw) }));
+  const allIndex = indexByTemplate(routes);
+  const mountedIndex = indexByTemplate(mountedRoutes);
+  // 3단계는 호출마다 배운 prefix마다 레포 라우트를 본다. 레포별 색인을 한 번만 만든다
+  const unmountedByRepo = new Map<string, PreparedRoute[]>();
+  for (const r of routes) {
+    if (r.mount !== null) continue;
+    const list = unmountedByRepo.get(r.repo);
+    if (list) list.push(r);
+    else unmountedByRepo.set(r.repo, [r]);
+  }
+  const repoIndex = new Map(
+    [...unmountedByRepo].map(([repo, list]) => [repo, indexByTemplate(list)] as const),
+  );
   const sharedPrefixes = (input.prefixCandidates ?? []).map(normalizePathTemplate);
 
   const matches: EndpointMatch[] = [];
   const unmatched: UnmatchedFeCall[] = [];
   const pending: { call: FeCall; method: string; full: string; composed: string | null }[] = [];
-  const learnedCount = new Map<string, LearnedPrefix>();
-
-  const learn = (repo: string, prefix: string | null) => {
-    if (prefix === null || prefix === '/') return;
-    const key = `${repo}\u0000${prefix}`;
-    const entry = learnedCount.get(key);
-    if (entry) entry.support++;
-    else learnedCount.set(key, { prefix, repo, support: 1 });
-  };
   const routeRepo = new Map(routes.map((r) => [r.id, r.repo]));
+  const learnedRoutes = new Map<string, { prefix: string; repo: string; routeIds: Set<string> }>();
+
+  // 같은 라우트를 여러 번 부른 호출로 prefix를 배우지 않게 서로 다른 라우트 수로 센다
+  const learn = (routeId: string, prefix: string | null) => {
+    if (prefix === null || prefix === '/') return;
+    const repo = routeRepo.get(routeId)!;
+    const key = `${repo}\u0000${prefix}`;
+    const entry = learnedRoutes.get(key);
+    if (entry) entry.routeIds.add(routeId);
+    else learnedRoutes.set(key, { prefix, repo, routeIds: new Set([routeId]) });
+  };
 
   for (const call of input.feCalls) {
     const method = call.method.toUpperCase();
@@ -323,11 +352,11 @@ export function matchEndpoints(input: MatchEndpointsInput): MatchEndpointsResult
     // 1단계: 예전과 같은 비교. 빈 경로에 baseUrl이 있으면 실제 요청은 baseUrl 그대로라 루트(/) 비교는 건너뛴다
     const emptyPath = call.path.trim().replace(/^['"`]+|['"`]+$/g, '') === '';
     const first: Attempt[] =
-      emptyPath && base !== null ? [] : [{ template: full, prefix: null, routes }];
+      emptyPath && base !== null ? [] : [{ template: full, prefix: null, routes: allIndex }];
     const prefixes = base ? [base, ...sharedPrefixes] : sharedPrefixes;
     for (const prefix of new Set(prefixes)) {
       const stripped = stripPrefix(full, prefix);
-      if (stripped !== null) first.push({ template: stripped, prefix, routes });
+      if (stripped !== null) first.push({ template: stripped, prefix, routes: allIndex });
     }
     const firstOutcome = decide(method, first, true);
     if (firstOutcome !== null) {
@@ -338,7 +367,7 @@ export function matchEndpoints(input: MatchEndpointsInput): MatchEndpointsResult
           viaPrefix: firstOutcome.viaPrefix,
         });
         if (base !== null && firstOutcome.viaPrefix === base) {
-          learn(routeRepo.get(firstOutcome.beRouteId)!, base);
+          learn(firstOutcome.beRouteId, base);
         }
       } else {
         unmatched.push({
@@ -357,11 +386,14 @@ export function matchEndpoints(input: MatchEndpointsInput): MatchEndpointsResult
         : null;
     const second: { attempt: Attempt; how: MatchedBy }[] = [];
     if (composed !== null) {
-      second.push({ attempt: { template: composed, prefix: base, routes }, how: 'base_url_join' });
+      second.push({
+        attempt: { template: composed, prefix: base, routes: allIndex },
+        how: 'base_url_join',
+      });
     }
     if (mountedRoutes.length > 0) {
       second.push({
-        attempt: { template: full, prefix: null, routes: mountedRoutes },
+        attempt: { template: full, prefix: null, routes: mountedIndex },
         how: 'mount_prefix',
       });
     }
@@ -373,8 +405,8 @@ export function matchEndpoints(input: MatchEndpointsInput): MatchEndpointsResult
     if (secondOutcome !== null) {
       if (secondOutcome.kind === 'match') {
         const how = second.find((s) =>
-          s.attempt.routes.some(
-            (r) => r.id === secondOutcome.beRouteId && r.template === s.attempt.template,
+          (s.attempt.routes.get(s.attempt.template) ?? []).some(
+            (r) => r.id === secondOutcome.beRouteId,
           ),
         )!.how;
         matches.push({
@@ -383,7 +415,7 @@ export function matchEndpoints(input: MatchEndpointsInput): MatchEndpointsResult
           viaPrefix: secondOutcome.viaPrefix,
           matchedBy: how,
         });
-        learn(routeRepo.get(secondOutcome.beRouteId)!, secondOutcome.viaPrefix);
+        learn(secondOutcome.beRouteId, secondOutcome.viaPrefix);
       } else {
         unmatched.push({
           feCallId: call.id,
@@ -396,9 +428,9 @@ export function matchEndpoints(input: MatchEndpointsInput): MatchEndpointsResult
     pending.push({ call, method, full, composed });
   }
 
-  const seenPrefixes = [...learnedCount.values()].sort(
-    (a, b) => byText(a.repo, b.repo) || byText(a.prefix, b.prefix),
-  );
+  const seenPrefixes: LearnedPrefix[] = [...learnedRoutes.values()]
+    .map(({ prefix, repo, routeIds }) => ({ prefix, repo, support: routeIds.size }))
+    .sort((a, b) => byText(a.repo, b.repo) || byText(a.prefix, b.prefix));
   const learnedPrefixes = seenPrefixes.filter((l) => l.support >= LEARNED_MIN_SUPPORT);
   const supported = new Set(learnedPrefixes.map((l) => `${l.repo}\u0000${l.prefix}`));
 
@@ -408,8 +440,8 @@ export function matchEndpoints(input: MatchEndpointsInput): MatchEndpointsResult
     if (!call.baseUrl && learnedPrefixes.length > 0) {
       const third: Attempt[] = [];
       for (const learned of seenPrefixes) {
-        const repoRoutes = routes.filter((r) => r.repo === learned.repo && r.mount === null);
-        if (repoRoutes.length === 0) continue;
+        const repoRoutes = repoIndex.get(learned.repo);
+        if (repoRoutes === undefined) continue;
         if (!isAbsoluteUrl(call.path)) {
           third.push({
             template: joinPrefix(learned.prefix, full),

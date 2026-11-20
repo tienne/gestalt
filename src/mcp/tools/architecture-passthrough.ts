@@ -66,6 +66,7 @@ import {
   type ArchitectureView,
 } from '../../architecture/types.js';
 import {
+  createCodeEvidenceCheck,
   redactForSharing,
   validateArchitectureIr,
   type BudgetWarning,
@@ -187,13 +188,17 @@ function validate(
   checkFiles: boolean | undefined,
   findMoved?: FindMovedFile,
 ) {
-  // IR의 root는 상대경로로 적히기도 한다. 서버 cwd가 아니라 repoRoot 기준으로 풀어야 근거 파일을 찾는다
-  const repoRoots = Object.fromEntries(
+  const repoRoots = resolvedRepoRoots(ir, repoRoot);
+  return validateArchitectureIr(ir, { repoRoots, checkFiles, ...(findMoved ? { findMoved } : {}) });
+}
+
+// IR의 root는 상대경로로 적히기도 한다. 서버 cwd가 아니라 repoRoot 기준으로 풀어야 근거 파일을 찾는다
+function resolvedRepoRoots(ir: ArchitectureIr, repoRoot: string): Record<string, string> {
+  return Object.fromEntries(
     ir.repos.flatMap((r) =>
       r.root === undefined ? [] : [[r.id, isAbsolute(r.root) ? r.root : resolve(repoRoot, r.root)]],
     ),
   );
-  return validateArchitectureIr(ir, { repoRoots, checkFiles, ...(findMoved ? { findMoved } : {}) });
 }
 
 /** 없는 근거 파일의 새 경로를 git rename 기록에서 찾는다. 지난 저장 IR의 head가 있으면 그 뒤만 본다 */
@@ -498,7 +503,7 @@ function loopSignals(view: string, stats: ReturnType<typeof computeStats>): Loop
       code: 'SCREEN_ENDPOINT_RATIO_LOW',
       value: ratio,
       threshold: SCREEN_ENDPOINT_RATIO_THRESHOLD,
-      hint: '엔드포인트를 부르는 화면이 적어요. 엔드포인트가 안 붙은 화면부터 호출 사슬을 다시 따라가요.',
+      hint: '엔드포인트를 부르는 화면이 적다. 엔드포인트가 안 붙은 화면부터 호출 사슬을 다시 따라간다.',
     },
   ];
 }
@@ -516,7 +521,12 @@ async function handleRender(
   const first = validate(prepared.ir, repoRoot, input.checkFiles, findMoved);
   if (!first.ok) return asFailure(first);
 
-  const mergeResult = prev ? mergeWithPreviousDetailed(prev, prepared.ir) : null;
+  // 파일 검사를 끈 render에서 근거로 흐름을 버리면 저장 IR에서 그 흐름을 영영 잃는다
+  const mergeOptions =
+    input.checkFiles === false
+      ? {}
+      : { evidenceOk: createCodeEvidenceCheck(resolvedRepoRoots(prepared.ir, repoRoot)) };
+  const mergeResult = prev ? mergeWithPreviousDetailed(prev, prepared.ir, mergeOptions) : null;
   const merged = mergeResult?.ir ?? prepared.ir;
   // 병합이 id를 바꾸므로 그린 대상도 병합 결과로 다시 뽑는다
   const second = validate(merged, repoRoot, input.checkFiles, findMoved);

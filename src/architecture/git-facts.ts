@@ -61,9 +61,12 @@ export type ChangedSince =
   | { ok: true; changed: string[]; uncommitted: string[] }
   | { ok: false; reason: 'not_git' | 'head_not_found' };
 
-/** 기록된 head 이후 커밋으로 바뀐 파일과 아직 커밋 안 된 파일 */
-export function changedFilesSince(root: string, head: string): ChangedSince {
-  if (readHead(root) === undefined) return { ok: false, reason: 'not_git' };
+/**
+ * 기록된 head 이후 커밋으로 바뀐 파일과 아직 커밋 안 된 파일.
+ * current는 호출하는 쪽이 이미 읽은 지금 HEAD다. 넘기면 git을 한 번 덜 부른다
+ */
+export function changedFilesSince(root: string, head: string, current?: string): ChangedSince {
+  if ((current ?? readHead(root)) === undefined) return { ok: false, reason: 'not_git' };
   if (!HEX_COMMIT.test(head) || !commitExists(root, head)) {
     return { ok: false, reason: 'head_not_found' };
   }
@@ -226,10 +229,15 @@ export function viewFreshness(
       continue;
     }
     const root = rootOf(repo);
+    // git은 동기로 돈다. 라이브 서버와 같은 프로세스라 레포마다 부르는 횟수를 줄인다
     const current = readHead(root);
-    const since = changedFilesSince(root, repo.head);
-    if (current === undefined || !since.ok) {
-      repos.push(unknown(since.ok ? 'not_git' : since.reason));
+    if (current === undefined) {
+      repos.push(unknown('not_git'));
+      continue;
+    }
+    const since = changedFilesSince(root, repo.head, current);
+    if (!since.ok) {
+      repos.push(unknown(since.reason));
       continue;
     }
     const touched = new Set([...since.changed, ...since.uncommitted]);

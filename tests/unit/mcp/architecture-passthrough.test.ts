@@ -1102,6 +1102,48 @@ describe('ges_architecture render의 커밋 해시와 승계 보고', () => {
     }
   });
 
+  it('지난 흐름의 근거 파일이 지워졌으면 render를 막지 않고 evidence_stale로 흐름만 버린다', async () => {
+    writeFileSync(join(repoRoot, 'src/checkout.ts'), 'a\nb\nc\n');
+    const first: ArchitectureIr = {
+      ...makeIr(),
+      flows: [
+        {
+          id: 'checkout',
+          title: '결제',
+          actors: [{ id: 'user', label: '사용자', kind: 'person' }],
+          steps: [
+            {
+              id: 'checkout-s1',
+              actor: 'user',
+              label: '결제 시작',
+              refs: ['n-home'],
+              evidence: [{ type: 'code', location: 'web:src/checkout.ts:3', visibility: 'public' }],
+            },
+          ],
+          transitions: [],
+        },
+      ],
+    };
+    expect((await call({ action: 'render', ir: first }))['ok']).toBe(true);
+    rmSync(join(repoRoot, 'src/checkout.ts'));
+
+    const result = await call({ action: 'render', ir: makeIr() });
+    expect(result['ok']).toBe(true);
+    expect(result['warnings']).toContainEqual(
+      expect.objectContaining({
+        code: 'FLOW_DROPPED',
+        flowId: 'checkout',
+        reason: 'evidence_stale',
+      }),
+    );
+    expect(savedIr(result).flows ?? []).toEqual([]);
+
+    // 파일 검사를 끈 render는 근거로 흐름을 버리지 않는다. 버리면 저장 IR에서 흐름을 영영 잃는다
+    expect((await call({ action: 'render', ir: first, checkFiles: false }))['ok']).toBe(true);
+    const unchecked = await call({ action: 'render', ir: makeIr(), checkFiles: false });
+    expect(savedIr(unchecked).flows?.map((f) => f.id)).toEqual(['checkout']);
+  });
+
   it('label과 id가 함께 바뀐 노드를 근거 파일로 잇고 relabeled로 알린다', async () => {
     const first = makeIr();
     first.nodes[2]!.description = '주문 모듈';
@@ -1147,15 +1189,17 @@ describe('ges_architecture serve', () => {
     expect(served['ok']).toBe(true);
     const port = served['port'] as number;
     expect(served['url']).toBe(`http://127.0.0.1:${port}`);
-    expect(served['liveUrl']).toBe(`http://127.0.0.1:${port}/screen-chain.html`);
-    expect(served['liveUrls']).toEqual({
-      'screen-chain': `http://127.0.0.1:${port}/screen-chain.html`,
-    });
+    const liveUrl = served['liveUrl'] as string;
+    expect(liveUrl).toMatch(
+      new RegExp(`^http://127\\.0\\.0\\.1:${port}/screen-chain\\.html\\?k=[A-Za-z0-9_-]{43}$`),
+    );
+    expect(served['liveUrls']).toEqual({ 'screen-chain': liveUrl });
     expect(served['session']).toBe(true);
     expect(served).not.toHaveProperty('warning');
 
     const after = await call({ action: 'render', ir: makeIr() });
-    expect(after['liveUrl']).toBe(`http://127.0.0.1:${port}/screen-chain.html`);
+    // 서버가 떠 있는 동안 키가 그대로라 render도 같은 주소를 돌려준다
+    expect(after['liveUrl']).toBe(liveUrl);
   });
 
   it('다시 serve하면 같은 포트를 돌려준다', async () => {
