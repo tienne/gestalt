@@ -166,6 +166,35 @@ describe('renderMarkdown 문법', () => {
     expect(open).not.toContain('<b>');
   });
 
+  it('제목의 닫는 #은 앞에 공백이 있을 때만 걷는다', () => {
+    expect(renderMarkdown('# C#')).toBe('<h1>C#</h1>');
+    expect(renderMarkdown('## 제목 ##')).toBe('<h2>제목</h2>');
+    expect(renderMarkdown('### ###')).toBe('<h3></h3>');
+    expect(renderMarkdown('#붙임')).toBe('<p>#붙임</p>');
+  });
+
+  it('인라인 코드는 여는 묶음과 길이가 같은 닫는 묶음까지다', () => {
+    expect(renderInline('``a`b``')).toBe('<code>a`b</code>');
+    expect(renderInline('`a`` b`')).toBe('<code>a`` b</code>');
+    expect(renderInline('``짝 없음` 뒤 `코드')).toBe('``짝 없음<code> 뒤 </code>코드');
+  });
+
+  it('표 구분선은 셀마다 :?-+:? 꼴이어야 한다', () => {
+    expect(renderMarkdown('| a | b |\n| -- | x |\n| 1 | 2 |')).not.toContain('<table>');
+    expect(renderMarkdown('a | b\n--- | :---:\n1 | 2')).toContain('<table>');
+  });
+
+  it('링크 칸이 상한을 넘으면 링크를 걸지 않고 글자로 둔다', () => {
+    // 주소는 맨 주소 링크로 따로 걸린다. 링크 문법으로 안 묶였는지만 본다
+    expect(renderInline(`[${'a'.repeat(1001)}](https://x.test)`)).toContain(
+      `[${'a'.repeat(1001)}](`,
+    );
+    expect(renderInline(`[a](https://x.test/${'p'.repeat(2048)})`)).toMatch(/^\[a\]\(<a /);
+    expect(renderInline('[a](https://x.test "제목")')).toBe(
+      `<a href="https://x.test/" ${LINK_ATTR}>a</a>`,
+    );
+  });
+
   it('빈 입력은 빈 문자열이고 CRLF도 같은 결과', () => {
     expect(renderMarkdown('')).toBe('');
     expect(renderMarkdown('# a\r\n\r\n문단')).toBe(renderMarkdown('# a\n\n문단'));
@@ -204,6 +233,31 @@ describe('renderMarkdown 성능 회귀', () => {
     expect(time('https://'.repeat(20_000))).toBeLessThan(BUDGET_MS);
     expect(time('<https://'.repeat(20_000))).toBeLessThan(BUDGET_MS);
     expect(time('![a]('.repeat(20_000))).toBeLessThan(BUDGET_MS);
+  });
+
+  it('제목 뒤 긴 공백', () => {
+    expect(time(`#${' '.repeat(50_000)}x`)).toBeLessThan(BUDGET_MS);
+    expect(time(`# a${' '.repeat(50_000)}x`)).toBeLessThan(BUDGET_MS);
+    expect(time(`# a${' '.repeat(50_000)}x#`)).toBeLessThan(BUDGET_MS);
+    expect(time(`# ${'a'.repeat(10_000)} x#`)).toBeLessThan(BUDGET_MS);
+  });
+
+  it('공백이 긴 표 구분선 후보', () => {
+    expect(time(`a|b\n|${' '.repeat(50_000)}x`)).toBeLessThan(BUDGET_MS);
+    expect(time(`a|b\n${'| - '.repeat(20_000)}x`)).toBeLessThan(BUDGET_MS);
+  });
+
+  it('닫히지 않는 링크 칸이 긴 입력', () => {
+    expect(time(`[a](${' '.repeat(50_000)}`)).toBeLessThan(BUDGET_MS);
+    expect(time(`[a](x ${'"'.repeat(1)}${'b'.repeat(50_000)}`)).toBeLessThan(BUDGET_MS);
+    expect(time(`[${'a'.repeat(50_000)}`.repeat(2))).toBeLessThan(BUDGET_MS);
+    expect(time(`${'[a](https://x '.repeat(20_000)}`)).toBeLessThan(BUDGET_MS);
+  });
+
+  it('길이가 다른 백틱 묶음이 대량', () => {
+    const runs = Array.from({ length: 300 }, (_, i) => '`'.repeat(i + 1)).join('a');
+    expect(time(runs)).toBeLessThan(BUDGET_MS);
+    expect(time('`a``b'.repeat(20_000))).toBeLessThan(BUDGET_MS);
   });
 
   it('1만 자를 넘는 줄은 강조를 건너뛰고 글자로 낸다', () => {

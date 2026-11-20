@@ -13,11 +13,12 @@ import { escapeHtml } from '../local-pr-web/html-generator.js';
 const MAX_DEPTH = 6;
 
 const FENCE_RE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-const HEADING_RE = /^ {0,3}(#{1,6})(?:\s+(.*?))?\s*#*\s*$/;
+// 본문과 닫는 #을 정규식 안에서 가르면 공백이 긴 줄에서 역추적이 세제곱으로 는다. 닫는 #은 headingText가 걷는다
+const HEADING_RE = /^ {0,3}(#{1,6})(?:[ \t]+(.*))?$/;
 const HR_RE = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/;
 const QUOTE_RE = /^ {0,3}> ?(.*)$/;
 const LIST_RE = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
-const TABLE_SEP_RE = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+const TABLE_SEP_CELL_RE = /^:?-+:?$/;
 const LANG_RE = /^[\w+#.-]{1,32}$/;
 
 export function renderMarkdown(src: string): string {
@@ -50,7 +51,7 @@ function renderBlocks(lines: string[], depth: number): string {
     const heading = HEADING_RE.exec(line);
     if (heading) {
       const level = heading[1]!.length;
-      out.push(`<h${level}>${renderInline(heading[2] ?? '')}</h${level}>`);
+      out.push(`<h${level}>${renderInline(headingText(heading[2] ?? ''))}</h${level}>`);
       i++;
       continue;
     }
@@ -76,7 +77,7 @@ function renderBlocks(lines: string[], depth: number): string {
       continue;
     }
 
-    if (line.includes('|') && i + 1 < lines.length && TABLE_SEP_RE.test(lines[i + 1]!)) {
+    if (line.includes('|') && i + 1 < lines.length && isTableSep(lines[i + 1]!)) {
       const rows: string[] = [line];
       const sep = lines[i + 1]!;
       i += 2;
@@ -127,6 +128,23 @@ function renderBlocks(lines: string[], depth: number): string {
     out.push(`<p>${renderInline(para.join('\n'))}</p>`);
   }
   return out.join('\n');
+}
+
+/** 닫는 #은 앞에 공백이 있거나 본문 전체일 때만 걷는다. `# C#`의 #은 본문이다 */
+function headingText(raw: string): string {
+  const t = raw.trimEnd();
+  let j = t.length;
+  while (j > 0 && t[j - 1] === '#') j--;
+  if (j === t.length) return t;
+  if (j === 0) return '';
+  const before = t[j - 1];
+  return before === ' ' || before === '\t' ? t.slice(0, j).trimEnd() : t;
+}
+
+/** 셀로 쪼갠 뒤 셀마다 본다. 한 정규식으로 줄 전체를 보면 공백 반복이 겹쳐 제곱으로 느려진다 */
+function isTableSep(line: string): boolean {
+  if (!line.includes('-')) return false;
+  return splitRow(line).every((c) => TABLE_SEP_CELL_RE.test(c));
 }
 
 function isFenceClose(line: string, mark: string): boolean {
@@ -231,9 +249,9 @@ function renderTable(rows: string[], sep: string): string {
   return `<table><thead>${headHtml}</thead><tbody>${bodyHtml}</tbody></table>`;
 }
 
-const CODE_RE = /(`+)([\s\S]*?[^`])\1(?!`)/y;
-// 주소에 괄호를 안 받는다. 닫는 괄호 없는 `[a](`가 줄마다 끝까지 훑어 제곱으로 느려지지 않게 한다
-const LINK_RE = /(!?)\[([^[\]\n]*)\]\(\s*<?([^\s<>()]*)>?(?:\s+"[^"\n]*")?\s*\)/y;
+// 주소에 괄호를 안 받고 칸마다 길이 상한을 둔다. 닫는 괄호 없는 `[a](`가 줄마다 끝까지 훑어 제곱으로 느려지지 않게 한다
+const LINK_RE =
+  /(!?)\[([^[\]\n]{0,1000})\]\(\s{0,32}<?([^\s<>()]{0,2048})>?(?:\s{1,32}"[^"\n]{0,500}")?\s{0,32}\)/y;
 const AUTOLINK_RE = /<(https?:\/\/[^\s<>]+)>/iy;
 const BARE_URL_RE = /https?:\/\/[^\s<>"'`]+/iy;
 
@@ -249,6 +267,36 @@ export function safeHref(raw: string): string | null {
   }
 }
 
+function backtickRun(src: string, at: number): number {
+  let j = at;
+  while (src[j] === '`') j++;
+  return j - at;
+}
+
+/**
+ * `at`에서 여는 백틱 묶음과 길이가 같은 닫는 묶음을 찾는다. 없으면 null.
+ * 정규식으로 찾으면 백틱마다 줄 끝까지 다시 훑는다. 못 찾은 길이는 `failed`에 남겨 같은 줄에서 다시 찾지 않는다
+ */
+function inlineCode(
+  src: string,
+  at: number,
+  failed: Set<number>,
+): { code: string; end: number } | null {
+  const n = backtickRun(src, at);
+  if (failed.has(n)) return null;
+  const mark = '`'.repeat(n);
+  let from = at + n;
+  for (;;) {
+    const p = src.indexOf(mark, from);
+    if (p < 0) break;
+    const len = backtickRun(src, p);
+    if (len === n) return { code: src.slice(at + n, p), end: p + n };
+    from = p + len;
+  }
+  failed.add(n);
+  return null;
+}
+
 function anchor(href: string, label: string): string {
   return `<a href="${escapeHtml(href)}" rel="noreferrer noopener" target="_blank">${label}</a>`;
 }
@@ -261,18 +309,23 @@ export function renderInline(src: string): string {
     out += emphasis(escapeHtml(text)).replace(/\n/g, '<br>');
     text = '';
   };
+  const failedCode = new Set<number>();
   let i = 0;
   while (i < src.length) {
     const ch = src[i]!;
     if (ch === '`') {
-      CODE_RE.lastIndex = i;
-      const m = CODE_RE.exec(src);
-      if (m) {
+      const code = inlineCode(src, i, failedCode);
+      if (code) {
         flush();
-        out += `<code>${escapeHtml(m[2]!)}</code>`;
-        i = CODE_RE.lastIndex;
+        out += `<code>${escapeHtml(code.code)}</code>`;
+        i = code.end;
         continue;
       }
+      // 짝이 없는 묶음은 통째로 글자다. 한 글자씩 넘기면 더 짧은 묶음으로 다시 찾게 된다
+      const n = backtickRun(src, i);
+      text += src.slice(i, i + n);
+      i += n;
+      continue;
     }
     if (ch === '[' || (ch === '!' && src[i + 1] === '[')) {
       LINK_RE.lastIndex = i;
