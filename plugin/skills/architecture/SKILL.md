@@ -146,7 +146,7 @@ Step 1~5의 탐색은 파일 읽기가 대부분이다. 한 뷰에 도구 호출
 - **서로 기대지 않는 파일은 한 턴에 같이 읽는다.** 모듈 여러 개의 머리를 하나씩 따로 부르지 않는다.
 - **서비스가 4개를 넘으면 나눠 맡긴다.** 서비스마다 서브에이전트를 하나씩 띄워 그 서비스의 IR 조각을 쓰게 하고 [분석 합치기](#분석-합치기)로 모은다. 합친 뒤 최상위 `summary`와 `note`는 다시 쓴다(합치기에서 버려진다). 나눌 때는 아래를 지킨다.
   - **메인이 정한 것을 함께 넘긴다.** 서브에이전트에는 이 SKILL.md 경로와 맡은 서비스, 레포 경로, 메인이 정한 뷰와 어휘 팩, 출력 디렉토리를 넘긴다. 메인이 Step 0에서 받은 `contextCandidates` 가운데 읽을 파일 경로도 넘긴다.
-  - **출력 디렉토리는 서비스마다 레포 밖에 따로 둔다**(`<work>/<서비스>`). 서브에이전트는 start와 validate, render의 `repoRoot`에 그 출력 디렉토리를 준다. IR의 `repos[].root`에는 레포 경로를 절대 경로로 적는다. 근거 검사는 `repos[].root`를 기준으로 돌고 상대 경로는 `repoRoot` 기준으로 풀리기 때문이다. 레포 경로를 `repoRoot`로 주면 모노레포에서 서비스들이 같은 `.gestalt/architecture/<view>.json`을 서로 덮는다. 두 번째 서브에이전트부터는 남의 그림을 지난 실행으로 받아 Step 9로 잘못 간다. 출력 디렉토리로 start하면 레포의 맥락 후보가 안 잡혀서 위의 `contextCandidates`를 넘기는 것이다.
+  - **출력 디렉토리는 서비스마다 레포 밖에 따로 둔다**(`<work>/<서비스>`). `<work>`는 레포마다 정해진 자리 `~/.gestalt/architecture/split/<host>/<org>/<repo>`다. [로컬 클론 받기](#로컬-클론-받기)의 캐시와 같은 꼴이고 `<host>/<org>/<repo>`는 `git remote get-url origin`에서 뽑는다. remote가 없으면 레포 절대 경로의 해시를 써서 `~/.gestalt/architecture/split/local/<해시>`로 둔다. 실행마다 새 자리를 잡지 않고 같은 서비스에는 늘 같은 `<work>/<서비스>`를 넘긴다. 그래야 서브에이전트의 start가 지난 조각을 `previous`로 받아 조각마다 Step 9를 탄다. 서브에이전트는 start와 validate, render의 `repoRoot`에 그 출력 디렉토리를 준다. IR의 `repos[].root`에는 레포 경로를 절대 경로로 적는다. 근거 검사는 `repos[].root`를 기준으로 돌고 상대 경로는 `repoRoot` 기준으로 풀리기 때문이다. 레포 경로를 `repoRoot`로 주면 모노레포에서 서비스들이 같은 `.gestalt/architecture/<view>.json`을 서로 덮는다. 두 번째 서브에이전트부터는 남의 그림을 지난 실행으로 받아 Step 9로 잘못 간다. 출력 디렉토리로 start하면 레포의 맥락 후보가 안 잡혀서 위의 `contextCandidates`를 넘기는 것이다.
   - **서브에이전트는 사용자에게 묻거나 기다리지 않는다.** 뷰나 팩 묻기, Step 4.5 재로그인, Step 5 레포 후보 묻기, Step 7-2처럼 사용자에게 묻거나 기다리는 단계를 만나면 묻지 않고 그 질문을 결과에 담아 돌려준다.
   - **돌려받은 질문은 메인이 묻는다.** Step 5 레포 후보와 Step 4.5 재로그인은 메인이 사용자에게 받은 답을 그 서비스의 서브에이전트에 넘겨 그 단계부터 다시 맡긴다. 나머지 열린 질문은 합친 뒤 메인이 Step 7-2로 묻는다. 답은 [분석 합치기](#분석-합치기) 7번처럼 원래 조각에 `user` 근거로 적고 다시 합친다.
 
@@ -168,6 +168,8 @@ Step 1~5의 탐색은 파일 읽기가 대부분이다. 한 뷰에 도구 호출
 | `schemaPath`          | IR이 따라야 하는 JSON Schema 파일 경로. Step 6 전에 한 번 읽는다                                               |
 | `readOnlyRule`        | 읽기 전용 판정에 쓰는 허용 단어와 금지 단어                                                                    |
 | `readOnlyCliRule`     | 클라우드 CLI 하위 명령이 시작해야 하는 동사(`list`, `get`, `describe`). Step 4.5에서 쓴다                      |
+
+레포 경로로 받은 `previous`가 `null`이어도 지난번에 나눠 그린 결과가 있을 수 있다. 이번 요청이 레포 전체를 그리는 요청이고 `<work>/_merged/.gestalt/architecture/<view>.json`(`<work>`는 [읽기 예산](#읽기-예산)의 나눠 맡기기 자리)이 있으면 재실행으로 보고 Step 9로 간다. 서비스 하나만 그리는 요청이면 이 파일을 지난 실행으로 쓰지 않는다.
 
 ## Step 1 — 소스 찾아내기
 
@@ -749,7 +751,7 @@ render는 validate를 다시 하고 이전 실행 IR과 병합해 노드 id를 �
 - `ignoreFilePath`: 퍼블릭일 때만 온다. 본인용 HTML과 저장 IR을 막는 줄을 써 둔 `.gitignore` 경로다
 - `levels`: 드릴다운으로 그렸을 때만 온다. 항목마다 `id`, `title`, `nodes`, `edges`가 있다. `id`는 `root`(전체), `service:<id>`, `feature:<id>`, `server:<id>`, `flow:<id>`, `group:<id>`, `view:<id>`, `infra` 꼴이다
 - `viewPaths`: 질문별 그림이 있을 때만 온다. 그림마다 `.gestalt/architecture/views/<view>.<그림 id>.json`에 그 그림과 가리킨 노드, 엣지, 질문만 따로 저장한 경로다. lifecycle과 blueprint는 가리킨 흐름(`flow`)을, er은 외래 키 대상 테이블과 `auto:fk:` 질문을 함께 싣는다. 다른 세션이 질문 하나의 답만 읽어 갈 때 이 파일을 건넨다
-- `merge`: 지난 실행 IR이 있을 때만 온다. `descriptionCarried`는 지난 설명을 이어받은 노드 수, `relabeled`는 label이 바뀌었는데 같은 id나 같은 근거 파일로 이어 준 노드, `flowsCarried`는 지난 IR에서 이어받은 흐름 id, `flowsDropped`는 이어 싣지 못하고 사라진 흐름 id다. `relabeled`가 있으면 의도한 이름 변경이 맞는지 보고에 한 줄 적는다. `matchedBy`가 `id`이고 `evidenceOverlap`이 `false`면 근거 파일이 하나도 안 겹친다. 같은 대상인지 확인해 보고에 적는다
+- `merge`: 지난 실행 IR이 있을 때만 온다. `descriptionCarried`는 지난 설명을 이어받은 노드 수, `relabeled`는 label이 바뀌었는데 같은 id나 같은 근거 파일로 이어 준 노드, `flowsCarried`는 지난 IR에서 이어받은 흐름 id, `flowsDropped`는 이어 싣지 못하고 사라진 흐름 id, `projectionsDropped`는 근거가 낡아 이어 싣지 못한 질문별 그림의 투영 id다. `relabeled`가 있으면 의도한 이름 변경이 맞는지 보고에 한 줄 적는다. `matchedBy`가 `id`이고 `evidenceOverlap`이 `false`면 근거 파일이 하나도 안 겹친다. 같은 대상인지 확인해 보고에 적는다
 - `delta`: 이전 실행과 비교한 결과. 늘 온다. `status`는 넷 중 하나다
   - `no_previous`: 비교할 이전 그림이 없다. 처음 그렸거나 저장된 이전 그림을 지금 규칙으로 읽지 못했다. 파일을 안 만든다
   - `unchanged`: 그려지는 노드와 연결이 지난번과 같다. 지난 구조 변경 그림은 그대로 둔다
