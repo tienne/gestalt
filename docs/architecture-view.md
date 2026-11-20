@@ -1799,7 +1799,7 @@ render는 이 순서로 돈다.
 | `report.unlinkedEndpoints` | 다른 분석에 라우트가 있는데도 받는 핸들러를 못 찾은 FE 엔드포인트. 있을 때만 온다. `{ nodeId, label, repo, suggested? }[]`이고 `suggested`는 `{ nodeId, label, repo, score }[]`(경로 뒤쪽이 닮은 라우트, 최대 3개)다 |
 | `nextAction`               | 다음에 할 일                                                                                                                                                                                                         |
 
-합친 IR은 `validate`와 `render`에 그대로 넘긴다. render는 `repoRoot`의 같은 뷰 IR과 병합하므로 **원래 분석 레포가 아닌 따로 둔 디렉토리를 `repoRoot`로 준다.** 원래 레포를 주면 그 레포의 단독 분석 IR이 합친 IR로 덮인다. 스킬이 서비스마다 서브에이전트로 나눠 그렸으면 조각은 `~/.gestalt/architecture/split/<host>/<org>/<repo>/<서비스>`, 합친 결과는 같은 자리의 `_merged`에 둔다. 자리가 레포마다 고정이라 다음 실행이 지난 조각과 합친 IR을 이어받는다.
+합친 IR은 `validate`와 `render`에 그대로 넘긴다. render는 `repoRoot`의 같은 뷰 IR과 병합하므로 **원래 분석 레포가 아닌 따로 둔 디렉토리를 `repoRoot`로 준다.** 원래 레포를 주면 그 레포의 단독 분석 IR이 합친 IR로 덮인다. 스킬이 서비스마다 서브에이전트로 나눠 그렸으면 조각은 `$HOME/.gestalt/architecture/split/<키>/<서비스>`, 합친 결과는 같은 자리의 `_merged`에 둔다. 키는 체크아웃 최상위 경로를 realpath로 푼 글자의 sha256 앞 12자다. 자리가 체크아웃마다 고정이라 다음 실행이 지난 조각과 합친 IR을 이어받고 같은 origin의 다른 워크트리나 클론과는 섞이지 않는다. 서버가 `repoRoot`의 `~`를 풀지 않으므로 이 자리는 홈 절대 경로로 넘긴다.
 
 ### `scan_docs`
 
