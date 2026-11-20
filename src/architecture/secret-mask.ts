@@ -156,8 +156,8 @@ function assignedValueIsSecret(name: string, value: string): boolean {
  * 따옴표 없는 대입 값이 비밀값인지. 코드 근거의 `token = getToken()`, `token = this.token`,
  * `token={session.accessToken}`, `token: [a, b]`는 값이 아니다. 괄호는 호출이나 인덱싱처럼 닫는 괄호로 끝날 때만
  * 코드로 본다. `Hunter(2)abc9` 같은 비밀번호에도 괄호가 들어간다.
- * 비밀번호 이름에 숫자가 든 값이 붙으면 닫는 괄호로 끝나도 .env 대문자 이름이거나, 대문자로 시작하거나,
- * 첫 괄호 앞에 숫자가 박혔을 때는 `Hunter(2)` 같은 값으로 본다. `getToken(user1)`, `argv[1]`은 코드로 남는다.
+ * 이름이 비밀번호 꼴이고 값에 숫자가 있으면 닫는 괄호로 끝나도 `Hunter(2)` 같은 값으로 본다. 조건은 셋 중 하나다.
+ * .env 대문자 이름, 대문자로 시작하는 값, 첫 괄호 앞에 숫자가 있는 값. `getToken(user1)`, `argv[1]`은 코드로 남는다.
  * 점으로 이은 꼴도 .env 대문자 이름에 붙었거나 숫자가 섞이면 `Summer2024.Corp1` 같은 값으로 본다.
  * `:`는 `auth: Keycloak`, `Authorization: Bearer`처럼 산문과 타입 선언에 흔해서 생성 값처럼 보일 때만 가린다
  */
