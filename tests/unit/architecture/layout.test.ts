@@ -5,11 +5,26 @@ import {
   liftColumns,
   LIFT_MIN_GAP,
   measureNode,
+  measureCard,
+  measurePill,
+  cardChipTexts,
   NODE_DESC_LINE,
   stackBands,
   BAND_HEAD,
   type LayoutResult,
 } from '../../../src/architecture/layout.js';
+import {
+  CARD_CHIP_ROW,
+  CARD_DESC_LINE,
+  CARD_DESC_MAX_LINES,
+  CARD_MAX_W,
+  CARD_MIN_H,
+  CARD_MIN_W,
+  PILL_H,
+  PILL_MAX_W,
+  PILL_MIN_W,
+} from '../../../src/architecture/layout-tuning.js';
+import { flowBadgeText } from '../../../src/architecture/kind-text.js';
 import { computeCompareLayout } from '../../../src/architecture/compare-layout.js';
 import { computeDataflowLayout } from '../../../src/architecture/dataflow-layout.js';
 import { computeSequenceLayout } from '../../../src/architecture/sequence-layout.js';
@@ -468,5 +483,69 @@ describe('질문별 그림 세 모양의 설명 줄 높이', () => {
     const h = (l: typeof before, id: string): number => l.heads.find((c) => c.id === id)!.height;
     expect(h(after, target)).toBe(h(before, target) + NODE_DESC_LINE);
     expect(h(after, before.heads[1]!.id)).toBe(h(before, before.heads[1]!.id));
+  });
+});
+
+describe('measureCard (드릴다운 큰 카드)', () => {
+  it('폭은 CARD_MIN_W와 CARD_MAX_W 사이다', () => {
+    expect(measureCard('a').width).toBe(CARD_MIN_W);
+    expect(measureCard('가'.repeat(80)).width).toBe(CARD_MAX_W);
+  });
+
+  it('설명은 최대 세 줄까지만 높이를 늘린다', () => {
+    const one = measureCard('svc', undefined, false, 'service', { description: '짧은 설명' });
+    const long = measureCard('svc', undefined, false, 'service', {
+      description: '아주 긴 설명 '.repeat(40),
+    });
+    const none = measureCard('svc', undefined, false, 'service');
+    // 설명 없는 카드는 최소 높이로 올라가 있어 한 줄 설명이 늘린 몫은 그보다 작을 수 있다
+    expect(none.height).toBe(CARD_MIN_H);
+    expect(one.height).toBeGreaterThan(none.height);
+    expect(long.height - one.height).toBe(CARD_DESC_LINE * (CARD_DESC_MAX_LINES - 1));
+  });
+
+  it('안쪽 항목 수나 추정, 흐름이 있으면 칩 줄 높이를 더하고 렌더러와 같은 글자를 낸다', () => {
+    const plain = measureCard('svc', '표시', false, 'service');
+    const chips = measureCard('svc', '표시', true, 'service', { inner: 3, flows: 2 });
+    expect(chips.height - plain.height).toBe(CARD_CHIP_ROW);
+    expect(cardChipTexts('표시', true, { inner: 3, flows: 2 })).toEqual([
+      '항목 3',
+      '추정',
+      flowBadgeText(2),
+    ]);
+    expect(cardChipTexts(undefined, true, { inner: 0 })).toEqual([]);
+  });
+
+  it('같은 입력이면 같은 크기다', () => {
+    const extras = { description: '설명', inner: 4, platforms: ['web'] as const };
+    expect(measureCard('a', 'b', false, 'service', extras)).toEqual(
+      measureCard('a', 'b', false, 'service', extras),
+    );
+  });
+});
+
+describe('measurePill (바깥 알약)', () => {
+  it('높이는 PILL_H로 고정이고 폭은 PILL_MIN_W와 PILL_MAX_W 사이다', () => {
+    expect(measurePill('a')).toEqual({ width: PILL_MIN_W, height: PILL_H });
+    expect(measurePill('가'.repeat(60)).width).toBe(PILL_MAX_W);
+  });
+});
+
+describe('computeGraphLayout 크기 덮어쓰기와 간격', () => {
+  it('size를 준 노드는 그 크기로 서고 간격을 넘기면 열 사이가 그만큼 벌어진다', async () => {
+    const nodes = [
+      { id: 'a', label: 'a', rank: 0, lane: 'service' as const, size: { width: 260, height: 112 } },
+      { id: 'b', label: 'b', rank: 1, lane: 'service' as const, size: { width: 260, height: 112 } },
+    ];
+    const edges = [{ id: 'a->b', from: 'a', to: 'b' }];
+    const base = await computeGraphLayout(nodes, edges);
+    const wide = await computeGraphLayout(nodes, edges, undefined, {
+      betweenLayers: 200,
+      node: 40,
+    });
+    const box = (r: typeof base, id: string) => r.nodes.find((n) => n.id === id)!;
+    expect(box(base, 'a')).toMatchObject({ width: 260, height: 112 });
+    const gap = (r: typeof base) => box(r, 'b').x - box(r, 'a').x - 260;
+    expect(gap(wide)).toBeGreaterThan(gap(base));
   });
 });
