@@ -13,6 +13,13 @@ import {
   type Evidence,
   type ValidatedIr,
 } from '../../../src/architecture/index.js';
+import {
+  CARD_DESC_LINE,
+  CARD_DESC_MAX_LINES,
+  OUTSIDE_PER_SIDE,
+  ROOT_COLLAPSE_MIN_CARDS,
+  ROOT_COLLAPSE_MIN_CHUNKS,
+} from '../../../src/architecture/layout-tuning.js';
 import { LEGACY_IRS, renderBoth } from '../../fixtures/architecture-legacy/render.js';
 import { harnessIr, partnerIr, webIr } from '../../fixtures/architecture-legacy/irs.js';
 import { infraIr } from '../../fixtures/architecture-categories/infra.js';
@@ -486,16 +493,23 @@ describe('computeDrilldown 설명 줄이 있는 카드', () => {
     expect(overlaps(levels)).toEqual([]);
   });
 
-  it('설명이 있는 카드는 없는 때보다 정확히 19 높다', async () => {
+  it('설명이 있는 큰 카드는 없는 때보다 높고 늘어난 높이는 설명 세 줄을 넘지 않는다', async () => {
     const plain = await levelsOf(webIr());
     const described = await levelsOf(describeAll(webIr()));
     let compared = 0;
     for (const lv of plain) {
       const other = described.find((d) => d.id === lv.id)!;
+      const outside = new Set([...(lv.outside?.from ?? []), ...(lv.outside?.to ?? [])]);
       for (const n of lv.layout.nodes) {
         const m = other.layout.nodes.find((x) => x.id === n.id);
         if (m === undefined) continue;
-        expect(m.height).toBe(n.height + 19);
+        // 바깥 알약은 이름 한 줄이라 설명이 붙어도 높이가 그대로다
+        if (outside.has(n.id)) {
+          expect(m.height).toBe(n.height);
+          continue;
+        }
+        expect(m.height).toBeGreaterThan(n.height);
+        expect(m.height - n.height).toBeLessThanOrEqual(CARD_DESC_LINE * CARD_DESC_MAX_LINES + 2);
         compared++;
       }
     }
@@ -743,23 +757,135 @@ describe('computeDrilldown 레벨 밖 맥락', () => {
     ir.edges.push(edge('c-s-x10-again', 's-x10', 'ep-order', 'calls'));
     const { levels } = await computeDrilldown(validated(ir));
     const order = level(levels, 'server:m-order');
-    expect(order.outside!.from).toEqual([
-      's-x10',
-      's-help',
-      's-order',
-      's-x00',
-      's-x01',
-      's-x02',
-      's-x03',
-      's-x04',
-    ]);
-    expect(order.outside!.hiddenFrom).toBe(13 - 8);
-    expect(order.nodeIds).not.toContain('s-x05');
-    expect(order.edges.some((e) => e.from === 's-x05')).toBe(false);
-    // 한 열에 4장씩이라 8장이 두 열로 선다
+    expect(order.outside!.from).toEqual(['s-x10', 's-help', 's-order', 's-x00']);
+    expect(order.outside!.hiddenFrom).toBe(13 - 4);
+    expect(order.nodeIds).not.toContain('s-x01');
+    expect(order.edges.some((e) => e.from === 's-x01')).toBe(false);
+    // 한쪽 4장은 한 열에 다 선다
     const xs = new Set(
       order.outside!.from.map((id) => order.layout.nodes.find((n) => n.id === id)!.x),
     );
-    expect(xs.size).toBe(2);
+    expect(xs.size).toBe(1);
+  });
+});
+
+describe('computeDrilldown 루트 레인 접기', () => {
+  // 서비스 둘이 게이트웨이를 거쳐 서버 모듈 n개를 부르고 모듈은 저장소 하나를 쓴다. 첫 모듈의 저장소 선만 문서 근거다
+  function wideIr(modules: number): ArchitectureIr {
+    const ids = Array.from({ length: modules }, (_, i) => `m-${String(i).padStart(2, '0')}`);
+    return {
+      ...fixture(),
+      nodes: [
+        node('svc-a', 'service'),
+        node('svc-b', 'service'),
+        node('s-a', 'screen', 'svc-a'),
+        node('s-b', 'screen', 'svc-b'),
+        node('gw', 'gateway'),
+        node('db', 'datastore'),
+        ...ids.flatMap((m) => [node(`ep-${m}`, 'endpoint'), node(m, 'app_module')]),
+      ],
+      edges: ids.flatMap((m, i) => [
+        edge(`c-${m}`, i % 2 === 0 ? 's-a' : 's-b', `ep-${m}`, 'calls'),
+        edge(`r-${m}`, 'gw', `ep-${m}`, 'routes'),
+        edge(`h-${m}`, `ep-${m}`, m, 'handles'),
+        edge(`rw-${m}`, m, 'db', 'reads_writes', i === 0 ? [docEv] : [codeEv]),
+      ]),
+    };
+  }
+
+  it('카드가 문턱보다 많으면 root를 레인 덩어리 카드와 덩어리 사이 묶음 선으로 접는다', async () => {
+    const { levels } = await computeDrilldown(validated(wideIr(12)));
+    const root = level(levels, 'root');
+    expect(root.nodeIds).toEqual([]);
+    const chunks = root.chunks!;
+    expect(chunks.length).toBeGreaterThanOrEqual(ROOT_COLLAPSE_MIN_CHUNKS);
+    expect(chunks.map((c) => c.order)).toEqual(chunks.map((_, i) => i + 1));
+    // 덩어리 카드만 배치에 서고 레인 띠는 없다
+    expect(root.layout.nodes.map((n) => n.id).sort()).toEqual(chunks.map((c) => c.id).sort());
+    expect(root.layout.lanes).toEqual([]);
+    // 모든 root 카드가 정확히 한 덩어리에 든다
+    const members = chunks.flatMap((c) => c.memberIds).sort();
+    expect(new Set(members).size).toBe(members.length);
+    expect(members).toContain('svc-a');
+    expect(members).toContain('m-11');
+    for (const c of chunks) {
+      expect(c.level).toBe(c.id.replace(/^chunk:/, 'lane:'));
+      expect(c.topIds.length).toBeGreaterThan(0);
+      expect(c.topIds.length).toBeLessThanOrEqual(3);
+      const lane = level(levels, c.level);
+      expect(lane.kind).toBe('lane');
+      expect(lane.trail).toEqual(['root', c.level]);
+      expect(lane.title).toBe(c.title);
+      for (const id of c.memberIds) expect(lane.nodeIds).toContain(id);
+    }
+  });
+
+  it('덩어리 묶음 선은 펼친 root 선을 합쳐 개수와 고리를 싣고 근거가 섞이면 inferred를 단다', async () => {
+    const { levels } = await computeDrilldown(validated(wideIr(12)));
+    const root = level(levels, 'root');
+    const chunkOf = new Map(root.chunks!.flatMap((c) => c.memberIds.map((m) => [m, c.id])));
+    const flat = root.flatEdges!;
+    expect(flat.length).toBeGreaterThan(0);
+    for (const e of root.edges) {
+      expect(e.id).toBe(`${e.from}->${e.to.replace(/^chunk:/, '')}`);
+      const parts = flat.filter(
+        (f) => chunkOf.get(f.from) === e.from && chunkOf.get(f.to) === e.to,
+      );
+      expect(e.count).toBe(parts.reduce((n, f) => n + f.count, 0));
+      expect(e.memberEdgeIds).toEqual([...new Set(parts.flatMap((f) => f.memberEdgeIds))].sort());
+    }
+    // 모듈에서 저장소로 가는 묶음은 문서 근거 하나가 섞여 실선에 inferred 1이다
+    const toDb = root.edges.find((e) => e.memberEdgeIds.includes('rw-m-00'))!;
+    expect(toDb.lineStyle).toBe('solid');
+    expect(toDb.inferred).toBe(1);
+  });
+
+  it('덩어리 레벨은 한 끝만 안인 선의 상대를 한쪽 4장까지 바깥으로 세우고 넘친 수를 싣는다', async () => {
+    const { levels } = await computeDrilldown(validated(wideIr(12)));
+    const root = level(levels, 'root');
+    const modules = root.chunks!.find((c) => c.memberIds.includes('m-00'))!;
+    const lane = level(levels, modules.level);
+    const out = lane.outside!;
+    expect(out.from.length + out.to.length).toBeGreaterThan(0);
+    expect(out.from.length).toBeLessThanOrEqual(OUTSIDE_PER_SIDE);
+    expect(out.to.length).toBeLessThanOrEqual(OUTSIDE_PER_SIDE);
+    for (const id of [...out.from, ...out.to]) {
+      expect(modules.memberIds).not.toContain(id);
+      expect(lane.nodeIds).toContain(id);
+    }
+    // 그린 선의 끝점은 전부 이 레벨에 선 카드다
+    for (const e of lane.edges) {
+      expect(lane.nodeIds).toContain(e.from);
+      expect(lane.nodeIds).toContain(e.to);
+    }
+  });
+
+  it('카드가 문턱 이하면 접지 않는다', async () => {
+    // 서비스 둘, 게이트웨이, 저장소에 모듈 8개면 12장이다
+    const { levels } = await computeDrilldown(validated(wideIr(ROOT_COLLAPSE_MIN_CARDS - 4)));
+    const root = level(levels, 'root');
+    expect(root.chunks).toBeUndefined();
+    expect(root.nodeIds.length).toBe(ROOT_COLLAPSE_MIN_CARDS);
+    expect(levels.some((l) => l.kind === 'lane')).toBe(false);
+  });
+
+  it('덩어리가 하나뿐이면 카드가 많아도 접지 않는다', async () => {
+    const ir: ArchitectureIr = {
+      ...fixture(),
+      nodes: Array.from({ length: 14 }, (_, i) => node(`svc-${i}`, 'service')),
+      edges: [],
+    };
+    const { levels } = await computeDrilldown(validated(ir));
+    expect(level(levels, 'root').chunks).toBeUndefined();
+    expect(level(levels, 'root').nodeIds.length).toBe(14);
+  });
+
+  it('새 칸이 없는 예전 IR도 접기와 함께 계산된다', async () => {
+    for (const ir of [webIr(), harnessIr(), partnerIr()]) {
+      const { levels } = await computeDrilldown(validated(ir));
+      const root = level(levels, 'root');
+      if (root.chunks === undefined) continue;
+      for (const c of root.chunks) expect(levels.some((l) => l.id === c.level)).toBe(true);
+    }
   });
 });

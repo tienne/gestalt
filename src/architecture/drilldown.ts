@@ -20,8 +20,23 @@ import {
   type LabeledGroup,
   type LaneId,
   type LayoutResult,
+  type StageAssignment,
   computeLayout,
+  measureCard,
+  measurePill,
+  UNSTAGED_LABEL,
 } from './layout.js';
+import { LANE_TITLES } from './kind-text.js';
+import {
+  CHUNK_CARD_H,
+  CHUNK_CARD_W,
+  CHUNK_LAYER_GAP,
+  DRILL_LAYER_GAP,
+  DRILL_NODE_GAP,
+  OUTSIDE_PER_SIDE,
+  ROOT_COLLAPSE_MIN_CARDS,
+  ROOT_COLLAPSE_MIN_CHUNKS,
+} from './layout-tuning.js';
 import { computeFlowLevels, type FlowLevel } from './flow-layout.js';
 import { computeInfraLayout, type InfraLayout } from './infra-layout.js';
 import { indexMicroApps, orderedApps, type MicroAppIndex } from './micro-app.js';
@@ -31,7 +46,15 @@ import type { ArchitectureEdge, ArchitectureNode, EdgeKind, LineStyle, NodeKind 
 import { chipTextOverride, displayKindOf, INFRA_LEVEL_KINDS } from './types.js';
 import type { ValidatedIr } from './validator.js';
 
-export type DrillLevelKind = 'root' | 'service' | 'app' | 'server' | 'feature' | 'group' | 'infra';
+export type DrillLevelKind =
+  | 'root'
+  | 'lane'
+  | 'service'
+  | 'app'
+  | 'server'
+  | 'feature'
+  | 'group'
+  | 'infra';
 
 /**
  * 레벨에 그리는 선. 세부 엣지를 그대로 옮긴 것이면 count가 1이고 kind가 원래 엣지 kind다.
@@ -66,8 +89,25 @@ export interface DrillLevel {
   layout: LayoutResult;
   /** infra 레벨만. 카드 배치(layout) 대신 벤더 박스와 타일 좌표로 그린다. layout은 크기만 담은 빈 배치다 */
   infra?: InfraLayout;
+  /** 접힌 root만. 레인 덩어리 카드다. 이때 nodeIds는 비고 edges는 덩어리 사이 묶음 선이다 */
+  chunks?: DrillChunk[];
+  /** 접힌 root만. 접기 전 root 선이다. 경로 강조처럼 카드 사이 실제 연결을 따라가는 쪽이 읽는다 */
+  flatEdges?: DrillEdge[];
 }
 
+/** 루트를 레인 단위로 접은 덩어리 카드. 누르면 level 레벨로 들어간다 */
+export interface DrillChunk {
+  /** `chunk:<레인 키>`. 레이아웃 노드 id와 묶음 선 끝점이 이 값이다 */
+  id: string;
+  /** `lane:<레인 키>` */
+  level: string;
+  title: string;
+  /** 왼쪽부터 매긴 레인 순번. 1부터 센다 */
+  order: number;
+  memberIds: string[];
+  /** 연결이 많은 순으로 고른 대표 카드. 렌더러가 이 이름으로 설명 줄을 만든다 */
+  topIds: string[];
+}
 /**
  * 레벨 밖에서 안으로 선을 보내는 카드(from)와 안에서 나간 선을 받는 카드(to). nodeIds에도 들어 있다.
  * 한쪽에 OUTSIDE_CONTEXT_MAX장까지만 세우고 넘친 장수는 hidden 칸에 싣는다
@@ -98,8 +138,8 @@ const TABLE_RANK_AFTER_RECEIVERS = 100;
 // 전체 레벨에서 서버를 거쳐서만 닿는 게이트웨이와 모듈. 같은 레인 안에서도 게이트웨이가 왼쪽에 선다
 // 바깥 카드 한 열에 세우는 최대 장수. tree 드릴다운과 service, server 레벨이 같이 쓴다
 const OUTSIDE_PER_COLUMN = 4;
-// service와 server 레벨에서 한쪽에 세우는 바깥 카드 최대 장수. 넘치면 레벨 안 카드보다 바깥이 더 커진다
-const OUTSIDE_CONTEXT_MAX = 8;
+// service와 server, lane 레벨에서 한쪽에 세우는 바깥 카드 최대 장수. 넘치면 +N으로 접는다
+const OUTSIDE_CONTEXT_MAX = OUTSIDE_PER_SIDE;
 // 서빙과 배포 사슬은 호출이 아니라 바깥 맥락으로 세우지 않는다. 서비스 레벨이 제 서빙 사슬을 이미 그리고 나머지는 인프라 레벨과 배포 경로 그림이 보여 준다
 const NON_CALL_EDGE_KINDS: ReadonlySet<EdgeKind> = new Set<EdgeKind>([
   'serves',
@@ -475,6 +515,9 @@ interface LevelDraft {
   groups?: LabeledGroup[];
   /** 레벨 밖 상대 카드. 열은 배치 직전에 구간까지 보고 정한다 */
   outside?: DrillOutside;
+  /** 접힌 root만. DrillLevel의 같은 칸으로 그대로 옮긴다 */
+  chunks?: DrillChunk[];
+  flatEdges?: DrillEdge[];
 }
 
 /**
@@ -678,6 +721,201 @@ function rootLevel(full: Graph, apps: MicroAppIndex): LevelDraft {
     laneOfKind: { service: 'service', micro_app: 'service' },
     ...(frames.length > 0 ? { frames } : {}),
     ...(groups.length > 0 ? { groups } : {}),
+  };
+}
+
+/** 덩어리 하나에 대표로 이름을 적는 카드 수 */
+const CHUNK_TOP_NAMES = 3;
+
+/**
+ * 카드가 많은 root를 레인 덩어리로 접는다. 레인 키는 배치가 쓰는 것과 같다(구간이 있으면 구간, 없으면 레인).
+ * 카드가 ROOT_COLLAPSE_MIN_CARDS장 이하이거나 덩어리가 ROOT_COLLAPSE_MIN_CHUNKS개보다 적으면 그대로 둔다.
+ * 접으면 root는 덩어리 카드와 덩어리 사이 묶음 선만 갖고 덩어리마다 lane 레벨이 생긴다
+ */
+function collapseRoot(
+  g: Graph,
+  root: LevelDraft,
+  staged: StageAssignment | undefined,
+): { root: LevelDraft; lanes: LevelDraft[] } {
+  const ids = [...root.nodeIds].filter((id) => g.nodeById.has(id)).sort(compareStr);
+  if (ids.length <= ROOT_COLLAPSE_MIN_CARDS) return { root, lanes: [] };
+  const keyOf = new Map<string, string>();
+  const titleOf = new Map<string, string>();
+  const rankOf = (id: string): number => {
+    const node = g.nodeById.get(id)!;
+    return (
+      (staged?.indexOf.get(id) ?? 0) * STAGE_RANK_STRIDE +
+      (root.rankOverride?.get(id) ?? PARTITION_RANK[node.kind])
+    );
+  };
+  for (const id of ids) {
+    const node = g.nodeById.get(id)!;
+    if (staged !== undefined) {
+      const at = staged.indexOf.get(id)!;
+      keyOf.set(id, `stage-${at}`);
+      titleOf.set(`stage-${at}`, staged.labels[at] ?? UNSTAGED_LABEL);
+      continue;
+    }
+    const lane = root.laneOverride?.get(id) ?? root.laneOfKind?.[node.kind] ?? laneOfNode(node);
+    keyOf.set(id, lane);
+    titleOf.set(lane, LANE_TITLES[lane]);
+  }
+  const members = new Map<string, string[]>();
+  for (const id of ids) {
+    const key = keyOf.get(id)!;
+    members.set(key, [...(members.get(key) ?? []), id]);
+  }
+  if (members.size < ROOT_COLLAPSE_MIN_CHUNKS) return { root, lanes: [] };
+  const minRank = (key: string): number => Math.min(...members.get(key)!.map(rankOf));
+  const keys = [...members.keys()].sort((a, b) => minRank(a) - minRank(b) || compareStr(a, b));
+  // 대표 카드는 root 선에 많이 걸린 순이다. 같으면 id 순이라 같은 IR이면 같은 이름이 나온다
+  const degree = new Map<string, number>();
+  for (const e of root.edges) {
+    degree.set(e.from, (degree.get(e.from) ?? 0) + e.count);
+    degree.set(e.to, (degree.get(e.to) ?? 0) + e.count);
+  }
+  const chunks: DrillChunk[] = keys.map((key, i) => {
+    const list = members.get(key)!;
+    return {
+      id: `chunk:${key}`,
+      level: `lane:${key}`,
+      title: titleOf.get(key)!,
+      order: i + 1,
+      memberIds: list,
+      topIds: [...list]
+        .sort((a, b) => (degree.get(b) ?? 0) - (degree.get(a) ?? 0) || compareStr(a, b))
+        .slice(0, CHUNK_TOP_NAMES),
+    };
+  });
+
+  const bundles = new Map<
+    string,
+    { from: string; to: string; count: number; members: Set<string> }
+  >();
+  for (const e of root.edges) {
+    const a = keyOf.get(e.from);
+    const b = keyOf.get(e.to);
+    if (a === undefined || b === undefined || a === b) continue;
+    const id = `chunk:${a}->${b}`;
+    const cur = bundles.get(id) ?? {
+      from: `chunk:${a}`,
+      to: `chunk:${b}`,
+      count: 0,
+      members: new Set<string>(),
+    };
+    cur.count += e.count;
+    for (const m of e.memberEdgeIds) cur.members.add(m);
+    bundles.set(id, cur);
+  }
+  const chunkEdges: DrillEdge[] = [...bundles.entries()]
+    .map(([id, b]) => {
+      const memberEdgeIds = [...b.members].sort(compareStr);
+      const inferred = memberEdgeIds.filter(
+        (m) => g.edgeById.get(m)?.lineStyle === 'dashed',
+      ).length;
+      const allInferred = memberEdgeIds.length > 0 && inferred === memberEdgeIds.length;
+      return {
+        id,
+        from: b.from,
+        to: b.to,
+        kind: 'bundle' as const,
+        count: b.count,
+        memberEdgeIds,
+        lineStyle: allInferred ? ('dashed' as const) : ('solid' as const),
+        ...(inferred > 0 && !allInferred ? { inferred } : {}),
+      };
+    })
+    .sort(byId);
+
+  const lanes = chunks.map((c) => laneDraft(root, c));
+  return {
+    root: {
+      id: root.id,
+      kind: root.kind,
+      title: root.title,
+      trail: root.trail,
+      nodeIds: new Set(),
+      edges: chunkEdges,
+      chunks,
+      flatEdges: root.edges,
+    },
+    lanes,
+  };
+}
+
+/**
+ * 덩어리 하나를 여는 lane 레벨. 안쪽 선은 root 선 중 양 끝이 다 덩어리 안인 것이다.
+ * 한 끝만 안인 root 선은 상대 카드를 바깥 맥락으로 세우고 한쪽에 OUTSIDE_CONTEXT_MAX장까지만 둔다
+ */
+function laneDraft(root: LevelDraft, chunk: DrillChunk): LevelDraft {
+  const inside = new Set(chunk.memberIds);
+  const sends = new Map<string, DrillEdge[]>();
+  const receives = new Map<string, DrillEdge[]>();
+  const edges: DrillEdge[] = [];
+  for (const e of root.edges) {
+    const fromIn = inside.has(e.from);
+    const toIn = inside.has(e.to);
+    if (fromIn && toIn) edges.push(e);
+    if (fromIn === toIn) continue;
+    const other = fromIn ? e.to : e.from;
+    const side = fromIn ? receives : sends;
+    side.set(other, [...(side.get(other) ?? []), e]);
+  }
+  // 보내기도 하고 받기도 하는 카드는 부르는 쪽에 한 번만 세운다. withOutsideContext와 같은 규칙이다
+  for (const [id, es] of receives) {
+    const out = sends.get(id);
+    if (out === undefined) continue;
+    sends.set(id, [...out, ...es]);
+    receives.delete(id);
+  }
+  const weight = (es: readonly DrillEdge[]): number => es.reduce((n, e) => n + e.count, 0);
+  const pick = (side: Map<string, DrillEdge[]>): string[] =>
+    [...side.keys()]
+      .sort((a, b) => weight(side.get(b)!) - weight(side.get(a)!) || compareStr(a, b))
+      .slice(0, OUTSIDE_CONTEXT_MAX);
+  const from = pick(sends);
+  const to = pick(receives);
+  const nodeIds = new Set(inside);
+  const laneOverride = new Map(root.laneOverride);
+  for (const [list, side, lane] of [
+    [from, sends, 'outside_from'],
+    [to, receives, 'outside_to'],
+  ] as const) {
+    for (const id of list) {
+      nodeIds.add(id);
+      laneOverride.set(id, lane);
+      edges.push(...side.get(id)!);
+    }
+  }
+  const frames = (root.frames ?? [])
+    .filter((f) => inside.has(f.head))
+    .map((f) => ({ head: f.head, members: f.members.filter((m) => inside.has(m)) }));
+  const groups = (root.groups ?? [])
+    .map((gr) => ({ label: gr.label, members: gr.members.filter((m) => inside.has(m)) }))
+    .filter((gr) => gr.members.length > 0);
+  const hasOutside = from.length > 0 || to.length > 0;
+  return {
+    id: chunk.level,
+    kind: 'lane',
+    title: chunk.title,
+    trail: [ROOT_LEVEL_ID, chunk.level],
+    nodeIds,
+    edges: [...new Map(edges.map((e) => [e.id, e])).values()].sort(byId),
+    ...(root.rankOverride !== undefined ? { rankOverride: new Map(root.rankOverride) } : {}),
+    laneOverride,
+    ...(root.laneOfKind !== undefined ? { laneOfKind: root.laneOfKind } : {}),
+    ...(frames.length > 0 ? { frames } : {}),
+    ...(groups.length > 0 ? { groups } : {}),
+    ...(hasOutside
+      ? {
+          outside: {
+            from,
+            to,
+            hiddenFrom: sends.size - from.length,
+            hiddenTo: receives.size - to.length,
+          },
+        }
+      : {}),
   };
 }
 
@@ -1626,8 +1864,69 @@ function levelDrafts(
     }
   }
 
-  const [root, ...rest] = drafts;
-  return { drafts: [root!, ...rest.sort(byId)], enter };
+  const [first, ...rest] = drafts;
+  if (tree !== undefined) return { drafts: [first!, ...rest.sort(byId)], enter };
+  const { root, lanes } = collapseRoot(g, first!, assignStages(validated.ir));
+  return { drafts: [root, ...[...rest, ...lanes].sort(byId)], enter };
+}
+
+/**
+ * 카드 id → 그 카드를 눌러 들어갈 레벨에 선 카드 수. 카드 자신과 바깥 맥락은 빼고 센다.
+ * 배치 전 초안과 배치 뒤 레벨 양쪽에서 같은 값이 나와야 잰 카드 높이와 그린 칩 줄이 맞는다. 인프라 레벨은 타일 그림이라 세지 않는다
+ */
+export function innerCounts(
+  levels: ReadonlyArray<{
+    id: string;
+    kind: DrillLevelKind;
+    nodeIds: readonly string[];
+    outside?: DrillOutside;
+  }>,
+  enter: Readonly<Record<string, string>>,
+): Record<string, number> {
+  const byLevel = new Map(levels.map((l) => [l.id, l]));
+  const out: Record<string, number> = {};
+  for (const nodeId of Object.keys(enter).sort(compareStr)) {
+    const l = byLevel.get(enter[nodeId]!);
+    if (l === undefined || l.kind === 'infra') continue;
+    const outside = new Set([...(l.outside?.from ?? []), ...(l.outside?.to ?? [])]);
+    const n = l.nodeIds.filter((id) => id !== nodeId && !outside.has(id)).length;
+    if (n > 0) out[nodeId] = n;
+  }
+  return out;
+}
+
+/** 접힌 root. 덩어리 카드를 레인 순번대로 왼쪽부터 세우고 레인 띠는 그리지 않는다. 덩어리 카드가 곧 레인이라서다 */
+async function chunkRootLevel(
+  validated: ValidatedIr,
+  g: Graph,
+  d: LevelDraft,
+  chunks: readonly DrillChunk[],
+): Promise<DrillLevel> {
+  const laid = await computeGraphLayout(
+    chunks.map((c) => ({
+      id: c.id,
+      label: c.title,
+      rank: c.order,
+      lane: 'service' as LaneId,
+      size: { width: CHUNK_CARD_W, height: CHUNK_CARD_H },
+    })),
+    d.edges,
+    undefined,
+    { betweenLayers: CHUNK_LAYER_GAP, node: DRILL_NODE_GAP },
+  );
+  const summary = levelSummary(validated, g, d);
+  return {
+    id: d.id,
+    kind: d.kind,
+    title: d.title,
+    ...(summary !== undefined ? { summary } : {}),
+    trail: d.trail,
+    nodeIds: [],
+    edges: d.edges,
+    layout: { ...laid, lanes: [] },
+    chunks: [...chunks],
+    ...(d.flatEdges !== undefined ? { flatEdges: d.flatEdges } : {}),
+  };
 }
 
 export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldown> {
@@ -1641,7 +1940,20 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
   const staged = assignStages(validated.ir);
   const flowLevels = computeFlowLevels(validated);
   const flowCount = flowCountByService(flowLevels);
+  const inner = innerCounts(
+    ordered.map((d) => ({
+      id: d.id,
+      kind: d.kind,
+      nodeIds: [...d.nodeIds].filter((id) => g.nodeById.has(id)),
+      ...(d.outside !== undefined ? { outside: d.outside } : {}),
+    })),
+    enter,
+  );
   for (const d of ordered) {
+    if (d.chunks !== undefined) {
+      levels.push(await chunkRootLevel(validated, g, d, d.chunks));
+      continue;
+    }
     const nodeIds = [...d.nodeIds].filter((id) => g.nodeById.has(id)).sort(compareStr);
     const outsideRank =
       d.outside !== undefined ? outsideRanks(g, d, d.outside, staged?.indexOf) : undefined;
@@ -1671,9 +1983,29 @@ export async function computeDrilldown(validated: ValidatedIr): Promise<Drilldow
         ...(f?.prodDomain !== undefined ? { secondLine: f.prodDomain } : {}),
         ...(flowCount[id] !== undefined ? { flows: flowCount[id] } : {}),
         ...(node.description !== undefined ? { description: node.description } : {}),
+        size: outsideRank?.has(id)
+          ? measurePill(node.label, node.displayName, displayKindOf(node), chipTextOverride(node))
+          : measureCard(
+              node.label,
+              node.displayName,
+              node.displayNameInferred,
+              displayKindOf(node),
+              {
+                ...(chipTextOverride(node) !== undefined ? { chip: chipTextOverride(node)! } : {}),
+                ...(f !== undefined && f.platforms.length > 0 ? { platforms: f.platforms } : {}),
+                ...(f?.webHosting !== undefined ? { webHosting: f.webHosting } : {}),
+                ...(f?.prodDomain !== undefined ? { secondLine: f.prodDomain } : {}),
+                ...(flowCount[id] !== undefined ? { flows: flowCount[id] } : {}),
+                ...(node.description !== undefined ? { description: node.description } : {}),
+                ...(inner[id] !== undefined ? { inner: inner[id] } : {}),
+              },
+            ),
       };
     });
-    const laid = await computeGraphLayout(layoutNodes, d.edges, staged?.labels);
+    const laid = await computeGraphLayout(layoutNodes, d.edges, staged?.labels, {
+      betweenLayers: DRILL_LAYER_GAP,
+      node: DRILL_NODE_GAP,
+    });
     const pinned = d.pinTop !== undefined ? pinToColumnTop(laid, d.pinTop) : laid;
     const treed = d.tree !== undefined ? stackTree(pinned, treeOrder(pinned, d.tree)) : pinned;
     const aligned =
