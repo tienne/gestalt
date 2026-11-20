@@ -162,7 +162,7 @@ describe('라이브 스크립트', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(form.hidden).toBe(false);
     expect(d.activeElement?.id).toBe('live-q');
-    // 카드를 골라 서랍이 열려도 폼은 그대로 둔다. 고른 카드에 대해 묻는 게 기본 흐름이다
+    // 카드를 골라 서랍이 열려도 폼은 그대로 둔다. 고른 카드를 두고 묻는 게 기본 흐름이다
     const card = [...d.querySelectorAll('.level:not([hidden]) .node[data-node-id]')][0]!;
     card.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     await wait();
@@ -256,7 +256,9 @@ describe('라이브 스크립트', () => {
     const after = await htmlOf(next);
     const { w, d, srv, poke, handle, reloads, errs } = await open(before);
     const first = handle();
-    d.getElementById('live-ask-toggle')!.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    d.getElementById('live-ask-toggle')!.dispatchEvent(
+      new w.MouseEvent('click', { bubbles: true }),
+    );
     const card = [...d.querySelectorAll('.level:not([hidden]) .node[data-node-id]')][0]!;
     const picked = card.getAttribute('data-node-id');
     card.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
