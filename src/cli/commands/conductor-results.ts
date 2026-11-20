@@ -15,8 +15,7 @@ import {
 } from '../../conductor/results.js';
 import { resolveStateDir } from '../../conductor/state-dir.js';
 import { ORDER_STATUSES } from '../../conductor/types.js';
-import { isControlChar } from '../../conductor/intake.js';
-import { terminalText } from '../../conductor/terminal-text.js';
+import { terminalBody, terminalText } from '../../conductor/terminal-text.js';
 import { ConductorWebServer } from '../../conductor-web/server.js';
 
 /**
@@ -74,16 +73,6 @@ function limitOf(v: string | undefined, fallback: number): number {
   const n = Number(v);
   if (!Number.isInteger(n) || n < 1) throw new Error(`--limit는 1 이상의 정수여야 해요: ${v}`);
   return n;
-}
-
-/** 줄바꿈은 살리고 제어 문자만 공백으로 바꾼다. 본문은 들여쓰지 않고 원래 모양대로 찍는다 */
-function terminalBody(text: string): string {
-  let out = '';
-  for (const ch of text) {
-    const c = ch.codePointAt(0)!;
-    out += ch !== '\n' && isControlChar(c) ? ' ' : ch;
-  }
-  return out;
 }
 
 /** 한 줄 칸. 개행까지 공백으로 접는다 */

@@ -428,16 +428,20 @@ function loadedRefBody(
   if (!ref.path) return null;
   if (entry !== undefined) {
     const e = ref.kind === 'dir' ? ref.entries?.[entry] : undefined;
-    return e ? cachedBody(results, e.path, [ref.path], false) : null;
+    return e ? cachedBody(results, e.path, [ref.path], NO_STORE) : null;
   }
-  return ref.kind === 'file' ? cachedBody(results, ref.path, [dirOf(ref.path)], false) : null;
+  return ref.kind === 'file' ? cachedBody(results, ref.path, [dirOf(ref.path)], NO_STORE) : null;
 }
 
-/** 저장소 파일 본문. 키로만 고른다. 검색은 `store`를 꺼서 캐시를 채우지 않는다 */
-export function readResultFile(results: LoadedResults, key: string, store = true): FileBody | null {
+/** 저장소 파일 본문. 키로만 고른다. 검색은 `cache: false`로 불러 캐시를 채우지 않는다 */
+export function readResultFile(
+  results: LoadedResults,
+  key: string,
+  opts: { cache?: boolean } = {},
+): FileBody | null {
   const file = results.fileByKey.get(key);
   if (!file) return null;
-  return cachedBody(results, file.path, [results.stateDir], store);
+  return cachedBody(results, file.path, [results.stateDir], { store: opts.cache !== false });
 }
 
 function dirOf(path: string): string {
@@ -447,13 +451,16 @@ function dirOf(path: string): string {
 
 /**
  * 못 읽은 결과는 캐시하지 않는다. 잠깐 난 권한 오류가 파일이 바뀔 때까지 남지 않게 한다.
- * 검색은 파일을 한 번씩 훑기만 해서 `store`를 끈다. 켜 두면 검색 한 번이 상세 화면에서 연 본문을 밀어낸다
+ * 검색은 파일을 한 번씩 훑기만 해서 `store`를 끈다. 켜 두면 검색 한 번이 상세 화면에서 연 본문을 밀어낸다.
+ * 심링크는 캐시 키가 같아 보여도 가리키는 대상이 바뀔 수 있어서 캐시를 보기 전에 막는다
  */
+const NO_STORE = { store: false } as const;
+
 function cachedBody(
   results: LoadedResults,
   path: string,
   roots: string[],
-  store = true,
+  { store }: { store: boolean } = { store: true },
 ): FileBody | null {
   let st;
   try {
@@ -462,7 +469,7 @@ function cachedBody(
     // 파일 아래를 가리키는 경로는 throwIfNoEntry를 꺼도 ENOTDIR로 던진다
     return null;
   }
-  if (!st) return null;
+  if (!st || st.isSymbolicLink()) return null;
   const key = `${path}\0${st.mtimeMs}\0${st.size}`;
   const hit = results.bodies.get(key);
   if (hit) return hit;
@@ -751,9 +758,8 @@ interface HitSink {
   hits: SearchHit[];
   total: number;
   limit: number;
-  partialFiles: number;
-  /** 검색어에 개행이 있으면 줄 단위로는 못 맞추지만 본문 전체로는 맞을 수 있다 */
-  multiline: boolean;
+  /** 같은 파일을 가리키는 주문이 여럿이어도 한 번만 세려고 경로로 모은다 */
+  partialPaths: Set<string>;
 }
 
 function addHit(sink: HitSink, make: () => SearchHit): SearchHit | undefined {
@@ -765,12 +771,12 @@ function addHit(sink: HitSink, make: () => SearchHit): SearchHit | undefined {
 }
 
 /** 읽은 범위 안에서 맞은 줄을 다 센다. 결과는 파일당 앞 MAX_HITS_PER_FILE건만 만든다 */
-function bodyHits(sink: HitSink, body: FileBody, re: RegExp, base: HitBase): number {
+function bodyHits(sink: HitSink, path: string, body: FileBody, re: RegExp, base: HitBase): number {
   // 0건이어도 뒷부분에 있을 수 있다고 알려야 해서 맞았는지와 무관하게 센다
-  if (body.truncated) sink.partialFiles++;
-  // 검색어에 개행이 없으면 본문 전체에서 안 맞을 때 어느 줄에서도 안 맞는다. 큰 본문을 줄로 쪼개지 않고 끝낸다
+  if (body.truncated) sink.partialPaths.add(path);
+  // 본문 전체에서 안 맞으면 어느 줄에서도 안 맞는다. 큰 본문을 줄로 쪼개지 않고 끝낸다
   // re는 g, y 플래그 없이 만들어 lastIndex가 test 결과에 영향을 주지 않는다
-  if (!sink.multiline && !re.test(body.text)) return 0;
+  if (!re.test(body.text)) return 0;
   const lines = body.text.split('\n');
   const extra = body.truncated ? { partial: true } : {};
   let matched = 0;
@@ -814,13 +820,13 @@ export function searchResults(
   const q = query.trim();
   if (!q) return { query: q, total: 0, hits: [] };
   const re = new RegExp(escapeRegExp(q), 'iu');
-  const body = opts.body !== false;
+  // 줄 단위로 찾으니 개행이 든 검색어는 본문에서 맞을 수 없다. 제목과 요약만 찾는다
+  const body = opts.body !== false && !q.includes('\n');
   const sink: HitSink = {
     hits: [],
     total: 0,
     limit: opts.limit ?? Infinity,
-    partialFiles: 0,
-    multiline: q.includes('\n'),
+    partialPaths: new Set(),
   };
 
   for (const o of filteredOrders(results, opts)) {
@@ -849,7 +855,7 @@ export function searchResults(
       if (ref.kind === 'file') {
         const b = loadedRefBody(results, ref);
         if (b) {
-          bodyHits(sink, b, re, {
+          bodyHits(sink, ref.path!, b, re, {
             ...head,
             at,
             source: 'ref',
@@ -861,7 +867,7 @@ export function searchResults(
         (ref.entries ?? []).forEach((entry, j) => {
           const b = loadedRefBody(results, ref, j);
           if (!b) return;
-          bodyHits(sink, b, re, {
+          bodyHits(sink, entry.path, b, re, {
             ...head,
             at,
             source: 'ref',
@@ -889,7 +895,7 @@ export function searchResults(
     query: q,
     total: sink.total,
     hits: sink.hits,
-    ...(sink.partialFiles > 0 ? { partialFiles: sink.partialFiles } : {}),
+    ...(sink.partialPaths.size > 0 ? { partialFiles: sink.partialPaths.size } : {}),
   };
 }
 
@@ -900,7 +906,7 @@ function fileHits(
   re: RegExp,
   head: { orderId: string | null; title: string; repo: string | null },
 ): void {
-  const b = readResultFile(results, f.key, false);
+  const b = readResultFile(results, f.key, { cache: false });
   const base = {
     ...head,
     at: f.mtime,
@@ -909,7 +915,7 @@ function fileHits(
     fileKey: f.key,
     absPath: f.path,
   };
-  const matched = b ? bodyHits(sink, b, re, base) : 0;
+  const matched = b ? bodyHits(sink, f.path, b, re, base) : 0;
   if (matched > 0) return;
   // 본문에 없고 이름에만 있으면 이름으로 한 건 낸다
   const name = excerpt(basename(f.rel), re);
