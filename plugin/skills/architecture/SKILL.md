@@ -785,13 +785,13 @@ Step 4.5에서 클라우드를 조회했으면 어느 프로필로 언제 조회
 
 **구조 변경은 `delta.status`대로 알린다.** `created`면 바뀐 건수를 변경어별로 한 줄에 적고 구조 변경 그림 경로를 준다 (예: "지난번보다 생김 2, 빠짐 1, 다시 이음 1. 구조 변경 그림은 `.gestalt/architecture/screen-chain.delta.html`"). 이 그림은 이전과 이번을 같은 좌표에 나란히 놓고 가운데 변경 목록을 둔다. 공유할 때는 `.delta.shared.html`을 넘긴다. `scoped`가 오면 전체 몇 개 중 몇 개만 그렸는지 덧붙인다. `unchanged`면 "지난번과 구조가 같다" 한 줄이면 된다. `no_previous`는 따로 알리지 않는다. 처음 그린 그림이면 당연한 결과다. `failed`면 본 그림은 정상으로 보고하고 "구조 변경 그림은 못 만들었다"와 `message`를 한 줄로 덧붙인다. 디스크에 남은 구조 변경 파일을 이번 결과처럼 건네지 않는다.
 
-`warnings`에 `DELTA_OVER_BUDGET`이 오면 구조 변경 그림 한 장에 담기에 변경이 많다는 뜻이다. 그림은 그대로 썼다. 바뀐 영역을 나눠 단계별로 다시 그리기를 권한다.
+`warnings`에 `DELTA_OVER_BUDGET`이 오면 구조 변경 그림 한 장에 담기에 변경이 많은 것이다. 그림은 그대로 썼다. 바뀐 영역을 나눠 단계별로 다시 그리기를 권한다.
 
-`SECRET_MASKED`가 오면 그 위치(`nodeId`나 `flowId` 같은 주인 id와 `field`)의 글자를 `[비밀값]`으로 가렸다는 뜻이다. 보고에 위치만 한 줄로 적고 값을 짐작해 옮기지 않는다. 다음 실행 IR에서는 그 칸에 비밀값을 적지 않는다.
+`SECRET_MASKED`는 그 위치(`nodeId`나 `flowId` 같은 주인 id와 `field`)의 글자를 `[비밀값]`으로 가렸을 때 온다. 보고에 위치만 한 줄로 적고 값을 짐작해 옮기지 않는다. 다음 실행 IR에서는 그 칸에 비밀값을 적지 않는다.
 
 `LABEL_CHANGED_ID_LOST`는 설명이나 답이 달려 있던 지난 노드가 이번 IR의 어느 노드와도 이어지지 않았을 때 온다. label과 id를 함께 바꿨거나 그 노드가 정말 지워졌을 때 난다. `candidates`에서 같은 대상인 노드를 골라 `previousId`를 id로 다시 적고 render한다. 고를 수 없으면 사용자에게 어느 노드인지 묻는다. `candidates`에 같은 대상이 없고 지난 노드가 정말 지워졌으면 보고에 한 줄 적고 넘어간다. `MERGE_KEY_DUPLICATE`는 같은 kind와 repo, label을 쓰는 노드가 여럿이라 첫 노드만 지난 id를 받았을 때 온다. label을 서로 다르게 고친다. `FLOW_DROPPED`가 오면 지난 흐름이 사라진 것이다. `node_gone`은 흐름이 가리키던 코드가 없어진 것이라 보고에 한 줄 적고 넘어간다. `evidence_stale`은 단계나 전이의 `code` 근거 파일이 지워졌거나 줄이 범위를 벗어나 버린 것이다. `no_refs`나 `id_conflict`, `evidence_stale`인데 아직 필요한 흐름이면 이번 IR에 다시 적는다. `evidence_stale`이면 근거를 다시 찾아 적는다. `PROJECTION_DROPPED`는 지난 질문별 그림의 메시지 `code` 근거가 낡아 그 그림을 이어 싣지 못했을 때 온다. 아직 필요한 그림이면 근거를 다시 찾아 이번 IR에 적는다.
 
-`IGNORED_FILE_TRACKED`가 오면 퍼블릭 레포인데 막아야 할 산출물을 git이 이미 추적하고 있다는 뜻이다. `paths`와 경고 문구의 `git rm --cached` 명령을 그대로 보여주고 실행할지는 사용자에게 맡긴다. 직접 실행하지 않는다.
+`IGNORED_FILE_TRACKED`는 퍼블릭 레포인데 막아야 할 산출물을 git이 이미 추적하고 있을 때 온다. `paths`와 경고 문구의 `git rm --cached` 명령을 그대로 보여주고 실행할지는 사용자에게 맡긴다. 직접 실행하지 않는다.
 
 Step 5에서 레포를 새로 받았으면 무엇을 어디에 받았는지 한 줄로 덧붙인다 (예: "`org/api-server`를 `~/.gestalt/architecture/clones/github.com/org/api-server`에 받았다").
 
