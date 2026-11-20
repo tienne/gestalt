@@ -11,8 +11,7 @@ import { LEGACY_IRS, renderBoth, sha256 } from '../../fixtures/architecture-lega
 
 // 팩 구조로 옮기기 전 렌더러로 뽑은 해시다. 어휘를 팩으로 옮기거나 새 팩과 모양을 더해도 옛 그림은 바이트까지 같아야 한다.
 // 이 테스트가 깨지면 해시를 고치기 전에 무엇이 왜 달라졌는지부터 확인한다.
-// 마지막 갱신: PR7 배치 변경. 평면 그림(deploy)은 카드 위치가 그대로이고 canvas-col 감싸기와 레인 CSS, 바깥 레인 제목, client 스크립트만 달라졌다.
-// 드릴다운 그림은 큰 카드와 알약, 간격 120/32, 바깥 카드 4장 접기(+N), 단계 머리, DRILL_CSS가 더해진 것을 확인하고 고쳤다
+// 마지막 갱신: PR8 무채색 테마. 다섯 그림 모두 <style> 내용과 그에 따른 CSP 스타일 해시만 달라졌고 마크업과 스크립트는 바이트까지 같은 것을 확인하고 고쳤다
 const EXPECTED = JSON.parse(
   readFileSync(
     new URL('../../fixtures/architecture-legacy/html-hashes.json', import.meta.url),
