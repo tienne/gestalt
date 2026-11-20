@@ -506,8 +506,8 @@ export const THEME_BOOT_SCRIPT = `(function () {
 
 /**
  * client 스크립트가 window에 등록하는 이름. 라이브 스크립트가 이 이름으로 dispose와 state, restore를 찾는다.
- * dispose는 window와 document 리스너, 순서도 타이머를 떼고 state는 지금 레벨과 선택 노드, 검색어를 돌려준다.
- * restore는 state가 돌려준 값을 받아 새 그림에서 고른 카드와 검색어를 되살린다
+ * dispose는 window와 document 리스너, 순서도 타이머를 떼고 state는 지금 레벨과 선택 노드, 검색어, 배율과 위치, 개요 여닫음을 돌려준다.
+ * restore는 state가 돌려준 값을 받아 새 그림에서 고른 카드와 검색어, 배율과 위치, 개요 여닫음을 되살린다
  */
 export const CLIENT_HANDLE = '__gestaltArch';
 
@@ -2153,7 +2153,11 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
   var overviewOpen = !!(overview && overview.open);
   // 사람이 직접 여닫은 뒤로는 창 폭이 넓어져도 다시 열지 않는다
   var overviewTouched = false;
+  // 라이브 질문 단추가 개요 시트 위로 비켜 서는 기준이다
+  function markOverview() { doc.body.classList.toggle('overview-open', !!(overview && overview.open)); }
+  markOverview();
   if (overview) overview.addEventListener('toggle', function () {
+    markOverview();
     if (overview.open === overviewOpen) return;
     overviewOpen = overview.open;
     overviewTouched = true;
@@ -2163,6 +2167,7 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     if (overview.open === open) return;
     overviewOpen = open;
     overview.open = open;
+    markOverview();
     fit('smart');
   }
   // 좁아지면 아래 시트가 그림을 덮으니 닫는다
@@ -2607,18 +2612,39 @@ ${c.sequences ? SEQ_KEYS : ''}    if (e.key === '/') { e.preventDefault(); searc
       if (window[CLIENT_HANDLE] === handle) delete window[CLIENT_HANDLE];
     },
     state: function () {
-      return { level: current, node: selectedId, focus: focusId, search: search.value, searchFocused: doc.activeElement === search, drawer: drawerOpen() };
+      return {
+        level: current, node: selectedId, focus: focusId, search: search.value, searchFocused: doc.activeElement === search, drawer: drawerOpen(),
+        view: { x: view.x, y: view.y, k: view.k }, overviewOpen: overviewOpen, overviewTouched: overviewTouched
+      };
     },
     // 라이브 갱신이 body를 바꾼 뒤 앞 화면의 state를 넘긴다. 새 그림에 없는 카드는 고르지 않는다
     restore: function (s) {
       if (!s) return;
+      // 개요를 여닫으면 toggle 핸들러와 setOverview가 fit을 다시 부르므로 배율보다 먼저 되돌린다.
+      // 변수를 먼저 맞춰 두면 toggle 핸들러가 사람이 여닫은 것으로 보지 않는다
+      if (overview && typeof s.overviewOpen === 'boolean' && overview.open !== s.overviewOpen) {
+        overviewOpen = s.overviewOpen;
+        overview.open = s.overviewOpen;
+        markOverview();
+      }
+      if (s.overviewTouched === true) overviewTouched = true;
       if (typeof s.search === 'string' && s.search) {
         search.value = s.search;
         runSearch(false);
         if (s.searchFocused) search.focus({ preventScroll: true });
         else closeResults();
       }
-      if (s.drawer && typeof s.node === 'string' && s.level === current && active && cardMap(active)[s.node]) select(s.node, false);
+      var sameLevel = s.level === current;
+      if (s.drawer && typeof s.node === 'string' && sameLevel && active && cardMap(active)[s.node]) select(s.node, false);
+      // 레벨이 바뀐 화면에 앞 레벨 좌표를 걸지 않는다. 고른 카드로 옮겨 간 자리도 앞 화면 좌표로 덮는다
+      var v = s.view;
+      if (sameLevel && v && isFinite(v.x) && isFinite(v.y) && isFinite(v.k)) {
+        stopGlide();
+        view.x = v.x;
+        view.y = v.y;
+        view.k = clampK(v.k);
+        applyView();
+      }
     }
   };
   window[CLIENT_HANDLE] = handle;

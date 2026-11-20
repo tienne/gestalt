@@ -127,6 +127,9 @@ describe('client dispose와 state', () => {
       search: '',
       searchFocused: false,
       drawer: false,
+      view: expect.objectContaining({ k: expect.any(Number) }),
+      overviewOpen: expect.any(Boolean),
+      overviewTouched: false,
     });
   });
 
@@ -221,5 +224,44 @@ describe('client dispose와 state', () => {
     // 새 그림에 없는 카드는 고르지 않는다
     next.restore({ ...saved, node: 'gone', search: '' });
     expect(next.state().node).toBe(id);
+  });
+
+  it('restore가 배율과 위치, 사람이 닫아 둔 개요를 fit 뒤에 되살린다', async () => {
+    const { w, d, handle, rerun, errs } = await open();
+    const overview = d.getElementById('overview') as unknown as { open: boolean } | null;
+    expect(overview).not.toBeNull();
+    expect(overview!.open).toBe(true);
+    overview!.open = false;
+    d.getElementById('overview')!.dispatchEvent(new w.Event('toggle'));
+    const saved = {
+      ...handle()!.state(),
+      view: { x: 37, y: -12, k: 1.6 },
+    };
+    expect(saved).toMatchObject({ overviewOpen: false, overviewTouched: true });
+    // 라이브 질문 단추가 개요 시트를 비켜 서는 기준 클래스
+    expect(d.body.classList.contains('overview-open')).toBe(false);
+
+    await rerun();
+    const next = handle()!;
+    // 새 클라이언트는 넓은 화면이라 개요를 다시 열고 fit으로 처음 배율에 맞춘다
+    expect(overview!.open).toBe(true);
+    expect(next.state()).toMatchObject({ overviewTouched: false });
+    expect(d.body.classList.contains('overview-open')).toBe(true);
+    next.restore(saved);
+    expect(errs).toEqual([]);
+    expect(next.state()).toMatchObject({
+      view: { x: 37, y: -12, k: 1.6 },
+      overviewOpen: false,
+      overviewTouched: true,
+    });
+    expect(overview!.open).toBe(false);
+    expect(d.body.classList.contains('overview-open')).toBe(false);
+    const viewport = d.getElementById('viewport') as unknown as { style: { transform: string } };
+    expect(viewport.style.transform).toBe('translate(37px,-12px) scale(1.6)');
+
+    // 레벨이 바뀐 화면에는 앞 레벨 좌표를 걸지 않는다
+    const before = next.state().view;
+    next.restore({ ...saved, level: 'server:gone', view: { x: 1, y: 2, k: 0.5 } });
+    expect(next.state().view).toEqual(before);
   });
 });

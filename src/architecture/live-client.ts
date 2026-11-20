@@ -22,7 +22,9 @@ const WAIT_LIMIT_MS = 10 * 60_000;
 
 /**
  * 질문 폼 모양. 본인용 페이지 style에만 싣는다.
- * 폼은 접힌 단추 하나로 시작한다. 펼친 채로 두면 오른쪽 아래의 확대 단추와 서랍 아래쪽을 가린다
+ * 폼은 접힌 단추 하나로 시작한다. 펼친 채로 두면 오른쪽 아래의 확대 단추와 서랍 아래쪽을 가린다.
+ * 좁은 화면에서 개요 시트가 열리면 단추와 폼을 함께 시트 위로 올린다. 기준은 client가 body에 다는 overview-open이다.
+ * :has를 못 읽는 브라우저에서도 같이 올라가야 해서 클래스로 고른다
  */
 export const LIVE_FORM_CSS = `.live-ask-toggle { position: fixed; right: 16px; bottom: 16px; z-index: 40; padding: 8px 14px; font: inherit; font-weight: 650; color: var(--on-accent); background: var(--accent); border: 0; border-radius: 999px; box-shadow: var(--shadow-pop); cursor: pointer; }
 .live-ask-toggle:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
@@ -37,7 +39,8 @@ export const LIVE_FORM_CSS = `.live-ask-toggle { position: fixed; right: 16px; b
 @media (max-width: ${SIDE_PANEL_SHEET_MAX}px) {
   .live-ask-toggle { right: 12px; bottom: 164px; }
   .live-ask { right: 12px; bottom: 212px; }
-  body:has(.overview[open]) .live-ask { bottom: calc(60vh + 8px); max-height: calc(40vh - 16px); overflow: auto; }
+  .overview-open .live-ask-toggle { bottom: calc(60vh + 8px); }
+  .overview-open .live-ask { bottom: calc(60vh + 56px); max-height: calc(40vh - 64px); overflow: auto; }
 }
 @media print { .live-ask, .live-ask-toggle { display: none; } }`;
 

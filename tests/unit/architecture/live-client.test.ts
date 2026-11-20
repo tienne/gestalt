@@ -8,7 +8,11 @@ import {
   type ArchitectureIr,
 } from '../../../src/architecture/index.js';
 import { CLIENT_HANDLE } from '../../../src/architecture/html-client.js';
-import { LIVE_HANDLE, renderLiveScript } from '../../../src/architecture/live-client.js';
+import {
+  LIVE_FORM_CSS,
+  LIVE_HANDLE,
+  renderLiveScript,
+} from '../../../src/architecture/live-client.js';
 import {
   LIVE_ASK_PATH,
   LIVE_STATUS_PATH,
@@ -316,6 +320,18 @@ describe('라이브 스크립트', () => {
     await poke();
     expect(reloads()).toBe(0);
     expect(d.getElementById('live-ask')).not.toBeNull();
+  });
+
+  it('좁은 화면에서 개요 시트가 열리면 접힌 단추도 폼과 같은 기준으로 시트 위에 올린다', () => {
+    // :has를 못 읽는 브라우저에서도 같이 올라가게 client가 단 body 클래스로 고른다
+    expect(LIVE_FORM_CSS).not.toContain(':has(');
+    expect(LIVE_FORM_CSS).toContain(
+      '.overview-open .live-ask-toggle { bottom: calc(60vh + 8px); }',
+    );
+    // 폼을 펼쳐도 단추와 겹치지 않게 단추 높이만큼 더 올린다
+    expect(LIVE_FORM_CSS).toContain(
+      '.overview-open .live-ask { bottom: calc(60vh + 56px); max-height: calc(40vh - 64px);',
+    );
   });
 
   it('같은 입력이면 같은 스크립트 글자를 낸다', () => {
