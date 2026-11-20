@@ -191,6 +191,18 @@ describe('점 격자', () => {
   });
 });
 
+describe('원 안 숫자', () => {
+  it('덩어리 순서 숫자는 글자 상자를 대문자 높이로 잘라 세로 가운데에 놓는다', () => {
+    const src = CSS_SOURCES[0]!;
+    const at = src.indexOf('\n.ch-head .ord {');
+    expect(at).toBeGreaterThan(0);
+    const body = src.slice(at, src.indexOf('}', at));
+    expect(body).toContain('text-box: trim-both cap alphabetic');
+    expect(body).toContain('padding: calc((22px - 1cap) / 2) 6px');
+    expect(body).not.toContain('align-items: center');
+  });
+});
+
 describe('색 값은 html-theme.ts에만', () => {
   const others = readdirSync(SRC, { withFileTypes: true })
     .filter((d) => d.isFile() && d.name.endsWith('.ts') && d.name !== 'html-theme.ts')
