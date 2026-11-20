@@ -796,7 +796,7 @@ describe('renderDrilldownHtml — 접힌 root와 큰 카드', () => {
   it('그림 위에 단계 머리 자리를 두고 바깥 레인 제목은 부르는 쪽과 부르는 대상이다', async () => {
     const html = await renderWide();
     expect(html).toMatch(
-      /<div class="canvas-col">\s*<header id="level-head" class="level-head" aria-live="polite"><span class="lh-kind"><\/span><h2 class="lh-title"><\/h2><p class="lh-sum" hidden><\/p><\/header>\s*<div id="stage"/,
+      /<div class="canvas-col">\s*<header id="level-head" class="level-head"><span class="lh-kind"><\/span><h2 class="lh-title" aria-live="polite"><\/h2><p class="lh-sum" hidden><\/p><\/header>\s*<div id="stage"/,
     );
     expect(html).toMatch(/data-lane-id="outside_(?:from|to)"[^>]*>부르는 (?:쪽|대상)</);
   });

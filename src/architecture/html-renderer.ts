@@ -2797,7 +2797,7 @@ interface PageSpec {
   frameLabels?: boolean;
   /** 인프라 레벨이 있을 때 그 아이콘 수. 있을 때만 인프라 스타일과 코드를 싣는다 */
   infra?: { official: number; fallback: number };
-  /** CSP 정책을 고른다. 공유본은 통신을 명시적으로 막는다 */
+  /** CSP 정책을 고른다. 공유본은 통신을 막는다 */
   audience: ArchitectureAudience;
 }
 
@@ -2887,8 +2887,8 @@ function renderPage({
     // 그림 칸. 개요를 열면 옆 칸만큼 좁아진다. 드릴다운이면 위에 단계 머리를 두고 스크립트가 글자를 채운다
     '<div class="canvas-col">',
     drill
-      ? '<header id="level-head" class="level-head" aria-live="polite">' +
-        '<span class="lh-kind"></span><h2 class="lh-title"></h2><p class="lh-sum" hidden></p></header>'
+      ? '<header id="level-head" class="level-head">' +
+        '<span class="lh-kind"></span><h2 class="lh-title" aria-live="polite"></h2><p class="lh-sum" hidden></p></header>'
       : '',
     '<div id="stage" class="stage" aria-label="구조도">',
     '<div id="viewport" class="viewport">',

@@ -192,14 +192,20 @@ describe('점 격자', () => {
 });
 
 describe('원 안 숫자', () => {
-  it('덩어리 순서 숫자는 글자 상자를 대문자 높이로 잘라 세로 가운데에 놓는다', () => {
+  it('덩어리 순서 숫자는 flex 가운데 정렬을 기본으로 두고 text-box를 아는 브라우저에서만 대문자 높이로 자른다', () => {
     const src = CSS_SOURCES[0]!;
     const at = src.indexOf('\n.ch-head .ord {');
     expect(at).toBeGreaterThan(0);
-    const body = src.slice(at, src.indexOf('}', at));
-    expect(body).toContain('text-box: trim-both cap alphabetic');
-    expect(body).toContain('padding: calc((22px - 1cap) / 2) 6px');
-    expect(body).not.toContain('align-items: center');
+    const base = src.slice(at, src.indexOf('}', at));
+    expect(base).toContain('display: inline-flex');
+    expect(base).toContain('align-items: center');
+    expect(base).not.toContain('text-box');
+    const sup = src.indexOf('@supports (text-box: trim-both cap alphabetic) {', at);
+    expect(sup).toBeGreaterThan(at);
+    const trim = src.slice(sup, src.indexOf('}', sup));
+    expect(trim).toContain('.ch-head .ord');
+    expect(trim).toContain('text-box: trim-both cap alphabetic');
+    expect(trim).toContain('padding: calc((22px - 1cap) / 2) 6px');
   });
 });
 

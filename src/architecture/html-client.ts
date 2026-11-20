@@ -505,8 +505,9 @@ export const THEME_BOOT_SCRIPT = `(function () {
 })();`;
 
 /**
- * client 스크립트가 window에 등록하는 이름. 라이브 스크립트가 이 이름으로 dispose와 state를 찾는다.
- * dispose는 window와 document 리스너, 순서도 타이머를 떼고 state는 지금 레벨과 선택 노드를 돌려준다
+ * client 스크립트가 window에 등록하는 이름. 라이브 스크립트가 이 이름으로 dispose와 state, restore를 찾는다.
+ * dispose는 window와 document 리스너, 순서도 타이머를 떼고 state는 지금 레벨과 선택 노드, 검색어를 돌려준다.
+ * restore는 state가 돌려준 값을 받아 새 그림에서 고른 카드와 검색어를 되살린다
  */
 export const CLIENT_HANDLE = '__gestaltArch';
 
@@ -1327,7 +1328,14 @@ ${c.views ? viewFuncs(!!c.sequences) : ''}${c.sequences ? SEQ_FUNCS : ''}${c.doc
   stage.addEventListener('click', function (e) {
     // 덩어리 카드는 링크다. 해시를 직접 바꾸면 환경 쿼리가 빠져서 go로 보낸다
     var chunk = e.target.closest('.chunk');
-    if (chunk) { e.preventDefault(); if (suppressClick) { suppressClick = false; return; } showLevel(chunk.getAttribute('data-level')); return; }
+    if (chunk) {
+      if (suppressClick) { e.preventDefault(); suppressClick = false; return; }
+      // 수식 키나 가운데 버튼은 새 탭이나 새 창으로 여는 브라우저 기본 동작에 맡긴다
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      e.preventDefault();
+      showLevel(chunk.getAttribute('data-level'));
+      return;
+    }
     if (suppressClick) { suppressClick = false; return; }
     var more = e.target.closest('.pb.more');
     if (more) { toggleProducts(more); return; }
@@ -2090,6 +2098,17 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
   // 검색. 지금 보이는 화면의 카드는 캔버스에서 강조한다. 드릴다운이면 모든 레벨의 카드를 목록으로도 띄운다
   var hits = [];
   var hitAt = -1;
+  // 검색 글자는 노드마다 처음 한 번만 만든다. 키마다 모든 노드의 문자열을 잇고 소문자로 바꾸면 카드가 많을 때 타이핑이 끊긴다
+  var nameHay = {};
+  var cardHay = {};
+  function nameHayOf(id, n) {
+    if (!(id in nameHay)) nameHay[id] = ((n.displayName || '') + ' ' + n.label).toLowerCase();
+    return nameHay[id];
+  }
+  function cardHayOf(id, n) {
+    if (!(id in cardHay)) cardHay[id] = ((n.displayName || '') + ' ' + n.label${c.docs ? DOC_HAY : ''}).toLowerCase();
+    return cardHay[id];
+  }
   function runSearch(move) {
     if (active) {
       active.classList.remove('searching');
@@ -2101,15 +2120,16 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     renderResults(q);
     if (!q || !active) { searchCount.textContent = ''; return; }
     active.querySelectorAll('.node').forEach(function (c) {
-      var n = nodes[c.getAttribute('data-node-id')];
+      var id = c.getAttribute('data-node-id');
+      var n = nodes[id];
       if (!n || c.classList.contains('env-off')) return;
-      var hay = ((n.displayName || '') + ' ' + n.label${c.docs ? DOC_HAY : ''}).toLowerCase();
-      if (hay.indexOf(q) >= 0) hits.push(c);
+      if (cardHayOf(id, n).indexOf(q) >= 0) hits.push(c);
     });
     hits.sort(function (a, b) { return a.offsetLeft - b.offsetLeft || a.offsetTop - b.offsetTop; });
     active.classList.add('searching');
     hits.forEach(function (c) { c.classList.add('hit'); });
-    if (!hits.length) { searchCount.textContent = '없음'; return; }
+    // 이 화면에 없어도 다른 레벨 목록에 걸렸으면 그 수를 같은 live 칸으로 알린다. 칸을 따로 두면 같은 수가 두 번 읽힌다
+    if (!hits.length) { searchCount.textContent = results.length ? '모든 레벨 ' + results.length + '개' : '없음'; return; }
     if (move) stepSearch(1);
     else searchCount.textContent = hits.length + '개';
   }
@@ -2131,11 +2151,28 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
   if (overview && window.innerWidth > ${SIDE_PANEL_SHEET_MAX}) overview.open = true;
   // 열고 닫으면 그림 칸 폭이 바뀌어서 남은 칸에 다시 맞춘다. 처음 열어 둔 toggle은 건너뛴다
   var overviewOpen = !!(overview && overview.open);
+  // 사람이 직접 여닫은 뒤로는 창 폭이 넓어져도 다시 열지 않는다
+  var overviewTouched = false;
   if (overview) overview.addEventListener('toggle', function () {
     if (overview.open === overviewOpen) return;
     overviewOpen = overview.open;
+    overviewTouched = true;
     fit('smart');
   });
+  function setOverview(open) {
+    if (overview.open === open) return;
+    overviewOpen = open;
+    overview.open = open;
+    fit('smart');
+  }
+  // 좁아지면 아래 시트가 그림을 덮으니 닫는다
+  if (overview && window.matchMedia) {
+    var sheetMq = window.matchMedia('(max-width: ${SIDE_PANEL_SHEET_MAX}px)');
+    if (sheetMq.addEventListener) onGlobal(sheetMq, 'change', function () {
+      if (sheetMq.matches) setOverview(false);
+      else if (!overviewTouched) setOverview(true);
+    });
+  }
   // 단계 머리. 종류는 작은 글자, 제목은 크게, 요약은 있을 때만 세 줄까지 보인다
   var levelHead = byId('level-head');
   var LEVEL_KIND_TEXT = { root: '전체 그림', lane: '레인', service: '서비스', app: '앱', server: '서버 모듈', feature: '기능 영역', group: '묶음', infra: '인프라', flow: '흐름', view: '질문별 그림' };
@@ -2275,7 +2312,7 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     Object.keys(nodeLevels).forEach(function (id) {
       var n = nodes[id];
       if (!n || envHidden(id)) return;
-      if (((n.displayName || '') + ' ' + n.label).toLowerCase().indexOf(q) < 0) return;
+      if (nameHayOf(id, n).indexOf(q) < 0) return;
       var at = nodeLevels[id];
       if (at.indexOf(current) >= 0) here.push({ id: id, level: current });
       else if (at.length) there.push({ id: id, level: at[0] });
@@ -2569,7 +2606,20 @@ ${c.sequences ? SEQ_KEYS : ''}    if (e.key === '/') { e.preventDefault(); searc
       while (cleanups.length) cleanups.pop()();
       if (window[CLIENT_HANDLE] === handle) delete window[CLIENT_HANDLE];
     },
-    state: function () { return { level: current, node: selectedId, focus: focusId }; }
+    state: function () {
+      return { level: current, node: selectedId, focus: focusId, search: search.value, searchFocused: doc.activeElement === search, drawer: drawerOpen() };
+    },
+    // 라이브 갱신이 body를 바꾼 뒤 앞 화면의 state를 넘긴다. 새 그림에 없는 카드는 고르지 않는다
+    restore: function (s) {
+      if (!s) return;
+      if (typeof s.search === 'string' && s.search) {
+        search.value = s.search;
+        runSearch(false);
+        if (s.searchFocused) search.focus({ preventScroll: true });
+        else closeResults();
+      }
+      if (s.drawer && typeof s.node === 'string' && s.level === current && active && cardMap(active)[s.node]) select(s.node, false);
+    }
   };
   window[CLIENT_HANDLE] = handle;
 })();

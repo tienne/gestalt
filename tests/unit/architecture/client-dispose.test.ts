@@ -57,9 +57,18 @@ function ir(): ArchitectureIr {
   };
 }
 
+interface ClientState {
+  level: string;
+  node: string | null;
+  focus: string | null;
+  search: string;
+  searchFocused: boolean;
+  drawer: boolean;
+}
 interface ClientHandle {
   dispose(): void;
-  state(): { level: string; node: string | null; focus: string | null };
+  state(): ClientState;
+  restore(s: ClientState): void;
 }
 
 const windows: Window[] = [];
@@ -110,7 +119,15 @@ describe('client dispose와 state', () => {
     const { handle, errs } = await open();
     expect(errs).toEqual([]);
     expect(typeof handle()?.dispose).toBe('function');
-    expect(handle()?.state()).toEqual({ level: 'root', node: null, focus: null });
+    expect(typeof handle()?.restore).toBe('function');
+    expect(handle()?.state()).toEqual({
+      level: 'root',
+      node: null,
+      focus: null,
+      search: '',
+      searchFocused: false,
+      drawer: false,
+    });
   });
 
   it('state가 레벨 이동과 노드 선택을 따라간다', async () => {
@@ -175,5 +192,34 @@ describe('client dispose와 state', () => {
     // 앞 실행은 다시 실행될 때 스스로 떨어져 레벨 전환을 따라가지 않는다
     expect(first.state().level).toBe('root');
     expect(second.state().level).toBe('server:mod');
+  });
+
+  it('restore가 새 실행에서 고른 카드와 검색어를 되살리고 리스너는 하나씩만 붙인다', async () => {
+    const { w, d, handle, rerun, errs } = await open();
+    const card = [...d.querySelectorAll('.level:not([hidden]) .node[data-node-id]')][0]!;
+    const id = card.getAttribute('data-node-id');
+    card.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    const search = d.getElementById('search') as unknown as { value: string };
+    search.value = 'order';
+    const saved = handle()!.state();
+    expect(saved).toMatchObject({ node: id, search: 'order', drawer: true });
+
+    const added: string[] = [];
+    const win = w as unknown as { addEventListener: (t: string, ...rest: unknown[]) => void };
+    const add = win.addEventListener.bind(w);
+    win.addEventListener = (t, ...rest) => {
+      added.push(t);
+      add(t, ...rest);
+    };
+    await rerun();
+    const next = handle()!;
+    next.restore(saved);
+    expect(errs).toEqual([]);
+    expect(next.state()).toMatchObject({ node: id, search: 'order', drawer: true });
+    expect(d.getElementById('drawer')!.classList.contains('open')).toBe(true);
+    expect(added.filter((t) => t === 'hashchange')).toHaveLength(1);
+    // 새 그림에 없는 카드는 고르지 않는다
+    next.restore({ ...saved, node: 'gone', search: '' });
+    expect(next.state().node).toBe(id);
   });
 });

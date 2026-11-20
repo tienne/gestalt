@@ -146,6 +146,37 @@ describe('라이브 스크립트', () => {
     srv.state.session = false;
     await poke();
     expect(d.getElementById('live-ask')).toBeNull();
+    expect(d.getElementById('live-ask-toggle')).toBeNull();
+  });
+
+  it('폼은 접힌 단추로 시작하고 단추로 펼친 뒤 Escape로 접힌다', async () => {
+    const html = await htmlOf(sampleIr());
+    const { w, d, errs } = await open(html);
+    expect(errs).toEqual([]);
+    const toggle = d.getElementById('live-ask-toggle')!;
+    const form = d.getElementById('live-ask') as unknown as { hidden: boolean };
+    expect(toggle.getAttribute('aria-controls')).toBe('live-ask');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(form.hidden).toBe(true);
+    toggle.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(form.hidden).toBe(false);
+    expect(d.activeElement?.id).toBe('live-q');
+    // 카드를 골라 서랍이 열려도 폼은 그대로 둔다. 고른 카드에 대해 묻는 게 기본 흐름이다
+    const card = [...d.querySelectorAll('.level:not([hidden]) .node[data-node-id]')][0]!;
+    card.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    await wait();
+    expect(form.hidden).toBe(false);
+    const drawer = d.getElementById('drawer')!;
+    expect(drawer.classList.contains('open')).toBe(true);
+    // 접기는 입력창이 받고 그림의 Escape(서랍 닫기)로 새지 않는다
+    d.getElementById('live-q')!.dispatchEvent(
+      new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    expect(form.hidden).toBe(true);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(d.activeElement).toBe(toggle);
+    expect(drawer.classList.contains('open')).toBe(true);
   });
 
   it('질문과 함께 보고 있는 레벨과 고른 카드를 보낸다', async () => {
@@ -223,8 +254,13 @@ describe('라이브 스크립트', () => {
       answer: '주문이 바뀌면 비운다',
     });
     const after = await htmlOf(next);
-    const { d, srv, poke, handle, reloads, errs } = await open(before);
+    const { w, d, srv, poke, handle, reloads, errs } = await open(before);
     const first = handle();
+    d.getElementById('live-ask-toggle')!.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    const card = [...d.querySelectorAll('.level:not([hidden]) .node[data-node-id]')][0]!;
+    const picked = card.getAttribute('data-node-id');
+    card.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    (d.getElementById('search') as unknown as { value: string }).value = 'order';
     const marker = d.createElement('i');
     marker.id = 'old-body-marker';
     d.body.appendChild(marker);
@@ -243,6 +279,13 @@ describe('라이브 스크립트', () => {
     // 입력창은 그대로 옮겨 붙어서 쓰던 글이 남는다
     expect((d.getElementById('live-q') as unknown as { value: string }).value).toBe('쓰던 글');
     expect(d.querySelectorAll('#live-ask')).toHaveLength(1);
+    expect(d.querySelectorAll('#live-ask-toggle')).toHaveLength(1);
+    expect(d.getElementById('live-ask-toggle')!.getAttribute('aria-expanded')).toBe('true');
+    expect((d.getElementById('live-ask') as unknown as { hidden: boolean }).hidden).toBe(false);
+    // 고른 카드와 검색어는 새 그림에서도 이어 간다
+    expect(handle()!.state().node).toBe(picked);
+    expect(d.getElementById('drawer')!.classList.contains('open')).toBe(true);
+    expect((d.getElementById('search') as unknown as { value: string }).value).toBe('order');
     expect(d.querySelector('.live-msg')!.textContent).toContain('다시 렌더된 그림');
     // 같은 ETag면 다시 받지 않는다
     const gets = srv.state.reqs.filter(

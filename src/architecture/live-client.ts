@@ -1,4 +1,5 @@
 import { CLIENT_HANDLE } from './html-client.js';
+import { SIDE_PANEL_SHEET_MAX } from './layout-tuning.js';
 import { LIVE_QUESTION_MAX } from './live-ask.js';
 import {
   LIVE_ASK_PATH,
@@ -19,15 +20,26 @@ const HIDDEN_MS = 60_000;
 /** 답을 기다리는 최대 시간. 지나면 기다림 표시를 걷는다 */
 const WAIT_LIMIT_MS = 10 * 60_000;
 
-/** 질문 폼 모양. 본인용 페이지 style에만 싣는다 */
-export const LIVE_FORM_CSS = `.live-ask { position: fixed; right: 16px; bottom: 16px; z-index: 40; width: min(360px, calc(100vw - 32px)); display: grid; gap: 6px; padding: 10px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow-pop); font: inherit; }
+/**
+ * 질문 폼 모양. 본인용 페이지 style에만 싣는다.
+ * 폼은 접힌 단추 하나로 시작한다. 펼친 채로 두면 오른쪽 아래의 확대 단추와 서랍 아래쪽을 가린다
+ */
+export const LIVE_FORM_CSS = `.live-ask-toggle { position: fixed; right: 16px; bottom: 16px; z-index: 40; padding: 8px 14px; font: inherit; font-weight: 650; color: var(--on-accent); background: var(--accent); border: 0; border-radius: 999px; box-shadow: var(--shadow-pop); cursor: pointer; }
+.live-ask-toggle:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.live-ask { position: fixed; right: 16px; bottom: 64px; z-index: 40; width: min(360px, calc(100vw - 32px)); display: grid; gap: 6px; padding: 10px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow-pop); font: inherit; }
 .live-ask label { font-weight: 650; font-size: 13px; }
 .live-ask textarea { width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; padding: 6px 8px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .live-ask .live-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .live-ask button { padding: 4px 12px; font: inherit; color: var(--on-accent); background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
 .live-ask button[disabled] { opacity: 0.5; cursor: default; }
+.live-ask[hidden] { display: none; }
 .live-ask .live-msg { margin: 0; font-size: 12px; color: var(--text-3); }
-@media print { .live-ask { display: none; } }`;
+@media (max-width: ${SIDE_PANEL_SHEET_MAX}px) {
+  .live-ask-toggle { right: 12px; bottom: 164px; }
+  .live-ask { right: 12px; bottom: 212px; }
+  body:has(.overview[open]) .live-ask { bottom: calc(60vh + 8px); max-height: calc(40vh - 16px); overflow: auto; }
+}
+@media print { .live-ask, .live-ask-toggle { display: none; } }`;
 
 /**
  * 본인용 페이지에만 싣는 라이브 스크립트. 라이브 서버가 끼운 토큰 meta가 없으면(file://로 열었거나 공유본)
@@ -47,6 +59,7 @@ export function renderLiveScript(): string {
   var view = match[1];
   window.${LIVE_HANDLE} = true;
   var form = null;
+  var toggle = null;
   var input = null;
   var send = null;
   var msg = null;
@@ -70,7 +83,19 @@ export function renderLiveScript(): string {
     return fetch(location.pathname, { method: 'HEAD', cache: 'no-store', credentials: 'same-origin' })
       .then(function (res) { return res.ok ? res.headers.get('ETag') : null; }, function () { return null; });
   }
+  function setOpen(open, moveFocus) {
+    form.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+    if (moveFocus) (open ? input : toggle).focus();
+  }
   function buildForm() {
+    toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.id = 'live-ask-toggle';
+    toggle.className = 'live-ask-toggle';
+    toggle.textContent = '그림에 질문하기';
+    toggle.setAttribute('aria-controls', 'live-ask');
+    toggle.addEventListener('click', function () { setOpen(form.hidden, true); });
     form = document.createElement('form');
     form.id = 'live-ask';
     form.className = 'live-ask';
@@ -99,16 +124,21 @@ export function renderLiveScript(): string {
       e.preventDefault();
       ask();
     });
+    // 그림 단축키로 새지 않게 막으므로 Escape도 전역 핸들러까지 안 간다. 폼 접기는 여기서 받는다
     input.addEventListener('keydown', function (e) {
       e.stopPropagation();
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ask(); }
+      else if (e.key === 'Escape') { e.preventDefault(); setOpen(false, true); }
     });
+    setOpen(false, false);
   }
   function showForm() {
     if (!form) buildForm();
+    if (toggle.parentNode !== document.body) document.body.appendChild(toggle);
     if (form.parentNode !== document.body) document.body.appendChild(form);
   }
   function hideForm() {
+    if (toggle && toggle.parentNode) toggle.parentNode.removeChild(toggle);
     if (form && form.parentNode) form.parentNode.removeChild(form);
   }
   function where() {
@@ -171,15 +201,25 @@ export function renderLiveScript(): string {
     });
     if (!client) return false;
     var h = window.${CLIENT_HANDLE};
+    var saved = null;
+    try { saved = h && h.state ? h.state() : null; } catch (e) {}
     if (h && h.dispose) h.dispose();
-    var keep = form && form.parentNode ? form : null;
+    var keep = form && form.parentNode ? [toggle, form] : null;
+    var had = document.activeElement;
+    var refocus = keep && had && (had === toggle || form.contains(had)) ? had : null;
     var next = document.adoptNode(doc.body);
     document.documentElement.replaceChild(next, document.body);
     document.title = doc.title;
-    if (keep) next.appendChild(keep);
+    if (keep) keep.forEach(function (el) { next.appendChild(el); });
     var fresh = document.createElement('script');
     fresh.textContent = client.textContent;
     client.parentNode.replaceChild(fresh, client);
+    // 새 그림에서도 고른 카드와 검색어를 이어 간다. 레벨은 해시라 그대로 남는다
+    var nh = window.${CLIENT_HANDLE};
+    if (saved && nh && nh !== h && nh.restore) {
+      try { nh.restore(saved); } catch (e) {}
+    }
+    if (refocus) refocus.focus({ preventScroll: true });
     return true;
   }
   function refresh(tag) {

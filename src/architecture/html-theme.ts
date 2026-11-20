@@ -766,11 +766,15 @@ export const DRILL_CSS = `.node.lg { align-content: start; padding: ${CARD_PAD_Y
 .chunk:focus { outline: none; }
 .chunk:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .ch-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-/* 원 안 숫자는 글자 상자를 대문자 높이로 잘라 남는 높이를 위아래로 나눈다. flex 가운데 정렬은 디센더 자리 때문에 숫자가 1px 남짓 뜬다 */
+/* 원 안 숫자는 flex 가운데 정렬을 기본으로 둔다. 디센더 자리 때문에 숫자가 1px 남짓 뜨므로
+   글자 상자를 대문자 높이로 자를 수 있는 브라우저에서는 잘라서 남는 높이를 위아래로 나눈다 */
 .ch-head .ord {
-  flex: none; display: inline-block; min-width: 22px; height: 22px; padding: calc((22px - 1cap) / 2) 6px; border-radius: 11px; text-align: center;
-  line-height: 1cap; text-box: trim-both cap alphabetic;
+  flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
+  line-height: 1;
   font-size: 12px; font-weight: 700; color: var(--on-accent); background: var(--accent); font-variant-numeric: tabular-nums;
+}
+@supports (text-box: trim-both cap alphabetic) {
+  .ch-head .ord { display: inline-block; padding: calc((22px - 1cap) / 2) 6px; text-align: center; line-height: 1cap; text-box: trim-both cap alphabetic; }
 }
 .ch-head .t { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; font-weight: 600; line-height: 22px; }
 .chunk .ds {

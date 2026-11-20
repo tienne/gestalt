@@ -216,6 +216,26 @@ describe('개요 패널', () => {
     expect(panel.open).toBe(false);
   });
 
+  it('창 폭이 시트 폭으로 줄면 닫고 다시 넓어지면 연다. 사람이 닫아 둔 패널은 다시 열지 않는다', async () => {
+    const { w, panel, errs } = await open({ summary: '전체 요약' });
+    const resize = async (width: number) => {
+      w.happyDOM.setViewport({ width, height: 900 });
+      await w.happyDOM.waitUntilComplete();
+    };
+    expect(panel.open).toBe(true);
+    await resize(390);
+    expect(panel.open).toBe(false);
+    await resize(1400);
+    expect(panel.open).toBe(true);
+    // 넓은 화면에서 직접 닫으면 좁혔다 넓혀도 닫힌 채로 둔다
+    panel.open = false;
+    await w.happyDOM.waitUntilComplete();
+    await resize(390);
+    await resize(1400);
+    expect(errs).toEqual([]);
+    expect(panel.open).toBe(false);
+  });
+
   it('글자는 textContent로만 넣는다', async () => {
     const { d, sum } = await open({ summary: '<img src=x onerror=alert(1)>' });
     expect(sum()).toEqual(['<img src=x onerror=alert(1)>']);
@@ -372,5 +392,22 @@ describe('단계 머리와 접힌 root', () => {
     const here = d.querySelector('#crumbs .here')!.textContent!;
     expect(here).toContain(' → ');
     expect(here).not.toContain('chunk:');
+  });
+
+  it('덩어리 카드를 수식 키와 함께 누르면 새 탭으로 여는 기본 동작에 맡긴다', async () => {
+    const { w, d, settle } = await openWide();
+    const chunk = d.querySelector('section[data-level-id="root"] a.chunk')!;
+    const meta = new w.MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true });
+    chunk.dispatchEvent(meta);
+    await settle();
+    // happy-dom은 수식 키가 있어도 링크를 같은 창에서 따라가므로 기본 동작을 막지 않았는지만 본다
+    expect(meta.defaultPrevented).toBe(false);
+    w.location.hash = '#/';
+    await settle();
+    const plain = new w.MouseEvent('click', { bubbles: true, cancelable: true });
+    chunk.dispatchEvent(plain);
+    await settle();
+    expect(plain.defaultPrevented).toBe(true);
+    expect(w.location.hash).toContain('#/level/');
   });
 });
