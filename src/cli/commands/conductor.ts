@@ -56,6 +56,7 @@ import {
 } from '../../conductor/session-owner.js';
 import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
 import { readRecentEvents } from '../../conductor/recent-events.js';
+import { removeOrderRefCopies } from '../../conductor/ref-copy.js';
 import { resolveGate } from '../../conductor/gates.js';
 import {
   intakeOrder,
@@ -322,6 +323,7 @@ export async function conductorOrderRemoveCommand(
       );
     const removed: string[] = [];
     const skipped: { id: string; reason: string }[] = [];
+    const warnings: string[] = [];
     try {
       ctx.store.reload();
       await ctx.store.deferSnapshot(async () => {
@@ -334,13 +336,19 @@ export async function conductorOrderRemoveCommand(
           }
         }
       });
+      // 사본을 못 지워도 주문 삭제는 되돌리지 않는다. 남은 사본은 경고로만 알린다
+      for (const id of removed) {
+        const warning = removeOrderRefCopies(ctx.store.dir, id);
+        if (warning) warnings.push(warning);
+      }
     } finally {
       lock.release();
     }
-    if (opts.json) print({ removed, skipped });
+    if (opts.json) print({ removed, skipped, ...(warnings.length > 0 ? { warnings } : {}) });
     else if (removed.length > 0) {
       console.log(`주문 ${removed.length}개를 지웠어요: ${removed.join(', ')}`);
       for (const s of skipped) console.log(`못 지웠어요: ${s.reason}`);
+      for (const w of warnings) console.log(`경고: ${w}`);
     }
     // 하나도 못 지우면 이유를 stderr로 한 번만 낸다. 플러그인처럼 실패하면 stderr만 보는 호출자도 받는다
     if (removed.length === 0 && skipped.length > 0)
@@ -373,7 +381,8 @@ export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptio
     const gates = Object.values(store.snapshot.gates).filter((g) => g.orderId === id);
     const bypasses = store.snapshot.bypasses.filter((b) => b.orderId === id);
     const refs = [...new Set(reports.flatMap((r) => r.refs))];
-    if (opts.json) return print({ order, workers, reports, refs, gates, bypasses });
+    if (opts.json)
+      return print({ order, workers, reports, refs, gates, bypasses, stateDir: store.dir });
     console.log(`${order.id}  ${terminalText(order.title)}`);
     console.log(`레포: ${order.repo}  범위: ${order.scope}  상태: ${order.status}`);
     console.log(`설명: ${order.description ? terminalText(order.description) : '없음'}`);
