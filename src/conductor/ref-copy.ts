@@ -9,8 +9,10 @@ import {
   readSync,
   realpathSync,
   renameSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
+  type Stats,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
@@ -51,8 +53,20 @@ export const REF_COPY_EXTENSIONS: ReadonlySet<string> = new Set([
 
 /** 앞부분에 NUL이 있으면 확장자가 맞아도 바이너리로 본다 */
 const BINARY_SNIFF_BYTES = 8 * 1024;
-const SAFE_ORDER_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+export const SAFE_ORDER_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const MAX_NAME_CHARS = 100;
+
+/**
+ * 홈 아래 `Library`에서 복사를 허용하는 자리. 오르카가 에이전트에게 붙여 준 파일을 두는 곳이라
+ * 2026-11-20 저장소의 refs에 실제로 나왔다. 나머지 `Library`는 앱 설정과 키체인이 있어 막는다
+ */
+const LIBRARY_ALLOWED = [
+  join('Library', 'Application Support', 'orca', 'agent-session-attachments'),
+  join('Library', 'Application Support', 'orca', 'chat-scratch'),
+];
+
+/** 이름에 이 말이 들어간 파일은 확장자가 맞아도 비밀 값으로 보고 복사하지 않는다 */
+const SECRET_NAME = /credential|secret|token/;
 
 export interface CopyRefsInput {
   stateDir: string;
@@ -67,7 +81,8 @@ export interface CopyRefsInput {
 
 /**
  * 복사한 결과를 돌려준다. 복사 대상이 아닌 ref(주소, 상대 경로, 디렉토리, 없는 파일,
- * 바이너리)는 결과에 넣지 않는다. 실패는 던지지 않고 `skipped: 'error'`로 남긴다.
+ * 바이너리)는 결과에 넣지 않는다. 비밀 값이 있을 만한 자리는 `skipped: 'denied'`로 남기고
+ * 실패는 던지지 않고 `skipped: 'error'`로 남긴다.
  */
 export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
   const maxFile = input.maxFileBytes ?? REF_COPY_MAX_FILE_BYTES;
@@ -80,20 +95,42 @@ export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
     return [];
   }
   const home = input.homeDir ?? homedir();
+  const homeReal = realOrSelf(home);
   const out: RefCopy[] = [];
+  const seen = new Set<string>();
   for (const ref of input.refs) {
+    // 같은 ref가 두 번 오면 사본 이름도 같다. 한 번만 쓰고 예산도 한 번만 깎는다
+    if (seen.has(ref)) continue;
+    seen.add(ref);
     const source = localPath(ref, home);
     if (!source || !REF_COPY_EXTENSIONS.has(extname(source).toLowerCase())) continue;
-    if (insideStateDir(source, stateReal)) continue;
+    let found: Located | null;
+    try {
+      found = locate(source);
+    } catch (err) {
+      out.push({ ref, skipped: 'error', reason: message(err) });
+      continue;
+    }
+    if (!found || isInside(stateReal, found.real)) continue;
+    if (denied(found.real, homeReal)) {
+      out.push({ ref, skipped: 'denied' });
+      continue;
+    }
+    // 남은 예산에 앞부분조차 못 담는 파일은 읽지도 않는다. tick 잠금 안에서 도는 동기 IO라서다
+    if (Math.min(found.st.size, maxFile) > budget) {
+      out.push({ ref, skipped: 'report-limit', size: found.st.size });
+      continue;
+    }
     let read: ReadResult | null;
     try {
-      read = readSource(source, maxFile);
+      read = readSource(found, maxFile);
     } catch (err) {
       out.push({ ref, skipped: 'error', reason: message(err) });
       continue;
     }
     if (!read) continue;
     const size = read.size;
+    // 판정한 뒤에 파일이 커졌을 수 있어 읽은 크기로 한 번 더 본다
     if (read.data.length > budget) {
       out.push({ ref, skipped: 'report-limit', size });
       continue;
@@ -126,15 +163,59 @@ function localPath(ref: string, home: string): string | null {
   return path;
 }
 
-function insideStateDir(source: string, stateReal: string): boolean {
-  let parent: string;
+function realOrSelf(path: string): string {
   try {
-    parent = realpathSync(dirname(source));
+    return realpathSync(path);
   } catch {
-    return false;
+    return path;
   }
-  const rel = relative(stateReal, parent);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+/** target이 base 안쪽이면 true다. `..cache` 같은 이름의 하위 디렉토리도 안쪽이다 */
+function isInside(base: string, target: string): boolean {
+  const rel = relative(base, target);
+  return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+/**
+ * 비밀 값이 있을 만한 자리면 true다. 위치는 풀린 실제 경로로 본다. 중간 디렉토리 심링크로
+ * `~/.config`를 가리켜도 풀린 경로가 그 자리라 걸린다.
+ * 홈 바로 아래 점 디렉토리(`~/.claude`, `~/.config`)만 막고 레포 안 `.git/`처럼 깊은 점 디렉토리는 둔다.
+ * 2026-11-20 저장소의 refs 중 72개가 레포 `.git/` 아래 리뷰 산출물이었다
+ */
+function denied(real: string, homeReal: string): boolean {
+  if (SECRET_NAME.test(basename(real).toLowerCase())) return true;
+  if (!isInside(homeReal, real)) return false;
+  const rel = relative(homeReal, real);
+  const first = rel.split(sep)[0]!;
+  if (first.startsWith('.')) return true;
+  if (first !== 'Library') return false;
+  return !LIBRARY_ALLOWED.some((dir) => rel.startsWith(dir + sep));
+}
+
+interface Located {
+  real: string;
+  st: Stats;
+}
+
+/**
+ * 없는 파일, 디렉토리, 마지막 칸이 심링크인 경로면 null이다. 중간 디렉토리 심링크는 막지 않고 풀어서
+ * 실제 위치를 돌려준다. macOS의 `/tmp`와 `/var`가 `/private` 아래로 가는 심링크라 막으면 워커 결과를 두는
+ * 주된 자리가 다 빠진다
+ */
+function locate(source: string): Located | null {
+  const own = lstatSync(source, { throwIfNoEntry: false });
+  if (!own || !own.isFile()) return null;
+  let real: string;
+  try {
+    real = realpathSync(source);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+  const st = lstatSync(real, { throwIfNoEntry: false });
+  if (!st || !st.isFile()) return null;
+  return { real, st };
 }
 
 interface ReadResult {
@@ -143,15 +224,13 @@ interface ReadResult {
 }
 
 /**
- * 없는 파일, 디렉토리, 심링크, 바이너리면 null이다. 마지막 칸이 심링크면 `O_NOFOLLOW`로 열기부터 막는다.
- * 경로를 확인한 뒤 다시 열지 않고 연 fd로만 읽어서 그 사이에 파일이 바뀌어도 확인한 파일을 읽는다.
+ * 판정한 실제 경로를 `O_NOFOLLOW`로 열고 연 파일이 판정한 파일과 같은지 dev와 ino로 확인한다.
+ * 그 사이에 바뀌었으면 null이다. 그다음은 연 fd로만 읽는다. 바이너리도 null이다
  */
-function readSource(path: string, maxFile: number): ReadResult | null {
-  const st = lstatSync(path, { throwIfNoEntry: false });
-  if (!st || !st.isFile()) return null;
+function readSource(found: Located, maxFile: number): ReadResult | null {
   let fd: number;
   try {
-    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    fd = openSync(found.real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT' || code === 'ELOOP' || code === 'EMLINK') return null;
@@ -159,7 +238,7 @@ function readSource(path: string, maxFile: number): ReadResult | null {
   }
   try {
     const fst = fstatSync(fd);
-    if (!fst.isFile()) return null;
+    if (!fst.isFile() || fst.dev !== found.st.dev || fst.ino !== found.st.ino) return null;
     const want = Math.min(fst.size, maxFile);
     const buf = Buffer.alloc(want);
     let got = 0;
@@ -189,12 +268,13 @@ function writeCopy(stateDir: string, rel: string, data: Buffer): void {
   const target = join(stateDir, rel);
   // refs나 주문 디렉토리가 심링크로 바뀌어 있으면 저장소 밖에 쓰게 된다. 한 칸씩 만들고 바로 확인한다
   for (const d of [join(stateDir, REFS_DIR), dirname(target)]) {
-    if (!lstatSync(d, { throwIfNoEntry: false })) mkdirSync(d);
+    if (!lstatSync(d, { throwIfNoEntry: false })) mkdirSync(d, { mode: 0o700 });
     if (!lstatSync(d).isDirectory())
       throw new Error(`${relative(stateDir, d)}가 디렉토리가 아니에요`);
   }
   const tmp = `${target}.${randomUUID().slice(0, 8)}.tmp`;
-  writeFileSync(tmp, data, { flag: 'wx' });
+  // 원본이 0600인 파일도 있어서 사본은 소유자만 읽게 쓴다
+  writeFileSync(tmp, data, { flag: 'wx', mode: 0o600 });
   try {
     renameSync(tmp, target);
   } catch (err) {
@@ -204,6 +284,28 @@ function writeCopy(stateDir: string, rel: string, data: Buffer): void {
       // 임시 파일을 못 지워도 사본 결과에는 영향이 없다
     }
     throw err;
+  }
+}
+
+/**
+ * 지운 주문의 사본 디렉토리를 지운다. `refs`나 주문 디렉토리가 심링크면 저장소 밖을 지우게 되니
+ * 둘 다 진짜 디렉토리일 때만 지운다. 못 지우면 이유를 돌려주고 던지지 않는다
+ */
+export function removeOrderRefCopies(stateDir: string, orderId: string): string | undefined {
+  if (!SAFE_ORDER_ID.test(orderId)) return `주문 id 꼴이 이상해 사본을 안 지웠어요: ${orderId}`;
+  const refs = join(stateDir, REFS_DIR);
+  const top = lstatSync(refs, { throwIfNoEntry: false });
+  if (!top) return undefined;
+  if (!top.isDirectory()) return `${REFS_DIR}가 디렉토리가 아니라 사본을 안 지웠어요`;
+  const dir = join(refs, orderId);
+  const own = lstatSync(dir, { throwIfNoEntry: false });
+  if (!own) return undefined;
+  if (!own.isDirectory()) return `${REFS_DIR}/${orderId}가 디렉토리가 아니라 사본을 안 지웠어요`;
+  try {
+    rmSync(dir, { recursive: true, force: true });
+    return undefined;
+  } catch (err) {
+    return `${REFS_DIR}/${orderId} 사본을 못 지웠어요: ${message(err)}`;
   }
 }
 

@@ -1951,4 +1951,31 @@ describe('워커 에이전트와 보고 보존', () => {
       { workerId, status: 'needs', summary: '승인 부탁' },
     ]);
   });
+
+  it('기록만 실패한 보고를 다음 tick에 기록할 때도 refs 사본을 남기고 사본은 하나다', async () => {
+    const { store, now } = clockedStore();
+    const o = order();
+    store.addOrder(o);
+    const { deps: d, git } = deps();
+    await tick(store, d, { now: now(), force: true });
+    const workerId = git.started[0]!.worker.id;
+    const work = resolve(tempStateDir());
+    const md = join(work, 'review.md');
+    writeFileSync(md, '# 결과');
+    report(store, d, { workerId, status: 'done', summary: '끝', refs: [md] });
+    const append = store.append.bind(store);
+    store.append = (e) => {
+      if (e.type === 'report-applied') throw new Error('디스크가 찼어요');
+      append(e);
+    };
+    await tick(store, d, { now: now(), force: true });
+    store.append = append;
+    const second = await tick(store, d, { now: now(), force: true });
+
+    expect(second.errors).toEqual([]);
+    const [stored] = ConductorStore.open(store.dir).snapshot.reports[o.id]!;
+    expect(stored!.refCopies).toHaveLength(1);
+    expect(readFileSync(join(store.dir, stored!.refCopies![0]!.path!), 'utf-8')).toBe('# 결과');
+    expect(readdirSync(join(store.dir, 'refs', o.id))).toHaveLength(1);
+  });
 });

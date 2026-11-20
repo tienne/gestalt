@@ -1,31 +1,52 @@
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
+  rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { copyReportRefs, REFS_DIR } from '../../../src/conductor/ref-copy.js';
+import { copyReportRefs, REFS_DIR, removeOrderRefCopies } from '../../../src/conductor/ref-copy.js';
 import { cleanupStateDirs, tempStateDir } from './fixtures.js';
 
-afterEach(cleanupStateDirs);
+const osTemps: string[] = [];
+afterEach(() => {
+  cleanupStateDirs();
+  for (const d of osTemps.splice(0)) rmSync(d, { recursive: true, force: true });
+});
 
-/** 저장소와 워커 작업 자리를 따로 만든다. 워커 쪽은 절대 경로로 넘긴다 */
+/**
+ * 저장소와 워커 작업 자리, 홈을 따로 만든다. 워커 쪽은 절대 경로로 넘긴다.
+ * 홈을 따로 두는 건 레포가 실제 홈 아래 어디에 있든 위치 판정이 같게 돌게 하려는 것이다
+ */
 function setup() {
   const stateDir = tempStateDir();
   const work = resolve(tempStateDir());
-  const file = (name: string, body: string | Buffer) => {
-    const p = join(work, name);
+  const home = resolve(tempStateDir());
+  const put = (root: string, name: string, body: string | Buffer) => {
+    const p = join(root, name);
     mkdirSync(join(p, '..'), { recursive: true });
     writeFileSync(p, body);
     return p;
   };
+  const file = (name: string, body: string | Buffer) => put(work, name, body);
+  const homeFile = (name: string, body: string) => put(home, name, body);
   const copy = (refs: string[], over: Partial<Parameters<typeof copyReportRefs>[0]> = {}) =>
-    copyReportRefs({ stateDir, orderId: 'ord-1', reportName: 'r1.json', refs, ...over });
-  return { stateDir, work, file, copy };
+    copyReportRefs({
+      stateDir,
+      orderId: 'ord-1',
+      reportName: 'r1.json',
+      refs,
+      homeDir: home,
+      ...over,
+    });
+  return { stateDir, work, home, file, homeFile, copy };
 }
 
 describe('refs 사본', () => {
@@ -92,15 +113,79 @@ describe('refs 사본', () => {
 
   it('심링크와 .. 경로, 저장소 안 파일은 복사하지 않는다', () => {
     const { stateDir, work, file, copy } = setup();
-    const secret = file('secret.key', 'token');
-    symlinkSync(secret, join(work, 'link.md'));
+    const target = file('target.key', 'x');
+    symlinkSync(target, join(work, 'link.md'));
     const inside = join(stateDir, 'results.md');
     writeFileSync(inside, '이미 저장소 안');
+    const dotted = join(resolve(stateDir), '..cache', 'x.md');
+    mkdirSync(join(dotted, '..'));
+    writeFileSync(dotted, '저장소 안 ..cache');
     file('sub/x.md', 'x');
 
-    const out = copy([join(work, 'link.md'), `${work}/sub/../sub/x.md`, resolve(inside)]);
+    const out = copy([join(work, 'link.md'), `${work}/sub/../sub/x.md`, resolve(inside), dotted]);
 
     expect(out).toEqual([]);
+  });
+
+  it('홈 바로 아래 점 디렉토리, Library, 비밀 이름 파일은 거부한 사실만 남긴다', () => {
+    const { work, file, homeFile, copy } = setup();
+    const config = homeFile('.config/x.json', '{}');
+    const keychain = homeFile('Library/Keychains/x.json', '{}');
+    const named = file('aws-credentials.json', '{}');
+    symlinkSync(join(config, '..'), join(work, 'via'));
+    const viaLink = join(work, 'via', 'x.json');
+
+    const out = copy([config, keychain, named, viaLink]);
+
+    expect(out).toEqual([
+      { ref: config, skipped: 'denied' },
+      { ref: keychain, skipped: 'denied' },
+      { ref: named, skipped: 'denied' },
+      { ref: viaLink, skipped: 'denied' },
+    ]);
+  });
+
+  it('오르카 첨부 자리와 레포 안 점 디렉토리, 시스템 임시 디렉토리는 복사한다', () => {
+    const { homeFile, copy } = setup();
+    const attached = homeFile(
+      'Library/Application Support/orca/agent-session-attachments/s1/a.md',
+      '첨부',
+    );
+    const review = homeFile('dev/repo/.git/review/a.md', '리뷰');
+    const tmp = mkdtempSync(join(tmpdir(), 'ref-copy-'));
+    osTemps.push(tmp);
+    const inTmp = join(tmp, 'out.md');
+    writeFileSync(inTmp, '임시');
+
+    const out = copy([attached, review, inTmp]);
+
+    expect(out.map((c) => c.ref)).toEqual([attached, review, inTmp]);
+    expect(out.every((c) => c.path && !c.skipped)).toBe(true);
+  });
+
+  it('사본은 소유자만 읽고 쓰게 만든다', () => {
+    const { stateDir, file, copy } = setup();
+    const out = copy([file('a.md', 'x')]);
+    const path = join(stateDir, out[0]!.path!);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(statSync(join(path, '..')).mode & 0o777).toBe(0o700);
+  });
+
+  it('같은 ref가 두 번 오면 한 번만 복사하고 예산도 한 번만 쓴다', () => {
+    const { file, copy } = setup();
+    const a = file('a.md', 'a'.repeat(30));
+    const b = file('b.md', 'b'.repeat(5));
+    const out = copy([a, a, b], { maxReportBytes: 40 });
+    expect(out.map((c) => c.ref)).toEqual([a, b]);
+    expect(out.every((c) => c.path)).toBe(true);
+  });
+
+  it('파일 상한과 보고 상한을 둘 다 넘는 파일 하나는 앞부분 사본으로 남는다', () => {
+    const { stateDir, file, copy } = setup();
+    const big = file('big.log', 'a'.repeat(100));
+    const out = copy([big], { maxFileBytes: 40, maxReportBytes: 50 });
+    expect(out[0]).toMatchObject({ truncated: true, size: 100 });
+    expect(readFileSync(join(stateDir, out[0]!.path!), 'utf-8')).toBe('a'.repeat(40));
   });
 
   it('주문 id가 경로를 벗어날 꼴이면 아무것도 복사하지 않는다', () => {
@@ -124,6 +209,20 @@ describe('refs 사본', () => {
     expect(readdirSync(elsewhere)).toEqual([]);
   });
 
+  it('주문 디렉토리가 심링크로 바뀌어 있어도 쓰지 않고 실패로 남긴다', () => {
+    const { stateDir, work, file, copy } = setup();
+    const md = file('a.md', 'x');
+    const elsewhere = join(work, 'elsewhere');
+    mkdirSync(elsewhere);
+    mkdirSync(join(stateDir, REFS_DIR));
+    symlinkSync(resolve(elsewhere), join(stateDir, REFS_DIR, 'ord-1'));
+
+    const out = copy([md]);
+
+    expect(out[0]).toMatchObject({ ref: md, skipped: 'error' });
+    expect(readdirSync(elsewhere)).toEqual([]);
+  });
+
   it('같은 보고를 다시 처리해도 사본은 하나다', () => {
     const { stateDir, file, copy } = setup();
     const md = file('a.md', 'x');
@@ -131,5 +230,34 @@ describe('refs 사본', () => {
     const second = copy([md]);
     expect(second).toEqual(first);
     expect(readdirSync(join(stateDir, REFS_DIR, 'ord-1'))).toHaveLength(1);
+  });
+});
+
+describe('지운 주문의 사본 정리', () => {
+  it('주문 사본 디렉토리를 지운다', () => {
+    const { stateDir, file, copy } = setup();
+    copy([file('a.md', 'x')]);
+    expect(removeOrderRefCopies(stateDir, 'ord-1')).toBeUndefined();
+    expect(existsSync(join(stateDir, REFS_DIR, 'ord-1'))).toBe(false);
+  });
+
+  it('사본이 없으면 아무것도 안 한다', () => {
+    const { stateDir } = setup();
+    expect(removeOrderRefCopies(stateDir, 'ord-1')).toBeUndefined();
+  });
+
+  it('refs가 저장소 밖 심링크면 밖의 디렉토리를 지우지 않고 경고만 돌려준다', () => {
+    const { stateDir, work } = setup();
+    const outside = join(work, 'outside');
+    mkdirSync(join(outside, 'ord-1'), { recursive: true });
+    symlinkSync(resolve(outside), join(stateDir, REFS_DIR));
+
+    expect(removeOrderRefCopies(stateDir, 'ord-1')).toMatch(/디렉토리가 아니라/);
+    expect(existsSync(join(outside, 'ord-1'))).toBe(true);
+  });
+
+  it('주문 id가 경로를 벗어날 꼴이면 지우지 않는다', () => {
+    const { stateDir } = setup();
+    expect(removeOrderRefCopies(stateDir, '../x')).toMatch(/꼴이 이상해/);
   });
 });

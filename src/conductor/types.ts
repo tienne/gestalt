@@ -289,8 +289,8 @@ export interface RefCopy {
   truncated?: boolean;
   /** 원래 파일 크기(바이트). 자르거나 건너뛰었을 때만 남긴다 */
   size?: number;
-  /** 복사하지 않은 이유. report-limit은 보고 하나 합계 상한, error는 읽기나 쓰기 실패다 */
-  skipped?: 'report-limit' | 'error';
+  /** 복사하지 않은 이유. report-limit은 보고 하나 합계 상한, denied는 비밀 값이 있을 만한 자리, error는 읽기나 쓰기 실패다 */
+  skipped?: 'report-limit' | 'error' | 'denied';
   reason?: string;
 }
 
