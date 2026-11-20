@@ -1,6 +1,14 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import type { Order, StoredReport, Worker } from '../../../src/conductor/types.js';
 import { order, tempStateDir, worker } from './fixtures.js';
@@ -72,4 +80,15 @@ export function hasControl(s: string, keepNewline = false): boolean {
     const c = ch.codePointAt(0)!;
     return (c < 0x20 && !(keepNewline && c === 0x0a)) || c === 0x7f;
   });
+}
+
+/** 디렉토리 아래 모든 항목의 이름과 크기, mtime. atime은 읽기만 해도 바뀌어 넣지 않는다 */
+export function snapshotTree(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true, recursive: true })
+    .map((d) => {
+      const path = join(d.parentPath, d.name);
+      const st = lstatSync(path);
+      return `${relative(dir, path)}\t${st.size}\t${st.mtimeMs}`;
+    })
+    .sort();
 }

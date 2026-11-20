@@ -1,16 +1,19 @@
-import { existsSync, mkdirSync, realpathSync, symlinkSync, utimesSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, rmSync, symlinkSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import {
+  BodyCache,
   excerpt,
   getOrderDetail,
   listOrders,
   loadResults,
   parseSince,
+  MAX_FULL_READ_BYTES,
   readResultFile,
   resolveOrderId,
   searchResults,
+  TRUNCATED_READ_BYTES,
 } from '../../../src/conductor/results.js';
 import { cleanupStateDirs, tempStateDir } from './fixtures.js';
 import { cleanupOutsideDirs, hasControl, outsideDir, put, seed } from './results-fixtures.js';
@@ -182,8 +185,16 @@ describe('listOrders', () => {
 
   it('since가 날짜가 아니면 던진다', () => {
     expect(() => parseSince('nope')).toThrow('--since');
+    expect(() => parseSince('2026-02-30')).toThrow('--since');
     const r = loadResults({ stateDir: orders().dir });
     expect(() => listOrders(r, { since: 'nope' })).toThrow('--since');
+  });
+});
+
+describe('parseSince', () => {
+  it('날짜만 적으면 로컬 자정, 시각까지 적으면 그 시각', () => {
+    expect(parseSince('2026-11-04')).toBe(new Date(2026, 10, 4).getTime());
+    expect(parseSince('2026-11-04T09:00:00.000Z')).toBe(Date.UTC(2026, 10, 4, 9));
   });
 });
 
@@ -453,10 +464,44 @@ describe('searchResults', () => {
     expect(hits.slice(firstUnlinked).every((h) => h.orderId === null)).toBe(true);
   });
 
-  it('파일 하나에서 3건까지만 내고 줄 번호를 단다', () => {
-    const refHits = searchResults(corpus(), 'needle').hits.filter((h) => h.source === 'ref');
+  it('파일 하나에서 3건까지만 내고 줄 번호를 단다. 남은 줄 수는 마지막 결과의 moreInFile', () => {
+    const found = searchResults(corpus(), 'needle');
+    const refHits = found.hits.filter((h) => h.source === 'ref');
     expect(refHits).toHaveLength(3);
     expect(refHits.map((h) => h.line)).toEqual([2, 4, 5]);
+    expect(refHits.map((h) => h.moreInFile)).toEqual([undefined, undefined, 1]);
+    // total은 파일당 상한에 걸려 결과로 안 만든 줄도 센다
+    expect(found.total).toBe(found.hits.length + 1);
+  });
+
+  it('저장소 파일 결과에는 실제 경로(absPath)를 싣는다', () => {
+    const r = corpus();
+    const hit = searchResults(r, 'needle').hits.find((h) => h.where === 'reports/loose.md')!;
+    expect(hit.absPath).toBe(join(r.stateDir, 'reports', 'loose.md'));
+  });
+
+  it('앞부분만 읽은 큰 파일의 결과에는 partial이 붙고 읽지 않은 뒷부분은 세지 않는다', () => {
+    const base = tempStateDir();
+    const head = `bigneedle 앞\n${'x'.repeat(TRUNCATED_READ_BYTES)}\n`;
+    const big = put(
+      join(realpathSync(base), 'reports', 'big.md'),
+      head + `bigneedle 뒤\n${'y'.repeat(MAX_FULL_READ_BYTES)}`,
+    );
+    seed([{ order: { id: A }, reports: [{ refs: [big] }] }], base);
+    const found = searchResults(loadResults({ stateDir: base }), 'bigneedle');
+    expect(found.total).toBe(1);
+    expect(found.hits[0]).toMatchObject({ source: 'ref', line: 1, partial: true });
+  });
+
+  it('로드 뒤 refs 파일이 심링크로 바뀌면 검색에서 그 본문을 안 읽는다', () => {
+    const base = tempStateDir();
+    const note = put(join(realpathSync(base), 'reports', 'swap.md'), '평범한 본문');
+    seed([{ order: { id: A }, reports: [{ refs: [note] }] }], base);
+    const r = loadResults({ stateDir: base });
+    const secret = put(join(outsideDir(), 'secret.md'), 'swapneedle 비밀');
+    rmSync(note);
+    symlinkSync(secret, note);
+    expect(searchResults(r, 'swapneedle').total).toBe(0);
   });
 
   it('본문에 없고 파일 이름에만 맞으면 이름으로 1건 낸다', () => {
@@ -514,15 +559,41 @@ describe('searchResults', () => {
     }
   });
 
-  it('refs 본문이 바뀐 뒤 같은 LoadedResults에서는 옛 본문으로 찾는다(캐시)', () => {
+  it('refs 본문이 바뀌면 같은 LoadedResults에서도 새 본문으로 찾는다', () => {
     const base = tempStateDir();
     const note = put(join(realpathSync(base), 'reports', 'c.md'), 'cachekey 처음');
     seed([{ order: { id: A }, reports: [{ refs: [note] }] }], base);
     const r = loadResults({ stateDir: base });
     expect(searchResults(r, 'cachekey').total).toBe(1);
     put(note, '다른 내용');
-    expect(searchResults(r, 'cachekey').total).toBe(1);
-    expect(searchResults(loadResults({ stateDir: base }), 'cachekey').total).toBe(0);
+    expect(searchResults(r, 'cachekey').total).toBe(0);
+    expect(searchResults(r, '다른').total).toBe(1);
+  });
+});
+
+describe('BodyCache', () => {
+  const body = (text: string) => ({ text, truncated: false, size: text.length });
+
+  it('개수 상한을 넘으면 가장 오래 안 쓴 것부터 버린다', () => {
+    const c = new BodyCache(2, 1000);
+    c.set('a', body('a'));
+    c.set('b', body('b'));
+    c.get('a');
+    c.set('c', body('c'));
+    expect(c.get('b')).toBeUndefined();
+    expect(c.get('a')?.text).toBe('a');
+    expect(c.get('c')?.text).toBe('c');
+  });
+
+  it('글자 수 상한을 넘으면 버리되 방금 넣은 것은 남긴다', () => {
+    const c = new BodyCache(10, 5);
+    c.set('a', body('aaa'));
+    c.set('b', body('bbb'));
+    expect(c.get('a')).toBeUndefined();
+    expect(c.size).toBe(1);
+    c.set('big', body('x'.repeat(20)));
+    expect(c.get('big')?.text).toHaveLength(20);
+    expect(c.size).toBe(1);
   });
 });
 

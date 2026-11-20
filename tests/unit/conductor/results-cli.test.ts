@@ -1,5 +1,6 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
+import { MAX_DIR_ENTRIES, MAX_FULL_READ_BYTES } from '../../../src/conductor/results.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   conductorBrowseCommand,
@@ -8,7 +9,14 @@ import {
   conductorResultsShowCommand,
 } from '../../../src/cli/commands/conductor-results.js';
 import { cleanupStateDirs, tempStateDir } from './fixtures.js';
-import { cleanupOutsideDirs, hasControl, outsideDir, put, seed } from './results-fixtures.js';
+import {
+  cleanupOutsideDirs,
+  hasControl,
+  outsideDir,
+  put,
+  seed,
+  snapshotTree,
+} from './results-fixtures.js';
 
 let out: string[] = [];
 let err: string[] = [];
@@ -165,7 +173,28 @@ describe('results search', () => {
     expect(json().hits.map((h: { source: string }) => h.source)).toEqual(['summary']);
     out = [];
     conductorResultsSearchCommand('needle', { stateDir: dir, limit: '1' });
-    expect(text()).toContain(`(전체 ${all.total}건 중 앞 1건)`);
+    expect(text()).toContain(`결과 전체 ${all.total}건 중 1건 표시`);
+  });
+
+  it('--json의 저장소 파일 결과에는 absPath가 있다', () => {
+    const { dir } = fixture();
+    conductorResultsSearchCommand('needle', { stateDir: dir, json: true });
+    const loose = json().hits.find((h: { where: string }) => h.where === 'reports/loose.md');
+    expect(loose.absPath).toBe(join(realpathSync(dir), 'reports', 'loose.md'));
+  });
+
+  it('앞부분만 읽은 큰 파일에서 찾았으면 한 줄 안내를 붙이고 파일에 더 있으면 건수를 단다', () => {
+    const base = tempStateDir();
+    const abs = realpathSync(base);
+    const big = put(
+      join(abs, 'reports', 'big.md'),
+      `${'bigneedle\n'.repeat(5)}${'x'.repeat(MAX_FULL_READ_BYTES)}`,
+    );
+    seed([{ order: { id: A }, reports: [{ refs: [big] }] }], base);
+    conductorResultsSearchCommand('bigneedle', { stateDir: base });
+    expect(text()).toContain('"bigneedle" 결과 전체 5건 중 3건 표시');
+    expect(text()).toContain('큰 파일은 앞부분만 찾았어요');
+    expect(text()).toContain('big.md:3  (이 파일에 2건 더)');
   });
 
   it('맞는 게 없으면 안내하고 빈 검색어는 exit 1', () => {
@@ -288,6 +317,34 @@ describe('results show', () => {
     conductorResultsShowCommand(A, { stateDir: dir });
     expect(hasControl(text(), true)).toBe(false);
     expect(text()).toContain('줄1 [31m빨강\n줄2 끝');
+  });
+});
+
+describe('디렉토리 ref 자르기 표시', () => {
+  it('show 평문과 --json에 자르기 전 파일 수가 보인다', () => {
+    const base = tempStateDir();
+    const d = join(realpathSync(base), 'refs', 'many');
+    for (let i = 0; i < MAX_DIR_ENTRIES + 2; i++) put(join(d, `f${String(i).padStart(3, '0')}.md`));
+    seed([{ order: { id: A }, reports: [{ refs: [d] }] }], base);
+    conductorResultsShowCommand(A, { stateDir: base, body: false });
+    expect(text()).toContain(`(파일 ${MAX_DIR_ENTRIES + 2}개 중 ${MAX_DIR_ENTRIES}개만 보여요)`);
+    out = [];
+    conductorResultsShowCommand(A, { stateDir: base, json: true });
+    expect(json().refs[0].entriesTotal).toBe(MAX_DIR_ENTRIES + 2);
+  });
+});
+
+describe('읽기 전용', () => {
+  it('list, search, show를 돌려도 저장소 파일의 이름, 크기, mtime이 그대로다', () => {
+    const { dir } = fixture();
+    const before = snapshotTree(dir);
+    conductorResultsListCommand({ stateDir: dir });
+    conductorResultsListCommand({ stateDir: dir, json: true });
+    conductorResultsSearchCommand('needle', { stateDir: dir });
+    conductorResultsSearchCommand('needle', { stateDir: dir, json: true });
+    conductorResultsShowCommand(A, { stateDir: dir });
+    conductorResultsShowCommand(A, { stateDir: dir, json: true });
+    expect(snapshotTree(dir)).toEqual(before);
   });
 });
 

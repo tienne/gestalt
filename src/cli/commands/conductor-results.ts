@@ -1,6 +1,5 @@
 import { loadConfig } from '../../core/config.js';
 import { findAvailablePort } from '../../graph-viz/port-finder.js';
-import { isControlChar } from '../../conductor/intake.js';
 import {
   getOrderDetail,
   listOrders,
@@ -16,8 +15,8 @@ import {
 } from '../../conductor/results.js';
 import { resolveStateDir } from '../../conductor/state-dir.js';
 import { ORDER_STATUSES } from '../../conductor/types.js';
+import { isControlChar, terminalText } from '../../conductor/terminal-text.js';
 import { ConductorWebServer } from '../../conductor-web/server.js';
-import { terminalText } from './conductor.js';
 
 /**
  * `gestalt conductor results`와 `browse` — 컨덕터 결과를 찾아보는 읽기 전용 명령.
@@ -159,11 +158,12 @@ export function conductorResultsSearchCommand(query: string, opts: ResultsSearch
     const found = searchResults(results, query, { ...filters, body: opts.body !== false, limit });
     if (opts.json) return print(found);
     if (found.total === 0) return console.log(`"${cell(found.query)}"에 맞는 결과가 없어요`);
-    const more =
+    const count =
       found.total > found.hits.length
-        ? ` (전체 ${found.total}건 중 앞 ${found.hits.length}건)`
-        : '';
-    console.log(`"${cell(found.query)}" 결과 ${found.hits.length}건${more}`);
+        ? `전체 ${found.total}건 중 ${found.hits.length}건 표시`
+        : `${found.total}건`;
+    console.log(`"${cell(found.query)}" 결과 ${count}`);
+    if (found.hits.some((h) => h.partial)) console.log('큰 파일은 앞부분만 찾았어요');
     let lastHead = '';
     for (const h of found.hits) {
       const head = h.orderId
@@ -180,7 +180,8 @@ export function conductorResultsSearchCommand(query: string, opts: ResultsSearch
           : h.source === 'summary'
             ? `요약 #${h.reportIndex}`
             : `${cell(h.where)}${h.line ? `:${h.line}` : ''}`;
-      console.log(`  ${stamp(h.at)}  ${where}`);
+      const more = h.moreInFile ? `  (이 파일에 ${h.moreInFile}건 더)` : '';
+      console.log(`  ${stamp(h.at)}  ${where}${more}`);
       console.log(`    ${cell(h.excerpt)}`);
     }
   });
@@ -293,12 +294,15 @@ export function conductorResultsShowCommand(id: string, opts: ResultsShowOptions
       const note = r.kind === 'outside' ? '  (허용 범위 밖이라 본문을 안 읽어요)' : '';
       console.log(`  [${r.index}] ${KIND_LABEL[r.kind]}  ${cell(r.display)}${size}${note}`);
       for (const e of r.entries ?? []) console.log(`        ${cell(e.name)}  ${kb(e.size)}`);
+      if (r.entriesTotal !== undefined && r.entriesTotal > (r.entries?.length ?? 0)) {
+        console.log(`        (파일 ${r.entriesTotal}개 중 ${r.entries?.length ?? 0}개만 보여요)`);
+      }
     }
 
     if (related.length > 0) {
       console.log('');
       console.log(
-        `관련 파일 (${related.length})  이름에 이 주문 id가 있는 저장소 파일. 본문은 browse에서 읽는다`,
+        `관련 파일 (${related.length})  이름에 이 주문 id가 있는 저장소 파일이에요. 본문은 browse에서 읽어요`,
       );
       for (const f of related) console.log(`  ${cell(f.rel)}  ${kb(f.size)}`);
     }
@@ -350,7 +354,7 @@ export async function conductorBrowseCommand(opts: BrowseOptions): Promise<void>
   }
   const url = `http://127.0.0.1:${server.port ?? port}`;
   console.log(`컨덕터 결과 뷰어: ${url}`);
-  console.log('Ctrl+C로 멈춥니다.');
+  console.log('Ctrl+C로 멈춰요.');
   if (opts.open !== false) await openUrl(url);
   // 서버의 SIGINT 핸들러가 프로세스를 끝낼 때까지 살려 둔다
   await new Promise<void>(() => {});
@@ -361,6 +365,6 @@ async function openUrl(url: string): Promise<void> {
     const { default: open } = await import('open');
     await open(url);
   } catch (err) {
-    console.error(`브라우저를 못 열었어요. 주소를 직접 여세요: ${(err as Error).message}`);
+    console.error(`브라우저를 못 열었어요. 주소를 직접 열어 주세요: ${(err as Error).message}`);
   }
 }

@@ -1,4 +1,5 @@
-import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -130,13 +131,16 @@ describe('classifyRef', () => {
     expect(c.kind).toBe('dir');
     expect(c.entries?.map((e) => e.name)).toEqual(['a.log', 'b.md']);
     expect(c.entries?.[1]?.size).toBe(2);
+    expect(c.entriesTotal).toBe(2);
   });
 
   it('디렉토리 항목은 최대 50개까지만 낸다', () => {
     const dir = realpathSync(tempStateDir());
     const d = join(dir, 'many');
     for (let i = 0; i < MAX_DIR_ENTRIES + 5; i++) put(join(d, `f${String(i).padStart(3, '0')}.md`));
-    expect(classifyRef(d, ctx([dir])).entries).toHaveLength(MAX_DIR_ENTRIES);
+    const c = classifyRef(d, ctx([dir]));
+    expect(c.entries).toHaveLength(MAX_DIR_ENTRIES);
+    expect(c.entriesTotal).toBe(MAX_DIR_ENTRIES + 5);
   });
 
   it('오르카 워크트리 이름은 상위 디렉토리 조각에만 걸리고 파일 이름에는 안 걸린다', () => {
@@ -185,20 +189,44 @@ describe('readTextFile', () => {
     expect(readTextFile(put(join(dir, 'a.png')), [dir])).toBeNull();
     expect(readTextFile(join(dir, 'gone.md'), [dir])).toBeNull();
   });
+
+  it('일반 파일이 아니면(FIFO) 열지 않고 null', () => {
+    const dir = realpathSync(tempStateDir());
+    const fifo = join(dir, 'pipe.md');
+    try {
+      execFileSync('mkfifo', [fifo]);
+    } catch {
+      return;
+    }
+    expect(readTextFile(fifo, [dir])).toBeNull();
+  });
+
+  it('읽을 권한이 없으면 던지지 않고 null', () => {
+    if (process.getuid?.() === 0) return;
+    const dir = realpathSync(tempStateDir());
+    const p = put(join(dir, 'locked.md'), '잠김');
+    chmodSync(p, 0o000);
+    try {
+      expect(readTextFile(p, [dir])).toBeNull();
+    } finally {
+      chmodSync(p, 0o600);
+    }
+  });
 });
 
 describe('readRefBody', () => {
-  it('본문은 경로별로 캐시한다. 같은 LoadedResults로는 바뀐 파일이 안 보인다', () => {
+  it('같은 파일은 캐시에서 같은 본문을 주고 파일이 바뀌면 새로 읽는다', () => {
     const base = tempStateDir();
     const note = put(join(realpathSync(base), 'reports', 'n.md'), '첫 본문');
     const { dir } = seed([{ reports: [{ refs: [note] }] }], base);
     const results = loadResults({ stateDir: dir });
     const [id] = Object.keys(results.snapshot.orders);
     const ref = results.orderRefs.get(id!)!.refs[0]!;
-    expect(readRefBody(results, id!, ref)?.text).toBe('첫 본문');
+    const first = readRefBody(results, id!, ref);
+    expect(first?.text).toBe('첫 본문');
+    expect(readRefBody(results, id!, ref)).toBe(first);
     writeFileSync(note, '바뀐 본문');
-    expect(readRefBody(results, id!, ref)?.text).toBe('첫 본문');
-    expect(readRefBody(loadResults({ stateDir: dir }), id!, ref)?.text).toBe('바뀐 본문');
+    expect(readRefBody(results, id!, ref)?.text).toBe('바뀐 본문');
   });
 
   it('file이 아닌 ref와 범위 밖 디렉토리 항목 번호는 null', () => {

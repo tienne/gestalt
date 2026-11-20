@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   closeSync,
+  constants,
   existsSync,
   fstatSync,
   lstatSync,
@@ -11,7 +12,7 @@ import {
   statSync,
 } from 'node:fs';
 import { basename, extname, isAbsolute, join, relative, sep } from 'node:path';
-import { isControlChar } from './intake.js';
+import { isControlChar } from './terminal-text.js';
 import { orcaWorktreeName } from './launcher.js';
 import { EVENTS_FILE, replay } from './store.js';
 import type {
@@ -48,6 +49,9 @@ export const MAX_FULL_READ_BYTES = 1024 * 1024;
 export const TRUNCATED_READ_BYTES = 256 * 1024;
 /** 디렉토리 ref 하나에서 보여줄 파일 수 상한 */
 export const MAX_DIR_ENTRIES = 50;
+/** 본문 캐시 상한. 서버가 오래 떠 있어도 읽은 본문이 메모리에 끝없이 쌓이지 않게 한다 */
+export const BODY_CACHE_MAX_ENTRIES = 256;
+export const BODY_CACHE_MAX_CHARS = 32 * 1024 * 1024;
 
 /** "주문 없음" 묶음을 모으는 저장소 하위 디렉토리. 프롬프트나 인계 파일 같은 운영 파일 자리는 뺀다 */
 export const UNLINKED_DIRS = [
@@ -82,6 +86,8 @@ export interface ClassifiedRef {
   display: string;
   size?: number;
   entries?: DirEntry[];
+  /** dir이면 자르기 전 읽을 수 있는 파일 수. entries는 앞 MAX_DIR_ENTRIES개뿐이다 */
+  entriesTotal?: number;
 }
 
 export interface RefContext {
@@ -126,7 +132,52 @@ export interface LoadedResults {
   /** 어떤 주문 refs에도 안 걸린 저장소 파일. orderId가 있으면 이름으로 붙인 관련 파일이다 */
   files: ResultFile[];
   fileByKey: Map<string, ResultFile>;
-  bodies: Map<string, FileBody | null>;
+  /** 주문 id별 관련 파일. files에서 orderId가 있는 것만 */
+  filesByOrder: Map<string, ResultFile[]>;
+  bodies: BodyCache;
+}
+
+/**
+ * 읽은 본문 캐시. 키는 경로와 mtime, 크기라 파일이 바뀌면 다음 읽기에서 새로 읽는다.
+ * 개수와 글자 수 상한을 넘으면 가장 오래 안 쓴 것부터 버린다
+ */
+export class BodyCache {
+  private readonly map = new Map<string, FileBody>();
+  private chars = 0;
+
+  constructor(
+    private readonly maxEntries = BODY_CACHE_MAX_ENTRIES,
+    private readonly maxChars = BODY_CACHE_MAX_CHARS,
+  ) {}
+
+  get size(): number {
+    return this.map.size;
+  }
+
+  get(key: string): FileBody | undefined {
+    const v = this.map.get(key);
+    if (v) {
+      this.map.delete(key);
+      this.map.set(key, v);
+    }
+    return v;
+  }
+
+  set(key: string, body: FileBody): void {
+    const old = this.map.get(key);
+    if (old) {
+      this.chars -= old.text.length;
+      this.map.delete(key);
+    }
+    this.map.set(key, body);
+    this.chars += body.text.length;
+    for (const [k, v] of this.map) {
+      if (this.map.size <= this.maxEntries && this.chars <= this.maxChars) break;
+      if (k === key) break;
+      this.map.delete(k);
+      this.chars -= v.text.length;
+    }
+  }
 }
 
 export interface LoadOptions {
@@ -175,6 +226,13 @@ export function loadResults(opts: LoadOptions): LoadedResults {
     linkedDirs,
     new Set(Object.keys(snapshot.orders)),
   );
+  const filesByOrder = new Map<string, ResultFile[]>();
+  for (const f of files) {
+    if (!f.orderId) continue;
+    const list = filesByOrder.get(f.orderId);
+    if (list) list.push(f);
+    else filesByOrder.set(f.orderId, [f]);
+  }
   return {
     stateDir,
     snapshot,
@@ -182,7 +240,8 @@ export function loadResults(opts: LoadOptions): LoadedResults {
     orderRefs,
     files,
     fileByKey: new Map(files.map((f) => [f.key, f])),
-    bodies: new Map(),
+    filesByOrder,
+    bodies: new BodyCache(),
   };
 }
 
@@ -259,7 +318,10 @@ export function classifyRef(ref: string, ctx: RefContext): ClassifiedRef {
   } catch {
     return { ...base, kind: 'missing' };
   }
-  if (st.isDirectory()) return { ...base, kind: 'dir', path: real, entries: dirEntries(real) };
+  if (st.isDirectory()) {
+    const { entries, total } = dirEntries(real);
+    return { ...base, kind: 'dir', path: real, entries, entriesTotal: total };
+  }
   if (!st.isFile() || !READABLE_EXTENSIONS.has(extname(real).toLowerCase())) {
     return { ...base, kind: 'unsupported' };
   }
@@ -267,7 +329,7 @@ export function classifyRef(ref: string, ctx: RefContext): ClassifiedRef {
 }
 
 /** 디렉토리 바로 아래 읽을 수 있는 파일. 심링크는 Dirent가 파일로 안 쳐서 빠진다 */
-function dirEntries(dir: string): DirEntry[] {
+function dirEntries(dir: string): { entries: DirEntry[]; total: number } {
   let names: string[];
   try {
     names = readdirSync(dir, { withFileTypes: true })
@@ -275,7 +337,7 @@ function dirEntries(dir: string): DirEntry[] {
       .map((d) => d.name)
       .sort();
   } catch {
-    return [];
+    return { entries: [], total: 0 };
   }
   const out: DirEntry[] = [];
   for (const name of names.slice(0, MAX_DIR_ENTRIES)) {
@@ -286,12 +348,13 @@ function dirEntries(dir: string): DirEntry[] {
       // 목록을 읽은 사이 지워진 파일은 뺀다
     }
   }
-  return out;
+  return { entries: out, total: names.length };
 }
 
 /**
  * 허용 루트 아래 텍스트 파일을 읽는다. 분류한 뒤에 파일이 심링크로 바뀌었을 수 있어 읽기 직전에 다시 확인한다.
- * 조건에 안 맞으면 null.
+ * 확인한 뒤 여는 사이에 바뀌는 것도 막으려고 O_NOFOLLOW로 열고 연 fd가 확인한 파일과 같은지 dev, ino로 맞춘다.
+ * 조건에 안 맞거나 읽다 실패하면 null.
  */
 export function readTextFile(path: string, roots: readonly string[]): FileBody | null {
   let real: string;
@@ -303,10 +366,19 @@ export function readTextFile(path: string, roots: readonly string[]): FileBody |
   }
   if (!roots.some((r) => within(real, r))) return null;
   if (!READABLE_EXTENSIONS.has(extname(real).toLowerCase())) return null;
-  const fd = openSync(real, 'r');
+  let fd: number;
+  let checked;
+  try {
+    checked = statSync(real);
+    // FIFO를 열면 쓰는 쪽이 올 때까지 멈춘다. 열기 전에 일반 파일만 남기고 O_NONBLOCK도 건다
+    if (!checked.isFile()) return null;
+    fd = openSync(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    return null;
+  }
   try {
     const st = fstatSync(fd);
-    if (!st.isFile()) return null;
+    if (!st.isFile() || st.dev !== checked.dev || st.ino !== checked.ino) return null;
     const truncated = st.size > MAX_FULL_READ_BYTES;
     const want = truncated ? TRUNCATED_READ_BYTES : st.size;
     const buf = Buffer.alloc(want);
@@ -317,6 +389,8 @@ export function readTextFile(path: string, roots: readonly string[]): FileBody |
       read += n;
     }
     return { text: buf.subarray(0, read).toString('utf-8'), truncated, size: st.size };
+  } catch {
+    return null;
   } finally {
     closeSync(fd);
   }
@@ -340,6 +414,22 @@ export function readRefBody(
   return cachedBody(results, fresh.path, [dirOf(fresh.path)]);
 }
 
+/**
+ * 검색용. 로드 때 분류한 경로를 다시 분류하지 않고 읽는다. 바뀐 파일은 readTextFile이 읽기 직전에 다시 막는다
+ */
+function loadedRefBody(
+  results: LoadedResults,
+  ref: ClassifiedRef,
+  entry?: number,
+): FileBody | null {
+  if (!ref.path) return null;
+  if (entry !== undefined) {
+    const e = ref.kind === 'dir' ? ref.entries?.[entry] : undefined;
+    return e ? cachedBody(results, e.path, [ref.path]) : null;
+  }
+  return ref.kind === 'file' ? cachedBody(results, ref.path, [dirOf(ref.path)]) : null;
+}
+
 /** 저장소 파일 본문. 키로만 고른다 */
 export function readResultFile(results: LoadedResults, key: string): FileBody | null {
   const file = results.fileByKey.get(key);
@@ -352,10 +442,15 @@ function dirOf(path: string): string {
   return i <= 0 ? sep : path.slice(0, i);
 }
 
+/** 못 읽은 결과는 캐시하지 않는다. 잠깐 난 권한 오류가 파일이 바뀔 때까지 남지 않게 한다 */
 function cachedBody(results: LoadedResults, path: string, roots: string[]): FileBody | null {
-  if (results.bodies.has(path)) return results.bodies.get(path)!;
+  const st = lstatSync(path, { throwIfNoEntry: false });
+  if (!st) return null;
+  const key = `${path}\0${st.mtimeMs}\0${st.size}`;
+  const hit = results.bodies.get(key);
+  if (hit) return hit;
   const body = readTextFile(path, roots);
-  results.bodies.set(path, body);
+  if (body) results.bodies.set(key, body);
   return body;
 }
 
@@ -410,8 +505,6 @@ function fileKey(rel: string): string {
   return createHash('sha256').update(rel).digest('hex').slice(0, 16);
 }
 
-// ─── 목록 ───────────────────────────────────────────────────────
-
 export interface ResultFilters {
   repo?: string;
   status?: string;
@@ -435,8 +528,17 @@ export interface OrderSummary {
   lastReportAt?: string;
 }
 
-/** `--since` 값. 날짜로 못 읽으면 던진다 */
+/** `--since` 값. 날짜만 적으면 화면의 날짜와 맞게 로컬 자정으로 읽는다. 날짜로 못 읽으면 던진다 */
 export function parseSince(v: string): number {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v.trim());
+  if (day) {
+    const [y, m, d] = [Number(day[1]!), Number(day[2]!), Number(day[3]!)];
+    const local = new Date(y, m - 1, d);
+    if (local.getFullYear() === y && local.getMonth() === m - 1 && local.getDate() === d) {
+      return local.getTime();
+    }
+    throw new Error(`--since는 2026-11-01 같은 날짜여야 해요: ${v}`);
+  }
   const t = Date.parse(v);
   if (Number.isNaN(t)) throw new Error(`--since는 2026-11-01 같은 날짜여야 해요: ${v}`);
   return t;
@@ -458,7 +560,7 @@ function filteredOrders(results: LoadedResults, f: ResultFilters): Order[] {
 }
 
 function relatedFiles(results: LoadedResults, orderId: string): ResultFile[] {
-  return results.files.filter((f) => f.orderId === orderId);
+  return results.filesByOrder.get(orderId) ?? [];
 }
 
 export function summarize(results: LoadedResults, o: Order): OrderSummary {
@@ -487,8 +589,6 @@ export function listOrders(
   const orders = filteredOrders(results, filters);
   return { total: orders.length, orders: orders.map((o) => summarize(results, o)) };
 }
-
-// ─── 상세 ───────────────────────────────────────────────────────
 
 export type ResolvedOrderId =
   | { ok: true; id: string }
@@ -532,8 +632,6 @@ export function getOrderDetail(results: LoadedResults, id: string): OrderDetail 
   };
 }
 
-// ─── 검색 ───────────────────────────────────────────────────────
-
 export type HitSource = 'title' | 'summary' | 'ref' | 'file';
 
 export interface SearchHit {
@@ -549,10 +647,15 @@ export interface SearchHit {
   /** ref면 refs 번호(1부터)와 디렉토리 항목 번호(0부터) */
   refIndex?: number;
   entryIndex?: number;
-  /** 저장소 파일이면 그 키 */
+  /** 저장소 파일이면 그 키와 실제 경로 */
   fileKey?: string;
+  absPath?: string;
   /** 본문이면 줄 번호(1부터) */
   line?: number;
+  /** 이 파일에서 맞았지만 파일당 상한에 걸려 결과로 안 만든 줄 수 */
+  moreInFile?: number;
+  /** 파일이 커서 앞부분만 읽고 찾았으면 true */
+  partial?: boolean;
   excerpt: string;
   /** excerpt 안에서 맞은 자리 */
   matchStart: number;
@@ -616,26 +719,59 @@ function flat(s: string): string {
   return out;
 }
 
-function bodyHits(
-  text: string,
-  re: RegExp,
-  base: Omit<SearchHit, 'line' | 'excerpt' | 'matchStart' | 'matchLength'>,
-): SearchHit[] {
-  const hits: SearchHit[] = [];
-  const lines = text.split('\n');
-  for (let i = 0; i < lines.length && hits.length < MAX_HITS_PER_FILE; i++) {
+type HitBase = Omit<SearchHit, 'line' | 'excerpt' | 'matchStart' | 'matchLength'>;
+
+/** 맞은 건수는 모두 세고 결과 객체는 limit까지만 만든다. limit 뒤에 excerpt를 만들 일이 없게 한다 */
+interface HitSink {
+  hits: SearchHit[];
+  total: number;
+  limit: number;
+}
+
+function addHit(sink: HitSink, make: () => SearchHit): SearchHit | undefined {
+  sink.total++;
+  if (sink.hits.length >= sink.limit) return undefined;
+  const hit = make();
+  sink.hits.push(hit);
+  return hit;
+}
+
+/** 읽은 범위 안에서 맞은 줄을 다 센다. 결과는 파일당 앞 MAX_HITS_PER_FILE건만 만든다 */
+function bodyHits(sink: HitSink, body: FileBody, re: RegExp, base: HitBase): number {
+  const lines = body.text.split('\n');
+  const extra = body.truncated ? { partial: true } : {};
+  let matched = 0;
+  let last: SearchHit | undefined;
+  let made = 0;
+  for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     re.lastIndex = 0;
     const m = re.exec(line);
     if (!m) continue;
-    hits.push({ ...base, line: i + 1, ...excerptAt(line, m.index, m[0].length, EXCERPT_RADIUS) });
+    matched++;
+    if (matched > MAX_HITS_PER_FILE) {
+      sink.total++;
+      continue;
+    }
+    const hit = addHit(sink, () => ({
+      ...base,
+      ...extra,
+      line: i + 1,
+      ...excerptAt(line, m.index, m[0].length, EXCERPT_RADIUS),
+    }));
+    if (hit) {
+      last = hit;
+      made++;
+    }
   }
-  return hits;
+  if (last && matched > made) last.moreInFile = matched - made;
+  return matched;
 }
 
 /**
  * 제목과 보고 요약, 읽을 수 있는 refs 본문, 저장소 파일에서 찾는다. 대소문자는 무시한다.
  * 결과는 주문 갱신순이고 한 주문 안에서는 제목, 요약(최근 보고 먼저), refs, 관련 파일 순이다. 주문 없음 파일은 끝에 온다.
+ * total은 맞은 건수 전부다. 파일당 상한과 limit에 걸려 결과로 안 만든 것도 센다.
  */
 export function searchResults(
   results: LoadedResults,
@@ -646,61 +782,58 @@ export function searchResults(
   if (!q) return { query: q, total: 0, hits: [] };
   const re = new RegExp(escapeRegExp(q), 'iu');
   const body = opts.body !== false;
-  const hits: SearchHit[] = [];
+  const sink: HitSink = { hits: [], total: 0, limit: opts.limit ?? Infinity };
 
   for (const o of filteredOrders(results, opts)) {
     const head = { orderId: o.id, title: o.title, repo: o.repo };
     const t = excerpt(o.title, re);
-    if (t) hits.push({ ...head, at: o.updatedAt, source: 'title', where: 'title', ...t });
+    if (t)
+      addHit(sink, () => ({ ...head, at: o.updatedAt, source: 'title', where: 'title', ...t }));
     const reports = results.snapshot.reports[o.id] ?? [];
     for (let i = reports.length - 1; i >= 0; i--) {
       const r = reports[i]!;
-      const e = excerpt(r.summary, re);
-      if (e) {
-        hits.push({
-          ...head,
-          at: r.at,
-          source: 'summary',
-          where: 'summary',
-          reportIndex: i + 1,
-          ...e,
-        });
-      }
+      re.lastIndex = 0;
+      if (!re.test(r.summary)) continue;
+      addHit(sink, () => ({
+        ...head,
+        at: r.at,
+        source: 'summary',
+        where: 'summary',
+        reportIndex: i + 1,
+        ...excerpt(r.summary, re)!,
+      }));
     }
     if (!body) continue;
     const { refs, firstReport } = results.orderRefs.get(o.id) ?? { refs: [], firstReport: [] };
     refs.forEach((ref, i) => {
       const at = reports[(firstReport[i] ?? 1) - 1]?.at ?? o.updatedAt;
       if (ref.kind === 'file') {
-        const b = readRefBody(results, o.id, ref);
+        const b = loadedRefBody(results, ref);
         if (b) {
-          hits.push(
-            ...bodyHits(b.text, re, {
-              ...head,
-              at,
-              source: 'ref',
-              where: ref.display,
-              refIndex: i + 1,
-            }),
-          );
+          bodyHits(sink, b, re, {
+            ...head,
+            at,
+            source: 'ref',
+            where: ref.display,
+            refIndex: i + 1,
+          });
         }
       } else if (ref.kind === 'dir') {
         (ref.entries ?? []).forEach((entry, j) => {
-          const b = readRefBody(results, o.id, ref, j);
+          const b = loadedRefBody(results, ref, j);
           if (!b) return;
-          const base = {
+          bodyHits(sink, b, re, {
             ...head,
             at,
-            source: 'ref' as const,
+            source: 'ref',
             where: entry.path,
             refIndex: i + 1,
             entryIndex: j,
-          };
-          hits.push(...bodyHits(b.text, re, base));
+          });
         });
       }
     });
-    for (const f of relatedFiles(results, o.id)) hits.push(...fileHits(results, f, re, head));
+    for (const f of relatedFiles(results, o.id)) fileHits(sink, results, f, re, head);
   }
 
   // 주문 없음 파일에는 레포나 상태가 없다. 그 필터를 걸었으면 뺀다
@@ -709,26 +842,32 @@ export function searchResults(
     for (const f of results.files) {
       if (f.orderId) continue;
       if (since !== undefined && Date.parse(f.mtime) < since) continue;
-      hits.push(...fileHits(results, f, re, { orderId: null, title: f.rel, repo: null }));
+      fileHits(sink, results, f, re, { orderId: null, title: f.rel, repo: null });
     }
   }
 
-  const limit = opts.limit ?? hits.length;
-  return { query: q, total: hits.length, hits: hits.slice(0, limit) };
+  return { query: q, total: sink.total, hits: sink.hits };
 }
 
 function fileHits(
+  sink: HitSink,
   results: LoadedResults,
   f: ResultFile,
   re: RegExp,
   head: { orderId: string | null; title: string; repo: string | null },
-): SearchHit[] {
-  const out: SearchHit[] = [];
-  const name = excerpt(basename(f.rel), re);
+): void {
   const b = readResultFile(results, f.key);
-  const base = { ...head, at: f.mtime, source: 'file' as const, where: f.rel, fileKey: f.key };
-  if (b) out.push(...bodyHits(b.text, re, base));
+  const base = {
+    ...head,
+    at: f.mtime,
+    source: 'file' as const,
+    where: f.rel,
+    fileKey: f.key,
+    absPath: f.path,
+  };
+  const matched = b ? bodyHits(sink, b, re, base) : 0;
+  if (matched > 0) return;
   // 본문에 없고 이름에만 있으면 이름으로 한 건 낸다
-  if (out.length === 0 && name) out.push({ ...base, ...name });
-  return out;
+  const name = excerpt(basename(f.rel), re);
+  if (name) addHit(sink, () => ({ ...base, ...name }));
 }
