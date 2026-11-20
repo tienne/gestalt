@@ -383,9 +383,9 @@ const DELTA_CSS = `* { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
 .dl-head { padding: 20px 24px 8px; }
 .dl-head h1 { margin: 0; font-size: 18px; font-weight: 700; }
-.dl-sum { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.dl-sum { margin: 4px 0 0; color: var(--text-2); font-size: 13px; }
 .dl-note { margin: 4px 0 0; color: var(--warn); font-size: 13px; }
-.dl-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 12px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--muted); }
+.dl-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 12px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--text-3); }
 .dl-legend li { display: inline-flex; align-items: center; gap: 6px; }
 .dl-badge { display: inline-block; padding: 0 7px; border-radius: 9px; font-size: 11px; line-height: 18px; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); }
 .dl-badge.b-removed { border-style: dashed; }
@@ -394,10 +394,10 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(
 .dl-grid { display: grid; gap: 16px; align-items: start; }
 .dl-panel, .dl-ledger { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; min-width: 0; }
 .dl-panel h2, .dl-ledger h2 { display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 12px 16px; font-size: 14px; font-weight: 700; border-bottom: 1px solid var(--border); }
-.dl-panel h2 span, .dl-ledger h2 span { font-size: 12px; font-weight: 400; color: var(--muted); }
+.dl-panel h2 span, .dl-ledger h2 span { font-size: 12px; font-weight: 400; color: var(--text-3); }
 .dl-svg { display: block; width: 100%; height: auto; }
 .dl-lane { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
-.dl-lane-t { fill: var(--muted); font-size: 12px; font-weight: 600; text-anchor: middle; }
+.dl-lane-t { fill: var(--text-3); font-size: 12px; font-weight: 600; text-anchor: middle; }
 .dl-edge { fill: none; stroke: var(--edge); stroke-linecap: round; }
 .dl-edge.c-added { stroke: var(--edge-strong); }
 .dl-edge.c-removed { opacity: 0.8; }
@@ -409,9 +409,9 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(
 .dl-card.c-added { stroke: var(--edge-strong); stroke-width: 2.5; }
 .dl-card.c-removed { fill: var(--surface-2); stroke: var(--edge-strong); stroke-width: 1.5; stroke-dasharray: 2 4; stroke-linecap: round; }
 .dl-inset { fill: var(--edge-strong); }
-.dl-chip { fill: var(--muted); font-size: 10.5px; font-weight: 600; }
+.dl-chip { fill: var(--text-3); font-size: 10.5px; font-weight: 600; }
 .dl-name { fill: var(--text); font-size: 13px; font-weight: 650; }
-.dl-id { fill: var(--muted); font: 11px var(--mono); }
+.dl-id { fill: var(--text-3); font: 11px var(--mono); }
 .dl-badge-g rect { fill: var(--surface); stroke: var(--edge-strong); stroke-width: 1; }
 .dl-badge-g.b-removed rect { stroke-dasharray: 3 2; }
 .dl-badge-g text { fill: var(--text); font-size: 10.5px; font-weight: 650; text-anchor: middle; }
@@ -421,5 +421,5 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(
 .dl-word { font-weight: 800; font-size: 12px; letter-spacing: 0.04em; color: var(--accent); }
 .dl-ledger code { font: 12px var(--mono); color: var(--text); word-break: break-all; }
 .dl-ledger p { margin: 4px 0 0; font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
-.dl-empty { margin: 0; padding: 12px 16px; font-size: 13px; color: var(--muted); }
-.dl-hint { margin: 0 24px 16px; font-size: 12px; color: var(--muted); }`;
+.dl-empty { margin: 0; padding: 12px 16px; font-size: 13px; color: var(--text-3); }
+.dl-hint { margin: 0 24px 16px; font-size: 12px; color: var(--text-3); }`;

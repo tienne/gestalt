@@ -20,13 +20,13 @@ const HIDDEN_MS = 60_000;
 const WAIT_LIMIT_MS = 10 * 60_000;
 
 /** 질문 폼 모양. 본인용 페이지 style에만 싣는다 */
-export const LIVE_FORM_CSS = `.live-ask { position: fixed; right: 16px; bottom: 16px; z-index: 40; width: min(360px, calc(100vw - 32px)); display: grid; gap: 6px; padding: 10px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12); font: inherit; }
+export const LIVE_FORM_CSS = `.live-ask { position: fixed; right: 16px; bottom: 16px; z-index: 40; width: min(360px, calc(100vw - 32px)); display: grid; gap: 6px; padding: 10px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow-pop); font: inherit; }
 .live-ask label { font-weight: 650; font-size: 13px; }
 .live-ask textarea { width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; padding: 6px 8px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .live-ask .live-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.live-ask button { padding: 4px 12px; font: inherit; color: var(--surface); background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
+.live-ask button { padding: 4px 12px; font: inherit; color: var(--on-accent); background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
 .live-ask button[disabled] { opacity: 0.5; cursor: default; }
-.live-ask .live-msg { margin: 0; font-size: 12px; color: var(--muted); }
+.live-ask .live-msg { margin: 0; font-size: 12px; color: var(--text-3); }
 @media print { .live-ask { display: none; } }`;
 
 /**
