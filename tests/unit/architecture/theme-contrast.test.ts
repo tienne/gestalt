@@ -120,13 +120,13 @@ interface Row {
 function cardRows(theme: 'light' | 'dark'): Row[] {
   const card = tok(theme, '--card');
   const text = tok(theme, '--text');
-  const muted = tok(theme, '--muted');
+  const meta = tok(theme, '--text-3');
   const rows: Row[] = [
     { theme, text: '.nm 이름', ratio: contrast(text, card) },
-    { theme, text: '.tc 둘째 줄', ratio: contrast(muted, card) },
+    { theme, text: '.tc 둘째 줄', ratio: contrast(meta, card) },
     { theme, text: '.ds 설명', ratio: contrast(tok(theme, '--text-2'), card) },
-    { theme, text: '.go 들어가기', ratio: contrast(muted, card) },
-    { theme, text: '.pf 출처 배지', ratio: contrast(muted, card) },
+    { theme, text: '.go 들어가기', ratio: contrast(meta, card) },
+    { theme, text: '.pf 출처 배지', ratio: contrast(meta, card) },
     {
       theme,
       text: '.guess 추정 배지',
@@ -140,7 +140,7 @@ function cardRows(theme: 'light' | 'dark'): Row[] {
     {
       theme,
       text: '.flow-step .st 단계',
-      ratio: contrast(muted, over(tok(theme, '--lane'), card)),
+      ratio: contrast(meta, over(tok(theme, '--lane'), card)),
     },
     { theme, text: '.flow-step .qb 질문', ratio: contrast(tok(theme, '--warn'), card) },
     { theme, text: '.flow-step .end 끝', ratio: contrast(tok(theme, '--surface'), text) },
@@ -164,11 +164,11 @@ function cardRows(theme: 'light' | 'dark'): Row[] {
 /** 레인은 면이 없어 제목이 캔버스 배경 위에 바로 놓인다. 바깥 맥락 레인도 같다 */
 function laneRows(theme: 'light' | 'dark'): Row[] {
   const bg = tok(theme, '--bg');
-  const muted = tok(theme, '--muted');
+  const meta = tok(theme, '--text-3');
   return [
-    { theme, text: '.lane-title 레인 제목', ratio: contrast(muted, bg) },
-    { theme, text: '.lane-title .n 개수', ratio: contrast(muted, tok(theme, '--surface')) },
-    { theme, text: '.lane-title .more +N', ratio: contrast(muted, bg) },
+    { theme, text: '.lane-title 레인 제목', ratio: contrast(meta, bg) },
+    { theme, text: '.lane-title .n 개수', ratio: contrast(meta, tok(theme, '--surface')) },
+    { theme, text: '.lane-title .more +N', ratio: contrast(meta, bg) },
   ];
 }
 
@@ -178,10 +178,10 @@ function drillRows(theme: 'light' | 'dark'): Row[] {
   const card = tok(theme, '--card');
   const text = tok(theme, '--text');
   const text2 = tok(theme, '--text-2');
-  const muted = tok(theme, '--muted');
+  const meta = tok(theme, '--text-3');
   return [
     { theme, text: '.cr-n 항목 수 칩', ratio: contrast(text2, tok(theme, '--surface-2')) },
-    { theme, text: '.out-pill .ext 바깥 표시', ratio: contrast(muted, card) },
+    { theme, text: '.out-pill .ext 바깥 표시', ratio: contrast(meta, card) },
     { theme, text: '.chunk .t 덩어리 이름', ratio: contrast(text, card) },
     { theme, text: '.chunk .ds 대표 이름 줄', ratio: contrast(text2, card) },
     {
@@ -189,7 +189,7 @@ function drillRows(theme: 'light' | 'dark'): Row[] {
       text: '.ch-head .ord 레인 순서',
       ratio: contrast(tok(theme, '--on-accent'), tok(theme, '--accent')),
     },
-    { theme, text: '.lh-kind 단계 종류', ratio: contrast(muted, bg) },
+    { theme, text: '.lh-kind 단계 종류', ratio: contrast(meta, bg) },
     { theme, text: '.lh-title 단계 제목', ratio: contrast(text, bg) },
     { theme, text: '.lh-sum 단계 요약', ratio: contrast(text2, bg) },
   ];
@@ -209,9 +209,9 @@ function overviewRows(theme: 'light' | 'dark'): Row[] {
       text: '.ov-note 일러두기와 .ov-stats dt',
       ratio: contrast(tok(theme, '--text-2'), surface),
     },
-    { theme, text: '.ov-h 소제목', ratio: contrast(tok(theme, '--muted'), surface) },
+    { theme, text: '.ov-h 소제목', ratio: contrast(tok(theme, '--text-3'), surface) },
     { theme, text: '.ov-tile b 숫자', ratio: contrast(tok(theme, '--text'), surface) },
-    { theme, text: '.ov-tile span 이름', ratio: contrast(tok(theme, '--muted'), surface) },
+    { theme, text: '.ov-tile span 이름', ratio: contrast(tok(theme, '--text-3'), surface) },
     {
       theme,
       text: '.ov-lanes a 레인 목록(눌렀을 때)',
@@ -219,6 +219,45 @@ function overviewRows(theme: 'light' | 'dark'): Row[] {
     },
     { theme, text: '.ov-lanes a 레인 목록', ratio: contrast(tok(theme, '--text-2'), surface) },
   ];
+}
+
+const TEXT_LEVELS = ['--text', '--text-2', '--text-3'] as const;
+const SURFACES = ['--bg', '--surface', '--surface-2', '--card'] as const;
+
+/** 본문, 설명, 메타 세 단계는 어느 면에 놓여도 읽혀야 한다. 잉크 강조는 글자로도 쓰여 같은 기준을 건다 */
+function levelRows(theme: 'light' | 'dark'): Row[] {
+  const rows: Row[] = [];
+  for (const level of [...TEXT_LEVELS, '--accent'] as const)
+    for (const surface of SURFACES)
+      rows.push({
+        theme,
+        text: `${level} on ${surface}`,
+        ratio: contrast(tok(theme, level), tok(theme, surface)),
+      });
+  rows.push(
+    {
+      theme,
+      text: '.btn[aria-pressed] 눌린 단추',
+      ratio: contrast(
+        tok(theme, '--accent'),
+        over(tok(theme, '--accent-soft'), tok(theme, '--surface')),
+      ),
+    },
+    {
+      theme,
+      text: '.search-list .lv 고른 줄의 위치',
+      ratio: contrast(
+        tok(theme, '--text-3'),
+        over(tok(theme, '--accent-soft'), tok(theme, '--surface')),
+      ),
+    },
+    {
+      theme,
+      text: '.live-ask button 잉크 단추',
+      ratio: contrast(tok(theme, '--on-accent'), tok(theme, '--accent')),
+    },
+  );
+  return rows;
 }
 
 describe('카드 위 글자 대비', () => {
@@ -231,6 +270,8 @@ describe('카드 위 글자 대비', () => {
     ...drillRows('dark'),
     ...overviewRows('light'),
     ...overviewRows('dark'),
+    ...levelRows('light'),
+    ...levelRows('dark'),
   ];
 
   it('kc 칩 비율을 CSS에서 읽는다', () => {
