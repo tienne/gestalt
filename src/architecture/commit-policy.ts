@@ -13,10 +13,19 @@ export const IGNORED_FILE_TRACKED = 'IGNORED_FILE_TRACKED' as const;
 export const ARCHITECTURE_DIR = join('.gestalt', 'architecture');
 
 /**
- * 공개 레포에서 커밋하지 않을 산출물. 본인용 HTML과 저장 IR(투영 포함)을 막고
- * 공유본(`<그림>.shared.html`, `<그림>.delta.shared.html`)만 풀어 둔다
+ * 공개 레포에서 커밋하지 않을 산출물. 본인용 HTML과 저장 IR(투영 포함), 원자적 쓰기의 임시 파일,
+ * 스키마가 안 맞아 옮겨 둔 격리 파일(가림 이전 원문일 수 있다)을 막고
+ * 공유본(`<그림>.shared.html`, `<그림>.delta.shared.html`)만 풀어 둔다.
+ * 허용 목록(`*` 뒤 예외)으로 쓰면 이 `.gitignore` 자신까지 무시되므로 막을 꼴을 나열한다
  */
-export const PUBLIC_IGNORE_PATTERNS = ['*.html', '*.json', 'views/', '!*.shared.html'] as const;
+export const PUBLIC_IGNORE_PATTERNS = [
+  '*.html',
+  '*.json',
+  '*.tmp',
+  '*.corrupt-*',
+  'views/',
+  '!*.shared.html',
+] as const;
 
 const BEGIN =
   '# >>> gestalt architecture (render가 관리한다. 이 구역 밖에 적은 줄은 건드리지 않는다)';

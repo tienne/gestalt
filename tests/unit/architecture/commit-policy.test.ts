@@ -64,6 +64,15 @@ describe('applyCommitPolicy — 공개 레포', () => {
     expect(ignored(join(ARCHITECTURE_DIR, '.gitignore'))).toBe(false);
   });
 
+  it('원자적 쓰기의 임시 파일과 격리 파일도 무시한다', () => {
+    applyCommitPolicy(root, 'public');
+    expect(ignored(put('screen-chain.json.corrupt-1700000000000'))).toBe(true);
+    expect(ignored(put('screen-chain.html.1.abc.tmp'))).toBe(true);
+    // 공유본 이름이 들어 있어도 임시 파일은 예외에 안 걸린다
+    expect(ignored(put('screen-chain.shared.html.1.abc.tmp'))).toBe(true);
+    expect(ignored(put('views/q1.json.corrupt-1700000000000'))).toBe(true);
+  });
+
   it('두 번 돌려도 내용이 같다', () => {
     applyCommitPolicy(root, 'public');
     const first = readFileSync(ignorePath(), 'utf8');

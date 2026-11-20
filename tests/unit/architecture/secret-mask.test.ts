@@ -131,6 +131,34 @@ describe('maskSecrets — 가려야 하는 값', () => {
     expectHidden(`배포 키는 ${BARE_KEY} 로 넣어 두었다`, BARE_KEY);
   });
 
+  it('따옴표 없는 대입 값', () => {
+    const pw = join('hunter', '2', noise(40, 6));
+    const key = join('Zk3', noise(41, 20));
+    const out = expectHidden(`password=${pw} and API_KEY=${key}`, pw);
+    expect(out).not.toContain(key);
+    expect(maskSecrets(`password=${pw} and API_KEY=${key}`).masked).toBe(2);
+    expectHidden(`export DB_PASSWORD=${pw}`, pw);
+    expectHidden(`TOKEN := ${key}`, key);
+    expectHidden(`DB_PASSWORD=${join('super', 'secret')}`, join('super', 'secret'));
+  });
+
+  it('콜론 뒤 따옴표 없는 값은 숫자와 글자가 섞였을 때만 가린다', () => {
+    const key = join('Zk3', noise(42, 20));
+    expectHidden(`client_secret: ${key}`, key);
+  });
+
+  it.each([
+    ['token', '?token=%s&page=2'],
+    ['access_token', 'https://api.example.com/cb?state=1&access_token=%s'],
+    ['X-Amz-Signature', 'https://bucket.s3.amazonaws.com/a.png?X-Amz-Signature=%s'],
+    ['fragment access_token', 'https://app.example.com/cb#access_token=%s&type=bearer'],
+    ['sig', 'https://cdn.example.com/f?sig=%s'],
+  ])('URL 쿼리와 fragment의 비밀 키 값 %s', (_name, tpl) => {
+    const v = noise(43, 24);
+    const out = expectHidden(tpl.replace('%s', v), v);
+    expect(out).toContain('=' + SECRET_MASK);
+  });
+
   it('한 글에 여러 비밀값이 섞여도 전부 가리고 개수를 센다', () => {
     const text = `a ${SECRETS.github} b postgres://u:${PASSWORD}@h/db c ${JWT}`;
     const r = maskSecrets(text);
@@ -183,6 +211,17 @@ describe('maskSecrets — 가리면 안 되는 값', () => {
     ['CamelCase 식별자', 'ArchitecturePassthroughRenderDeltaSnapshotBuilder 를 부른다'],
     ['일반 문장', '결제 서버가 주문 DB에 쓰고 알림 큐로 이벤트를 보낸다.'],
     ['계정 ID 표식', '[계정 ID] 와 [배포 ID]'],
+    ['콜론 뒤 낱말', 'auth: Keycloak'],
+    ['헤더 이름', 'Authorization: Bearer'],
+    ['타입 이름', 'token: AccessToken'],
+    ['스키마 선언', 'apiKey: z.string()'],
+    ['함수 호출 대입', 'const token = await getToken(user1);'],
+    ['멤버 대입', 'const token = this.session.token;'],
+    ['변수 대입', 'const password = input;'],
+    ['비교', 'if (token === undefined) return;'],
+    ['화살표', 'tokens.map(token => tokenize(token))'],
+    ['문서 앵커', 'https://wiki.example.com/x#설치'],
+    ['쿼리 안 템플릿 참조', 'https://api.example.com/cb?token=${TOKEN}'],
   ])('%s', (_name, text) => {
     expectUntouched(text);
   });
@@ -277,6 +316,42 @@ describe('maskIrSecrets — 요약과 일러두기', () => {
     );
     expect(hits).toHaveLength(3);
     expect(ir).toEqual(snapshot);
+  });
+
+  it('code가 아닌 근거의 위치를 가리고 code 근거 위치와 문서 앵커는 남긴다', () => {
+    const ir = baseIr();
+    const tok = noise(44, 24);
+    const sig = noise(45, 40);
+    ir.nodes[0]!.evidence = [
+      { type: 'code', location: 'web:src/a.ts:3', visibility: 'public' },
+      { type: 'doc', location: `https://api.example.com/x?token=${tok}`, visibility: 'public' },
+      {
+        type: 'doc',
+        location: `https://b.s3.amazonaws.com/a?X-Amz-Signature=${sig}`,
+        visibility: 'public',
+      },
+      {
+        type: 'doc',
+        location: `https://app.example.com/cb#access_token=${tok}`,
+        visibility: 'public',
+      },
+      { type: 'doc', location: 'https://wiki.example.com/x#설치', visibility: 'public' },
+    ];
+    const { ir: masked, hits } = maskIrSecrets(ir);
+    const locs = masked.nodes[0]!.evidence.map((e) => e.location);
+    expect(locs[0]).toBe('web:src/a.ts:3');
+    expect(locs[1]).toBe(`https://api.example.com/x?token=${SECRET_MASK}`);
+    expect(locs[2]).not.toContain(sig);
+    expect(locs[3]).toBe(`https://app.example.com/cb#access_token=${SECRET_MASK}`);
+    expect(locs[4]).toBe('https://wiki.example.com/x#설치');
+    expect(hits).toEqual(
+      expect.arrayContaining([
+        { nodeId: 'api', field: 'evidence[1].location' },
+        { nodeId: 'api', field: 'evidence[2].location' },
+        { nodeId: 'api', field: 'evidence[3].location' },
+      ]),
+    );
+    expect(hits).toHaveLength(3);
   });
 
   it('칸이 없으면 키를 새로 만들지 않는다', () => {

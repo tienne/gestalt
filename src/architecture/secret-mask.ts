@@ -152,6 +152,24 @@ function assignedValueIsSecret(name: string, value: string): boolean {
   return true;
 }
 
+/**
+ * 따옴표 없는 대입 값이 비밀값인지. 코드 근거의 `token = getToken()`, `token = this.token`은 값이 아니다.
+ * `:`는 `auth: Keycloak`, `Authorization: Bearer`처럼 산문과 타입 선언에 흔해서 생성 값처럼 보일 때만 가린다
+ */
+function bareValueIsSecret(name: string, op: string, value: string): boolean {
+  if (/^[=>]/.test(value) || /[([{]/.test(value) || MEMBER_CHAIN.test(value)) return false;
+  // 숫자 없는 낱말 하나는 코드의 변수 이름일 때가 많다. .env처럼 대문자 이름에 붙었을 때만 값으로 본다
+  if (IDENTIFIER.test(value) && !/\d/.test(value) && !ENV_NAME.test(name)) return false;
+  if (!assignedValueIsSecret(name, value)) return false;
+  if (op.trim() !== ':') return true;
+  return (/\d/.test(value) && /[A-Za-z]/.test(value)) || looksRandom(value);
+}
+
+function urlParamIsSecret(key: string, value: string): boolean {
+  if (!SECRET_NAME.test(snake(key)) && !URL_SECRET_KEY.test(key)) return false;
+  return !value.includes(SECRET_MASK) && !PLACEHOLDER.test(value) && !ENV_REFERENCE.test(value);
+}
+
 /** 이름은 대충 생겼어도 무작위로 만든 값처럼 보이는지. 숫자와 글자가 섞이고 엔트로피가 높다 */
 function looksRandom(v: string): boolean {
   if (!/\d/.test(v) || !/[A-Za-z]/.test(v)) return false;
@@ -233,6 +251,15 @@ const DB_URL = /\b([a-z][a-z0-9+.-]{1,30}:\/\/[^\s:/@'"`<>]{0,256}:)([^\s@/'"`<>
 // name = "value", "name": 'value', name: `value` 같은 대입. 이름 앞뒤 따옴표는 같아야 한다
 const QUOTED_ASSIGN =
   /(?<![\w.-])(["']?)([A-Za-z_][\w.-]{0,100})\1(\s{0,10}(?::=|=>|=|:)\s{0,10})(["'`])([^"'`\n]{0,2000})\4/g;
+// name=value, NAME:=value, key: value 같은 따옴표 없는 대입. 값은 공백과 따옴표, 구분 문자에서 끊는다
+const BARE_ASSIGN =
+  /(?<![\w.-])([A-Za-z_][\w.-]{0,100})(\s{0,10}(?::=|=|:)\s{0,10})([^\s"'`,;)]{4,256})/g;
+// URL 쿼리와 fragment 안 키=값. 키와 값 없는 `#절` 앵커는 안 걸린다
+const URL_PARAM = /([?&#])([A-Za-z_][\w.-]{0,100})=([^&#\s"'`<>]{1,512})/g;
+const URL_SECRET_KEY = /^(?:sig|signature|x-amz-signature|x-amz-credential|code|key)$/i;
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+const MEMBER_CHAIN = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/;
+const ENV_NAME = /^[A-Z][A-Z0-9_]*$/;
 const QUOTED_RANDOM = /(["'`])([A-Za-z0-9+/=_-]{32,8192})\1/g;
 const BARE_RANDOM = /(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/_-]{32,8192}={0,2}(?![A-Za-z0-9+/=_-])/g;
 
@@ -264,7 +291,7 @@ function knownFormatIsReal(match: string): boolean {
 /**
  * 글자에서 비밀값을 가린다. 비밀값이 없으면 같은 글자를 돌려준다.
  * 가리는 순서: 개인 키 블록, 알려진 키 형식, JWT, 접속 주소 비밀번호, 비밀 이름에 대입한 따옴표 값,
- * 따옴표 안 무작위 긴 글자, 산문 속 따옴표 없는 생성 키 꼴
+ * URL 쿼리와 fragment의 비밀 키 값, 비밀 이름에 대입한 따옴표 없는 값, 따옴표 안 무작위 긴 글자, 산문 속 따옴표 없는 생성 키 꼴
  */
 export function maskSecrets(text: string): MaskResult {
   if (text.length === 0) return { text, masked: 0 };
@@ -302,6 +329,17 @@ export function maskSecrets(text: string): MaskResult {
       return `${q}${name}${q}${op}${q2}${SECRET_MASK}${q2}`;
     },
   );
+  out = out.replace(URL_PARAM, (m, sep: string, key: string, value: string) => {
+    if (!urlParamIsSecret(key, value)) return m;
+    masked += 1;
+    return `${sep}${key}=${SECRET_MASK}`;
+  });
+  out = out.replace(BARE_ASSIGN, (m, name: string, op: string, value: string) => {
+    const last = name.split('.').pop() ?? name;
+    if (!SECRET_NAME.test(snake(last)) || !bareValueIsSecret(last, op, value)) return m;
+    masked += 1;
+    return `${name}${op}${SECRET_MASK}`;
+  });
   out = out.replace(QUOTED_RANDOM, (m, q: string, v: string) => {
     if (!looksRandom(v)) return m;
     masked += 1;
@@ -354,6 +392,11 @@ class IrMasker {
   evidence(list: Evidence[], owner: Owner, prefix = ''): Evidence[] {
     return list.map((ev, i) => ({
       ...ev,
+      // code 근거 위치는 `<repo>:<경로>:<줄>`이라 비밀값이 없고 가리면 코드로 못 간다.
+      // 공유본은 private과 live 근거의 위치를 지운 뒤에 오므로 위치가 없을 수 있다
+      ...(ev.type === 'code'
+        ? {}
+        : this.opt('location', ev.location, owner, `${prefix}evidence[${i}].location`)),
       ...this.opt('excerpt', ev.excerpt, owner, `${prefix}evidence[${i}].excerpt`),
       ...this.opt('command', ev.command, owner, `${prefix}evidence[${i}].command`),
     }));
