@@ -131,9 +131,16 @@ function http(
         headers: { host: `127.0.0.1:${port}`, ...opts.headers },
       },
       (res) => {
-        let body = '';
-        res.on('data', (c: Buffer) => (body += c.toString()));
-        res.on('end', () => done({ status: res.statusCode!, headers: res.headers, body }));
+        // 조각마다 디코딩하면 경계에 걸린 한글 바이트가 깨진다
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () =>
+          done({
+            status: res.statusCode!,
+            headers: res.headers,
+            body: Buffer.concat(chunks).toString('utf8'),
+          }),
+        );
       },
     );
     req.on('error', reject);
