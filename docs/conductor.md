@@ -262,7 +262,7 @@ gestalt conductor order mark-merged <orderId>
 
 `gestalt conductor status`가 주문과 워커 상태를 보여 준다. 끝난 주문까지 보려면 `--all`을 붙인다. 컨덕터 세션이 압축되거나 끊겨도 상태는 저장소에 남아 있다. 새 세션에서 스킬을 다시 부르면 status를 읽고 이어 간다.
 
-주문 하나의 결과는 아래 명령으로 읽는다. 주문 제목과 레포, 범위, 상태, 설명, 스킬 체인을 보여준다. 모든 워커의 종류와 에이전트, 상태도 나온다. 보고 이력에는 시각과 상태, 요약이 남고 refs 경로와 PR, gate, bypass도 함께 읽는다. `--json`은 같은 내용을 구조화해 돌려준다.
+주문 하나의 결과는 아래 명령으로 읽는다. 주문 제목과 레포, 범위, 상태, 설명, 스킬 체인을 보여준다. 모든 워커의 종류와 에이전트, 상태도 나온다. 보고 이력에는 시각과 상태, 요약이 남고 refs 경로와 PR, gate, bypass도 함께 읽는다. 저장소로 복사한 refs는 보고마다 `사본:` 줄로 나온다. `--json`은 같은 내용을 구조화해 돌려준다.
 
 ```bash
 gestalt conductor order show <id>
@@ -320,6 +320,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `events.jsonl`              | tick, CLI 명령  | 상태 이벤트와 실제 워커 에이전트, 보고 이력. `report-applied`에 workerId, status, summary, refs, skill, prRef, merged, stopReason, need를 보존하며 진행 보고도 포함한다. 하위 주문 요청(`spawnRequest`)은 주문 이벤트로 옮겨지므로 보고에는 다시 남기지 않는다 |
 | `inbox/`                    | 워커            | `worker report`가 남긴 결과 파일. 다음 tick이 상태와 보고 본문을 이벤트에 기록한 뒤 지운다. 적용하다 실패한 원문은 `inbox/failed/`로 옮긴다                                                                                                                    |
 | `inbox/unrecorded/`         | tick            | 적용은 끝났는데 `report-applied` 기록만 실패한 결과 파일. 다음 tick이 다시 적용하지 않고 기록만 남긴 뒤 지운다. 다시 적용하면 bypass와 워커에 전하기, 하위 주문이 한 번 더 돌기 때문이다                                                                       |
+| `refs/<주문 id>/`           | tick            | 보고 refs 중 저장소 밖 텍스트 파일의 사본. 규칙은 아래 [refs 사본](#refs-사본)에 있다                                                                                                                                                                          |
 | `prompts/`                  | tick            | 워커 첫 지시 파일                                                                                                                                                                                                                                              |
 | `worktrees/`                | tick            | 오르카가 없을 때 만든 git 워크트리                                                                                                                                                                                                                             |
 | `deploy/`                   | 호스트          | `deploy report`가 남긴 배포 결과                                                                                                                                                                                                                               |
@@ -329,6 +330,18 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `sessions/<세션 id>/`       | tick, 컴팩트 훅 | 등록한 컨덕터 세션. `session.json`은 tick이, `compactions`(횟수와 트랜스크립트 경로)는 훅이, `handoff.json`(인계 기록)은 `handoff` 명령이 쓰고 이전 탭을 닫은 결과(`close`)와 `close-claim`은 새 세션의 tick이 쓴다                                            |
 | `handoffs/`                 | `handoff` 명령  | 새 컨덕터 세션에 넘긴 인계 파일                                                                                                                                                                                                                                |
 | `tick.lock`                 | tick            | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다                                                                                                                                                        |
+
+### refs 사본
+
+워커는 결과 원문을 `/tmp`나 자기 워크트리에 두고 경로만 보낸다. 그 파일은 워커를 거두거나 재부팅하면 사라지므로 tick이 보고를 적용할 때 저장소 밖 텍스트 파일을 `refs/<주문 id>/<해시>-<파일 이름>`으로 복사한다.
+
+- 절대 경로와 `~/` 경로만 본다. 상대 경로는 워커 작업 디렉토리 기준이라 컨덕터가 풀 수 없어 건너뛴다.
+- 확장자가 md, markdown, txt, log, json, diff, patch인 일반 파일만 복사한다. 주소, 디렉토리, 없는 파일, 앞 8KB에 NUL이 있는 파일은 그대로 둔다.
+- 심링크 파일, `..`이 들어간 경로, 이미 저장소 안에 있는 파일은 복사하지 않는다. `refs/`나 주문 디렉토리가 심링크로 바뀌어 있어도 쓰지 않는다.
+- 파일 하나는 256KB까지 남기고 넘으면 앞부분만 남긴다. 보고 하나의 합계는 1MB까지이고 넘는 파일부터는 복사하지 않는다. 2026-11-20 저장소에 남아 있던 refs 파일 154개가 최대 111KB, 보고 하나에 실린 절대 경로가 많아야 3개였던 것을 보고 정했다.
+- 복사가 실패해도 보고 적용과 기록은 그대로 간다.
+
+이벤트의 `refs`는 워커가 보낸 값 그대로 두고 사본 결과는 `refCopies`에 따로 남긴다. 항목마다 원래 값(`ref`)과 저장소 기준 사본 경로(`path`)가 있고 앞부분만 남겼으면 `truncated`와 원래 크기(`size`), 복사하지 않았으면 `skipped`(`report-limit` 또는 `error`)가 붙는다. 복사 대상이 아닌 ref는 `refCopies`에 없다. 이 칸이 없는 옛 이벤트도 그대로 재생된다.
 
 위치는 `--state-dir`, `GESTALT_CONDUCTOR_STATE_DIR`, `~/.gestalt/conductor.json`의 `stateDir`, 기본값 `~/.gestalt/conductor` 순서로 정한다. 워커는 다른 레포에서 돌아 그쪽 `gestalt.json`을 읽기 때문에 워커 지시에는 저장소 절대 경로를 `--state-dir`로 박아 둔다.
 
