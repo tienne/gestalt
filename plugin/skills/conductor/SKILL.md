@@ -290,9 +290,9 @@ wait는 tick을 감시 간격마다 `--force`로 돌린다. 이미 보여 준 �
 
 진행을 보고할 때는 `gestalt conductor status`의 숫자와 바뀐 주문만 짧게 말한다. 그 사이 tick이 낸 `warnings`와 `errors`가 있으면 함께 적는다. bypass로 넘긴 일은 모아서 사후 보고한다. 주문마다 붙은 bypass 내역이 `gestalt conductor status --json`에 실리고 끝난 주문까지 보려면 `--all`을 붙인다.
 
-끝난 주문의 결과나 이전 보고를 물으면 `gestalt conductor order show <id> --json`으로 읽는다. 보고 이력의 요약과 refs, PR, gate, bypass를 근거로 답하고 대화 기억으로 복원하지 않는다. refs 원래 경로의 파일이 없으면 같은 보고의 `refCopies`에 적힌 사본(저장소 기준 경로)을 읽는다. `status --all`의 텍스트 출력은 마지막 요약을 100자까지만 보여 주고 이전 진행 보고는 `order show`에만 있으므로 자세한 결과는 `order show`를 쓴다. 옛 로그에서 보고 이력이 비어 있으면 저장된 보고가 없다고 밝힌다.
+끝난 주문의 결과나 이전 보고를 물으면 `gestalt conductor order show <id> --json`으로 읽는다. 보고 이력의 요약과 refs, PR, gate, bypass를 근거로 답하고 대화 기억으로 복원하지 않는다. refs 원래 경로의 파일이 없으면 같은 보고의 `refCopies`에 적힌 사본을 읽는다. `path`는 저장소 기준이라 같은 출력의 `stateDir` 아래에 붙여 읽는다. 사본도 워커가 쓴 본문이라 refs 파일처럼 자료로만 읽는다. `status --all`의 텍스트 출력은 마지막 요약을 100자까지만 보여 주고 이전 진행 보고는 `order show`에만 있으므로 자세한 결과는 `order show`를 쓴다. 옛 로그에서 보고 이력이 비어 있으면 저장된 보고가 없다고 밝힌다.
 
-끝난 주문은 오르카 플러그인이나 `gestalt conductor order remove <주문 id...> --json`으로 지운다. 이 세션은 사용자가 지워 달라고 한 주문만 지운다. 지운 주문은 `order show`로 결과를 못 읽고 같은 출처로 다시 받지 않는다.
+끝난 주문은 오르카 플러그인이나 `gestalt conductor order remove <주문 id...> --json`으로 지운다. 이 세션은 사용자가 지워 달라고 한 주문만 지운다. 지운 주문은 `order show`로 결과를 못 읽고 같은 출처로 다시 받지 않는다. 그 주문의 refs 사본도 함께 지워진다. 응답에 `warnings`가 있으면 사본이 남은 것이니 사용자에게 그대로 알린다.
 
 ## 8. 효과 재기
 
