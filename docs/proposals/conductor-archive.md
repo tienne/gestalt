@@ -42,8 +42,8 @@
 
 ```
 events.jsonl            base.json 이후의 이벤트
-base.json               기준점 상태. 어느 segment까지 접었는지(foldedSegments) 함께 남긴다
-segments/               떼어 냈지만 아직 base.json에 접지 않은 로그
+base.json               기준점 상태. 어느 segment까지 반영했는지(foldedSegments) 함께 남긴다
+segments/               떼어 냈지만 아직 base.json에 반영하지 않은 로그
 archive/YYYY-MM/
   <주문 id>/
     events.jsonl        그 주문의 이벤트(주문, 워커, 게이트, 보고, 체크포인트, bypass, 지라 전이)
@@ -58,10 +58,10 @@ archive/YYYY-MM/
 `ConductorStore.open`은 아래 순서로 상태를 만든다.
 
 1. `base.json`이 있으면 읽어 시작 상태로 쓴다. 없으면 빈 상태다. 지금 저장소는 `base.json`이 없으니 지금과 같게 돈다.
-2. `segments/`에 남은 파일 중 `base.json`의 `foldedSegments`에 없는 것을 이름 순서로 재생한다. 접는 도중에 죽었을 때를 위한 자리다.
+2. `segments/`에 남은 파일 중 `base.json`의 `foldedSegments`에 없는 것을 이름 순서로 재생한다. base.json에 반영하는 도중에 죽었을 때를 위한 자리다.
 3. `events.jsonl`을 재생한다.
 
-`base.json`은 `eventCount`와 `ticks` 같은 누적 값도 담는다. 재생 결과가 접기 전과 같아야 하고 테스트는 "접기 전 상태 = 접은 뒤 다시 연 상태 + 보관한 주문"으로 확인한다.
+`base.json`은 `eventCount`와 `ticks` 같은 누적 값도 담는다. 재생 결과가 반영 전과 같아야 하고 테스트는 "반영 전 상태 = 반영 뒤 다시 연 상태 + 보관한 주문"으로 확인한다.
 
 ### 보관 한 번
 
@@ -113,7 +113,7 @@ archive/YYYY-MM/
 2. **상태별로 어떻게 다룰까.**
    - `parked`(사람이 넘겨받은 뒤 오래 안 움직인 주문): PR이 아직 열려 있을 수 있다. (보관하되 `archivedOrders`에 `humanPr`를 남겨 PR 감시가 그 PR로 주문을 새로 만들지 않게 한다. 아니면 보관 대상에서 뺀다)
    - `human-owned`: 끝 상태가 아니라 대상이 아니다.
-   - 열린 gate가 남은 채 끝난 주문: (옮기지 않는다. 사람이 gate를 닫거나 `order remove`처럼 거절하고 tick 보고에 경고로 남긴다)
+   - 열린 gate가 남은 채 끝난 주문: (옮기지 않는다. 사람이 gate를 처리하거나 `order remove`처럼 거절하고 tick 보고에 경고로 남긴다)
    - 멈춘 워커가 남은 주문: (옮기지 않는다. `order remove`와 같은 이유다)
    - `order remove`로 지운 주문: 이벤트가 로그에 남아 있다. (지운 시각 기준 같은 기간 뒤 이벤트를 보관소로 옮기고 `removedOrders` 기록은 그대로 둔다)
 3. **보관소를 압축할까, 언제 지울까.** (주문 디렉토리는 그대로 두고 달이 끝나고 한 달 지난 `archive/YYYY-MM/`을 `.tar.gz`로 묶는다. 지우기는 자동으로 하지 않고 `gestalt conductor archive prune --before YYYY-MM`으로 사람이 부른다)
@@ -122,7 +122,7 @@ archive/YYYY-MM/
 
 ## 순서
 
-1. `base.json`과 segment 재생. 보관 없이 "떼어 내고 접기"만 넣고 재생 결과가 같은지 확인한다.
+1. `base.json`과 segment 재생. 보관 없이 "떼어 내고 base.json에 반영하기"만 넣고 재생 결과가 같은지 확인한다.
 2. 주문 보관과 `archivedOrders`, `archive` 명령. 1~4번 결정을 반영한다.
 3. 운영 파일 정리와 tick 자동 실행.
 4. 뷰어가 머지된 뒤 뷰어가 보관소를 읽게 한다.
