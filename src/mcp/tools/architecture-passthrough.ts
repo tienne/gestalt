@@ -532,6 +532,7 @@ function mergeSummary(report: PreviousMergeReport) {
     descriptionCarried: report.descriptionCarried.length,
     ...(report.relabeled.length > 0 ? { relabeled: report.relabeled } : {}),
     ...(report.flowsCarried.length > 0 ? { flowsCarried: report.flowsCarried } : {}),
+    ...(report.flowsDropped.length > 0 ? { flowsDropped: report.flowsDropped } : {}),
   };
 }
 

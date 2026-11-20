@@ -269,6 +269,15 @@ export type MergeWarning =
       message: string;
     }
   | {
+      code: 'FLOW_DROPPED';
+      flowId: string;
+      /** node_gone: 가리키던 노드가 이번 IR에 없다. no_refs: 노드를 하나도 안 가리킨다. id_conflict: 이번 흐름과 단계나 전이 id가 겹친다 */
+      reason: FlowDropReason;
+      /** reason이 node_gone일 때 이번 IR에서 사라진 노드 id */
+      missingNodeIds: string[];
+      message: string;
+    }
+  | {
       code: 'MERGE_KEY_DUPLICATE';
       /** kind/repo/정규화 label. micro_app은 repo 자리에 `*`를 쓴다 */
       key: string;
@@ -289,6 +298,8 @@ export interface PreviousMergeReport {
   relabeled: MergeRelabel[];
   /** 이번 실행에 없어 지난 실행에서 이어 실은 흐름 id */
   flowsCarried: string[];
+  /** 이번 실행에 없고 이어 싣지도 못해 사라진 지난 흐름 id. 이유는 같은 id의 FLOW_DROPPED 경고에 있다 */
+  flowsDropped: string[];
   warnings: MergeWarning[];
 }
 
@@ -482,7 +493,12 @@ export function mergeWithPreviousDetailed(
     ),
   }));
   // 질문 하나에 맞춰 돈 실행은 다른 흐름을 안 적는다. 이번에 안 나온 지난 흐름은 가리키는 노드가 다 살아 있을 때만 이어 싣는다
-  const carriedFlows = carryFlows(prev.flows ?? [], nextFlows ?? [], nodeKindById);
+  const { carried: carriedFlows, dropped: droppedFlows } = carryFlows(
+    prev.flows ?? [],
+    nextFlows ?? [],
+    nodeKindById,
+  );
+  warnings.push(...droppedFlows.map(flowDroppedWarning));
   const flows =
     nextFlows !== undefined || carriedFlows.length > 0
       ? [...(nextFlows ?? []), ...carriedFlows]
@@ -575,6 +591,7 @@ export function mergeWithPreviousDetailed(
       descriptionCarried,
       relabeled,
       flowsCarried: carriedFlows.map((f) => f.id),
+      flowsDropped: droppedFlows.map((d) => d.flowId),
       warnings,
     },
   };
@@ -641,34 +658,76 @@ function duplicateKeyWarnings(
   return warnings;
 }
 
+type FlowDropReason = 'node_gone' | 'no_refs' | 'id_conflict';
+
+interface DroppedFlow {
+  flowId: string;
+  reason: FlowDropReason;
+  missingNodeIds: string[];
+}
+
+// 흐름은 코드에 붙은 노드를 근거로 남는다. 가리키던 노드가 사라지면 그 코드가 없어진 것이라 흐름도 함께 지운다.
+// 노드를 하나도 안 가리키는 흐름은 언제 지울지 판단할 근거가 없어 이어 싣지 않는다
 function carryFlows(
   prev: readonly ArchitectureFlow[],
   next: readonly ArchitectureFlow[],
   nodeKindById: ReadonlyMap<string, ArchitectureNode['kind']>,
-): ArchitectureFlow[] {
+): { carried: ArchitectureFlow[]; dropped: DroppedFlow[] } {
   const flowIds = new Set(next.map((f) => f.id));
   // 단계와 전이 id는 흐름 전체에서 겹치면 안 된다. 겹치는 지난 흐름은 실으면 검증에서 막힌다
   const stepIds = new Set(next.flatMap((f) => f.steps.map((st) => st.id)));
   const transitionIds = new Set(next.flatMap((f) => f.transitions.map((t) => t.id)));
-  const out: ArchitectureFlow[] = [];
+  const carried: ArchitectureFlow[] = [];
+  const dropped: DroppedFlow[] = [];
   for (const flow of prev) {
     if (flowIds.has(flow.id)) continue;
-    if (flow.service !== undefined && nodeKindById.get(flow.service) !== 'service') continue;
-    const refsAlive = flow.steps.every((st) =>
-      (st.refs ?? []).every((id) => {
+    const refs = flow.steps.flatMap((st) => st.refs ?? []);
+    if (flow.service === undefined && refs.length === 0) {
+      dropped.push({ flowId: flow.id, reason: 'no_refs', missingNodeIds: [] });
+      continue;
+    }
+    const missing = [
+      ...(flow.service !== undefined && nodeKindById.get(flow.service) !== 'service'
+        ? [flow.service]
+        : []),
+      ...refs.filter((id) => {
         const kind = nodeKindById.get(id);
-        return kind !== undefined && FLOW_REF_KINDS.includes(kind);
+        return kind === undefined || !FLOW_REF_KINDS.includes(kind);
       }),
-    );
-    if (!refsAlive) continue;
-    if (flow.steps.some((st) => stepIds.has(st.id))) continue;
-    if (flow.transitions.some((t) => transitionIds.has(t.id))) continue;
+    ];
+    if (missing.length > 0) {
+      dropped.push({ flowId: flow.id, reason: 'node_gone', missingNodeIds: [...new Set(missing)] });
+      continue;
+    }
+    if (
+      flow.steps.some((st) => stepIds.has(st.id)) ||
+      flow.transitions.some((t) => transitionIds.has(t.id))
+    ) {
+      dropped.push({ flowId: flow.id, reason: 'id_conflict', missingNodeIds: [] });
+      continue;
+    }
     flowIds.add(flow.id);
     for (const st of flow.steps) stepIds.add(st.id);
     for (const t of flow.transitions) transitionIds.add(t.id);
-    out.push(flow);
+    carried.push(flow);
   }
-  return out;
+  return { carried, dropped };
+}
+
+function flowDroppedWarning(d: DroppedFlow): MergeWarning {
+  const why =
+    d.reason === 'node_gone'
+      ? `가리키던 노드 ${d.missingNodeIds.join(', ')}가 이번 IR에 없어`
+      : d.reason === 'no_refs'
+        ? '노드를 하나도 가리키지 않아'
+        : '이번 흐름과 단계나 전이 id가 겹쳐';
+  return {
+    code: 'FLOW_DROPPED',
+    flowId: d.flowId,
+    reason: d.reason,
+    missingNodeIds: d.missingNodeIds,
+    message: `지난 흐름 ${d.flowId}는 ${why} 이어 싣지 않았다. 아직 필요한 흐름이면 이번 IR에 다시 적는다.`,
+  };
 }
 
 function carryProjections(

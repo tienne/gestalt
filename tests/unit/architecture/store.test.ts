@@ -384,6 +384,7 @@ describe('mergeWithPreviousDetailed', () => {
         { id: 'old-list', previousLabel: 'Order List', label: 'Orders', matchedBy: 'evidence' },
       ],
       flowsCarried: [],
+      flowsDropped: [],
       warnings: [],
     });
   });
@@ -563,6 +564,46 @@ describe('mergeWithPreviousDetailed', () => {
 
     expect(ir.flows?.map((f) => f.id)).toEqual(['now']);
     expect(report.flowsCarried).toEqual([]);
+    expect(report.flowsDropped).toEqual(['lost', 'clash']);
+    const dropped = report.warnings.flatMap((w) =>
+      w.code === 'FLOW_DROPPED' ? [[w.flowId, w.reason, w.missingNodeIds]] : [],
+    );
+    expect(dropped).toEqual([
+      ['lost', 'node_gone', ['gone']],
+      ['clash', 'id_conflict', []],
+    ]);
+  });
+
+  it('코드가 사라져 흐름의 노드가 빠지면 흐름도 지우고 알린다', () => {
+    const prev = makeIr({
+      nodes: [node('home', 'Home'), node('cart', 'Cart')],
+      flows: [flow('checkout', ['home', 'cart'])],
+    });
+    const next = makeIr({ nodes: [node('home', 'Home')] });
+
+    const { ir, report } = mergeWithPreviousDetailed(prev, next);
+
+    expect(ir.flows).toBeUndefined();
+    expect(report.flowsDropped).toEqual(['checkout']);
+    expect(report.warnings).toContainEqual(
+      expect.objectContaining({
+        code: 'FLOW_DROPPED',
+        flowId: 'checkout',
+        missingNodeIds: ['cart'],
+      }),
+    );
+  });
+
+  it('노드를 하나도 안 가리키는 지난 흐름은 이어 싣지 않는다', () => {
+    const prev = makeIr({ nodes: [node('home', 'Home')], flows: [flow('loose', [])] });
+    const next = makeIr({ nodes: [node('home', 'Home')] });
+
+    const { ir, report } = mergeWithPreviousDetailed(prev, next);
+
+    expect(ir.flows).toBeUndefined();
+    expect(report.warnings).toContainEqual(
+      expect.objectContaining({ code: 'FLOW_DROPPED', flowId: 'loose', reason: 'no_refs' }),
+    );
   });
 
   it('같은 입력이면 같은 결과를 낸다', () => {
