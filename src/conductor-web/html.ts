@@ -422,8 +422,8 @@ function showSearch(q) {
   var params = { q: q, repo: f.repo, status: f.status, since: f.since, issue: f.issue, body: $('q-body').checked ? '' : '0' };
   setMain([el('p', 'muted', '찾는 중…')]);
   getJson('/api/search' + qs(params)).then(function (d) {
-    var count = d.total > d.hits.length ? '전체 ' + d.total + '건 중 ' + d.hits.length + '건 표시' : d.total + '건';
-    var partial = d.hits.some(function (h) { return h.partial; }) ? '. 큰 파일은 앞부분만 찾았어요' : '';
+    var count = d.total > d.hits.length ? '전체 ' + d.total + '건 중 ' + d.hits.length + '건만 보여요' : d.total + '건';
+    var partial = d.partialFiles ? '. 큰 파일은 앞부분만 찾았어요' : '';
     var nodes = [el('h1', '', '"' + d.query + '" 검색'), el('p', 'muted', count + partial)];
     var ul = el('ul', 'hits');
     d.hits.forEach(function (h) {

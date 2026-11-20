@@ -5,6 +5,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
 import { renderMarkdown } from '../conductor/results-markdown.js';
 import {
+  BodyCache,
   getOrderDetail,
   listOrders,
   loadResults,
@@ -52,6 +53,8 @@ export class ConductorWebServer {
   private server: Server | null = null;
   private sigintHandler: (() => void) | null = null;
   private cache: { results: LoadedResults; size: number; mtimeMs: number } | null = null;
+  // events.jsonl이 바뀔 때마다 결과를 다시 로드해도 이미 읽은 본문은 다시 읽지 않는다
+  private readonly bodies = new BodyCache();
 
   constructor(private readonly opts: LoadOptions) {}
 
@@ -111,7 +114,7 @@ export class ConductorWebServer {
     if (this.cache && this.cache.size === size && this.cache.mtimeMs === mtimeMs) {
       return this.cache.results;
     }
-    const results = loadResults(this.opts);
+    const results = loadResults({ ...this.opts, bodies: this.bodies });
     this.cache = { results, size, mtimeMs };
     return results;
   }
@@ -150,7 +153,7 @@ export class ConductorWebServer {
         body: query.get('body') !== '0',
         limit: SEARCH_LIMIT,
       });
-      // 실제 경로는 터미널 --json에만 싣는다. 화면은 파일 키로 고른다
+      // 서버가 푼 실제 경로는 싣지 않는다. 화면은 파일 키로 고른다
       const hits = found.hits.map(({ absPath: _absPath, ...h }) => h);
       return this.json(res, { ...found, hits });
     }
@@ -211,7 +214,7 @@ export class ConductorWebServer {
         reports: detail.reports.map((r) => ({ ...r, summaryHtml: renderMarkdown(r.summary) })),
         gates: detail.gates,
         bypasses: detail.bypasses,
-        // 실제 경로는 내보내지 않는다. 화면은 워커가 적은 값과 번호만 쓴다
+        // 서버가 푼 실제 경로는 싣지 않는다. 화면은 워커가 적은 값과 번호만 쓴다
         refs: detail.refs.map((r) => ({
           index: r.index,
           kind: r.kind,

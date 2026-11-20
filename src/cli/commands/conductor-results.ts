@@ -15,7 +15,8 @@ import {
 } from '../../conductor/results.js';
 import { resolveStateDir } from '../../conductor/state-dir.js';
 import { ORDER_STATUSES } from '../../conductor/types.js';
-import { isControlChar, terminalText } from '../../conductor/terminal-text.js';
+import { isControlChar } from '../../conductor/intake.js';
+import { terminalText } from '../../conductor/terminal-text.js';
 import { ConductorWebServer } from '../../conductor-web/server.js';
 
 /**
@@ -157,13 +158,14 @@ export function conductorResultsSearchCommand(query: string, opts: ResultsSearch
     const results = load(opts);
     const found = searchResults(results, query, { ...filters, body: opts.body !== false, limit });
     if (opts.json) return print(found);
+    // 0건이어도 큰 파일 뒷부분엔 있을 수 있어 0건 안내보다 먼저 알린다
+    if (found.partialFiles) console.log('큰 파일은 앞부분만 찾았어요');
     if (found.total === 0) return console.log(`"${cell(found.query)}"에 맞는 결과가 없어요`);
     const count =
       found.total > found.hits.length
-        ? `전체 ${found.total}건 중 ${found.hits.length}건 표시`
+        ? `전체 ${found.total}건 중 ${found.hits.length}건만 보여요`
         : `${found.total}건`;
     console.log(`"${cell(found.query)}" 결과 ${count}`);
-    if (found.hits.some((h) => h.partial)) console.log('큰 파일은 앞부분만 찾았어요');
     let lastHead = '';
     for (const h of found.hits) {
       const head = h.orderId

@@ -12,7 +12,7 @@ import {
   statSync,
 } from 'node:fs';
 import { basename, extname, isAbsolute, join, relative, sep } from 'node:path';
-import { isControlChar } from './terminal-text.js';
+import { isControlChar } from './intake.js';
 import { orcaWorktreeName } from './launcher.js';
 import { EVENTS_FILE, replay } from './store.js';
 import type {
@@ -183,6 +183,8 @@ export class BodyCache {
 export interface LoadOptions {
   stateDir: string;
   repoPaths?: Record<string, string>;
+  /** 다시 로드해도 본문 캐시를 이어 쓰려면 넘긴다. 키에 mtime과 크기가 있어 바뀐 파일은 새로 읽는다 */
+  bodies?: BodyCache;
 }
 
 export function loadResults(opts: LoadOptions): LoadedResults {
@@ -241,7 +243,7 @@ export function loadResults(opts: LoadOptions): LoadedResults {
     files,
     fileByKey: new Map(files.map((f) => [f.key, f])),
     filesByOrder,
-    bodies: new BodyCache(),
+    bodies: opts.bodies ?? new BodyCache(),
   };
 }
 
@@ -353,7 +355,8 @@ function dirEntries(dir: string): { entries: DirEntry[]; total: number } {
 
 /**
  * 허용 루트 아래 텍스트 파일을 읽는다. 분류한 뒤에 파일이 심링크로 바뀌었을 수 있어 읽기 직전에 다시 확인한다.
- * 확인한 뒤 여는 사이에 바뀌는 것도 막으려고 O_NOFOLLOW로 열고 연 fd가 확인한 파일과 같은지 dev, ino로 맞춘다.
+ * 확인한 뒤 여는 사이의 교체는 두 경우만 막는다. 마지막 경로 요소가 심링크로 바뀌면 O_NOFOLLOW로 열기가 실패한다.
+ * 다른 파일로 바뀌면 연 fd의 dev, ino가 확인한 파일과 달라 버린다. 중간 디렉토리가 바뀌는 경우는 막지 않는다.
  * 조건에 안 맞거나 읽다 실패하면 null.
  */
 export function readTextFile(path: string, roots: readonly string[]): FileBody | null {
@@ -425,16 +428,16 @@ function loadedRefBody(
   if (!ref.path) return null;
   if (entry !== undefined) {
     const e = ref.kind === 'dir' ? ref.entries?.[entry] : undefined;
-    return e ? cachedBody(results, e.path, [ref.path]) : null;
+    return e ? cachedBody(results, e.path, [ref.path], false) : null;
   }
-  return ref.kind === 'file' ? cachedBody(results, ref.path, [dirOf(ref.path)]) : null;
+  return ref.kind === 'file' ? cachedBody(results, ref.path, [dirOf(ref.path)], false) : null;
 }
 
-/** 저장소 파일 본문. 키로만 고른다 */
-export function readResultFile(results: LoadedResults, key: string): FileBody | null {
+/** 저장소 파일 본문. 키로만 고른다. 검색은 `store`를 꺼서 캐시를 채우지 않는다 */
+export function readResultFile(results: LoadedResults, key: string, store = true): FileBody | null {
   const file = results.fileByKey.get(key);
   if (!file) return null;
-  return cachedBody(results, file.path, [results.stateDir]);
+  return cachedBody(results, file.path, [results.stateDir], store);
 }
 
 function dirOf(path: string): string {
@@ -442,15 +445,29 @@ function dirOf(path: string): string {
   return i <= 0 ? sep : path.slice(0, i);
 }
 
-/** 못 읽은 결과는 캐시하지 않는다. 잠깐 난 권한 오류가 파일이 바뀔 때까지 남지 않게 한다 */
-function cachedBody(results: LoadedResults, path: string, roots: string[]): FileBody | null {
-  const st = lstatSync(path, { throwIfNoEntry: false });
+/**
+ * 못 읽은 결과는 캐시하지 않는다. 잠깐 난 권한 오류가 파일이 바뀔 때까지 남지 않게 한다.
+ * 검색은 파일을 한 번씩 훑기만 해서 `store`를 끈다. 켜 두면 검색 한 번이 상세 화면에서 연 본문을 밀어낸다
+ */
+function cachedBody(
+  results: LoadedResults,
+  path: string,
+  roots: string[],
+  store = true,
+): FileBody | null {
+  let st;
+  try {
+    st = lstatSync(path, { throwIfNoEntry: false });
+  } catch {
+    // 파일 아래를 가리키는 경로는 throwIfNoEntry를 꺼도 ENOTDIR로 던진다
+    return null;
+  }
   if (!st) return null;
   const key = `${path}\0${st.mtimeMs}\0${st.size}`;
   const hit = results.bodies.get(key);
   if (hit) return hit;
   const body = readTextFile(path, roots);
-  if (body) results.bodies.set(key, body);
+  if (body && store) results.bodies.set(key, body);
   return body;
 }
 
@@ -640,7 +657,7 @@ export interface SearchHit {
   repo: string | null;
   at: string;
   source: HitSource;
-  /** title, summary, 또는 파일 경로 */
+  /** title, summary, 또는 파일 경로. refs는 워커가 적은 원문 경로고 디렉토리 항목은 그 뒤에 파일 이름을 붙인다 */
   where: string;
   /** summary면 보고 번호(1부터) */
   reportIndex?: number;
@@ -666,6 +683,14 @@ export interface SearchOptions extends ResultFilters {
   /** 끄면 요약과 제목만 찾는다 */
   body?: boolean;
   limit?: number;
+}
+
+export interface SearchResults {
+  query: string;
+  total: number;
+  hits: SearchHit[];
+  /** 크기가 커서 앞부분만 읽고 찾은 파일 수. 맞은 줄이 없어도 센다. 0이면 뺀다 */
+  partialFiles?: number;
 }
 
 const EXCERPT_RADIUS = 80;
@@ -726,6 +751,9 @@ interface HitSink {
   hits: SearchHit[];
   total: number;
   limit: number;
+  partialFiles: number;
+  /** 검색어에 개행이 있으면 줄 단위로는 못 맞추지만 본문 전체로는 맞을 수 있다 */
+  multiline: boolean;
 }
 
 function addHit(sink: HitSink, make: () => SearchHit): SearchHit | undefined {
@@ -738,6 +766,11 @@ function addHit(sink: HitSink, make: () => SearchHit): SearchHit | undefined {
 
 /** 읽은 범위 안에서 맞은 줄을 다 센다. 결과는 파일당 앞 MAX_HITS_PER_FILE건만 만든다 */
 function bodyHits(sink: HitSink, body: FileBody, re: RegExp, base: HitBase): number {
+  // 0건이어도 뒷부분에 있을 수 있다고 알려야 해서 맞았는지와 무관하게 센다
+  if (body.truncated) sink.partialFiles++;
+  // 검색어에 개행이 없으면 본문 전체에서 안 맞을 때 어느 줄에서도 안 맞는다. 큰 본문을 줄로 쪼개지 않고 끝낸다
+  // re는 g, y 플래그 없이 만들어 lastIndex가 test 결과에 영향을 주지 않는다
+  if (!sink.multiline && !re.test(body.text)) return 0;
   const lines = body.text.split('\n');
   const extra = body.truncated ? { partial: true } : {};
   let matched = 0;
@@ -777,12 +810,18 @@ export function searchResults(
   results: LoadedResults,
   query: string,
   opts: SearchOptions = {},
-): { query: string; total: number; hits: SearchHit[] } {
+): SearchResults {
   const q = query.trim();
   if (!q) return { query: q, total: 0, hits: [] };
   const re = new RegExp(escapeRegExp(q), 'iu');
   const body = opts.body !== false;
-  const sink: HitSink = { hits: [], total: 0, limit: opts.limit ?? Infinity };
+  const sink: HitSink = {
+    hits: [],
+    total: 0,
+    limit: opts.limit ?? Infinity,
+    partialFiles: 0,
+    multiline: q.includes('\n'),
+  };
 
   for (const o of filteredOrders(results, opts)) {
     const head = { orderId: o.id, title: o.title, repo: o.repo };
@@ -826,7 +865,7 @@ export function searchResults(
             ...head,
             at,
             source: 'ref',
-            where: entry.path,
+            where: `${ref.display.replace(/\/+$/, '')}/${entry.name}`,
             refIndex: i + 1,
             entryIndex: j,
           });
@@ -846,7 +885,12 @@ export function searchResults(
     }
   }
 
-  return { query: q, total: sink.total, hits: sink.hits };
+  return {
+    query: q,
+    total: sink.total,
+    hits: sink.hits,
+    ...(sink.partialFiles > 0 ? { partialFiles: sink.partialFiles } : {}),
+  };
 }
 
 function fileHits(
@@ -856,7 +900,7 @@ function fileHits(
   re: RegExp,
   head: { orderId: string | null; title: string; repo: string | null },
 ): void {
-  const b = readResultFile(results, f.key);
+  const b = readResultFile(results, f.key, false);
   const base = {
     ...head,
     at: f.mtime,
