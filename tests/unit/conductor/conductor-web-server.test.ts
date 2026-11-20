@@ -280,6 +280,26 @@ describe('주문 API', () => {
     expect(j.related[0]).not.toHaveProperty('path');
   });
 
+  it('주문 설명과 보고 요약은 렌더한 HTML을 같이 주고 원시 HTML은 이스케이프', async () => {
+    const { dir } = seed([
+      {
+        order: { id: A, description: '## 할 일\n\n- 하나 <img src=x onerror=alert(1)>' },
+        reports: [{ summary: '**끝** [x](javascript:alert(1))' }],
+      },
+      { order: { id: B } },
+    ]);
+    const { base } = await boot(dir);
+    const j = await getJson(base, `/api/orders/${A}`);
+    expect(j.order.description).toContain('## 할 일');
+    expect(j.order.descriptionHtml).toContain('<h2>할 일</h2>');
+    expect(j.order.descriptionHtml).toContain('&lt;img');
+    expect(j.order.descriptionHtml).not.toContain('<img');
+    expect(j.reports[0].summaryHtml).toContain('<strong>끝</strong>');
+    expect(j.reports[0].summaryHtml).not.toContain('href="javascript');
+    const other = await getJson(base, `/api/orders/${B}`);
+    expect(other.order).not.toHaveProperty('descriptionHtml');
+  });
+
   it('모르는 주문과 퍼센트 인코딩된 가짜 id는 404', async () => {
     const { base } = await boot(fixture().dir);
     expect((await get(base, '/api/orders/ord-00000000')).status).toBe(404);

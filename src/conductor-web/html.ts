@@ -4,7 +4,7 @@ import { escapeHtml } from '../local-pr-web/html-generator.js';
  * 컨덕터 결과 웹 뷰어의 페이지 한 장. 데이터는 페이지가 `/api/*`에서 받아 그린다.
  *
  * 주문 제목, 요약, 경로 같은 값은 워커와 바깥이 적은 글자라 textContent로만 넣는다.
- * innerHTML로 넣는 건 서버가 마크다운 렌더러로 만든 본문 HTML 하나뿐이다.
+ * innerHTML로 넣는 건 서버가 마크다운 렌더러로 만든 HTML(본문, 주문 설명, 보고 요약)뿐이다.
  * 스크립트는 nonce를 단 인라인 하나이고 바깥 자산을 끌어오지 않는다.
  */
 export function renderBrowsePage(nonce: string, stateDir: string): string {
@@ -30,6 +30,13 @@ export function renderBrowsePage(nonce: string, stateDir: string): string {
       <select id="f-status"><option value="">모든 상태</option></select>
       <input id="f-since" type="date" title="이 날 이후 갱신">
       <input id="f-issue" type="text" placeholder="지라 키" autocomplete="off">
+      <select id="f-group" title="목록 묶기">
+        <option value="repo">레포별로 묶기</option>
+        <option value="ticket">티켓, PR별로 묶기</option>
+        <option value="date">날짜별로 묶기</option>
+        <option value="status">상태별로 묶기</option>
+        <option value="">묶지 않기</option>
+      </select>
       <input id="f-text" type="text" placeholder="목록 안에서 거르기" autocomplete="off">
     </div>
     <div id="count" class="muted small"></div>
@@ -56,12 +63,14 @@ body { margin:0; font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Got
 .side { width:340px; min-width:260px; border-right:1px solid var(--line); background:var(--side); display:flex; flex-direction:column; }
 .filters { display:grid; grid-template-columns:1fr 1fr; gap:6px; padding:10px; }
 .filters select, .filters input { width:100%; padding:4px 6px; border:1px solid var(--line); border-radius:4px; background:var(--bg); color:var(--fg); }
-#f-text { grid-column: 1 / span 2; }
 #count { padding:0 12px 6px; }
 .orders { list-style:none; margin:0; padding:0; overflow:auto; flex:1; }
 .orders li a { display:block; padding:8px 12px; border-bottom:1px solid var(--line); color:inherit; text-decoration:none; }
 .orders li a:hover, .orders li a.sel { background:var(--sel); }
-.orders .t { display:block; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.orders .t { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; font-weight:500; overflow:hidden; overflow-wrap:anywhere; }
+.orders .grp { position:sticky; top:0; z-index:1; display:flex; gap:6px; align-items:center; width:100%; padding:6px 12px; border:0; border-bottom:1px solid var(--line); background:var(--side); color:var(--muted); font:inherit; font-size:12px; font-weight:600; text-align:left; cursor:pointer; }
+.orders .grp .n { margin-left:auto; font-weight:400; }
+.orders .grp .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .unlinked { display:block; padding:10px 12px; border-top:1px solid var(--line); color:inherit; }
 .main { flex:1; overflow:auto; padding:24px 40px 80px; }
 .main h1 { font-size:24px; margin:0 0 8px; }
@@ -79,6 +88,11 @@ section > h2 { font-size:16px; border-bottom:1px solid var(--line); padding-bott
 .timeline li::before { content:""; position:absolute; left:-6px; top:12px; width:10px; height:10px; border-radius:50%; background:var(--line); }
 .timeline li.focus { background:var(--sel); }
 .summary { white-space:pre-wrap; margin-top:4px; }
+.md { margin-top:4px; overflow-wrap:anywhere; }
+.md > :first-child { margin-top:0; }
+.md > :last-child { margin-bottom:0; }
+.md h1, .md h2, .md h3, .md h4 { font-size:15px; margin:12px 0 4px; border:0; padding:0; }
+.md p, .md ul, .md ol { margin:4px 0; }
 .card { border:1px solid var(--line); border-radius:8px; margin:8px 0; }
 .card > summary { padding:8px 12px; cursor:pointer; overflow-wrap:anywhere; }
 .card.focus { outline:2px solid #3b82f6; }
@@ -103,7 +117,8 @@ mark { background:var(--hl); color:inherit; }
  */
 const SCRIPT = `
 'use strict';
-var state = { orders: [], filters: {}, current: '' };
+var state = { orders: [], filters: {}, current: '', closed: {} };
+var GROUP_KEY = 'conductor-results-group';
 function $(id) { return document.getElementById(id); }
 function el(tag, cls, text) {
   var e = document.createElement(tag);
@@ -170,20 +185,59 @@ function loadOrders() {
     fillSelect($('f-status'), data.statuses);
     $('count').textContent = '주문 ' + data.orders.length + '개 / 전체 ' + data.total + '개';
     $('unlinked-link').textContent = '주문 없는 파일 (' + data.unlinkedCount + ')';
-    var ul = $('orders');
-    ul.textContent = '';
-    data.orders.forEach(function (o) {
-      var a = el('a');
-      a.href = '#order/' + encodeURIComponent(o.id);
-      a.dataset.id = o.id;
-      add(a, el('span', 't', o.title));
-      var meta = el('span', 'muted small');
-      add(meta, badge(o.status), document.createTextNode(' ' + o.repo + '  ' + stamp(o.updatedAt).slice(0, 10) + (o.issueKey ? '  ' + o.issueKey : '')));
-      add(a, meta);
-      ul.appendChild(add(el('li'), a));
-    });
+    renderOrders();
     markSelected();
   }).catch(fail);
+}
+function groupOf(o, mode) {
+  if (mode === 'repo') return o.repo;
+  if (mode === 'date') return stamp(o.updatedAt).slice(0, 10);
+  if (mode === 'status') return o.status;
+  if (mode === 'ticket') return o.issueKey || o.prRef || '티켓 없음';
+  return '';
+}
+function orderItem(o, mode) {
+  var a = el('a');
+  a.href = '#order/' + encodeURIComponent(o.id);
+  a.dataset.id = o.id;
+  add(a, el('span', 't', o.title));
+  var meta = el('span', 'muted small');
+  var bits = [];
+  if (mode !== 'repo') bits.push(o.repo);
+  if (mode !== 'date') bits.push(stamp(o.updatedAt).slice(0, 10));
+  if (mode !== 'ticket' && o.issueKey) bits.push(o.issueKey);
+  bits.push('보고 ' + o.reportCount);
+  add(meta, mode === 'status' ? null : badge(o.status), document.createTextNode(' ' + bits.join('  ')));
+  add(a, meta);
+  return add(el('li'), a);
+}
+// 목록은 갱신순이라 묶음도 가장 최근 주문이 든 묶음부터 나온다
+function renderOrders() {
+  var mode = $('f-group').value;
+  var ul = $('orders');
+  ul.textContent = '';
+  if (!mode) {
+    state.orders.forEach(function (o) { ul.appendChild(orderItem(o, mode)); });
+    return;
+  }
+  var groups = [];
+  var byKey = {};
+  state.orders.forEach(function (o) {
+    var k = groupOf(o, mode);
+    if (!byKey[k]) { byKey[k] = []; groups.push(k); }
+    byKey[k].push(o);
+  });
+  groups.forEach(function (k) {
+    var id = mode + ':' + k;
+    var closed = !!state.closed[id];
+    var btn = el('button', 'grp');
+    btn.type = 'button';
+    btn.setAttribute('aria-expanded', String(!closed));
+    add(btn, el('span', '', closed ? '▸' : '▾'), el('span', 'name', k), el('span', 'n', String(byKey[k].length)));
+    btn.addEventListener('click', function () { state.closed[id] = !closed; renderOrders(); markSelected(); });
+    ul.appendChild(add(el('li'), btn));
+    if (!closed) byKey[k].forEach(function (o) { ul.appendChild(orderItem(o, mode)); });
+  });
 }
 function markSelected() {
   var id = state.current;
@@ -234,7 +288,17 @@ function showOrder(id, focus) {
     if (o.prRef) { var pu = prUrl(o.prRef); add(meta, pu ? link(pu, o.prRef) : el('span', '', o.prRef)); }
     add(meta, el('span', '', '생성 ' + stamp(o.createdAt)), el('span', '', '갱신 ' + stamp(o.updatedAt)));
     nodes.push(meta);
-    if (o.description) nodes.push(add(el('section'), el('h2', '', '설명'), el('div', 'summary', o.description)));
+    var desc = null;
+    if (o.description) {
+      // 설명은 주문 지시문이라 길다. 보고 이력이 먼저 보이게 접어 두고 보고가 없을 때만 펼친다
+      desc = el('details', 'card');
+      if (!d.reports.length) desc.open = true;
+      var ds = el('summary', '', '설명');
+      var db = el('div', 'body md');
+      db.innerHTML = o.descriptionHtml || '';
+      add(desc, ds, db);
+      nodes.push(desc);
+    }
 
     var tl = el('section');
     tl.appendChild(el('h2', '', '보고 이력 (' + d.reports.length + ')'));
@@ -247,7 +311,9 @@ function showOrder(id, focus) {
       add(head, el('strong', '', '#' + r.index + ' '), badge(r.status), document.createTextNode(' ' + stamp(r.at) + '  ' + r.workerId + (r.skill ? '  ' + r.skill : '')));
       if (r.prRef) { var u = prUrl(r.prRef); head.appendChild(document.createTextNode('  ')); head.appendChild(u ? link(u, r.prRef) : el('span', '', r.prRef)); }
       if (r.need) head.appendChild(el('span', 'muted', '  필요: ' + r.need.kind + ' ' + r.need.detail));
-      add(li, head, el('div', 'summary', r.summary));
+      var sm = el('div', 'md');
+      sm.innerHTML = r.summaryHtml || '';
+      add(li, head, sm);
       ul.appendChild(li);
     });
     tl.appendChild(ul);
@@ -386,6 +452,12 @@ $('q').addEventListener('keydown', function (e) {
   if (location.hash === next) showSearch(q); else location.hash = next;
 });
 ['f-repo', 'f-status', 'f-since'].forEach(function (id) { $(id).addEventListener('change', loadOrders); });
+try { var savedGroup = localStorage.getItem(GROUP_KEY); if (savedGroup !== null) $('f-group').value = savedGroup; } catch (e) {}
+$('f-group').addEventListener('change', function () {
+  try { localStorage.setItem(GROUP_KEY, $('f-group').value); } catch (e) {}
+  renderOrders();
+  markSelected();
+});
 var timer = null;
 ['f-issue', 'f-text'].forEach(function (id) {
   $(id).addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(loadOrders, 200); });

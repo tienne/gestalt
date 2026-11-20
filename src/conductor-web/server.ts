@@ -191,7 +191,12 @@ export class ConductorWebServer {
       const detail = getOrderDetail(results, ConductorWebServer.safeDecode(order[1]!)!);
       if (!detail) return this.notFound(res);
       return this.json(res, {
-        order: detail.order,
+        order: {
+          ...detail.order,
+          ...(detail.order.description
+            ? { descriptionHtml: renderMarkdown(detail.order.description) }
+            : {}),
+        },
         workers: detail.workers.map((w) => ({
           id: w.id,
           kind: w.kind,
@@ -203,7 +208,7 @@ export class ConductorWebServer {
           lastSeenAt: w.lastSeenAt,
           ...(w.stopReason ? { stopReason: w.stopReason } : {}),
         })),
-        reports: detail.reports,
+        reports: detail.reports.map((r) => ({ ...r, summaryHtml: renderMarkdown(r.summary) })),
         gates: detail.gates,
         bypasses: detail.bypasses,
         // 실제 경로는 내보내지 않는다. 화면은 워커가 적은 값과 번호만 쓴다
