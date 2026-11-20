@@ -18,6 +18,13 @@
         "icon": "activity",
         "entry": "src/panel.tsx",
         "ui": "components"
+      },
+      {
+        "id": "conductor-terminal",
+        "title": "컨덕터 터미널",
+        "icon": "terminal",
+        "entry": "src/terminal-panel.ts",
+        "ui": "html"
       }
     ],
     "customEditors": [
@@ -27,6 +34,13 @@
         "extensions": [".conductor-board"],
         "entry": "src/board.ts",
         "frame": "isolated"
+      },
+      {
+        "id": "terminal",
+        "title": "컨덕터 터미널",
+        "extensions": [".conductor-terminal"],
+        "entry": "src/terminal.ts",
+        "frame": "isolated"
       }
     ],
     "newFiles": [
@@ -34,6 +48,11 @@
         "id": "board",
         "title": "컨덕터 보드",
         "extension": ".conductor-board"
+      },
+      {
+        "id": "terminal",
+        "title": "컨덕터 터미널",
+        "extension": ".conductor-terminal"
       }
     ],
     "commands": [
@@ -80,6 +99,8 @@
     { "kind": "notifications:show" },
     { "kind": "workspace:read" },
     { "kind": "workspace:write" },
+    { "kind": "agent:read" },
+    { "kind": "terminal:read" },
     { "kind": "settings:own" },
     { "kind": "storage:own" }
   ]

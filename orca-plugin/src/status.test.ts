@@ -165,3 +165,55 @@ test('레포마다 오르카 프로젝트 이름을 맡은 워크트리에서 �
   assert.deepEqual(projectsOf(raw.orders, ws), { 'Acme/web': '웹', 'Acme/lib': '공통 라이브러리' })
   assert.deepEqual(toView(raw, '/s', ws, 0).projects, { 'Acme/web': '웹', 'Acme/lib': '공통 라이브러리' })
 })
+
+test('parseStatus와 toView는 터미널 화면 필드를 싣고 꼴이 틀린 값은 버린다', () => {
+  const raw = parseStatus({
+    lastTickAt: null,
+    orders: [
+      {
+        id: 'o1',
+        status: 'running',
+        skillChain: ['solve', 3, 'ship'],
+        checkpoint: { skill: 'ship', phase: 'ci', round: 'x', next: 'n', completedSkills: ['solve'], savedAt: 's', refs: ['/x'] },
+        waiting: { reason: 'CI', since: 's', until: 'u' },
+        account: 'work',
+        rateLimitedAt: 'r1'
+      },
+      { id: 'o2', status: 'running', checkpoint: { phase: 'x' }, waiting: { since: 's' } }
+    ],
+    gates: [],
+    conductor: { maxWorkers: 4, activeWorkers: '3', prWatchRepos: ['a/b', 1] },
+    recentEvents: [{ at: 't', type: 'checkpoint', orderId: 'o1', summary: '<b>x</b>' }, { type: 'report' }, { at: 'u', type: 'waiting', summary: 'CI 대기', until: '2026-11-12T02:10:00.000Z' }]
+  })
+  const view = toView(raw, null, [], 0)
+  const [o1, o2] = view.orders
+  assert.deepEqual(o1!.skillChain, ['solve', 'ship'])
+  assert.deepEqual(o1!.checkpoint, { skill: 'ship', phase: 'ci', next: 'n', completedSkills: ['solve'], savedAt: 's' })
+  assert.deepEqual(o1!.waiting, { reason: 'CI', since: 's', until: 'u' })
+  assert.equal(o1!.account, 'work')
+  assert.equal(o1!.rateLimitedAt, 'r1')
+  assert.equal(o2!.checkpoint, undefined)
+  assert.equal(o2!.waiting, undefined)
+  assert.deepEqual(view.conductor, { maxWorkers: 4, prWatchRepos: ['a/b'] })
+  assert.deepEqual(view.recentEvents, [
+    { at: 't', type: 'checkpoint', orderId: 'o1', summary: '<b>x</b>' },
+    { at: 'u', type: 'waiting', summary: 'CI 대기', until: '2026-11-12T02:10:00.000Z' }
+  ])
+})
+
+test('옛 CLI 출력이면 conductor와 recentEvents가 없다', () => {
+  const view = toView(parseStatus({ lastTickAt: null, orders: [], gates: [] }), null, [], 0)
+  assert.equal('conductor' in view, false)
+  assert.equal('recentEvents' in view, false)
+})
+
+test('주문은 있는데 conductor와 recentEvents가 둘 다 없을 때만 터미널 필드가 빠졌다고 표시한다', () => {
+  const orders = [{ id: 'a', status: 'running' }]
+  assert.equal(toView(parseStatus({ lastTickAt: null, orders, gates: [] }), null, [], 0).terminalFieldsMissing, true)
+  assert.equal(toView(parseStatus({ lastTickAt: null, orders: [], gates: [] }), null, [], 0).terminalFieldsMissing, undefined, '주문이 없으면 빠졌는지 모른다')
+  assert.equal(
+    toView(parseStatus({ lastTickAt: null, orders, gates: [], recentEvents: [] }), null, [], 0).terminalFieldsMissing,
+    undefined,
+    '빈 recentEvents라도 실렸으면 새 CLI다'
+  )
+})
