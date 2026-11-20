@@ -3,7 +3,6 @@ import { statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
-import { escapeHtml } from '../local-pr-web/html-generator.js';
 import { renderMarkdown } from '../conductor/results-markdown.js';
 import {
   getOrderDetail,
@@ -37,7 +36,8 @@ class BadRequest extends Error {}
  * 요청이 경로를 정하면 인증 없는 이 서버가 이 머신의 아무 파일이나 읽어 주는 도구가 되니
  * 경로는 받지 않는다. 주문 id와 refs 번호, 수집 때 발급한 파일 키로만 고른다.
  *
- * 저장소는 events.jsonl의 크기나 수정 시각이 바뀌었을 때만 다시 읽는다.
+ * 저장소는 events.jsonl의 크기나 수정 시각이 바뀌었을 때만 다시 읽는다. 파일 본문은 경로와 mtime, 크기로 캐시해
+ * 이벤트 없이 파일만 바뀌어도 다음 요청에서 새로 읽는다.
  *
  * Routes:
  *   GET /                          → 단일 페이지
@@ -64,7 +64,7 @@ export class ConductorWebServer {
     }
     return new Promise((resolve, reject) => {
       this.server = createServer((req, res) => {
-        // 핸들러가 던지면 uncaughtException으로 프로세스가 죽는다. 요청 하나에 뷰어가 내려가지 않게 접는다
+        // 핸들러가 던지면 uncaughtException으로 프로세스가 죽는다. 여기서 잡아 오류 응답으로 바꾸고 서버는 계속 돈다
         try {
           this.handleRequest(req, res);
         } catch (err) {
@@ -145,14 +145,14 @@ export class ConductorWebServer {
     if (rawPath === '/api/orders') return this.json(res, this.orders(query));
     if (rawPath === '/api/search') {
       const results = this.results();
-      return this.json(
-        res,
-        searchResults(results, query.get('q') ?? '', {
-          ...filtersOf(query),
-          body: query.get('body') !== '0',
-          limit: SEARCH_LIMIT,
-        }),
-      );
+      const found = searchResults(results, query.get('q') ?? '', {
+        ...filtersOf(query),
+        body: query.get('body') !== '0',
+        limit: SEARCH_LIMIT,
+      });
+      // 실제 경로는 터미널 --json에만 싣는다. 화면은 파일 키로 고른다
+      const hits = found.hits.map(({ absPath: _absPath, ...h }) => h);
+      return this.json(res, { ...found, hits });
     }
     if (rawPath === '/api/unlinked') {
       const results = this.results();
@@ -221,6 +221,7 @@ export class ConductorWebServer {
           ...(r.entries
             ? { entries: r.entries.map((e, i) => ({ index: i, name: e.name, size: e.size })) }
             : {}),
+          ...(r.entriesTotal !== undefined ? { entriesTotal: r.entriesTotal } : {}),
         })),
         related: detail.related.map(publicFile),
       });
@@ -231,7 +232,7 @@ export class ConductorWebServer {
 
   private orders(query: URLSearchParams): unknown {
     const results = this.results();
-    const { total, orders } = listOrders(results, filtersOf(query));
+    const { orders } = listOrders(results, filtersOf(query));
     const q = (query.get('q') ?? '').trim().toLowerCase();
     const shown = q
       ? orders.filter((o) =>
@@ -243,7 +244,7 @@ export class ConductorWebServer {
     const all = Object.values(results.snapshot.orders);
     return {
       total: all.length,
-      matched: total,
+      matched: shown.length,
       orders: shown,
       repos: [...new Set(all.map((o) => o.repo))].sort(),
       statuses: ORDER_STATUSES.filter((s) => all.some((o) => o.status === s)),
@@ -355,12 +356,43 @@ function publicFile(f: ResultFile): Omit<ResultFile, 'path'> {
   };
 }
 
-/** 마크다운이면 렌더하고 나머지는 이스케이프한 코드 블록으로 보낸다. 원문도 함께 보내 화면이 textContent로 보여준다 */
-function renderBody(path: string, body: FileBody): FileBody & { html: string } {
+/** 이보다 크거나 줄이 이보다 긴 마크다운은 렌더하지 않고 원문으로 보인다. 렌더 비용이 입력에 비례해 커지는 걸 끊는다 */
+const MAX_RENDER_BYTES = 512 * 1024;
+const MAX_RENDER_LINE = 10_000;
+
+/**
+ * 본문 캐시가 같은 파일이면 같은 FileBody 객체를 돌려준다. 그 객체를 키로 쓰면 렌더 캐시가 본문 캐시와 같은 키
+ * (경로, mtime, 크기)를 따르고 본문 캐시에서 빠지면 함께 사라진다
+ */
+const renderCache = new WeakMap<FileBody, string>();
+
+function renderable(text: string): boolean {
+  if (Buffer.byteLength(text) > MAX_RENDER_BYTES) return false;
+  let start = 0;
+  for (;;) {
+    const nl = text.indexOf('\n', start);
+    const end = nl < 0 ? text.length : nl;
+    if (end - start > MAX_RENDER_LINE) return false;
+    if (nl < 0) return true;
+    start = nl + 1;
+  }
+}
+
+/**
+ * 마크다운이면 렌더한 html과 원문을 함께 보낸다. 화면은 html을 그리고 원문은 펼쳐 볼 수 있게 둔다.
+ * 그 밖이나 너무 큰 마크다운은 원문만 보내고 화면이 textContent로 pre에 넣는다
+ */
+function renderBody(
+  path: string,
+  body: FileBody,
+): FileBody & { html?: string; renderSkipped?: boolean } {
   const ext = extname(path).toLowerCase();
-  const html =
-    ext === '.md' || ext === '.markdown'
-      ? renderMarkdown(body.text)
-      : `<pre><code>${escapeHtml(body.text)}</code></pre>`;
+  if (ext !== '.md' && ext !== '.markdown') return body;
+  let html = renderCache.get(body);
+  if (html === undefined) {
+    if (!renderable(body.text)) return { ...body, renderSkipped: true };
+    html = renderMarkdown(body.text);
+    renderCache.set(body, html);
+  }
   return { ...body, html };
 }

@@ -1,11 +1,11 @@
 import { request } from 'node:http';
-import { realpathSync, symlinkSync } from 'node:fs';
+import { readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConductorWebServer } from '../../../src/conductor-web/server.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import { cleanupStateDirs, order, tempStateDir } from './fixtures.js';
-import { cleanupOutsideDirs, outsideDir, put, seed } from './results-fixtures.js';
+import { cleanupOutsideDirs, outsideDir, put, seed, snapshotTree } from './results-fixtures.js';
 
 const servers: ConductorWebServer[] = [];
 
@@ -251,7 +251,7 @@ describe('주문 API', () => {
     expect(await ids('q=ORD-BBB')).toEqual([B]);
     const j = await getJson(base, '/api/orders?q=뷰어');
     expect(j.total).toBe(2);
-    expect(j.matched).toBe(2);
+    expect(j.matched).toBe(1);
   });
 
   it('/api/orders/:id는 상세를 주고 실제 경로와 워커 handle은 안 내보낸다', async () => {
@@ -321,10 +321,11 @@ describe('refs 본문', () => {
     expect(j.truncated).toBe(false);
   });
 
-  it('md가 아닌 파일은 이스케이프한 코드 블록', async () => {
+  it('md가 아닌 파일은 html 없이 원문만 보낸다', async () => {
     const { base } = await boot(fixture().dir);
     const j = await getJson(base, `/api/orders/${A}/refs/2`);
-    expect(j.html).toBe('<pre><code>로그 &lt;b&gt;줄&lt;/b&gt;</code></pre>');
+    expect(j.html).toBeUndefined();
+    expect(j.text).toBe('로그 <b>줄</b>');
   });
 
   it('디렉토리 ref는 ?entry=로 항목 본문을 열고 entry 없이는 404', async () => {
@@ -334,6 +335,24 @@ describe('refs 본문', () => {
     expect(one.display).toBe('one.md');
     expect((await get(base, `/api/orders/${A}/refs/3`)).status).toBe(404);
     expect((await get(base, `/api/orders/${A}/refs/3?entry=9`)).status).toBe(404);
+  });
+
+  it('디렉토리 ref는 상세에 자르기 전 파일 수(entriesTotal)를 싣는다', async () => {
+    const { base } = await boot(fixture().dir);
+    const j = await getJson(base, `/api/orders/${A}`);
+    const dirRef = j.refs.find((r: { kind: string }) => r.kind === 'dir');
+    expect(dirRef.entriesTotal).toBe(2);
+    expect(dirRef.entries).toHaveLength(2);
+  });
+
+  it('줄이 너무 긴 md는 렌더하지 않고 원문만 보낸다', async () => {
+    const { dir, abs } = fixture();
+    const { base } = await boot(dir);
+    put(join(abs, 'reports', 'final.md'), `# 긴 줄\n${'가'.repeat(10_001)}`);
+    const j = await getJson(base, `/api/orders/${A}/refs/1`);
+    expect(j.html).toBeUndefined();
+    expect(j.renderSkipped).toBe(true);
+    expect(j.text.startsWith('# 긴 줄')).toBe(true);
   });
 
   it('잘못된 entry는 400', async () => {
@@ -356,7 +375,6 @@ describe('refs 본문', () => {
     const { dir, abs } = fixture();
     const { base } = await boot(dir);
     const secret = put(join(outsideDir(), 'secret.md'), '비밀');
-    const { rmSync } = await import('node:fs');
     rmSync(join(abs, 'reports', 'final.md'));
     symlinkSync(secret, join(abs, 'reports', 'final.md'));
     // events.jsonl은 그대로라 서버는 캐시된 분류(file)를 쓰지만 본문 읽기에서 다시 막아야 한다
@@ -435,6 +453,13 @@ describe('검색 API', () => {
     expect(miss.hits.every((h: { orderId: string | null }) => h.orderId === A)).toBe(true);
   });
 
+  it('검색 결과에 실제 경로(absPath)는 싣지 않는다', async () => {
+    const { base } = await boot(fixture().dir);
+    const j = await getJson(base, '/api/search?q=needle');
+    expect(j.hits.some((h: { source: string }) => h.source === 'file')).toBe(true);
+    expect(j.hits.every((h: object) => !('absPath' in h))).toBe(true);
+  });
+
   it('결과는 200건까지만 보내고 total은 전체 건수', async () => {
     const dir = tempStateDir();
     const store = ConductorStore.open(dir);
@@ -447,6 +472,42 @@ describe('검색 API', () => {
     const j = await getJson(base, '/api/search?q=대량');
     expect(j.total).toBe(251);
     expect(j.hits).toHaveLength(200);
+  });
+});
+
+describe('읽기 전용', () => {
+  it('API를 여러 번 불러도 저장소 파일의 이름, 크기, mtime이 그대로다', async () => {
+    const { dir } = fixture();
+    const { base } = await boot(dir);
+    const before = snapshotTree(dir);
+    await getJson(base, '/api/orders');
+    await getJson(base, `/api/orders/${A}`);
+    await getJson(base, `/api/orders/${A}/refs/1`);
+    await getJson(base, `/api/orders/${A}/refs/3?entry=0`);
+    await getJson(base, '/api/search?q=needle');
+    await getJson(base, '/api/unlinked');
+    expect(snapshotTree(dir)).toEqual(before);
+  });
+});
+
+describe('요청 처리 실패', () => {
+  it('핸들러가 던지면 500을 내고 로그를 남기며 같은 서버가 계속 응답한다', async () => {
+    const { dir } = fixture();
+    const { base } = await boot(dir);
+    const events = join(dir, 'events.jsonl');
+    const saved = readFileSync(events);
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      rmSync(events);
+      const res = await get(base, '/api/orders');
+      expect(res.status).toBe(500);
+      expect(await res.text()).toBe('Internal Server Error');
+      expect(write).toHaveBeenCalledWith(expect.stringContaining('[conductor-web] request failed'));
+    } finally {
+      write.mockRestore();
+    }
+    writeFileSync(events, saved);
+    expect((await getJson(base, '/api/orders')).total).toBe(2);
   });
 });
 
@@ -471,14 +532,14 @@ describe('갱신 반영', () => {
     expect((await getJson(base, '/api/unlinked')).files).toHaveLength(2);
   });
 
-  it('refs 본문 캐시는 events.jsonl이 바뀌어 다시 읽을 때 갈린다', async () => {
+  it('refs 본문은 events.jsonl이 그대로여도 파일이 바뀌면 새로 읽고 렌더도 새로 한다', async () => {
     const { dir, abs } = fixture();
     const { base } = await boot(dir);
     expect((await getJson(base, `/api/orders/${A}/refs/1`)).text).toContain('# 최종');
     put(join(abs, 'reports', 'final.md'), '# 바뀜');
-    expect((await getJson(base, `/api/orders/${A}/refs/1`)).text).toContain('# 최종');
-    ConductorStore.open(dir).addOrder(order({ id: 'ord-eeeeeeee' }));
-    expect((await getJson(base, `/api/orders/${A}/refs/1`)).text).toBe('# 바뀜');
+    const j = await getJson(base, `/api/orders/${A}/refs/1`);
+    expect(j.text).toBe('# 바뀜');
+    expect(j.html).toBe('<h1>바뀜</h1>');
   });
 
   it('지운 주문은 목록, 상세, 검색에서 사라진다', async () => {

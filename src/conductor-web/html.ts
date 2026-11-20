@@ -259,6 +259,11 @@ function bodyCard(title, url, open, focus) {
     getJson(url).then(function (b) {
       body.textContent = '';
       if (b.truncated) body.appendChild(el('p', 'muted small', '파일이 커서 앞 ' + Math.round(b.text.length / 1024) + 'KB만 보여요 (전체 ' + Math.round(b.size / 1024) + 'KB)'));
+      if (b.renderSkipped) body.appendChild(el('p', 'muted small', '문서가 커서 마크다운으로 그리지 않고 원문으로 보여요'));
+      if (typeof b.html !== 'string') {
+        body.appendChild(el('pre', '', b.text));
+        return;
+      }
       var rendered = el('div');
       // 서버의 마크다운 렌더러가 이스케이프를 마친 HTML이다
       rendered.innerHTML = b.html;
@@ -349,6 +354,9 @@ function showOrder(id, focus) {
         var box = el('div', 'card' + (isFocus ? ' focus' : ''));
         box.id = 'ref-' + r.index;
         add(box, add(el('div', 'body'), label));
+        if (r.entriesTotal > (r.entries || []).length) {
+          box.appendChild(el('p', 'muted small', '파일 ' + r.entriesTotal + '개 중 ' + r.entries.length + '개만 보여요'));
+        }
         (r.entries || []).forEach(function (e) {
           box.appendChild(bodyCard(e.name, base + '?entry=' + e.index, isFocus && focus.entry === e.index, false));
         });
@@ -414,14 +422,16 @@ function showSearch(q) {
   var params = { q: q, repo: f.repo, status: f.status, since: f.since, issue: f.issue, body: $('q-body').checked ? '' : '0' };
   setMain([el('p', 'muted', '찾는 중…')]);
   getJson('/api/search' + qs(params)).then(function (d) {
-    var nodes = [el('h1', '', '"' + d.query + '" 검색'), el('p', 'muted', d.total + '건' + (d.total > d.hits.length ? ' 중 앞 ' + d.hits.length + '건' : ''))];
+    var count = d.total > d.hits.length ? '전체 ' + d.total + '건 중 ' + d.hits.length + '건 표시' : d.total + '건';
+    var partial = d.hits.some(function (h) { return h.partial; }) ? '. 큰 파일은 앞부분만 찾았어요' : '';
+    var nodes = [el('h1', '', '"' + d.query + '" 검색'), el('p', 'muted', count + partial)];
     var ul = el('ul', 'hits');
     d.hits.forEach(function (h) {
       var li = el('li');
       var a = el('a');
       a.href = hitHref(h);
       add(a, el('strong', '', h.title));
-      var meta = el('div', 'muted small', (h.orderId ? h.orderId + '  ' + h.repo + '  ' : '주문 없음  ') + stamp(h.at) + '  ' + (WHERE[h.source] || h.source) + (h.reportIndex ? ' #' + h.reportIndex : '') + (h.source === 'ref' || h.source === 'file' ? '  ' + h.where + (h.line ? ':' + h.line : '') : ''));
+      var meta = el('div', 'muted small', (h.orderId ? h.orderId + '  ' + h.repo + '  ' : '주문 없음  ') + stamp(h.at) + '  ' + (WHERE[h.source] || h.source) + (h.reportIndex ? ' #' + h.reportIndex : '') + (h.source === 'ref' || h.source === 'file' ? '  ' + h.where + (h.line ? ':' + h.line : '') : '') + (h.moreInFile ? '  이 파일에 ' + h.moreInFile + '건 더' : ''));
       add(li, a, meta, highlight(el('div', 'ex'), h.excerpt, h.matchStart, h.matchLength));
       ul.appendChild(li);
     });
