@@ -197,6 +197,7 @@ export class ArchitectureLiveServer {
   }
 
   // 포트를 이름에 넣는다. 쿠키는 포트를 가리지 않아서 레포 둘의 서버가 뜨면 서로 덮어쓴다
+  // 같은 까닭으로 127.0.0.1의 다른 포트 서버도 이 쿠키를 받는다. 단일 사용자 노트북 전제라 받아들인다
   private get cookieName(): string {
     return `gestalt-live-${this.port!}`;
   }

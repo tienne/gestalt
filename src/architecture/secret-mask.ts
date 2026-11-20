@@ -153,16 +153,31 @@ function assignedValueIsSecret(name: string, value: string): boolean {
 }
 
 /**
- * 따옴표 없는 대입 값이 비밀값인지. 코드 근거의 `token = getToken()`, `token = this.token`은 값이 아니다.
+ * 따옴표 없는 대입 값이 비밀값인지. 코드 근거의 `token = getToken()`, `token = this.token`,
+ * `token={session.accessToken}`, `token: [a, b]`는 값이 아니다. 괄호는 호출이나 인덱싱처럼 닫는 괄호로 끝날 때만
+ * 코드로 본다. `Hunter(2)abc9` 같은 비밀번호에도 괄호가 들어간다.
+ * 점으로 이은 꼴도 .env 대문자 이름에 붙었거나 숫자가 섞이면 `Summer2024.Corp1` 같은 값으로 본다.
  * `:`는 `auth: Keycloak`, `Authorization: Bearer`처럼 산문과 타입 선언에 흔해서 생성 값처럼 보일 때만 가린다
  */
 function bareValueIsSecret(name: string, op: string, value: string): boolean {
-  if (/^[=>]/.test(value) || /[([{]/.test(value) || MEMBER_CHAIN.test(value)) return false;
+  if (/^[=>{[]/.test(value) || CALL_OR_INDEX.test(value)) return false;
+  if (MEMBER_CHAIN.test(value) && !(ENV_NAME.test(name) || /\d/.test(value))) return false;
   // 숫자 없는 낱말 하나는 코드의 변수 이름일 때가 많다. .env처럼 대문자 이름에 붙었을 때만 값으로 본다
   if (IDENTIFIER.test(value) && !/\d/.test(value) && !ENV_NAME.test(name)) return false;
   if (!assignedValueIsSecret(name, value)) return false;
   if (op.trim() !== ':') return true;
   return (/\d/.test(value) && /[A-Za-z]/.test(value)) || looksRandom(value);
+}
+
+function splitUnmatchedParens(raw: string): { value: string; tail: string } {
+  let value = raw;
+  let tail = '';
+  const count = (c: string) => value.split(c).length - 1;
+  while (value.endsWith(')') && count(')') > count('(')) {
+    value = value.slice(0, -1);
+    tail = `)${tail}`;
+  }
+  return { value, tail };
 }
 
 function urlParamIsSecret(key: string, value: string): boolean {
@@ -251,14 +266,16 @@ const DB_URL = /\b([a-z][a-z0-9+.-]{1,30}:\/\/[^\s:/@'"`<>]{0,256}:)([^\s@/'"`<>
 // name = "value", "name": 'value', name: `value` 같은 대입. 이름 앞뒤 따옴표는 같아야 한다
 const QUOTED_ASSIGN =
   /(?<![\w.-])(["']?)([A-Za-z_][\w.-]{0,100})\1(\s{0,10}(?::=|=>|=|:)\s{0,10})(["'`])([^"'`\n]{0,2000})\4/g;
-// name=value, NAME:=value, key: value 같은 따옴표 없는 대입. 값은 공백과 따옴표, 구분 문자에서 끊는다
+// name=value, NAME:=value, key: value 같은 따옴표 없는 대입. 값은 공백과 따옴표, 구분 문자에서 끊는다.
+// `)`에서 끊으면 `Hunter(2)abc9`가 `Hunter(2`로 잘려 호출 꼴로 보이므로 값에 넣고 짝 없는 꼬리만 콜백에서 뗀다
 const BARE_ASSIGN =
-  /(?<![\w.-])([A-Za-z_][\w.-]{0,100})(\s{0,10}(?::=|=|:)\s{0,10})([^\s"'`,;)]{4,256})/g;
+  /(?<![\w.-])([A-Za-z_][\w.-]{0,100})(\s{0,10}(?::=|=|:)\s{0,10})([^\s"'`,;]{4,256})/g;
 // URL 쿼리와 fragment 안 키=값. 키와 값 없는 `#절` 앵커는 안 걸린다
 const URL_PARAM = /([?&#])([A-Za-z_][\w.-]{0,100})=([^&#\s"'`<>]{1,512})/g;
 const URL_SECRET_KEY = /^(?:sig|signature|x-amz-signature|x-amz-credential|code|key)$/i;
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 const MEMBER_CHAIN = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/;
+const CALL_OR_INDEX = /^[A-Za-z_$][\w$.]*[([].*[)\]]$/;
 const ENV_NAME = /^[A-Z][A-Z0-9_]*$/;
 const QUOTED_RANDOM = /(["'`])([A-Za-z0-9+/=_-]{32,8192})\1/g;
 const BARE_RANDOM = /(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/_-]{32,8192}={0,2}(?![A-Za-z0-9+/=_-])/g;
@@ -334,11 +351,14 @@ export function maskSecrets(text: string): MaskResult {
     masked += 1;
     return `${sep}${key}=${SECRET_MASK}`;
   });
-  out = out.replace(BARE_ASSIGN, (m, name: string, op: string, value: string) => {
+  out = out.replace(BARE_ASSIGN, (m, name: string, op: string, raw: string) => {
+    // `login(password=…)`처럼 대입 바깥 호출의 닫는 괄호가 값 끝에 붙어 온다
+    const { value, tail } = splitUnmatchedParens(raw);
     const last = name.split('.').pop() ?? name;
-    if (!SECRET_NAME.test(snake(last)) || !bareValueIsSecret(last, op, value)) return m;
+    if (value.length < 4 || !SECRET_NAME.test(snake(last)) || !bareValueIsSecret(last, op, value))
+      return m;
     masked += 1;
-    return `${name}${op}${SECRET_MASK}`;
+    return `${name}${op}${SECRET_MASK}${tail}`;
   });
   out = out.replace(QUOTED_RANDOM, (m, q: string, v: string) => {
     if (!looksRandom(v)) return m;

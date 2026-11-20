@@ -387,6 +387,7 @@ describe('mergeWithPreviousDetailed', () => {
       ],
       flowsCarried: [],
       flowsDropped: [],
+      projectionsDropped: [],
       warnings: [],
     });
   });
@@ -724,6 +725,13 @@ describe('mergeWithPreviousDetailed', () => {
         reason: 'evidence_stale',
       }),
     );
+    expect(report.projectionsDropped).toEqual(['p1']);
+    const projectionWarning = report.warnings.find((w) => w.code === 'PROJECTION_DROPPED');
+    expect(projectionWarning).toEqual(
+      expect.objectContaining({ projectionId: 'p1', reason: 'evidence_stale' }),
+    );
+    // 투영 title은 비밀값이 섞일 수 있어 경고 문구에 싣지 않는다
+    expect(projectionWarning?.message).not.toContain('홈에서 장바구니');
     // 파일 검사를 안 넘기면 근거로 버리지 않는다
     expect(mergeWithPreviousDetailed(prev, next).ir.flows?.map((f) => f.id)).toEqual([
       'checkout',

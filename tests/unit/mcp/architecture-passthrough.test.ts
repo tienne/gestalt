@@ -1123,6 +1123,25 @@ describe('ges_architecture render의 커밋 해시와 승계 보고', () => {
           transitions: [],
         },
       ],
+      projections: [
+        {
+          id: 'p-checkout',
+          title: '홈에서 주문 조회',
+          question: '홈에서 주문을 어떻게 불러오나요?',
+          shape: 'sequence',
+          messages: [
+            {
+              id: 'p-checkout-m1',
+              from: 'n-home',
+              to: 'n-orders-api',
+              label: '주문 조회',
+              edge: 'n-e1',
+              evidence: [{ type: 'code', location: 'web:src/checkout.ts:3', visibility: 'public' }],
+              lineStyle: 'solid',
+            },
+          ],
+        },
+      ],
     };
     expect((await call({ action: 'render', ir: first }))['ok']).toBe(true);
     rmSync(join(repoRoot, 'src/checkout.ts'));
@@ -1136,7 +1155,18 @@ describe('ges_architecture render의 커밋 해시와 승계 보고', () => {
         reason: 'evidence_stale',
       }),
     );
+    expect(result['warnings']).toContainEqual(
+      expect.objectContaining({
+        code: 'PROJECTION_DROPPED',
+        projectionId: 'p-checkout',
+        reason: 'evidence_stale',
+      }),
+    );
+    expect(result['merge']).toEqual(
+      expect.objectContaining({ flowsDropped: ['checkout'], projectionsDropped: ['p-checkout'] }),
+    );
     expect(savedIr(result).flows ?? []).toEqual([]);
+    expect(savedIr(result).projections ?? []).toEqual([]);
 
     // 파일 검사를 끈 render는 근거로 흐름을 버리지 않는다. 버리면 저장 IR에서 흐름을 영영 잃는다
     expect((await call({ action: 'render', ir: first, checkFiles: false }))['ok']).toBe(true);

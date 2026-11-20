@@ -142,6 +142,21 @@ describe('maskSecrets — 가려야 하는 값', () => {
     expectHidden(`DB_PASSWORD=${join('super', 'secret')}`, join('super', 'secret'));
   });
 
+  it.each([
+    ['점이 섞인 .env 비밀번호', 'DB_PASSWORD=Summer2024.Corp1', 'Summer2024.Corp1'],
+    ['점이 섞인 export 키', 'export API_KEY=Zk3Lm9.Qp2Rt7Vx1', 'Zk3Lm9.Qp2Rt7Vx1'],
+    ['소괄호가 든 비밀번호', 'password=Hunter(2)abc9', 'Hunter(2)abc9'],
+    ['대괄호가 든 비밀번호', 'password=Hunter[2]abc9', 'Hunter[2]abc9'],
+    ['중괄호가 든 비밀번호', 'password=Hun{2}ter9abc', 'Hun{2}ter9abc'],
+  ])('따옴표 없는 대입 값 중 코드처럼 생긴 비밀번호 %s', (_name, text, secret) => {
+    expectHidden(text, secret);
+  });
+
+  it('호출 인자 안 대입은 값만 가리고 닫는 괄호는 남긴다', () => {
+    const out = expectHidden('login(password=Hunter(2)abc9)', 'Hunter(2)abc9');
+    expect(out).toBe(`login(password=${SECRET_MASK})`);
+  });
+
   it('콜론 뒤 따옴표 없는 값은 숫자와 글자가 섞였을 때만 가린다', () => {
     const key = join('Zk3', noise(42, 20));
     expectHidden(`client_secret: ${key}`, key);
@@ -217,6 +232,12 @@ describe('maskSecrets — 가리면 안 되는 값', () => {
     ['스키마 선언', 'apiKey: z.string()'],
     ['함수 호출 대입', 'const token = await getToken(user1);'],
     ['멤버 대입', 'const token = this.session.token;'],
+    ['짧은 멤버 대입', 'token = this.token'],
+    ['인덱싱 대입', 'const token = this.tokens[0];'],
+    ['JSX 식', '<Auth token={session.accessToken} />'],
+    ['JSX 식 변수', '<Login password={pw} />'],
+    ['배열 리터럴', 'token: [tok1, tok2]'],
+    ['호출 인자 안 호출 대입', 'login(password=getToken(user1))'],
     ['변수 대입', 'const password = input;'],
     ['비교', 'if (token === undefined) return;'],
     ['화살표', 'tokens.map(token => tokenize(token))'],

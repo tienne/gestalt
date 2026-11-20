@@ -323,6 +323,13 @@ export type MergeWarning =
       message: string;
     }
   | {
+      code: 'PROJECTION_DROPPED';
+      projectionId: string;
+      /** evidence_stale: 메시지의 code 근거 파일이 없거나 줄이 범위 밖이다 */
+      reason: 'evidence_stale';
+      message: string;
+    }
+  | {
       code: 'MERGE_KEY_DUPLICATE';
       /** kind/repo/정규화 label. micro_app은 repo 자리에 `*`를 쓴다 */
       key: string;
@@ -359,6 +366,8 @@ export interface PreviousMergeReport {
   flowsCarried: string[];
   /** 이번 실행에 없고 이어 싣지도 못해 사라진 지난 흐름 id. 이유는 같은 id의 FLOW_DROPPED 경고에 있다 */
   flowsDropped: string[];
+  /** 근거가 낡아 이어 싣지 못한 지난 투영 id. 같은 id의 PROJECTION_DROPPED 경고가 함께 온다 */
+  projectionsDropped: string[];
   warnings: MergeWarning[];
 }
 
@@ -601,7 +610,7 @@ export function mergeWithPreviousDetailed(
   const edgeIds = new Set(edges.map((e) => e.id));
   const edgeById = new Map(edges.map((e) => [e.id, e]));
   // 질문 하나에 답한 그림은 다음 실행이 다른 질문을 물어도 남아야 한다. 이번에 안 나온 지난 투영은 가리키는 것이 다 살아 있을 때만 이어 싣는다
-  const carried = carryProjections(
+  const { carried, dropped: droppedProjections } = carryProjections(
     prev.projections ?? [],
     projections ?? [],
     nodeKindById,
@@ -610,6 +619,7 @@ export function mergeWithPreviousDetailed(
     resolvePrevNodeId,
     options.evidenceOk,
   );
+  warnings.push(...droppedProjections.map(projectionDroppedWarning));
   const allProjections =
     projections !== undefined || carried.length > 0
       ? [...(projections ?? []), ...carried]
@@ -695,6 +705,7 @@ export function mergeWithPreviousDetailed(
       relabeled,
       flowsCarried: carriedFlows.map((f) => f.id),
       flowsDropped: droppedFlows.map((d) => d.flowId),
+      projectionsDropped: droppedProjections,
       warnings,
     },
   };
@@ -874,6 +885,17 @@ function flowDroppedWarning(d: DroppedFlow): MergeWarning {
   };
 }
 
+// 메시지에 투영 title이 실리지 않게 id만 쓴다
+function projectionDroppedWarning(projectionId: string): MergeWarning {
+  return {
+    code: 'PROJECTION_DROPPED',
+    projectionId,
+    reason: 'evidence_stale',
+    message: `지난 투영 ${projectionId}는 메시지의 code 근거가 지금 코드에 없어 이어 싣지 않았다. 아직 필요한 그림이면 근거를 다시 찾아 이번 IR에 적는다.`,
+  };
+}
+
+/** 이어 실을 지난 투영과, 근거가 낡아 버린 투영 id. 구조가 깨져 버린 투영은 dropped에 안 싣는다 */
 function carryProjections(
   prev: readonly ArchitectureProjection[],
   next: readonly ArchitectureProjection[],
@@ -882,10 +904,11 @@ function carryProjections(
   flowById: ReadonlyMap<string, ArchitectureFlow>,
   resolvePrevNodeId: (id: string) => string | null,
   evidenceOk: ((evidence: readonly Evidence[]) => boolean) | undefined,
-): ArchitectureProjection[] {
+): { carried: ArchitectureProjection[]; dropped: string[] } {
   const projectionIds = new Set(next.map((pr) => pr.id));
   const messageIds = new Set(next.flatMap((pr) => pr.messages.map((m) => m.id)));
   const out: ArchitectureProjection[] = [];
+  const dropped: string[] = [];
   for (const prevPr of prev) {
     if (projectionIds.has(prevPr.id)) continue;
     if (prevPr.messages.some((m) => messageIds.has(m.id))) continue;
@@ -923,12 +946,15 @@ function carryProjections(
       );
     });
     if (!alive) continue;
-    if (evidenceOk !== undefined && !evidenceOk(pr.messages.flatMap((m) => m.evidence))) continue;
+    if (evidenceOk !== undefined && !evidenceOk(pr.messages.flatMap((m) => m.evidence))) {
+      dropped.push(pr.id);
+      continue;
+    }
     projectionIds.add(pr.id);
     for (const m of pr.messages) messageIds.add(m.id);
     out.push(pr);
   }
-  return out;
+  return { carried: out, dropped };
 }
 
 /** 이전 실행을 한 줄로 보여줄 때 쓰는 요약 */

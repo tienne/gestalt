@@ -661,7 +661,7 @@ FE가 부르는 BE 레포나 배포 매니페스트 레포처럼 지금 레포 �
   - 작성 품질 경고 넷이 있다. `NODE_TITLE_PATHLIKE`(카드 제목이 경로나 파일 이름, `nodeIds`)는 [표시 이름을 단다](#표시-이름을-단다)대로 `displayName`을 단다. `DISPLAY_NAME_LANGUAGE`(사용자 언어가 아닌 표시 이름, `nodeIds`)는 표시 이름을 옮겨 쓴다. `LEVEL_SUMMARY_MISSING`(요약 없는 레벨, `levelIds`와 `nodeIds`)은 [레벨 요약과 일러두기](#레벨-요약과-일러두기)대로 채운다. `FLOW_STEP_DESCRIPTION_MISSING`(설명 없는 흐름 단계, `flowId`와 `stepIds`)은 단계마다 거기서 누가 무엇을 하는지 한 문장을 단다.
   - **작성 품질 경고와 `NODE_DESCRIPTION_MISSING`이 오면 채워서 validate를 한 번 더 돈다.** 그래도 남은 경고는 render를 막지 않으니 그대로 render하고 보고에 남은 경고와 이유를 적는다.
   - `INFRA_PLACEMENT_CONFLICT`는 노드에 직접 적은 `provider`나 `region`이 `placedIn`, `parent`, `account`로 물려받은 값과 다를 때 온다. 근거를 다시 보고 한쪽을 지운다.
-  - render 응답에도 같은 `warnings`가 실린다. render에는 `DELTA_OVER_BUDGET`, `SECRET_MASKED`, `IGNORED_FILE_TRACKED`, `LABEL_CHANGED_ID_LOST`, `MERGE_KEY_DUPLICATE`, `FLOW_DROPPED`가 더 올 수 있다. 읽는 법은 [Step 8](#step-8--render와-보고)에 있다.
+  - render 응답에도 같은 `warnings`가 실린다. render에는 `DELTA_OVER_BUDGET`, `SECRET_MASKED`, `IGNORED_FILE_TRACKED`, `LABEL_CHANGED_ID_LOST`, `MERGE_KEY_DUPLICATE`, `FLOW_DROPPED`, `PROJECTION_DROPPED`가 더 올 수 있다. 읽는 법은 [Step 8](#step-8--render와-보고)에 있다.
 - 실패하면 `errors[]`에 `code`와 `nodeId`나 `edgeId`가 온다. 질문별 그림 에러면 `projectionId`와 `messageId`가 오고 구간 에러면 `phaseId`가 함께 온다. 오타로 보이는 자리에는 `suggestion`이 하나 붙는다. 그 값이 맞는지 IR에서 확인한 뒤 고친다. 확인 없이 그대로 바꾸지 않는다.
 
 | 에러 코드                                               | 고치는 법                                                                                                                                                                                                                 |
@@ -787,7 +787,7 @@ Step 4.5에서 클라우드를 조회했으면 어느 프로필로 언제 조회
 
 `SECRET_MASKED`가 오면 그 위치(`nodeId`나 `flowId` 같은 주인 id와 `field`)의 글자를 `[비밀값]`으로 가렸다는 뜻이다. 보고에 위치만 한 줄로 적고 값을 짐작해 옮기지 않는다. 다음 실행 IR에서는 그 칸에 비밀값을 적지 않는다.
 
-`LABEL_CHANGED_ID_LOST`는 설명이나 답이 달려 있던 지난 노드가 이번 IR의 어느 노드와도 이어지지 않았을 때 온다. label과 id를 함께 바꿨거나 그 노드가 정말 지워졌을 때 난다. `candidates`에서 같은 대상인 노드를 골라 `previousId`를 id로 다시 적고 render한다. 고를 수 없으면 사용자에게 어느 노드인지 묻는다. `candidates`에 같은 대상이 없고 지난 노드가 정말 지워졌으면 보고에 한 줄 적고 넘어간다. `MERGE_KEY_DUPLICATE`는 같은 kind와 repo, label을 쓰는 노드가 여럿이라 첫 노드만 지난 id를 받았을 때 온다. label을 서로 다르게 고친다. `FLOW_DROPPED`가 오면 지난 흐름이 사라진 것이다. `node_gone`은 흐름이 가리키던 코드가 없어진 것이라 보고에 한 줄 적고 넘어간다. `evidence_stale`은 단계나 전이의 `code` 근거 파일이 지워졌거나 줄이 범위를 벗어나 버린 것이다. `no_refs`나 `id_conflict`, `evidence_stale`인데 아직 필요한 흐름이면 이번 IR에 다시 적는다. `evidence_stale`이면 근거를 다시 찾아 적는다.
+`LABEL_CHANGED_ID_LOST`는 설명이나 답이 달려 있던 지난 노드가 이번 IR의 어느 노드와도 이어지지 않았을 때 온다. label과 id를 함께 바꿨거나 그 노드가 정말 지워졌을 때 난다. `candidates`에서 같은 대상인 노드를 골라 `previousId`를 id로 다시 적고 render한다. 고를 수 없으면 사용자에게 어느 노드인지 묻는다. `candidates`에 같은 대상이 없고 지난 노드가 정말 지워졌으면 보고에 한 줄 적고 넘어간다. `MERGE_KEY_DUPLICATE`는 같은 kind와 repo, label을 쓰는 노드가 여럿이라 첫 노드만 지난 id를 받았을 때 온다. label을 서로 다르게 고친다. `FLOW_DROPPED`가 오면 지난 흐름이 사라진 것이다. `node_gone`은 흐름이 가리키던 코드가 없어진 것이라 보고에 한 줄 적고 넘어간다. `evidence_stale`은 단계나 전이의 `code` 근거 파일이 지워졌거나 줄이 범위를 벗어나 버린 것이다. `no_refs`나 `id_conflict`, `evidence_stale`인데 아직 필요한 흐름이면 이번 IR에 다시 적는다. `evidence_stale`이면 근거를 다시 찾아 적는다. `PROJECTION_DROPPED`는 지난 질문별 그림의 메시지 `code` 근거가 낡아 그 그림을 이어 싣지 못했을 때 온다. 아직 필요한 그림이면 근거를 다시 찾아 이번 IR에 적는다.
 
 `IGNORED_FILE_TRACKED`가 오면 퍼블릭 레포인데 막아야 할 산출물을 git이 이미 추적하고 있다는 뜻이다. `paths`와 경고 문구의 `git rm --cached` 명령을 그대로 보여주고 실행할지는 사용자에게 맡긴다. 직접 실행하지 않는다.
 
