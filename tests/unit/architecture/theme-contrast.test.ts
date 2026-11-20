@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  DRILL_CSS,
   renderCss,
   renderTokenCss,
   PRODUCT_PALETTE,
@@ -160,17 +161,37 @@ function cardRows(theme: 'light' | 'dark'): Row[] {
   return rows;
 }
 
-/** 레인 제목은 레인 채움 위에 놓인다. 바깥 레인(.lane.outside)은 채움이 없어 캔버스 배경 위에 놓인다 */
+/** 레인은 면이 없어 제목이 캔버스 배경 위에 바로 놓인다. 바깥 맥락 레인도 같다 */
 function laneRows(theme: 'light' | 'dark'): Row[] {
   const bg = tok(theme, '--bg');
   const muted = tok(theme, '--muted');
-  const text = tok(theme, '--text');
-  const lane = over(tok(theme, '--lane'), bg);
   return [
-    { theme, text: '.lane-title 레인 제목', ratio: contrast(text, lane) },
-    { theme, text: '.lane-title 바깥 레인 제목', ratio: contrast(text, bg) },
+    { theme, text: '.lane-title 레인 제목', ratio: contrast(muted, bg) },
     { theme, text: '.lane-title .n 개수', ratio: contrast(muted, tok(theme, '--surface')) },
-    { theme, text: '.lane-title .more 외 N개', ratio: contrast(muted, bg) },
+    { theme, text: '.lane-title .more +N', ratio: contrast(muted, bg) },
+  ];
+}
+
+/** 드릴다운 큰 카드 칩 줄, 바깥 알약, 덩어리 카드, 단계 머리 */
+function drillRows(theme: 'light' | 'dark'): Row[] {
+  const bg = tok(theme, '--bg');
+  const card = tok(theme, '--card');
+  const text = tok(theme, '--text');
+  const text2 = tok(theme, '--text-2');
+  const muted = tok(theme, '--muted');
+  return [
+    { theme, text: '.cr-n 항목 수 칩', ratio: contrast(text2, tok(theme, '--surface-2')) },
+    { theme, text: '.out-pill .ext 바깥 표시', ratio: contrast(muted, card) },
+    { theme, text: '.chunk .t 덩어리 이름', ratio: contrast(text, card) },
+    { theme, text: '.chunk .ds 대표 이름 줄', ratio: contrast(text2, card) },
+    {
+      theme,
+      text: '.ch-head .ord 레인 순서',
+      ratio: contrast(tok(theme, '--on-accent'), tok(theme, '--accent')),
+    },
+    { theme, text: '.lh-kind 단계 종류', ratio: contrast(muted, bg) },
+    { theme, text: '.lh-title 단계 제목', ratio: contrast(text, bg) },
+    { theme, text: '.lh-sum 단계 요약', ratio: contrast(text2, bg) },
   ];
 }
 
@@ -189,6 +210,14 @@ function overviewRows(theme: 'light' | 'dark'): Row[] {
       ratio: contrast(tok(theme, '--text-2'), surface),
     },
     { theme, text: '.ov-h 소제목', ratio: contrast(tok(theme, '--muted'), surface) },
+    { theme, text: '.ov-tile b 숫자', ratio: contrast(tok(theme, '--text'), surface) },
+    { theme, text: '.ov-tile span 이름', ratio: contrast(tok(theme, '--muted'), surface) },
+    {
+      theme,
+      text: '.ov-lanes a 레인 목록(눌렀을 때)',
+      ratio: contrast(tok(theme, '--text'), tok(theme, '--surface-2')),
+    },
+    { theme, text: '.ov-lanes a 레인 목록', ratio: contrast(tok(theme, '--text-2'), surface) },
   ];
 }
 
@@ -198,6 +227,8 @@ describe('카드 위 글자 대비', () => {
     ...cardRows('dark'),
     ...laneRows('light'),
     ...laneRows('dark'),
+    ...drillRows('light'),
+    ...drillRows('dark'),
     ...overviewRows('light'),
     ...overviewRows('dark'),
   ];
@@ -235,10 +266,17 @@ describe('카드 설명 줄', () => {
     expect(DS).toContain('color: var(--text-2)');
   });
 
-  it('한 줄 말줄임이고 여러 줄로 접지 않는다', () => {
+  it('평면 그림 카드는 한 줄 말줄임이고 여러 줄로 접지 않는다', () => {
     expect(DS).toContain('white-space: nowrap');
     expect(DS).toContain('text-overflow: ellipsis');
     expect(DS).not.toMatch(/line-clamp/);
     expect(LAYOUT).not.toMatch(/\.ds[^{]*\{[^}]*line-clamp/);
+  });
+
+  it('드릴다운 큰 카드는 13px 글꼴의 19px 줄로 세 줄까지 접는다', () => {
+    const LG = ruleBody(`\n${DRILL_CSS}`, '.node.lg .ds');
+    expect(LG).toContain('font: 13px/19px var(--font)');
+    expect(LG).toContain('-webkit-line-clamp: 3');
+    expect(LG).toContain('white-space: normal');
   });
 });

@@ -1,5 +1,13 @@
 import { LEGACY_PACK_IDS, vocabularyOf, type Vocabulary } from './packs/index.js';
 import type { NodeKind } from './types.js';
+import {
+  CARD_DESC_MAX_LINES,
+  CARD_PAD_Y,
+  CARD_TEXT_LEFT,
+  CARD_TEXT_RIGHT,
+  SIDE_PANEL_SHEET_MAX,
+  SIDE_PANEL_W,
+} from './layout-tuning.js';
 
 // 색과 아이콘은 팩의 nodeKinds와 displayKinds에 있다. 아이콘은 24 격자 선 그림이다.
 // 이모지는 플랫폼마다 모양이 달라서 path로 직접 그린다.
@@ -345,6 +353,11 @@ button { font: inherit; color: inherit; }
 .meta { display: flex; gap: 10px; padding-left: 4px; font-size: 11px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .main { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .stage { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+/* 그림 칸. 위에 단계 머리가 서고 남은 높이를 stage가 채운다. 개요를 열면 오른쪽 옆 칸만큼 좁아진다 */
+.canvas-col { position: absolute; inset: 0; display: flex; flex-direction: column; min-width: 0; }
+.canvas-col > .stage { position: relative; inset: auto; flex: 1; min-height: 0; }
+.main:has(> .overview[open]) > .canvas-col { right: ${SIDE_PANEL_W}px; }
+.main:has(> #seq-bar:not([hidden])) > .canvas-col { right: 0; }
 .stage.panning { cursor: grabbing; }
 .viewport { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .viewport.glide { transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.2, 1); }
@@ -352,9 +365,8 @@ button { font: inherit; color: inherit; }
 .level { position: relative; }
 .level[hidden] { display: none; }
 .links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
-.lane { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
-/* service와 server 레벨의 바깥 맥락 레인. 레벨 안 카드와 갈리게 채움을 빼고 점선으로 긋는다 */
-.lane.outside { fill: none; stroke: var(--border-strong); stroke-dasharray: 5 5; }
+/* 레인은 면과 테두리 없이 자리만 잡는다. 칸 구분은 제목 위 괄호선이 맡는다. 바깥 맥락 레인도 같고 바깥 카드는 알약 꼴로 갈린다 */
+.lane { fill: none; stroke: none; }
 .frame { fill: var(--frame); stroke: var(--frame-line); stroke-width: 1.25; stroke-opacity: 0.6; }
 .band-line { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 4 4; }
 .band-title {
@@ -363,9 +375,13 @@ button { font: inherit; color: inherit; }
 }
 .band-title .sw { width: 10px; height: 10px; border-radius: 2px; background: var(--p); }
 .lane-title {
-  position: absolute; display: flex; align-items: center; gap: 8px; padding: 0 14px; height: 22px;
-  font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden;
+  position: absolute; display: flex; align-items: center; gap: 8px; padding: 4px 14px 0; height: 24px;
+  font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden;
+  border-top: 1px solid var(--lane-line);
 }
+.lane-title::before, .lane-title::after { content: ''; position: absolute; top: 0; width: 1px; height: 6px; background: var(--lane-line); }
+.lane-title::before { left: 0; }
+.lane-title::after { right: 0; }
 .lane-title[data-lane-id] { cursor: pointer; border-radius: 4px; }
 .lane-title[data-lane-id]:hover { color: var(--accent); }
 .lane-title .n {
@@ -566,6 +582,25 @@ button { font: inherit; color: inherit; }
 .ov-stats { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin: 0; }
 .ov-stats dt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ov-stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+/* 넓은 화면에서 연 개요는 그림 오른쪽 옆 칸이다. 닫으면 오른쪽 위 작은 단추로 돌아간다 */
+.overview[open] {
+  top: 0; right: 0; bottom: 0; width: ${SIDE_PANEL_W}px; max-width: none; overflow: hidden;
+  border-width: 0 0 0 1px; border-radius: 0; box-shadow: none;
+}
+.overview[open] > .ov-body { max-height: calc(100% - 34px); }
+.ov-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 0 0 10px; }
+.ov-tile { min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
+.ov-tile b { display: block; font-size: 18px; font-weight: 700; line-height: 22px; color: var(--text); font-variant-numeric: tabular-nums; }
+.ov-tile span { display: block; font-size: 11px; line-height: 16px; color: var(--muted); }
+.ov-lanes { margin: 0; padding: 0; list-style: none; }
+.ov-lanes a {
+  display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px;
+  color: var(--text-2); text-decoration: none;
+}
+.ov-lanes a span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ov-lanes a b { margin-left: auto; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.ov-lanes a:hover { color: var(--text); background: var(--surface-2); }
+.ov-lanes a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .hint button { flex: none; border: 0; background: none; width: 20px; height: 20px; padding: 2px; border-radius: 5px; cursor: pointer; color: var(--muted); }
 .hint button:hover { background: var(--surface-2); }
 .hint svg { width: 16px; height: 16px; display: block; }
@@ -680,7 +715,71 @@ a.loc:hover { text-decoration: underline; }
   .drawer { width: 100%; }
   .hint { display: none; }
 }
+/* 좁은 화면의 개요는 아래에서 올라오는 시트다. 기본은 닫혀 있고 열어도 그림 폭을 줄이지 않는다 */
+@media (max-width: ${SIDE_PANEL_SHEET_MAX}px) {
+  .overview[open] {
+    top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 60%;
+    border-width: 1px 0 0; border-radius: 12px 12px 0 0; box-shadow: var(--shadow-pop);
+  }
+  .overview[open] > .ov-body { max-height: calc(60vh - 40px); }
+  .main:has(> .overview[open]) > .canvas-col { right: 0; }
+}
 `;
+
+/**
+ * 드릴다운 그림에만 붙이는 스타일. 큰 카드(lg), 바깥 알약(out-pill), 접힌 root의 덩어리 카드, 단계 머리다.
+ * 바깥 알약을 .pill로 두면 hover 때만 보이는 선 개수 알약 규칙(opacity 0)에 걸려 안 보인다
+ * 평면 그림은 작은 카드 그대로라 이 블록을 안 싣는다
+ */
+export const DRILL_CSS = `.node.lg { align-content: start; padding: ${CARD_PAD_Y}px ${CARD_TEXT_RIGHT}px ${CARD_PAD_Y}px ${CARD_TEXT_LEFT}px; }
+.node.lg .nm { font-size: 15px; line-height: 22px; }
+.node.lg .ds {
+  white-space: normal; display: -webkit-box; -webkit-line-clamp: ${CARD_DESC_MAX_LINES}; -webkit-box-orient: vertical;
+  font: 13px/19px var(--font); word-break: keep-all; overflow-wrap: anywhere;
+}
+.chips-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; min-width: 0; height: 20px; margin-top: 4px; overflow: hidden; }
+.chips-row .guess, .chips-row .flow-badge { margin-left: 0; }
+.cr-n {
+  flex: none; padding: 0 6px; border-radius: 8px; font-size: 11px; font-weight: 600; line-height: 18px;
+  color: var(--text-2); background: var(--surface-2); font-variant-numeric: tabular-nums;
+}
+.node.out-pill { align-content: center; padding: 0 28px 0 10px; border-radius: 999px; }
+.node.out-pill .ext { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 13px; line-height: 1; color: var(--muted); }
+.chunk {
+  position: absolute; display: flex; flex-direction: column; gap: 4px; padding: 12px 30px 12px 14px;
+  color: var(--text); text-decoration: none; background: var(--card); border: 1px solid var(--card-edge); border-radius: 12px;
+  box-shadow: var(--card-shadow); transition: box-shadow 0.15s, border-color 0.15s;
+}
+.chunk:hover { border-color: var(--accent); box-shadow: var(--card-shadow), var(--shadow-hover); }
+.chunk:focus { outline: none; }
+.chunk:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.ch-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ch-head .ord {
+  flex: none; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: var(--on-accent); background: var(--accent); font-variant-numeric: tabular-nums;
+}
+.ch-head .t { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; font-weight: 600; line-height: 22px; }
+.chunk .ds {
+  white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  font: 13px/19px var(--font); word-break: keep-all; overflow-wrap: anywhere;
+}
+.chunk .chips-row { margin-top: auto; }
+.chunk .go { right: 12px; bottom: 12px; }
+@media (prefers-reduced-motion: reduce) { .chunk { transition: none; } }
+.level-head { flex: none; max-width: 760px; padding: 14px 20px 6px; }
+.main:has(> .overview:not([open])) .level-head { padding-right: 96px; }
+.lh-kind { display: block; font-size: 12px; font-weight: 600; line-height: 16px; color: var(--muted); }
+.lh-title { margin: 2px 0 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 24px; font-weight: 700; line-height: 30px; color: var(--text); }
+.lh-sum {
+  margin: 4px 0 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  font-size: 13px; line-height: 19px; color: var(--text-2);
+}
+.lh-sum[hidden] { display: none; }
+@media (max-width: ${SIDE_PANEL_SHEET_MAX}px) {
+  .level-head { padding: 10px 12px 4px; }
+  .lh-title { font-size: 20px; line-height: 26px; }
+  .lh-sum { -webkit-line-clamp: 2; }
+}`;
 
 /**
  * 흐름에 갈림길이나 누른 것, 조건이 있거나 행위자가 한 명일 때만 붙이는 스타일. 공용 CSS에 넣으면 예전 흐름 그림의 바이트가 바뀐다.

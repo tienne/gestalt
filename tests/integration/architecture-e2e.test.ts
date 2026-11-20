@@ -835,7 +835,7 @@ describe('architecture e2e — 가짜 FE와 BE 레포에서 뷰 두 개 렌더',
         '화면',
         '게이트웨이',
         '서버',
-        '밖으로 나감',
+        '부르는 대상',
       ]);
       const root = sectionOf(html, 'root');
       const card = root.slice(root.indexOf('data-node-id="svc-shop"'));

@@ -1,6 +1,7 @@
 import { BAND_LINE_X, BAND_LINE_Y, BAND_TITLE_HALF, BAND_TITLE_X } from './canvas-geometry.js';
 import { FOCUS_SOURCE } from './focus.js';
 import { PRODUCT_COLORS } from './html-theme.js';
+import { CHUNK_FIT_MIN_K, SIDE_PANEL_SHEET_MAX } from './layout-tuning.js';
 import { FRAME_PAD, NODE_DESC_LINE, type LaneId } from './layout.js';
 
 export interface ClientConstants {
@@ -571,6 +572,9 @@ export function renderClientScript(c: ClientConstants): string {
     l.edges.forEach(function (e) { l.edgeById[e.id] = e; });
     levels[l.id] = l;
   });
+  // 접힌 root의 덩어리 이름. 덩어리 사이 묶음 선의 양 끝 이름을 여기서 꺼낸다
+  var chunkTitle = {};
+  ((levels.root && levels.root.chunks) || []).forEach(function (ch) { chunkTitle[ch.id] = ch.title; });
   var enterMap = data.enter || {};
   // 흐름 단계는 노드가 아니지만 nodes에 같이 넣는다. 강조와 검색, 질문 이동이 nodes와 카드 id만 보고 돌아서다
   var flows = data.flows || [];
@@ -649,6 +653,7 @@ ${FOCUS_SOURCE}
   }
   function nameOf(n) { return n.displayName || n.label; }
   function label(id) { return nodes[id] ? nameOf(nodes[id]) : id; }
+  function endName(id) { return chunkTitle[id] || label(id); }
   function store(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
   function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
 
@@ -1054,7 +1059,9 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     var top = false;
     // 큰 레벨을 한 화면에 다 넣으면 카드 설명 글자가 안 읽힌다. 그때는 읽히는 배율로 열고 왼쪽 위부터 보여준다
     // 폭은 맞는데 세로만 긴 레벨은 폭에 맞춘다. 전체를 보고 싶으면 맞춤 버튼이 한 화면에 다 넣는다
-    if (mode === 'smart' && k < READABLE_K) { k = Math.max(Math.min(kw, 1), READABLE_K); top = true; }
+    // 접힌 root는 덩어리 몇 장이 전부라 한 화면에 다 넣는 게 낫다. 덩어리 글자가 커서 더 낮은 배율까지 읽힌다
+    var floor = active.querySelector('.chunk') ? ${CHUNK_FIT_MIN_K} : READABLE_K;
+    if (mode === 'smart' && k < floor) { k = Math.max(Math.min(kw, 1), floor); top = true; }
     k = clampK(k);
     view.k = k;
     view.x = Math.max(M, (W - s.w * k) / 2);
@@ -1277,7 +1284,7 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     if (c) c.classList.add('anchor');
   }
   function activateNode(id, ev, viaKeyboard) {
-    var pairable = drill && current === 'root' && pair.hidden;
+    var pairable = drill && (current === 'root' || (levels[current] && levels[current].kind === 'lane')) && pair.hidden;
     if (pairable && (ev.shiftKey || ev.metaKey) && anchor && anchor !== id) {
       showPair(anchor, id);
       return;
@@ -1294,7 +1301,7 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     var level = levels[levelId];
     var bundle = level && level.edgeById[g.getAttribute('data-bundle-id')];
     if (!bundle) return;
-    if (levelId === 'root') { showPair(bundle.from, bundle.to); return; }
+    if (levelId === 'root' && !chunkTitle[bundle.from]) { showPair(bundle.from, bundle.to); return; }
     go('#/bundle/' + enc(levelId) + '/' + enc(bundle.id));
   }
   function activateTransition(g) {
@@ -1305,7 +1312,22 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     returnFocus = g;
     renderTransitionPanel(t);
   }
-${c.views ? viewFuncs(!!c.sequences) : ''}${c.sequences ? SEQ_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('click', function (e) {
+${c.views ? viewFuncs(!!c.sequences) : ''}${c.sequences ? SEQ_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  // 바깥 알약은 그 카드가 안에 선 단계로 간다. 갈 단계가 없으면 지금 단계에서 고른다
+  function leaveTo(id) {
+    var lv = (nodeLevels && nodeLevels[id]) || [];
+    var to = lv.filter(function (x) { return x !== current && !!levels[x]; })[0];
+    if (!to) return false;
+    pendingSelect = id;
+    showLevel(to);
+    return true;
+  }
+  function pillJump(card, e) {
+    return card.classList.contains('out-pill') && !e.shiftKey && !e.metaKey && leaveTo(card.getAttribute('data-node-id'));
+  }
+  stage.addEventListener('click', function (e) {
+    // 덩어리 카드는 링크다. 해시를 직접 바꾸면 환경 쿼리가 빠져서 go로 보낸다
+    var chunk = e.target.closest('.chunk');
+    if (chunk) { e.preventDefault(); if (suppressClick) { suppressClick = false; return; } showLevel(chunk.getAttribute('data-level')); return; }
     if (suppressClick) { suppressClick = false; return; }
     var more = e.target.closest('.pb.more');
     if (more) { toggleProducts(more); return; }
@@ -1316,7 +1338,7 @@ ${c.views ? viewFuncs(!!c.sequences) : ''}${c.sequences ? SEQ_FUNCS : ''}${c.doc
       if (fl.length === 1) { showLevel(fl[0].level); return; }
     }
     ${c.views ? VIEW_CLICK : ''}var card = e.target.closest('.node');
-    if (card) { activateNode(card.getAttribute('data-node-id'), e, false); return; }
+    if (card) { if (!pillJump(card, e)) activateNode(card.getAttribute('data-node-id'), e, false); return; }
 ${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
     if (link) { activateBundle(link); return; }
     var ft = e.target.closest('.link.flow-t');
@@ -1328,7 +1350,7 @@ ${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
     if (drawerOpen()) closeDrawer(false);
   });
   stage.addEventListener('dblclick', function (e) {
-    if (e.target.closest('.flow-badge, .pb.more')) return;
+    if (e.target.closest('.flow-badge, .pb.more, .chunk')) return;
     var card = e.target.closest('.node');
     if (card) { enter(card.getAttribute('data-node-id')); return; }
     // 빈 곳을 두 번 누르면 그 자리를 크게 본다. 폰에서는 브라우저 확대를 막아 둬서 이게 두 번 탭 확대다
@@ -1342,7 +1364,7 @@ ${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
     // +N 버튼은 브라우저가 Enter와 스페이스를 클릭으로 바꿔 준다. 카드 선택으로 새면 안 된다
     if (e.target.closest('.pb.more')) return;
     ${c.views ? VIEW_KEY : ''}var card = e.target.closest('.node');
-    if (card) { e.preventDefault(); activateNode(card.getAttribute('data-node-id'), e, true); return; }
+    if (card) { e.preventDefault(); if (!pillJump(card, e)) activateNode(card.getAttribute('data-node-id'), e, true); return; }
     var link = e.target.closest('.link.bundle');
     if (link) { e.preventDefault(); activateBundle(link); return; }
     var ft = e.target.closest('.link.flow-t');
@@ -1455,6 +1477,7 @@ ${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
     active = sectionOf(id);
     if (active) active.querySelectorAll('.node.anchor').forEach(function (x) { x.classList.remove('anchor'); });
     renderCrumbs(trailItems(id));
+    renderHead(id);
     syncFlowBtn();
 ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
     runSearch(false);
@@ -1468,7 +1491,8 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
   function pathMembers(a, b) {
     var rootLevel = levels.root;
     var out = {};
-    rootLevel.edges.forEach(function (e) { (out[e.from] = out[e.from] || []).push(e); });
+    // 접힌 root는 덩어리 사이 묶음 선만 그린다. 길 찾기는 접기 전 선으로 한다
+    (rootLevel.flatEdges || rootLevel.edges).forEach(function (e) { (out[e.from] = out[e.from] || []).push(e); });
     function collect(s, t) {
       var picked = {};
       var maxModules = isKind(s, 'app_module') ? 0 : 1;
@@ -2027,7 +2051,7 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     var bundle = level && level.edgeById[bundleId];
     if (!bundle) return false;
     renderLevel(levelId);
-    drawPair(bundle.memberEdgeIds, label(bundle.from) + ' → ' + label(bundle.to)${c.mixedBundles ? MIXED_PANEL_NOTE : ''});
+    drawPair(bundle.memberEdgeIds, endName(bundle.from) + ' → ' + endName(bundle.to)${c.mixedBundles ? MIXED_PANEL_NOTE : ''});
     return true;
   }
   function route() {
@@ -2103,7 +2127,58 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
   // 안쪽 레벨은 그 레벨 요약이나 레벨을 연 카드의 설명과 레인별 카드 수를 보인다
   var overview = byId('overview');
   var overviewBody = byId('overview-body');
-  if (overview && window.innerWidth > 560) overview.open = true;
+  // 넓은 화면은 옆 칸으로 열어 두고 좁은 화면은 아래 시트라 닫아 둔다
+  if (overview && window.innerWidth > ${SIDE_PANEL_SHEET_MAX}) overview.open = true;
+  // 열고 닫으면 그림 칸 폭이 바뀌어서 남은 칸에 다시 맞춘다. 처음 열어 둔 toggle은 건너뛴다
+  var overviewOpen = !!(overview && overview.open);
+  if (overview) overview.addEventListener('toggle', function () {
+    if (overview.open === overviewOpen) return;
+    overviewOpen = overview.open;
+    fit('smart');
+  });
+  // 단계 머리. 종류는 작은 글자, 제목은 크게, 요약은 있을 때만 세 줄까지 보인다
+  var levelHead = byId('level-head');
+  var LEVEL_KIND_TEXT = { root: '전체 그림', lane: '레인', service: '서비스', app: '앱', server: '서버 모듈', feature: '기능 영역', group: '묶음', infra: '인프라', flow: '흐름', view: '질문별 그림' };
+  function levelSummaryText(id) {
+    var l = levels[id];
+    if (!l) return '';
+    if (l.summary) return l.summary;
+    var cut = id.indexOf(':');
+    var owner = l.focusId || (cut > 0 ? id.slice(cut + 1) : '');
+    return id !== 'root' && hasDesc(nodes[owner]) ? nodes[owner].description : '';
+  }
+  function renderHead(id) {
+    if (!levelHead) return;
+    var l = levels[id];
+    if (!l) return;
+    var h1 = doc.querySelector('.bar h1');
+    levelHead.querySelector('.lh-kind').textContent = LEVEL_KIND_TEXT[l.kind] || '단계';
+    levelHead.querySelector('.lh-title').textContent = id === 'root' && h1 && h1.textContent ? h1.textContent : l.title;
+    var sum = levelSummaryText(id);
+    var p = levelHead.querySelector('.lh-sum');
+    p.textContent = sum;
+    p.hidden = !sum;
+  }
+  // 개요 숫자 타일. 접힌 root는 덩어리마다 레인 단계에 선 카드를 모아 센다. 바깥 맥락 카드는 빼고 센다.
+  // 엔드포인트는 root에 카드로 안 서는 일이 많아 root에서는 그림 전체를 센다
+  function levelCards(id) {
+    var sec = sectionOf(id);
+    if (!sec) return [];
+    return Array.prototype.slice.call(sec.querySelectorAll('.node[data-node-id]:not(.outside)')).map(function (x) { return x.getAttribute('data-node-id'); });
+  }
+  function levelTally(id) {
+    var l = levels[id] || {};
+    var ids = l.chunks ? l.chunks.reduce(function (acc, ch) { return acc.concat(levelCards(ch.level)); }, []) : levelCards(id);
+    var links = (l.flatEdges || l.edges || []).reduce(function (n, e) { return n + (e.count || 1); }, 0);
+    var pool = id === 'root' ? data.nodes.map(function (n) { return n.id; }) : ids;
+    return { items: ids.length, links: links, endpoints: pool.filter(function (x) { return isKind(x, 'endpoint'); }).length };
+  }
+  function tile(n, name) {
+    var d = el('div', 'ov-tile');
+    d.appendChild(el('b', null, String(n)));
+    d.appendChild(el('span', null, name));
+    return d;
+  }
   function statList(rows) {
     var dl = el('dl', 'ov-stats');
     rows.forEach(function (r) {
@@ -2116,11 +2191,33 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     if (!overview) return;
     overviewBody.textContent = '';
     var l = levels[current];
-    var cut = current.indexOf(':');
-    var owner = l && (l.focusId || (cut > 0 ? current.slice(cut + 1) : ''));
-    var sum = l && l.summary ? l.summary : current !== 'root' && hasDesc(nodes[owner]) ? nodes[owner].description : '';
+    if (drill && l) {
+      var t = levelTally(current);
+      var tiles = el('div', 'ov-tiles');
+      tiles.appendChild(tile(t.items, '항목'));
+      tiles.appendChild(tile(t.links, '연결'));
+      tiles.appendChild(tile(t.endpoints, '엔드포인트'));
+      overviewBody.appendChild(tiles);
+    }
+    // 단계 머리에 요약이 서는 드릴다운에서는 개요에 같은 글을 되풀이하지 않는다
+    var sum = levelHead ? '' : levelSummaryText(current);
     if (sum) overviewBody.appendChild(el('p', 'ov-sum', sum));
     if (current === 'root' && data.note) overviewBody.appendChild(el('p', 'ov-note', data.note));
+    if (l && l.chunks && l.chunks.length) {
+      overviewBody.appendChild(el('p', 'ov-h', '레인별 항목'));
+      var ul = el('ul', 'ov-lanes');
+      l.chunks.forEach(function (ch) {
+        var li = el('li');
+        var a = el('a');
+        a.href = '#/level/' + enc(ch.level);
+        a.appendChild(el('span', null, ch.order + '. ' + ch.title));
+        a.appendChild(el('b', null, String(ch.count)));
+        a.addEventListener('click', function (e) { e.preventDefault(); showLevel(ch.level); });
+        li.appendChild(a);
+        ul.appendChild(li);
+      });
+      overviewBody.appendChild(ul);
+    }
     var lanes = [];
     if (active) active.querySelectorAll('.lane-title[data-lane-id]').forEach(function (t) {
       var n = t.querySelector('.n');
@@ -2400,9 +2497,9 @@ ${c.sequences ? SEQ_KEYS : ''}    if (e.key === '/') { e.preventDefault(); searc
       t.classList.toggle('env-off', n === 0);
       var count = t.querySelector('.n');
       if (count) count.textContent = n;
-      // 바깥 맥락 레인은 접어 둔 장수("외 N개")를 aria에도 이어 붙인다
+      // 바깥 맥락 레인은 접어 둔 장수(+N)를 aria에도 이어 붙인다
       var more = t.querySelector('.more');
-      if (t.hasAttribute('data-lane-id')) t.setAttribute('aria-label', laneAria(t.firstChild.textContent, n) + (more ? ', 밖에 ' + more.textContent.slice(2) + ' 더' : ''));
+      if (t.hasAttribute('data-lane-id')) t.setAttribute('aria-label', laneAria(t.firstChild.textContent, n) + (more ? ', 밖에 ' + more.getAttribute('data-n') + '개 더' : ''));
     });
   }
   // 고른 환경은 주소 해시 뒤 ?env=prod,dev로 싣는다. 주소를 보내면 받은 사람도 같은 환경으로 본다.

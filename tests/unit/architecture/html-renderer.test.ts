@@ -493,7 +493,10 @@ describe('renderDrilldownHtml', () => {
     );
     expect(html).toContain('"id":"service:shop","kind":"service","title":"쇼핑"');
     expect(html).toContain('aria-label="쇼핑 → edge-gw');
-    expect(html).toContain('<span class="t">주문 관리</span><span class="guess">추정</span>');
+    // 드릴다운 큰 카드는 추정 배지를 이름 옆이 아니라 아래 칩 줄에 단다
+    expect(html).toMatch(
+      /<span class="t">주문 관리<\/span><\/span>(?:(?!<\/div>).)*<span class="chips-row">(?:<span class="cr-n">[^<]*<\/span>)?<span class="guess">추정<\/span>/,
+    );
     expect(html).toContain('return { label: levels[t].title, level: t };');
     expect(html).toContain('function label(id) { return nodes[id] ? nameOf(nodes[id]) : id; }');
     expect(await render(ir, 'private')).toBe(html);
@@ -649,9 +652,9 @@ describe('renderDrilldownHtml — 레벨 밖 맥락', () => {
   it('상한을 넘긴 바깥 카드 수를 레인 제목에 "외 N개"로 적고 낭독에도 싣는다', async () => {
     const sec = await serverSection();
     expect(sec).toContain(
-      '<span class="more" title="연결이 적은 바깥 카드 2개는 접어 뒀어요">외 2개</span>',
+      '<span class="more" data-n="6" title="연결이 적은 바깥 카드 6개는 접어 뒀어요">+6</span>',
     );
-    expect(sec).toMatch(/data-lane-id="outside_from"[^>]*aria-label="[^"]*, 밖에 2개 더"/);
+    expect(sec).toMatch(/data-lane-id="outside_from"[^>]*aria-label="[^"]*, 밖에 6개 더"/);
     expect(sec.match(/class="more"/g)?.length).toBe(1);
   });
 
@@ -679,6 +682,137 @@ describe('renderDrilldownHtml — 레벨 밖 맥락', () => {
         );
       }
     }
+  });
+});
+
+describe('renderDrilldownHtml — 접힌 root와 큰 카드', () => {
+  // 서비스 둘, 게이트웨이, 저장소에 모듈과 엔드포인트가 n쌍 붙은 넓은 그림. root 카드가 문턱을 넘는다
+  function wideIr(modules: number): ArchitectureIr {
+    const ids = Array.from({ length: modules }, (_, i) => `m-${String(i).padStart(2, '0')}`);
+    const n = (id: string, kind: ArchitectureNode['kind'], parent?: string): ArchitectureNode => ({
+      id,
+      kind,
+      label: id,
+      repo: 'web',
+      evidence: [codeEv],
+      ...(parent ? { parent } : {}),
+    });
+    const e = (
+      id: string,
+      from: string,
+      to: string,
+      kind: ArchitectureEdge['kind'],
+    ): ArchitectureEdge => ({ id, from, to, kind, evidence: [codeEv], lineStyle: 'solid' });
+    return {
+      ...makeIr(),
+      nodes: [
+        n('svc-a', 'service'),
+        n('svc-b', 'service'),
+        n('s-a', 'screen', 'svc-a'),
+        n('s-b', 'screen', 'svc-b'),
+        n('gw', 'gateway'),
+        n('db', 'datastore'),
+        ...ids.flatMap((m) => [n(`ep-${m}`, 'endpoint'), n(m, 'app_module')]),
+      ],
+      edges: ids.flatMap((m, i) => [
+        e(`c-${m}`, i % 2 === 0 ? 's-a' : 's-b', `ep-${m}`, 'calls'),
+        e(`r-${m}`, 'gw', `ep-${m}`, 'routes'),
+        e(`h-${m}`, `ep-${m}`, m, 'handles'),
+        e(`rw-${m}`, m, 'db', 'reads_writes'),
+      ]),
+      unresolved: [],
+    };
+  }
+
+  async function renderWide(audience: 'private' | 'shared' = 'private'): Promise<string> {
+    const result = validateArchitectureIr(wideIr(12), { checkFiles: false });
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    return renderDrilldownHtml(result.value, await computeDrilldown(result.value), { audience });
+  }
+
+  function sectionOf(html: string, id: string): string {
+    const at = html.indexOf(`<section class="level" data-level-id="${id}"`);
+    expect(at).toBeGreaterThan(-1);
+    return html.slice(at, html.indexOf('</section>', at));
+  }
+
+  it('접힌 root는 노드 카드 대신 레인 레벨로 가는 덩어리 링크를 순서 숫자와 항목 수로 그린다', async () => {
+    const root = sectionOf(await renderWide(), 'root');
+    expect(root).not.toContain('data-node-id=');
+    const chunks = [
+      ...root.matchAll(
+        /<a class="chunk" href="#\/level\/(lane:[^"]+)" data-chunk-id="chunk:[^"]+"/g,
+      ),
+    ];
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+    expect(root).toMatch(/<span class="ord">1<\/span>/);
+    expect(root).toMatch(/<span class="cr-n">항목 \d+<\/span>/);
+    expect(root).toMatch(/aria-label="1번 레인 [^"]+, 카드 \d+개\. [^"]+"/);
+    // 덩어리 사이 묶음 선은 노드 선과 같은 마크업을 쓴다
+    expect(root).toMatch(/data-bundle-id="chunk:[^"]+-&gt;[^"]+"/);
+  });
+
+  it('데이터 블록의 root에 덩어리 목록과 펼친 선을 싣고 레인 레벨에는 대표 이름 요약을 싣는다', async () => {
+    const html = await renderWide();
+    const start = html.indexOf('<script id="ir"');
+    const body = html.slice(html.indexOf('>', start) + 1);
+    const data = JSON.parse(body.slice(0, body.indexOf('</script>'))) as {
+      levels: {
+        id: string;
+        kind: string;
+        summary?: string;
+        chunks?: { id: string; level: string; count: number }[];
+        flatEdges?: unknown[];
+      }[];
+    };
+    const root = data.levels.find((l) => l.id === 'root')!;
+    expect(root.chunks!.length).toBeGreaterThanOrEqual(2);
+    expect(root.flatEdges!.length).toBeGreaterThan(0);
+    for (const c of root.chunks!) {
+      const lane = data.levels.find((l) => l.id === c.level)!;
+      expect(lane.kind).toBe('lane');
+      expect(lane.summary).toBeTruthy();
+    }
+  });
+
+  it('드릴다운 카드는 큰 카드(lg)로 그리고 바깥 카드는 ↗ 알약으로 그린다', async () => {
+    const html = await renderWide();
+    const lane = html.match(
+      /data-level-id="(lane:[^"]+)"[^>]*>(?:(?!<\/section>).)*class="node [^"]*\bout-pill\b/s,
+    );
+    expect(lane).not.toBeNull();
+    expect(html).toMatch(
+      /class="node [^"]*\bout-pill\b[^"]*"[^>]*>(?:(?!<\/div>).)*<span class="ext" aria-hidden="true">↗<\/span><\/div>/,
+    );
+    // 카드에 pill 클래스를 달면 hover 때만 보이는 선 개수 알약 규칙(.pill { opacity: 0 })에 걸려 카드가 사라진다
+    expect(html).not.toMatch(/class="node(?: [^" ]+)* pill[ "]/);
+    expect(html).toMatch(/class="node [^"]*\blg\b/);
+    // 안으로 들어갈 수 있는 서비스 카드는 칩 줄에 안쪽 항목 수를 단다
+    expect(html).toMatch(
+      /data-node-id="svc-a"(?:(?!<\/div>).)*<span class="chips-row"><span class="cr-n">항목 \d+<\/span>/,
+    );
+  });
+
+  it('그림 위에 단계 머리 자리를 두고 바깥 레인 제목은 부르는 쪽과 부르는 대상이다', async () => {
+    const html = await renderWide();
+    expect(html).toMatch(
+      /<div class="canvas-col">\s*<header id="level-head" class="level-head" aria-live="polite"><span class="lh-kind"><\/span><h2 class="lh-title"><\/h2><p class="lh-sum" hidden><\/p><\/header>\s*<div id="stage"/,
+    );
+    expect(html).toMatch(/data-lane-id="outside_(?:from|to)"[^>]*>부르는 (?:쪽|대상)</);
+  });
+
+  it('공유본은 덩어리 제목과 대표 이름을 가리고 같은 입력이면 같은 바이트다', async () => {
+    const a = await renderWide('shared');
+    expect(a).toBe(await renderWide('shared'));
+    expect(a).toContain('<a class="chunk"');
+  });
+
+  it('카드가 문턱 이하인 평면 그림(renderArchitectureHtml)에는 단계 머리와 큰 카드가 없다', async () => {
+    const { v, layout } = await prepare(makeIr());
+    const html = renderArchitectureHtml(v, layout, { audience: 'private' });
+    expect(html).toMatch(/<div class="canvas-col">\s*<div id="stage"/);
+    expect(html).not.toContain('id="level-head"');
+    expect(html).not.toMatch(/class="node [^"]*\blg\b/);
   });
 });
 
