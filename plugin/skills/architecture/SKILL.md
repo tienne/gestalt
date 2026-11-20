@@ -169,7 +169,7 @@ Step 1~5의 탐색은 파일 읽기가 대부분이다. 한 뷰에 도구 호출
 | `readOnlyRule`        | 읽기 전용 판정에 쓰는 허용 단어와 금지 단어                                                                    |
 | `readOnlyCliRule`     | 클라우드 CLI 하위 명령이 시작해야 하는 동사(`list`, `get`, `describe`). Step 4.5에서 쓴다                      |
 
-레포 경로로 받은 `previous`가 `null`이어도 지난번에 나눠 그린 결과가 있을 수 있다. 이번 요청이 레포 전체를 그리는 요청이고 `<work>/_merged/.gestalt/architecture/<view>.json`(`<work>`는 [읽기 예산](#읽기-예산)의 나눠 맡기기 자리)이 있으면 재실행으로 보고 Step 9로 간다. 서비스 하나만 그리는 요청이면 이 파일을 지난 실행으로 쓰지 않는다.
+레포 경로로 받은 `previous`가 `null`이어도 지난번에 나눠 그린 결과가 있을 수 있다. 이번 요청이 레포 전체를 그리는 요청이고 `<work>/_merged/.gestalt/architecture/<view>.json`(`<work>`는 [읽기 예산](#읽기-예산)의 나눠 맡기기 자리)이 있으면 재실행으로 보고 Step 9로 간다. 이때 지난 IR은 이 파일이고 Step 9의 `status`와 Step 8의 `render`는 `repoRoot`를 `<work>/_merged`(홈 절대 경로)로 부른다. 서비스 하나만 그리는 요청이면 이 파일을 지난 실행으로 쓰지 않는다.
 
 ## Step 1 — 소스 찾아내기
 
@@ -818,10 +818,10 @@ render를 마치고 사용자가 그림을 보며 질문하고 싶어 하면 ser
 
 ## Step 9 — 재실행
 
-Step 0의 `previous`가 `null`이 아니면 이전 IR을 출발점으로 쓴다. validate가 `CODE_EVIDENCE_EXCERPT_MISMATCH` 경고를 내면 `candidates`의 후보 줄로 근거를 고친다.
+Step 0의 `previous`가 `null`이 아니거나 Step 0에서 `<work>/_merged`의 합친 IR을 지난 실행으로 판정했으면 이전 IR을 출발점으로 쓴다. validate가 `CODE_EVIDENCE_EXCERPT_MISMATCH` 경고를 내면 `candidates`의 후보 줄로 근거를 고친다.
 
 > **이 단계의 상세** → [`references/rerun.md`](./references/rerun.md)
-> Step 0의 `previous`가 `null`이 아닐 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
+> Step 0의 `previous`가 `null`이 아니거나 `<work>/_merged`를 지난 실행으로 판정했을 때만 이 파일을 읽고 따릅니다. 아니면 열지 않고 다음으로 갑니다.
 
 ## 분석 합치기
 
