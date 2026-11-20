@@ -395,6 +395,10 @@ export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptio
       if (r.merged !== undefined) console.log(`    머지: ${r.merged}`);
       if (r.stopReason) console.log(`    중단: ${r.stopReason}`);
       if (r.need) console.log(`    요청: ${r.need.kind}  ${terminalText(r.need.detail)}`);
+      for (const c of r.refCopies ?? [])
+        console.log(
+          `    사본: ${terminalText(c.ref)} → ${c.path ? `${c.path}${c.truncated ? ' (앞부분만)' : ''}` : `건너뜀(${c.skipped})`}`,
+        );
     }
     console.log(`refs: ${refs.map(terminalText).join(', ') || '없음'}`);
     console.log('gate:');
