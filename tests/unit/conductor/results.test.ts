@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, realpathSync, rmSync, symlinkSync, utimesSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ConductorStore } from '../../../src/conductor/store.js';
@@ -529,6 +538,64 @@ describe('searchResults', () => {
     searchResults(r, 'needle');
     expect(r.bodies.size).toBe(1);
     expect(readRefBody(r, A, ref)).toBe(opened);
+
+    const path = ref.path!;
+    const before = searchResults(r, 'needle').hits.filter((h) => h.source === 'ref').length;
+    expect(before).toBeGreaterThan(0);
+    const t = new Date('2021-01-01T00:00:00Z');
+    utimesSync(path, t, t);
+    readRefBody(r, A, ref);
+    const size = r.bodies.size;
+    // 바이트 수와 mtime이 같으면 캐시 키가 같아서 옛 본문이 나와야 캐시를 쓴 것이다
+    writeFileSync(path, 'x'.repeat(readFileSync(path).length));
+    utimesSync(path, t, t);
+    const after = searchResults(r, 'needle').hits.filter((h) => h.source === 'ref').length;
+    expect(after).toBe(before);
+    expect(r.bodies.size).toBe(size);
+  });
+
+  it('두 주문의 refs가 같은 큰 파일을 가리켜도 partialFiles는 한 번만 센다', () => {
+    const base = tempStateDir();
+    const big = put(
+      join(realpathSync(base), 'reports', 'shared-big.md'),
+      `${'x'.repeat(TRUNCATED_READ_BYTES)}\nlateneedle\n${'y'.repeat(MAX_FULL_READ_BYTES)}`,
+    );
+    seed(
+      [
+        { order: { id: A }, reports: [{ refs: [big] }] },
+        { order: { id: B }, reports: [{ refs: [big] }] },
+      ],
+      base,
+    );
+    const r = loadResults({ stateDir: base });
+    expect(searchResults(r, 'lateneedle')).toMatchObject({ total: 0, partialFiles: 1 });
+  });
+
+  it('개행이 든 검색어는 요약에서는 맞고 본문은 찾지 않는다', () => {
+    const base = tempStateDir();
+    const note = put(join(realpathSync(base), 'reports', 'nl.md'), '첫줄\n둘째줄');
+    seed(
+      [{ order: { id: A }, reports: [{ summary: '요약 첫줄\n둘째줄 있음', refs: [note] }] }],
+      base,
+    );
+    const found = searchResults(loadResults({ stateDir: base }), '첫줄\n둘째줄');
+    expect(found.hits.map((h) => h.source)).toEqual(['summary']);
+    expect(found.total).toBe(1);
+    const single = searchResults(loadResults({ stateDir: base }), '둘째줄');
+    expect(single.hits.some((h) => h.source === 'ref')).toBe(true);
+  });
+
+  it('캐시에 올라 있던 파일이 심링크로 바뀌면 본문을 안 준다', () => {
+    const base = tempStateDir();
+    const note = put(join(realpathSync(base), 'reports', 'cached-swap.md'), '평범한 본문');
+    seed([{ order: { id: A }, reports: [{ refs: [note] }] }], base);
+    const r = loadResults({ stateDir: base });
+    const ref = r.orderRefs.get(A)!.refs[0]!;
+    expect(readRefBody(r, A, ref)?.text).toBe('평범한 본문');
+    const secret = put(join(outsideDir(), 'secret.md'), '비밀 본문');
+    rmSync(note);
+    symlinkSync(secret, note);
+    expect(readRefBody(r, A, ref)).toBeNull();
   });
 
   it('loadResults에 넘긴 본문 캐시는 다시 로드해도 이어 쓴다', () => {
