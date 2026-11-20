@@ -10,12 +10,13 @@ import {
   loadResults,
   parseSince,
   MAX_FULL_READ_BYTES,
+  readRefBody,
   readResultFile,
   resolveOrderId,
   searchResults,
   TRUNCATED_READ_BYTES,
 } from '../../../src/conductor/results.js';
-import { cleanupStateDirs, tempStateDir } from './fixtures.js';
+import { cleanupStateDirs, order, tempStateDir } from './fixtures.js';
 import { cleanupOutsideDirs, hasControl, outsideDir, put, seed } from './results-fixtures.js';
 
 afterEach(() => {
@@ -491,6 +492,81 @@ describe('searchResults', () => {
     const found = searchResults(loadResults({ stateDir: base }), 'bigneedle');
     expect(found.total).toBe(1);
     expect(found.hits[0]).toMatchObject({ source: 'ref', line: 1, partial: true });
+  });
+
+  it('앞부분만 읽은 파일은 맞은 줄이 없어도 partialFiles로 센다', () => {
+    const base = tempStateDir();
+    const big = put(
+      join(realpathSync(base), 'reports', 'big.md'),
+      `${'x'.repeat(TRUNCATED_READ_BYTES)}\nlateneedle\n${'y'.repeat(MAX_FULL_READ_BYTES)}`,
+    );
+    seed([{ order: { id: A }, reports: [{ refs: [big] }] }], base);
+    const r = loadResults({ stateDir: base });
+    expect(searchResults(r, 'lateneedle')).toMatchObject({ total: 0, partialFiles: 1 });
+    expect(searchResults(r, 'lateneedle', { body: false })).not.toHaveProperty('partialFiles');
+  });
+
+  it('디렉토리 ref 항목 결과의 where는 워커가 적은 경로 뒤에 파일 이름', () => {
+    const repo = outsideDir();
+    const target = join(repo, 'real-dir');
+    put(join(target, 'one.md'), 'dirneedle');
+    const alias = join(repo, 'alias');
+    symlinkSync(target, alias);
+    const { dir } = seed([{ order: { id: A }, reports: [{ refs: [`${alias}/`] }] }]);
+    const r = loadResults({ stateDir: dir, repoPaths: { 'acme/app': repo } });
+    const [hit] = searchResults(r, 'dirneedle').hits;
+    expect(hit).toMatchObject({ source: 'ref', where: `${alias}/one.md`, entryIndex: 0 });
+    expect(hit!.absPath).toBeUndefined();
+  });
+
+  it('검색은 캐시에 있는 본문은 쓰지만 새로 읽은 본문은 캐시에 넣지 않는다', () => {
+    const r = corpus();
+    searchResults(r, 'needle');
+    expect(r.bodies.size).toBe(0);
+    const ref = r.orderRefs.get(A)!.refs[0]!;
+    const opened = readRefBody(r, A, ref);
+    expect(r.bodies.size).toBe(1);
+    searchResults(r, 'needle');
+    expect(r.bodies.size).toBe(1);
+    expect(readRefBody(r, A, ref)).toBe(opened);
+  });
+
+  it('loadResults에 넘긴 본문 캐시는 다시 로드해도 이어 쓴다', () => {
+    const base = tempStateDir();
+    const note = put(join(realpathSync(base), 'reports', 'keep.md'), '이어 쓰는 본문');
+    seed([{ order: { id: A }, reports: [{ refs: [note] }] }], base);
+    const bodies = new BodyCache();
+    const first = loadResults({ stateDir: base, bodies });
+    const body = readRefBody(first, A, first.orderRefs.get(A)!.refs[0]!);
+    ConductorStore.open(base).addOrder(order({ id: B }));
+    const second = loadResults({ stateDir: base, bodies });
+    expect(second.bodies).toBe(bodies);
+    expect(readRefBody(second, A, second.orderRefs.get(A)!.refs[0]!)).toBe(body);
+    expect(bodies.size).toBe(1);
+  });
+
+  it('파일 아래를 가리키는 경로(ENOTDIR)는 검색과 본문 읽기에서 던지지 않는다', () => {
+    const base = tempStateDir();
+    const abs = realpathSync(base);
+    const file = put(join(abs, 'reports', 'a.md'), 'enotdir 본문');
+    const sub = put(join(abs, 'reports', 'sub', 'x.md'), 'enotdir 하위');
+    const d = join(abs, 'refs', 'gone');
+    put(join(d, 'y.md'), 'enotdir 항목');
+    seed([{ order: { id: A }, reports: [{ refs: [join(file, 'x.md'), d] }] }], base);
+    const r = loadResults({ stateDir: base });
+    const key = r.files.find((f) => f.path === sub)!.key;
+    // 로드한 뒤 디렉토리가 파일로 바뀌면 남아 있는 경로가 파일 아래를 가리키게 된다
+    rmSync(join(abs, 'reports', 'sub'), { recursive: true });
+    put(join(abs, 'reports', 'sub'), '이제 파일');
+    rmSync(d, { recursive: true });
+    put(d, '이제 파일');
+    expect(() => searchResults(r, 'enotdir')).not.toThrow();
+    expect(readResultFile(r, key)).toBeNull();
+    const detail = getOrderDetail(r, A)!;
+    for (const ref of detail.refs) {
+      expect(() => readRefBody(r, A, ref)).not.toThrow();
+      expect(() => readRefBody(r, A, ref, 0)).not.toThrow();
+    }
   });
 
   it('로드 뒤 refs 파일이 심링크로 바뀌면 검색에서 그 본문을 안 읽는다', () => {

@@ -173,7 +173,7 @@ describe('results search', () => {
     expect(json().hits.map((h: { source: string }) => h.source)).toEqual(['summary']);
     out = [];
     conductorResultsSearchCommand('needle', { stateDir: dir, limit: '1' });
-    expect(text()).toContain(`결과 전체 ${all.total}건 중 1건 표시`);
+    expect(text()).toContain(`결과 전체 ${all.total}건 중 1건만 보여요`);
   });
 
   it('--json의 저장소 파일 결과에는 absPath가 있다', () => {
@@ -192,9 +192,33 @@ describe('results search', () => {
     );
     seed([{ order: { id: A }, reports: [{ refs: [big] }] }], base);
     conductorResultsSearchCommand('bigneedle', { stateDir: base });
-    expect(text()).toContain('"bigneedle" 결과 전체 5건 중 3건 표시');
+    expect(text()).toContain('"bigneedle" 결과 전체 5건 중 3건만 보여요');
     expect(text()).toContain('큰 파일은 앞부분만 찾았어요');
     expect(text()).toContain('big.md:3  (이 파일에 2건 더)');
+  });
+
+  it('앞부분만 읽은 큰 파일만 있고 0건이어도 큰 파일 안내를 낸다', () => {
+    const base = tempStateDir();
+    const big = put(
+      join(realpathSync(base), 'reports', 'big.md'),
+      `${'x'.repeat(MAX_FULL_READ_BYTES)}\nlateneedle\n`,
+    );
+    seed([{ order: { id: A }, reports: [{ refs: [big] }] }], base);
+    conductorResultsSearchCommand('lateneedle', { stateDir: base });
+    expect(out).toEqual(['큰 파일은 앞부분만 찾았어요', '"lateneedle"에 맞는 결과가 없어요']);
+  });
+
+  it('limit에 잘려 큰 파일 결과가 안 보여도 큰 파일 안내를 낸다', () => {
+    const base = tempStateDir();
+    const big = put(
+      join(realpathSync(base), 'reports', 'big.md'),
+      `cutneedle\n${'x'.repeat(MAX_FULL_READ_BYTES)}`,
+    );
+    seed([{ order: { id: A, title: 'cutneedle 제목' }, reports: [{ refs: [big] }] }], base);
+    conductorResultsSearchCommand('cutneedle', { stateDir: base, limit: '1' });
+    expect(text()).toContain('전체 2건 중 1건만 보여요');
+    expect(text()).toContain('큰 파일은 앞부분만 찾았어요');
+    expect(text()).not.toContain('big.md');
   });
 
   it('맞는 게 없으면 안내하고 빈 검색어는 exit 1', () => {

@@ -3,6 +3,7 @@ import { readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from '
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConductorWebServer } from '../../../src/conductor-web/server.js';
+import type { BodyCache } from '../../../src/conductor/results.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import { cleanupStateDirs, order, tempStateDir } from './fixtures.js';
 import { cleanupOutsideDirs, outsideDir, put, seed, snapshotTree } from './results-fixtures.js';
@@ -355,6 +356,16 @@ describe('refs 본문', () => {
     expect(j.text.startsWith('# 긴 줄')).toBe(true);
   });
 
+  it('줄은 짧아도 512KB가 넘는 md는 렌더하지 않고 원문만 보낸다', async () => {
+    const { dir, abs } = fixture();
+    const { base } = await boot(dir);
+    put(join(abs, 'reports', 'final.md'), `${'a'.repeat(100)}\n`.repeat(6000));
+    const j = await getJson(base, `/api/orders/${A}/refs/1`);
+    expect(j.html).toBeUndefined();
+    expect(j.renderSkipped).toBe(true);
+    expect(j.text.startsWith('a'.repeat(100))).toBe(true);
+  });
+
   it('잘못된 entry는 400', async () => {
     const { base } = await boot(fixture().dir);
     for (const e of ['-1', 'abc', '1.5', '12345', '']) {
@@ -460,6 +471,22 @@ describe('검색 API', () => {
     expect(j.hits.every((h: object) => !('absPath' in h))).toBe(true);
   });
 
+  it('심링크 디렉토리 ref의 항목 결과에는 워커가 적은 경로만 싣고 푼 실제 경로는 안 싣는다', async () => {
+    const repo = outsideDir();
+    const target = join(repo, 'resolved-target-dir');
+    put(join(target, 'item.md'), 'linkneedle 본문');
+    const alias = join(repo, 'alias');
+    symlinkSync(target, alias);
+    const { dir } = seed([{ order: { id: A }, reports: [{ refs: [alias] }] }]);
+    const { base } = await boot(dir, { 'acme/app': repo });
+    const res = await get(base, '/api/search?q=linkneedle');
+    const raw = await res.text();
+    const j = JSON.parse(raw);
+    expect(j.hits).toHaveLength(1);
+    expect(j.hits[0]).toMatchObject({ source: 'ref', where: `${alias}/item.md`, entryIndex: 0 });
+    expect(raw).not.toContain('resolved-target-dir');
+  });
+
   it('결과는 200건까지만 보내고 total은 전체 건수', async () => {
     const dir = tempStateDir();
     const store = ConductorStore.open(dir);
@@ -530,6 +557,26 @@ describe('갱신 반영', () => {
     expect((await getJson(base, '/api/unlinked')).files).toHaveLength(1);
     ConductorStore.open(dir).addOrder(order({ id: 'ord-dddddddd' }));
     expect((await getJson(base, '/api/unlinked')).files).toHaveLength(2);
+  });
+
+  it('events.jsonl이 바뀌어 다시 로드해도 본문 캐시는 서버 것을 이어 쓴다', async () => {
+    const { dir } = fixture();
+    const { server, base } = await boot(dir);
+    const inner = server as unknown as { bodies: BodyCache; results(): { bodies: BodyCache } };
+    await getJson(base, `/api/orders/${A}/refs/1`);
+    expect(inner.bodies.size).toBe(1);
+    ConductorStore.open(dir).addOrder(order({ id: 'ord-cccccccc', title: '새 주문' }));
+    expect((await getJson(base, '/api/orders')).total).toBe(3);
+    await getJson(base, `/api/orders/${A}/refs/1`);
+    expect(inner.results().bodies).toBe(inner.bodies);
+    expect(inner.bodies.size).toBe(1);
+  });
+
+  it('검색은 본문 캐시를 채우지 않는다', async () => {
+    const { server, base } = await boot(fixture().dir);
+    const inner = server as unknown as { bodies: BodyCache };
+    expect((await getJson(base, '/api/search?q=needle')).total).toBeGreaterThan(0);
+    expect(inner.bodies.size).toBe(0);
   });
 
   it('refs 본문은 events.jsonl이 그대로여도 파일이 바뀌면 새로 읽고 렌더도 새로 한다', async () => {
