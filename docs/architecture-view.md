@@ -712,11 +712,11 @@ LLM이 쓴 글자에 API 키나 비밀번호가 섞여 들어와도 네 산출�
 3. JWT, 그리고 DB 접속 주소(`postgres://user:비밀번호@host`)의 비밀번호. 사용자와 호스트는 남긴다
 4. `password`, `apiKey`, `client_secret`, `token`처럼 비밀 같은 이름에 대입한 따옴표 값
 5. URL 쿼리와 fragment에서 키가 비밀 같은 이름이거나 `sig`, `signature`, `X-Amz-Signature`, `X-Amz-Credential`, `code`, `key`인 값. 키는 남기고 값만 가린다
-6. 비밀 같은 이름에 따옴표 없이 대입한 값(`password=...`, `export API_KEY=...`, `TOKEN := ...`). `:` 뒤 값은 숫자와 글자가 섞였거나 무작위 글자처럼 보일 때만 가린다. `auth: Keycloak`, `Authorization: Bearer`, `token: AccessToken`, `apiKey: z.string()` 같은 산문과 타입 선언은 그대로 둔다
+6. 비밀 같은 이름에 따옴표 없이 대입한 값(`password=...`, `export API_KEY=...`, `TOKEN := ...`). `:` 뒤 값은 숫자와 글자가 섞였거나 무작위 글자처럼 보일 때만 가린다. `auth: Keycloak`, `Authorization: Bearer`, `token: AccessToken`, `apiKey: z.string()` 같은 산문과 타입 선언은 그대로 둔다. 바깥 이름이 비밀 이름이 아니어도 값 안에 든 대입(`Environment=DB_PASSWORD=...`, `cfg=f(password=...)`)은 따로 보고 가린다. 명령행 인자(`--password=...`)도 같다
 7. 이름이 없어도 따옴표 안에 든 무작위 긴 글자
 8. 산문 속 따옴표 없는 글자 중 대소문자와 숫자가 고루 섞인 생성 키 꼴
 
-놓치는 쪽보다 멀쩡한 값을 가리는 쪽을 택한다. 그래도 아래는 비밀이 아니라서 놔둔다. 환경변수와 템플릿 참조(`process.env.API_KEY`, `${API_TOKEN}`, `env(...)`), `changeme`나 `여기에-키-입력` 같은 안내 문구, 웹 페이지에 박으라고 만든 공개 키(`pk_live_`, `pk_test_` 등), 일반 URL과 비밀번호 없는 접속 주소, 프로젝트 파일 경로, UUID와 커밋 해시, ULID, CamelCase 식별자, 알파벳을 차례로 늘어놓은 지어낸 키가 여기 든다. 코드 근거의 `token = getToken()`이나 `token = this.token`처럼 함수 호출과 멤버 참조를 대입한 줄도 값이 아니라서 놔둔다. code 근거의 `location`(`<repoId>:<경로>:<줄>`)은 가리지 않고 문서 근거 URL의 `#절` 앵커도 남긴다.
+놓치는 쪽보다 멀쩡한 값을 가리는 쪽을 택한다. 그래도 아래는 비밀이 아니라서 놔둔다. 환경변수와 템플릿 참조(`process.env.API_KEY`, `${API_TOKEN}`, `env(...)`), `changeme`나 `여기에-키-입력` 같은 안내 문구, 웹 페이지에 박으라고 만든 공개 키(`pk_live_`, `pk_test_` 등), 일반 URL과 비밀번호 없는 접속 주소, 프로젝트 파일 경로, UUID와 커밋 해시, ULID, CamelCase 식별자, 알파벳을 차례로 늘어놓은 지어낸 키가 여기 든다. 코드 근거의 `token = getToken()`이나 `token = this.token`처럼 함수 호출과 멤버 참조를 대입한 줄도 값이 아니라서 놔둔다. 다만 비밀번호 이름에 숫자가 든 값이 대문자로 시작하거나 첫 괄호 앞에 숫자가 있으면(`password=Hunter(2)`, `DB_PASSWORD=Summer(2024)`) 호출로 보지 않고 가린다. code 근거의 `location`(`<repoId>:<경로>:<줄>`)은 가리지 않고 문서 근거 URL의 `#절` 앵커도 남긴다.
 
 가린 자리는 고정 표식 `[비밀값]`으로 바꾼다. 표식은 어느 규칙에도 안 걸려서 두 번 가려도 결과가 같다. 저장 IR은 디스크에 쓸 때 한 번 더 가린다. 공유본은 `redactForSharing`이 private 근거 축약과 계정 ID 가림을 마친 뒤 다시 가린다. 그래서 가림 이전에 저장한 IR을 다시 그려도 표식이 겹치지 않는다.
 

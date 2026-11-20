@@ -156,11 +156,14 @@ function assignedValueIsSecret(name: string, value: string): boolean {
  * 따옴표 없는 대입 값이 비밀값인지. 코드 근거의 `token = getToken()`, `token = this.token`,
  * `token={session.accessToken}`, `token: [a, b]`는 값이 아니다. 괄호는 호출이나 인덱싱처럼 닫는 괄호로 끝날 때만
  * 코드로 본다. `Hunter(2)abc9` 같은 비밀번호에도 괄호가 들어간다.
+ * 비밀번호 이름에 숫자가 든 값이 붙으면 닫는 괄호로 끝나도 .env 대문자 이름이거나, 대문자로 시작하거나,
+ * 첫 괄호 앞에 숫자가 박혔을 때는 `Hunter(2)` 같은 값으로 본다. `getToken(user1)`, `argv[1]`은 코드로 남는다.
  * 점으로 이은 꼴도 .env 대문자 이름에 붙었거나 숫자가 섞이면 `Summer2024.Corp1` 같은 값으로 본다.
  * `:`는 `auth: Keycloak`, `Authorization: Bearer`처럼 산문과 타입 선언에 흔해서 생성 값처럼 보일 때만 가린다
  */
 function bareValueIsSecret(name: string, op: string, value: string): boolean {
-  if (/^[=>{[]/.test(value) || CALL_OR_INDEX.test(value)) return false;
+  if (/^[=>{[]/.test(value)) return false;
+  if (CALL_OR_INDEX.test(value) && !passwordLikeCall(name, value)) return false;
   if (MEMBER_CHAIN.test(value) && !(ENV_NAME.test(name) || /\d/.test(value))) return false;
   // 숫자 없는 낱말 하나는 코드의 변수 이름일 때가 많다. .env처럼 대문자 이름에 붙었을 때만 값으로 본다
   if (IDENTIFIER.test(value) && !/\d/.test(value) && !ENV_NAME.test(name)) return false;
@@ -169,13 +172,26 @@ function bareValueIsSecret(name: string, op: string, value: string): boolean {
   return (/\d/.test(value) && /[A-Za-z]/.test(value)) || looksRandom(value);
 }
 
-function splitUnmatchedParens(raw: string): { value: string; tail: string } {
+function passwordLikeCall(name: string, value: string): boolean {
+  return (
+    PASSWORD_NAME.test(snake(name)) &&
+    /\d/.test(value) &&
+    (ENV_NAME.test(name) || /^[A-Z]|^[^([]*\d/.test(value))
+  );
+}
+
+const CLOSER_PAIRS: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
+
+function splitUnmatchedClosers(raw: string): { value: string; tail: string } {
   let value = raw;
   let tail = '';
   const count = (c: string) => value.split(c).length - 1;
-  while (value.endsWith(')') && count(')') > count('(')) {
+  for (;;) {
+    const last = value.slice(-1);
+    const open = CLOSER_PAIRS[last];
+    if (open === undefined || count(last) <= count(open)) break;
     value = value.slice(0, -1);
-    tail = `)${tail}`;
+    tail = `${last}${tail}`;
   }
   return { value, tail };
 }
@@ -267,9 +283,10 @@ const DB_URL = /\b([a-z][a-z0-9+.-]{1,30}:\/\/[^\s:/@'"`<>]{0,256}:)([^\s@/'"`<>
 const QUOTED_ASSIGN =
   /(?<![\w.-])(["']?)([A-Za-z_][\w.-]{0,100})\1(\s{0,10}(?::=|=>|=|:)\s{0,10})(["'`])([^"'`\n]{0,2000})\4/g;
 // name=value, NAME:=value, key: value 같은 따옴표 없는 대입. 값은 공백과 따옴표, 구분 문자에서 끊는다.
-// `)`에서 끊으면 `Hunter(2)abc9`가 `Hunter(2`로 잘려 호출 꼴로 보이므로 값에 넣고 짝 없는 꼬리만 콜백에서 뗀다
+// `)`에서 끊으면 `Hunter(2)abc9`가 `Hunter(2`로 잘려 호출 꼴로 보이므로 값에 넣고 짝 없는 꼬리만 콜백에서 뗀다.
+// 앞의 `-`는 막지 않는다. `--password=값` 같은 명령행 인자가 흔하고 `reset-password`는 맨 앞부터 이름으로 잡힌다
 const BARE_ASSIGN =
-  /(?<![\w.-])([A-Za-z_][\w.-]{0,100})(\s{0,10}(?::=|=|:)\s{0,10})([^\s"'`,;]{4,256})/g;
+  /(?<![\w.])([A-Za-z_][\w.-]{0,100})(\s{0,10}(?::=|=|:)\s{0,10})([^\s"'`,;]{4,256})/g;
 // URL 쿼리와 fragment 안 키=값. 키와 값 없는 `#절` 앵커는 안 걸린다
 const URL_PARAM = /([?&#])([A-Za-z_][\w.-]{0,100})=([^&#\s"'`<>]{1,512})/g;
 const URL_SECRET_KEY = /^(?:sig|signature|x-amz-signature|x-amz-credential|code|key)$/i;
@@ -303,6 +320,29 @@ function maskPrivateKeys(text: string): MaskResult {
 /** 숫자가 하나도 없거나 알파벳, 숫자를 차례로 늘어놓은 지어낸 값은 형식이 맞아도 놔둔다 */
 function knownFormatIsReal(match: string): boolean {
   return /\d/.test(match) && !/EXAMPLE|xxxx|XXXX|0{10,}/.test(match) && !hasSequence(match);
+}
+
+/**
+ * 따옴표 없는 대입을 가린다. 바깥 대입이 값으로 나머지를 통째로 삼키면 replace가 그 안을 다시 훑지 않으므로
+ * 바깥을 가리지 않은 경우 값 안의 `NAME=값`을 같은 규칙으로 다시 본다. 값은 256자 상한이고 매번 짧아진다
+ */
+function maskBare(text: string): MaskResult {
+  let masked = 0;
+  const out = text.replace(BARE_ASSIGN, (m, name: string, op: string, raw: string) => {
+    // `login(password=…)`, `[password=…]`처럼 대입을 감싼 닫는 괄호가 값 끝에 붙어 온다
+    const { value, tail } = splitUnmatchedClosers(raw);
+    const last = name.split('.').pop() ?? name;
+    if (value.length >= 4 && SECRET_NAME.test(snake(last)) && bareValueIsSecret(last, op, value)) {
+      masked += 1;
+      return `${name}${op}${SECRET_MASK}${tail}`;
+    }
+    if (!/[=:]/.test(raw)) return m;
+    const inner = maskBare(raw);
+    if (inner.masked === 0) return m;
+    masked += inner.masked;
+    return `${name}${op}${inner.text}`;
+  });
+  return { text: out, masked };
 }
 
 /**
@@ -351,15 +391,9 @@ export function maskSecrets(text: string): MaskResult {
     masked += 1;
     return `${sep}${key}=${SECRET_MASK}`;
   });
-  out = out.replace(BARE_ASSIGN, (m, name: string, op: string, raw: string) => {
-    // `login(password=…)`처럼 대입 바깥 호출의 닫는 괄호가 값 끝에 붙어 온다
-    const { value, tail } = splitUnmatchedParens(raw);
-    const last = name.split('.').pop() ?? name;
-    if (value.length < 4 || !SECRET_NAME.test(snake(last)) || !bareValueIsSecret(last, op, value))
-      return m;
-    masked += 1;
-    return `${name}${op}${SECRET_MASK}${tail}`;
-  });
+  const bare = maskBare(out);
+  out = bare.text;
+  masked += bare.masked;
   out = out.replace(QUOTED_RANDOM, (m, q: string, v: string) => {
     if (!looksRandom(v)) return m;
     masked += 1;

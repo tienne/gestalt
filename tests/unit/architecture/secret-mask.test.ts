@@ -157,6 +157,44 @@ describe('maskSecrets — 가려야 하는 값', () => {
     expect(out).toBe(`login(password=${SECRET_MASK})`);
   });
 
+  // 바깥 대입이 값으로 나머지를 통째로 삼켜도 안쪽 대입을 다시 본다
+  it.each([
+    ['systemd Environment', 'Environment=DB_PASSWORD=Summer2024xK', 'Environment=DB_PASSWORD=%m'],
+    ['콜론 뒤 .env 대입', 'env:DB_PASSWORD=Summer2024xK', 'env:DB_PASSWORD=%m'],
+    ['대입 값 호출 인자', 'cfg=f(password=Summer2024xK)', 'cfg=f(password=%m)'],
+    ['띄운 대입 값 호출 인자', 'x = f(password=a1b2c3d4e5)', 'x = f(password=%m)'],
+    ['점 이름 콜론 뒤 대입', 'config.db:password=Summer2024xK', 'config.db:password=%m'],
+    [
+      '비밀 이름 대입 값 호출',
+      'credentials=dict(password=Summer2024xK)',
+      'credentials=dict(password=%m)',
+    ],
+    ['토큰 대입 값 호출', 'token=f(password=Summer2024xK)', 'token=f(password=%m)'],
+    ['여러 겹 대입', 'k=v=w=password=Summer2024xK', 'k=v=w=password=%m'],
+    ['비밀 아닌 이름 대입', 'KEY=DB_PASSWORD=Summer2024xK', 'KEY=DB_PASSWORD=%m'],
+    ['대괄호로 감싼 대입', 'x=[password=Summer2024xK]', 'x=[password=%m]'],
+    ['중괄호로 감싼 대입', 'x={password=Summer2024xK}', 'x={password=%m}'],
+    ['명령행 인자', 'mysql --password=Summer2024xK', 'mysql --password=%m'],
+  ])('바깥 대입 안쪽의 대입 %s', (_name, text, expected) => {
+    const r = maskSecrets(text);
+    expect(r.masked).toBe(1);
+    expect(r.text).toBe(expected.replace('%m', SECRET_MASK));
+    expectHidden(text, text.includes('a1b2c3d4e5') ? 'a1b2c3d4e5' : 'Summer2024xK');
+  });
+
+  it.each([
+    'password=Hunter(2)',
+    'password=Aa1(2)',
+    'DB_PASSWORD=Summer(2024)',
+    'password=Hunter2[x]',
+    'password=Zk3Lm9.Qp2Rt7Vx1[0]',
+    'pass:Abc(1)23',
+  ])('닫는 괄호로 끝나는 비밀번호 %s', (text) => {
+    const r = maskSecrets(text);
+    expect(r.masked).toBe(1);
+    expect(r.text).toBe(text.replace(/([:=]).*$/, `$1${SECRET_MASK}`));
+  });
+
   it('콜론 뒤 따옴표 없는 값은 숫자와 글자가 섞였을 때만 가린다', () => {
     const key = join('Zk3', noise(42, 20));
     expectHidden(`client_secret: ${key}`, key);
@@ -238,6 +276,12 @@ describe('maskSecrets — 가리면 안 되는 값', () => {
     ['JSX 식 변수', '<Login password={pw} />'],
     ['배열 리터럴', 'token: [tok1, tok2]'],
     ['호출 인자 안 호출 대입', 'login(password=getToken(user1))'],
+    ['비밀번호 이름 인덱싱', 'password=argv[1]'],
+    ['짧은 비밀번호 이름 인덱싱', 'pwd=args[0]'],
+    ['비밀번호 이름 소문자 호출', 'password=input(2)'],
+    ['바깥 대입 안 낱말 대입', 'KEY=a=b'],
+    ['바깥 대입 안 시각', 'time=12:30:45'],
+    ['바깥 대입 안 비밀 아닌 대입', 'foo=bar:baz=qux'],
     ['변수 대입', 'const password = input;'],
     ['비교', 'if (token === undefined) return;'],
     ['화살표', 'tokens.map(token => tokenize(token))'],
