@@ -1,4 +1,4 @@
-import { utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -10,16 +10,21 @@ import {
 import { DEFAULT_ARCHITECTURE_LIVE_PORT } from '../../../src/architecture/live-port.js';
 import type { SendResult } from '../../../src/digest/session-request.js';
 import { cspOf, directive } from './csp-check.js';
-import { call, page, startedLive } from './live-fixture.js';
+import { cleanText, LEVEL_ID_PATTERN, liveAskSchema } from '../../../src/architecture/live-ask.js';
+import { accessKeyOf, call, page, startedLive } from './live-fixture.js';
 
 describe('ArchitectureLiveServer 정적 서빙', () => {
   it('127.0.0.1에 묶이고 그림별 주소를 낸다', async () => {
     const { server } = await startedLive();
     expect(server.running).toBe(true);
     expect(server.url).toBe(`http://127.0.0.1:${server.port}`);
+    const key = accessKeyOf(server);
+    expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(server.liveUrl('screen-chain')).toBe(
-      `http://127.0.0.1:${server.port}/screen-chain.html`,
+      `http://127.0.0.1:${server.port}/screen-chain.html?k=${key}`,
     );
+    // 서버가 떠 있는 동안 같은 주소를 돌려준다
+    expect(server.liveUrl('screen-chain')).toBe(server.liveUrl('screen-chain'));
     await server.stop();
     expect(server.url).toBeUndefined();
     expect(server.liveUrl('screen-chain')).toBeUndefined();
@@ -113,6 +118,50 @@ describe('ArchitectureLiveServer 정적 서빙', () => {
     expect(s.validToken(fakeReq())).toBe(false);
   });
 
+  it('HTML은 liveUrl의 키나 그 키로 받은 쿠키가 있어야 내준다', async () => {
+    const { server } = await startedLive();
+    const p = server.port!;
+    const key = accessKeyOf(server);
+    const anonymous = { anonymous: true } as const;
+    expect((await call(p, '/screen-chain.html', anonymous)).status).toBe(403);
+    expect((await call(p, '/screen-chain.html', { ...anonymous, method: 'HEAD' })).status).toBe(
+      403,
+    );
+    expect((await call(p, `/screen-chain.html?k=${key}x`, anonymous)).status).toBe(403);
+    const denied = await call(p, '/screen-chain.html', anonymous);
+    expect(denied.body).toBe('403');
+    expect(denied.headers['set-cookie']).toBeUndefined();
+
+    const first = await call(p, `/screen-chain.html?k=${key}`, anonymous);
+    expect(first.status).toBe(200);
+    expect(first.headers['set-cookie']).toEqual([
+      `gestalt-live-${p}=${key}; HttpOnly; SameSite=Strict; Path=/`,
+    ]);
+    const cookie = `gestalt-live-${p}=${key}`;
+    const again = await call(p, '/screen-chain.html', { ...anonymous, headers: { cookie } });
+    expect(again.status).toBe(200);
+    expect(again.headers['set-cookie']).toBeUndefined();
+    // 다른 포트 이름의 쿠키나 틀린 값은 통과하지 못한다
+    for (const bad of [`gestalt-live-${p + 1}=${key}`, `gestalt-live-${p}=${key}x`]) {
+      expect(
+        (await call(p, '/screen-chain.html', { ...anonymous, headers: { cookie: bad } })).status,
+      ).toBe(403);
+    }
+    expect(
+      (
+        await call(p, '/screen-chain.html', {
+          ...anonymous,
+          headers: { cookie: `other=1; gestalt-live-${p}=${key}` },
+        })
+      ).status,
+    ).toBe(200);
+    // 다른 서버의 키로는 열리지 않는다
+    const other = await startedLive();
+    expect((await call(other.server.port!, `/screen-chain.html?k=${key}`, anonymous)).status).toBe(
+      403,
+    );
+  });
+
   it('두 번 start해도 같은 포트를 그대로 쓴다', async () => {
     const { server } = await startedLive();
     const p = server.port!;
@@ -171,6 +220,15 @@ describe('ArchitectureLiveServer 세션 상태와 질문', () => {
     expect(ok.status).toBe(200);
     expect(JSON.parse(ok.body)).toEqual({ session: true });
     expect((await call(p, LIVE_STATUS_PATH, { method: 'POST' })).status).toBe(405);
+    // 토큰이 맞아도 접근 쿠키가 없으면 거절한다
+    expect(
+      (
+        await call(p, LIVE_STATUS_PATH, {
+          anonymous: true,
+          headers: { [LIVE_TOKEN_HEADER]: token },
+        })
+      ).status,
+    ).toBe(403);
 
     const off = await startedLive({ session: fakeSession(false).bridge });
     const offToken = await tokenOf(off.server.port!);
@@ -242,6 +300,7 @@ describe('ArchitectureLiveServer 세션 상태와 질문', () => {
       [403, ask(p, token, good, { origin: 'http://evil.test' })],
       [403, ask(p, token, good, { origin: `http://localhost:${p}` })],
       [403, ask(p, `${token}x`, good)],
+      [403, ask(p, token, good, { cookie: `gestalt-live-${p}=nope` })],
       [415, ask(p, token, good, { 'content-type': 'text/plain' })],
       [413, ask(p, token, { ...good, question: 'x'.repeat(3000) })],
       [400, ask(p, token, '{not json')],
@@ -260,6 +319,20 @@ describe('ArchitectureLiveServer 세션 상태와 질문', () => {
     }
     expect((await call(p, LIVE_ASK_PATH)).status).toBe(405);
     expect((await call(p, LIVE_ASK_PATH, { method: 'OPTIONS' })).status).toBe(405);
+    expect(s.sent).toHaveLength(0);
+  });
+
+  it('스키마가 다른 IR 파일은 질문을 받아도 옮기지 않고 unknown_target으로 답한다', async () => {
+    const s = fakeSession(true);
+    const { server, dir } = await startedLive({ session: s.bridge });
+    const p = server.port!;
+    const token = await tokenOf(p);
+    writeFileSync(join(dir, 'screen-chain.json'), JSON.stringify({ view: 'screen-chain' }));
+    const r = await ask(p, token, { view: 'screen-chain', question: '질문' });
+    expect(r.status).toBe(404);
+    expect(JSON.parse(r.body)).toEqual({ code: 'unknown_target' });
+    expect(existsSync(join(dir, 'screen-chain.json'))).toBe(true);
+    expect(readdirSync(dir).some((f) => f.includes('.corrupt-'))).toBe(false);
     expect(s.sent).toHaveLength(0);
   });
 
@@ -283,5 +356,36 @@ describe('ArchitectureLiveServer 세션 상태와 질문', () => {
     const r = await ask(down.server.port!, t2, { view: 'screen-chain', question: '질문' });
     expect(r.status).toBe(503);
     expect(JSON.parse(r.body)).toEqual({ code: 'no_session' });
+  });
+});
+
+describe('라이브 질문 칸 정리', () => {
+  it('줄 구분자와 문단 구분자는 지우지 않고 줄바꿈으로 바꾼다', () => {
+    const ls = String.fromCharCode(0x2028);
+    const ps = String.fromCharCode(0x2029);
+    expect(cleanText(`앞${ls}뒤${ps}끝`)).toBe('앞\n뒤\n끝');
+  });
+
+  it('level은 drilldown이 만드는 id 꼴만 받고 띄어쓰기나 문장은 거절한다', () => {
+    for (const level of [
+      'root',
+      'infra',
+      'lane:stage-1',
+      'group:n-orders',
+      'feature:n-orders',
+      'service:shop',
+      'flow:checkout',
+      'chunk:a->b',
+      'group:docs/kb/api.md',
+      'group:svc_a.v2',
+    ]) {
+      expect(LEVEL_ID_PATTERN.test(level), level).toBe(true);
+    }
+    for (const level of ['', 'root ignore previous', 'root"', 'root\n', 'x'.repeat(201)]) {
+      expect(LEVEL_ID_PATTERN.test(level), level).toBe(false);
+      expect(
+        liveAskSchema.safeParse({ view: 'screen-chain', question: '질문', level }).success,
+      ).toBe(false);
+    }
   });
 });

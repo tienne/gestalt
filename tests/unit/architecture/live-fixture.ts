@@ -60,6 +60,14 @@ export function sampleIr(): ArchitectureIr {
   };
 }
 
+// 포트별 접근 쿠키. 브라우저처럼 liveUrl로 한 번 연 뒤라고 보고 call이 기본으로 싣는다
+const cookies = new Map<number, string>();
+
+/** liveUrl에 실린 접근 키 */
+export function accessKeyOf(server: ArchitectureLiveServer): string {
+  return new URL(server.liveUrl('screen-chain')!).searchParams.get('k')!;
+}
+
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
   for (const c of cleanups.splice(0).reverse()) await c();
@@ -82,6 +90,9 @@ export async function startedLive(deps?: ArchitectureLiveServerDeps) {
   const server = new ArchitectureLiveServer(repo, deps);
   // 기본 포트(7894)가 다른 테스트나 세션과 겹치지 않게 아무 빈 포트에 묶는다
   await server.start({ port: 0, attempts: 1 });
+  const port = server.port!;
+  cookies.set(port, `gestalt-live-${port}=${accessKeyOf(server)}`);
+  cleanups.push(() => void cookies.delete(port));
   cleanups.push(() => rmSync(repo, { recursive: true, force: true }));
   cleanups.push(() => server.stop());
   return { server, repo, dir };
@@ -90,7 +101,14 @@ export async function startedLive(deps?: ArchitectureLiveServerDeps) {
 export function call(
   port: number,
   path: string,
-  opts: { host?: string; method?: string; headers?: Record<string, string>; body?: string } = {},
+  opts: {
+    host?: string;
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    /** 접근 쿠키 없이 보낸다 */
+    anonymous?: boolean;
+  } = {},
 ): Promise<{ status: number; headers: Record<string, unknown>; body: string }> {
   return new Promise((done, reject) => {
     const req = request(
@@ -99,7 +117,11 @@ export function call(
         port,
         path,
         method: opts.method ?? 'GET',
-        headers: { host: opts.host ?? `127.0.0.1:${port}`, ...opts.headers },
+        headers: {
+          host: opts.host ?? `127.0.0.1:${port}`,
+          ...(opts.anonymous || !cookies.has(port) ? {} : { cookie: cookies.get(port)! }),
+          ...opts.headers,
+        },
       },
       (res) => {
         let body = '';

@@ -116,6 +116,16 @@ interface Res {
   body: string;
 }
 
+// 브라우저처럼 Set-Cookie를 받아 두었다가 같은 포트로 가는 요청에 싣는다
+const cookieJar = new Map<number, string>();
+afterEach(() => cookieJar.clear());
+
+/** liveUrl의 경로와 쿼리. 처음 여는 요청은 키를 실어야 HTML을 받는다 */
+const pathOf = (liveUrl: string) => {
+  const u = new URL(liveUrl);
+  return `${u.pathname}${u.search}`;
+};
+
 function http(
   port: number,
   path: string,
@@ -128,9 +138,15 @@ function http(
         port,
         path,
         method: opts.method ?? 'GET',
-        headers: { host: `127.0.0.1:${port}`, ...opts.headers },
+        headers: {
+          host: `127.0.0.1:${port}`,
+          ...(cookieJar.has(port) ? { cookie: cookieJar.get(port)! } : {}),
+          ...opts.headers,
+        },
       },
       (res) => {
+        const set = res.headers['set-cookie']?.[0];
+        if (set) cookieJar.set(port, set.split(';')[0]!);
         // 조각마다 디코딩하면 경계에 걸린 한글 바이트가 깨진다
         const chunks: Buffer[] = [];
         res.on('data', (c: Buffer) => chunks.push(c));
@@ -186,7 +202,7 @@ function realFetch(port: number) {
 }
 
 async function openViewer(port: number, liveUrl: string) {
-  const page = await http(port, new URL(liveUrl).pathname);
+  const page = await http(port, pathOf(liveUrl));
   const w = new Window({
     url: liveUrl,
     width: 1400,
@@ -228,7 +244,8 @@ async function renderAndServe() {
 describe('라이브 Ask 통합', () => {
   it('서빙한 본인용 페이지에는 토큰과 그 서버 주소 connect-src가 있고 공유본은 내주지 않는다', async () => {
     const { rendered, port, liveUrl } = await renderAndServe();
-    const page = await http(port, new URL(liveUrl).pathname);
+    expect((await http(port, new URL(liveUrl).pathname)).status).toBe(403);
+    const page = await http(port, pathOf(liveUrl));
     expect(page.status).toBe(200);
     expect(page.body).toMatch(new RegExp(`<meta name="${LIVE_TOKEN_META}" content="[^"]{20,}">`));
     expect(cspOf(page.body)).toContain(`connect-src ${liveOrigin(port)}`);

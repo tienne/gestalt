@@ -16,6 +16,8 @@ export interface LiveSessionBridge {
 
 /** 못 찾은 결과를 기억하는 시간. 입력창 감시가 요청마다 부모 프로세스를 다 훑지 않게 한다 */
 const MISS_MS = 30_000;
+/** alive 결과를 기억하는 시간. 탭마다 오는 status 요청이 세션 파일과 소켓을 매번 동기로 훑지 않게 한다 */
+const ALIVE_TTL_MS = 2_500;
 
 /**
  * 라이브 서버를 띄운 프로세스(MCP 서버)의 부모를 따라 올라가 Claude Code 세션을 찾는다.
@@ -36,11 +38,21 @@ export function defaultLiveSessionBridge(now: () => number = Date.now): LiveSess
     cache.missUntil = found ? undefined : now() + MISS_MS;
     return found;
   };
+  let aliveCache: { value: boolean; until: number } | undefined;
   return {
     alive() {
+      if (aliveCache && now() < aliveCache.until) return aliveCache.value;
       const session = locate();
-      return session !== null && findSessionSocket(session.sessionId, [claudeConfigDir()]).ok;
+      const value =
+        session !== null && findSessionSocket(session.sessionId, [claudeConfigDir()]).ok;
+      aliveCache = { value, until: now() + ALIVE_TTL_MS };
+      return value;
     },
-    send: (text) => sendToSession(text, { cache, now }),
+    async send(text) {
+      const sent = await sendToSession(text, { cache, now });
+      // 세션이 없다고 확인됐으니 다음 status가 기억한 true를 내지 않고 바로 다시 찾게 한다
+      if (!sent.ok && sent.code === 'no_session') aliveCache = undefined;
+      return sent;
+    },
   };
 }

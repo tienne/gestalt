@@ -9,13 +9,15 @@ const HIDDEN =
   // eslint-disable-next-line no-control-regex
   /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g;
 const idText = z.string().min(1).max(200);
+// level id는 drilldown이 만드는 꼴(`root`, `lane:<키>`, `group:<id>`, `flow:<id>` 등)만 받는다. 띄어쓰기를 막아 문장이 끼어들 수 없게 한다
+export const LEVEL_ID_PATTERN = /^[A-Za-z0-9_.:>/-]{1,200}$/;
 
 /** 뷰어 질문 본문. 정해 둔 칸 말고는 받지 않는다(strict) */
 export const liveAskSchema = z
   .object({
     view: z.enum(ARCHITECTURE_VIEWS),
     question: z.string().min(1).max(LIVE_QUESTION_MAX),
-    level: idText.optional(),
+    level: z.string().regex(LEVEL_ID_PATTERN).optional(),
     node: idText.optional(),
   })
   .strict();
@@ -23,7 +25,11 @@ export const liveAskSchema = z
 export type LiveAsk = z.infer<typeof liveAskSchema>;
 
 export function cleanText(s: string): string {
-  return s.replace(HIDDEN, '').replace(/\r\n?/g, '\n').trim();
+  // 줄 구분자와 문단 구분자는 지우면 앞뒤 낱말이 붙어서 줄바꿈으로 바꾼다
+  return s
+    .replace(HIDDEN, '')
+    .replace(/\r\n?|[\u2028\u2029]/g, '\n')
+    .trim();
 }
 
 /** 세션 글 안에서 틀 태그를 닫거나 새로 여는 글자를 막는다 */

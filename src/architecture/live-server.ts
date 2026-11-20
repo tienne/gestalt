@@ -18,7 +18,7 @@ import {
 export { LIVE_ASK_PATH, LIVE_STATUS_PATH, LIVE_TOKEN_HEADER, LIVE_TOKEN_META };
 import { defaultLiveSessionBridge, type LiveSessionBridge } from './live-session.js';
 import { ArchitectureStore } from './store.js';
-import { ARCHITECTURE_VIEWS, type ArchitectureView } from './types.js';
+import { ARCHITECTURE_VIEWS, type ArchitectureIr, type ArchitectureView } from './types.js';
 
 /** 질문 본문 상한. 정해 둔 칸 몇 개라 이보다 크면 잘못 온 요청이다 */
 const ASK_MAX_BYTES = 2 * 1024;
@@ -47,6 +47,16 @@ const BASE_HEADERS = {
 };
 
 const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest();
+
+/** 이름이 같은 쿠키 값을 모두 꺼낸다 */
+function cookieValues(header: string | undefined, name: string): string[] {
+  if (!header) return [];
+  return header
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part.startsWith(`${name}=`))
+    .map((part) => part.slice(name.length + 1));
+}
 
 const CSP_META = /<meta http-equiv="Content-Security-Policy" content="([^"]*)">/;
 
@@ -86,6 +96,10 @@ export class ArchitectureLiveServer {
   // 페이지에만 싣는 토큰. 디스크에 쓰지 않아서 서버를 다시 띄우면 바뀐다
   protected readonly token = randomBytes(32).toString('base64url');
   private readonly tokenDigest = sha256(this.token);
+  // HTML을 받을 자격. 토큰은 HTML에 실려 나가므로 HTML 자체를 아무에게나 주지 않으려고 따로 둔다.
+  // 서버가 떠 있는 동안 바뀌지 않아서 serve와 render가 같은 liveUrl을 돌려준다
+  private readonly accessKey = randomBytes(32).toString('base64url');
+  private readonly accessDigest = sha256(this.accessKey);
   // 뷰어가 HEAD로 ETag를 계속 본다. 파일이 그대로면 다시 읽지 않고 토큰을 끼운 길이를 쓴다
   private readonly htmlLengths = new Map<
     string,
@@ -97,6 +111,11 @@ export class ArchitectureLiveServer {
   private readonly store: ArchitectureStore;
   private askTimes: number[] = [];
   private readonly recentAsks = new Map<string, number>();
+  // 질문마다 IR 전체를 다시 파싱하지 않게 파일 수정 시각과 크기가 같으면 지난 결과를 쓴다
+  private readonly irCache = new Map<
+    ArchitectureView,
+    { mtimeMs: number; size: number; ir: ArchitectureIr | null }
+  >();
 
   constructor(
     readonly repoRoot: string,
@@ -121,7 +140,7 @@ export class ArchitectureLiveServer {
         if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err;
       }
     }
-    throw new Error(`${first}부터 ${first + attempts - 1}까지 빈 포트가 없어요.`);
+    throw new Error(`${first}부터 ${first + attempts - 1}까지 빈 포트가 없다.`);
   }
 
   private listen(port: number): Promise<void> {
@@ -174,7 +193,20 @@ export class ArchitectureLiveServer {
   /** 그림 하나를 라이브로 여는 주소. 떠 있지 않으면 undefined */
   liveUrl(view: ArchitectureView): string | undefined {
     const url = this.url;
-    return url === undefined ? undefined : `${url}/${view}.html`;
+    return url === undefined ? undefined : `${url}/${view}.html?k=${this.accessKey}`;
+  }
+
+  // 포트를 이름에 넣는다. 쿠키는 포트를 가리지 않아서 레포 둘의 서버가 뜨면 서로 덮어쓴다
+  private get cookieName(): string {
+    return `gestalt-live-${this.port!}`;
+  }
+
+  private matchesKey(given: string | null | undefined): boolean {
+    return typeof given === 'string' && timingSafeEqual(sha256(given), this.accessDigest);
+  }
+
+  protected validCookie(req: IncomingMessage): boolean {
+    return cookieValues(req.headers.cookie, this.cookieName).some((v) => this.matchesKey(v));
   }
 
   /** 거부 응답. 이유는 응답에 싣지 않고 stderr에만 남긴다 */
@@ -196,12 +228,21 @@ export class ArchitectureLiveServer {
       req.resume();
       return this.deny(res, 403, `host ${String(req.headers.host)}`);
     }
-    const [path] = (req.url ?? '/').split('?');
+    const [path, query] = (req.url ?? '/').split('?');
     if (this.handleApi(req, res, path!)) return;
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       req.resume();
       res.setHeader('Allow', 'GET, HEAD');
       return this.deny(res, 405, `method ${String(req.method)}`);
+    }
+    // 브라우저 밖 클라이언트는 Host와 Origin을 마음대로 적는다. liveUrl의 키나 그 키로 받은 쿠키가 있어야 HTML을 준다
+    const fromQuery = this.matchesKey(new URLSearchParams(query ?? '').get('k'));
+    if (!fromQuery && !this.validCookie(req)) return this.deny(res, 403, 'access key');
+    if (fromQuery) {
+      res.setHeader(
+        'Set-Cookie',
+        `${this.cookieName}=${this.accessKey}; HttpOnly; SameSite=Strict; Path=/`,
+      );
     }
     this.serveHtml(req, res, path!);
   }
@@ -213,7 +254,7 @@ export class ArchitectureLiveServer {
       if (req.method !== 'GET') {
         res.setHeader('Allow', 'GET');
         this.deny(res, 405, `status method ${String(req.method)}`);
-      } else if (!this.validToken(req)) {
+      } else if (!this.validToken(req) || !this.validCookie(req)) {
         this.deny(res, 403, 'status token');
       } else {
         this.json(res, 200, { session: this.sessionAlive() });
@@ -255,7 +296,7 @@ export class ArchitectureLiveServer {
 
   /**
    * 뷰어 질문을 받아 세션에 넣는다. 127.0.0.1 서버라도 브라우저에 열린 아무 사이트가 여기로 POST할 수 있어서
-   * Origin과 페이지에만 실은 토큰을 둘 다 본다. JSON 본문이라 다른 출처에서 보내면 사전 요청(OPTIONS)부터
+   * Origin과 페이지에만 실은 토큰, 접근 쿠키를 다 본다. JSON 본문이라 다른 출처에서 보내면 사전 요청(OPTIONS)부터
    * 405로 막힌다. 세션에 들어가는 글은 검사를 통과한 값으로 서버가 다시 조립한다
    */
   private handleAsk(req: IncomingMessage, res: ServerResponse): void {
@@ -263,7 +304,7 @@ export class ArchitectureLiveServer {
       req.resume();
       return this.reply(res, 403, 'forbidden', `origin ${String(req.headers.origin)}`);
     }
-    if (!this.validToken(req)) {
+    if (!this.validToken(req) || !this.validCookie(req)) {
       req.resume();
       return this.reply(res, 403, 'forbidden', 'token');
     }
@@ -313,8 +354,8 @@ export class ArchitectureLiveServer {
     if (!parsed.success) return this.reply(res, 400, 'bad_request', 'schema');
     const ask = parsed.data;
     if (!ask.question.trim()) return this.reply(res, 400, 'bad_request', 'empty question');
-    // 그림과 노드는 뷰어가 보낸 값을 믿지 않고 저장 IR에서 확인한다
-    if (!askFitsIr(ask, this.store.load(ask.view))) {
+    // 그림과 노드는 뷰어가 보낸 값을 믿지 않고 저장 IR에서 확인한다. 질문 하나가 IR 파일을 옮기지 않게 peek로 읽는다
+    if (!askFitsIr(ask, this.savedIr(ask.view))) {
       return this.reply(res, 404, 'unknown_target', `${ask.view} ${String(ask.node)}`);
     }
     const now = this.now();
@@ -333,6 +374,21 @@ export class ArchitectureLiveServer {
       return this.reply(res, 200, 'sent');
     }
     return this.reply(res, 503, sent.code, sent.reason);
+  }
+
+  private savedIr(view: ArchitectureView): ArchitectureIr | null {
+    let stat: { mtimeMs: number; size: number };
+    try {
+      stat = statSync(this.store.irPath(view));
+    } catch {
+      this.irCache.delete(view);
+      return null;
+    }
+    const hit = this.irCache.get(view);
+    if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) return hit.ir;
+    const ir = this.store.peek(view);
+    this.irCache.set(view, { mtimeMs: stat.mtimeMs, size: stat.size, ir });
+    return ir;
   }
 
   private serveHtml(req: IncomingMessage, res: ServerResponse, path: string): void {
