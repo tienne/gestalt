@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -145,6 +146,71 @@ describe('refs 사본', () => {
     ]);
   });
 
+  it('소문자 library와 심링크로 걸린 홈 점 디렉토리, 흔한 비밀 이름도 거부한다', () => {
+    const { home, file, homeFile, copy } = setup();
+    const lower = homeFile('library/Keychains/y.json', '{}');
+    homeFile('dotfiles/docker/config.json', '{}');
+    symlinkSync(join(home, 'dotfiles', 'docker'), join(home, '.docker'));
+    const linkedDot = '~/.docker/config.json';
+    const names = [
+      file('db-password.txt', 'x'),
+      file('openai_api_key.txt', 'x'),
+      file('kubeconfig.json', '{}'),
+    ];
+
+    const out = copy([lower, linkedDot, ...names]);
+
+    expect(out).toEqual([lower, linkedDot, ...names].map((ref) => ({ ref, skipped: 'denied' })));
+  });
+
+  it('비밀 값 파일에 흔한 이름은 막고 그 말로 시작하는 문서는 복사한다', () => {
+    const { file, copy } = setup();
+    const blocked = [
+      'password.txt',
+      'api_key.json',
+      'private-key.json',
+      'service-account.json',
+      'service-account-key.json',
+      'x-firebase-adminsdk-ab12c-123.json',
+      'auth.json',
+    ].map((n) => file(n, '{}'));
+    const allowed = [
+      'password-reset-flow.md',
+      'api-key-rotation-review.md',
+      'service-account-migration.md',
+    ].map((n) => file(n, 'x'));
+
+    const out = copy([...blocked, ...allowed]);
+
+    expect(out.filter((c) => c.skipped === 'denied').map((c) => c.ref)).toEqual(blocked);
+    expect(out.filter((c) => c.path).map((c) => c.ref)).toEqual(allowed);
+  });
+
+  it('저장소 안이어도 워커 워크트리 파일은 복사한다', () => {
+    const { stateDir, copy } = setup();
+    const inWorktree = join(resolve(stateDir), 'worktrees', 'w1', 'out.md');
+    mkdirSync(join(inWorktree, '..'), { recursive: true });
+    writeFileSync(inWorktree, '워크트리 결과');
+
+    const out = copy([inWorktree]);
+
+    expect(out).toHaveLength(1);
+    expect(readFileSync(join(stateDir, out[0]!.path!), 'utf-8')).toBe('워크트리 결과');
+  });
+
+  it('다른 경로로 같은 파일을 가리키면 사본 하나를 같이 쓴다', () => {
+    const { stateDir, work, file, copy } = setup();
+    const md = file('a.md', 'x');
+    symlinkSync(work, join(work, 'alias'));
+    const alias = join(work, 'alias', 'a.md');
+
+    const out = copy([md, alias]);
+
+    expect(out.map((c) => c.ref)).toEqual([md, alias]);
+    expect(out[1]!.path).toBe(out[0]!.path);
+    expect(readdirSync(join(stateDir, REFS_DIR, 'ord-1'))).toHaveLength(1);
+  });
+
   it('오르카 첨부 자리와 레포 안 점 디렉토리, 시스템 임시 디렉토리는 복사한다', () => {
     const { homeFile, copy } = setup();
     const attached = homeFile(
@@ -255,6 +321,33 @@ describe('지운 주문의 사본 정리', () => {
     expect(removeOrderRefCopies(stateDir, 'ord-1')).toMatch(/디렉토리가 아니라/);
     expect(existsSync(join(outside, 'ord-1'))).toBe(true);
   });
+
+  it('주문 디렉토리가 저장소 밖 심링크면 밖을 지우지 않고 경고를 돌려준다', () => {
+    const { stateDir, work } = setup();
+    const outside = join(work, 'outside');
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, 'keep.md'), 'x');
+    mkdirSync(join(stateDir, REFS_DIR));
+    symlinkSync(resolve(outside), join(stateDir, REFS_DIR, 'ord-1'));
+
+    expect(removeOrderRefCopies(stateDir, 'ord-1')).toMatch(/ord-1가 디렉토리가 아니라/);
+    expect(existsSync(join(outside, 'keep.md'))).toBe(true);
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
+    '확인 중에 권한 오류가 나도 던지지 않고 경고를 돌려준다',
+    () => {
+      const { stateDir } = setup();
+      const refs = join(stateDir, REFS_DIR);
+      mkdirSync(join(refs, 'ord-1'), { recursive: true });
+      chmodSync(refs, 0o000);
+      try {
+        expect(removeOrderRefCopies(stateDir, 'ord-1')).toMatch(/못 지웠어요/);
+      } finally {
+        chmodSync(refs, 0o700);
+      }
+    },
+  );
 
   it('주문 id가 경로를 벗어날 꼴이면 지우지 않는다', () => {
     const { stateDir } = setup();

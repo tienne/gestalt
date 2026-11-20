@@ -65,8 +65,30 @@ const LIBRARY_ALLOWED = [
   join('Library', 'Application Support', 'orca', 'chat-scratch'),
 ];
 
-/** 이름에 이 말이 들어간 파일은 확장자가 맞아도 비밀 값으로 보고 복사하지 않는다 */
+/**
+ * 이름에 이 말이 들어간 파일은 확장자가 맞아도 비밀 값으로 보고 복사하지 않는다. 부분 일치라
+ * `design-tokens.json`처럼 비밀이 아닌 파일도 막힌다. 놓치는 쪽보다 덜 복사하는 쪽을 골랐다
+ */
 const SECRET_NAME = /credential|secret|token/;
+
+/**
+ * 위 세 낱말 밖에서 비밀 값 파일에 흔한 이름 꼴. 확장자를 뗀 이름을 구분자로 나눠 끝 낱말을 본다.
+ * `password-reset-flow.md`처럼 그 말로 시작하는 리뷰 문서는 막지 않는다
+ */
+const SECRET_LAST_WORDS = new Set([
+  'password',
+  'passwords',
+  'passwd',
+  'apikey',
+  'auth',
+  'kubeconfig',
+]);
+const SECRET_STEM = /(^|[-_.])(api[-_]?key|private[-_]?key|service[-_]?account(-key)?)$/;
+
+/**
+ * 저장소 안이어도 복사하는 자리. git 워크트리 워커의 작업 디렉토리라 워커를 거두면 같이 지워진다
+ */
+const WORKTREES_DIR = 'worktrees';
 
 export interface CopyRefsInput {
   stateDir: string;
@@ -90,14 +112,17 @@ export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
   if (!SAFE_ORDER_ID.test(input.orderId)) return [];
   let stateReal: string;
   try {
-    stateReal = realpathSync(input.stateDir);
+    stateReal = realpathSync.native(input.stateDir);
   } catch {
     return [];
   }
+  const worktreesReal = join(stateReal, WORKTREES_DIR);
   const home = input.homeDir ?? homedir();
   const homeReal = realOrSelf(home);
   const out: RefCopy[] = [];
   const seen = new Set<string>();
+  // 다른 ref 문자열이 같은 파일을 가리키면 처음 사본을 같이 쓴다
+  const copiedByReal = new Map<string, RefCopy>();
   for (const ref of input.refs) {
     // 같은 ref가 두 번 오면 사본 이름도 같다. 한 번만 쓰고 예산도 한 번만 깎는다
     if (seen.has(ref)) continue;
@@ -111,9 +136,19 @@ export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
       out.push({ ref, skipped: 'error', reason: message(err) });
       continue;
     }
-    if (!found || isInside(stateReal, found.real)) continue;
-    if (denied(found.real, homeReal)) {
+    if (!found) continue;
+    if (isInside(stateReal, found.real) && !isInside(worktreesReal, found.real)) continue;
+    if (
+      isSecretName(found.real) ||
+      isSecretLocation(source, home) ||
+      isSecretLocation(found.real, homeReal)
+    ) {
       out.push({ ref, skipped: 'denied' });
+      continue;
+    }
+    const earlier = copiedByReal.get(found.real);
+    if (earlier) {
+      out.push({ ...earlier, ref });
       continue;
     }
     // 남은 예산에 앞부분조차 못 담는 파일은 읽지도 않는다. tick 잠금 안에서 도는 동기 IO라서다
@@ -143,11 +178,13 @@ export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
       continue;
     }
     budget -= read.data.length;
-    out.push({
+    const copied: RefCopy = {
       ref,
       path: rel.split(sep).join('/'),
       ...(read.data.length < size ? { truncated: true, size } : {}),
-    });
+    };
+    copiedByReal.set(found.real, copied);
+    out.push(copied);
   }
   return out;
 }
@@ -165,7 +202,7 @@ function localPath(ref: string, home: string): string | null {
 
 function realOrSelf(path: string): string {
   try {
-    return realpathSync(path);
+    return realpathSync.native(path);
   } catch {
     return path;
   }
@@ -177,20 +214,33 @@ function isInside(base: string, target: string): boolean {
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
+function isSecretName(path: string): boolean {
+  const name = basename(path).toLowerCase();
+  if (SECRET_NAME.test(name)) return true;
+  const stem = name.slice(0, name.length - extname(name).length);
+  const words = stem.split(/[-_.\s]+/);
+  return (
+    SECRET_LAST_WORDS.has(words[words.length - 1]!) ||
+    SECRET_STEM.test(stem) ||
+    words.includes('adminsdk')
+  );
+}
+
 /**
- * 비밀 값이 있을 만한 자리면 true다. 위치는 풀린 실제 경로로 본다. 중간 디렉토리 심링크로
- * `~/.config`를 가리켜도 풀린 경로가 그 자리라 걸린다.
+ * 비밀 값이 있을 만한 자리면 true다. 부르는 쪽이 워커가 적은 경로와 풀린 실제 경로를 둘 다 넘긴다.
+ * 실제 경로로는 중간 심링크로 `~/.config`를 가리킨 경우를 잡는다. 적은 경로로는 `~/.docker`가
+ * 다른 디렉토리로 가는 심링크인 경우를 잡는다.
  * 홈 바로 아래 점 디렉토리(`~/.claude`, `~/.config`)만 막고 레포 안 `.git/`처럼 깊은 점 디렉토리는 둔다.
- * 2026-11-20 저장소의 refs 중 72개가 레포 `.git/` 아래 리뷰 산출물이었다
+ * 2026-11-20 저장소의 refs 중 72개가 레포 `.git/` 아래 리뷰 산출물이었다.
+ * macOS 기본 파일 시스템은 대소문자를 안 가려 `~/library`도 같은 자리라 소문자로 비교한다
  */
-function denied(real: string, homeReal: string): boolean {
-  if (SECRET_NAME.test(basename(real).toLowerCase())) return true;
-  if (!isInside(homeReal, real)) return false;
-  const rel = relative(homeReal, real);
+function isSecretLocation(path: string, home: string): boolean {
+  if (!isInside(home, path)) return false;
+  const rel = relative(home, path).toLowerCase();
   const first = rel.split(sep)[0]!;
   if (first.startsWith('.')) return true;
-  if (first !== 'Library') return false;
-  return !LIBRARY_ALLOWED.some((dir) => rel.startsWith(dir + sep));
+  if (first !== 'library') return false;
+  return !LIBRARY_ALLOWED.some((dir) => rel.startsWith(dir.toLowerCase() + sep));
 }
 
 interface Located {
@@ -208,7 +258,8 @@ function locate(source: string): Located | null {
   if (!own || !own.isFile()) return null;
   let real: string;
   try {
-    real = realpathSync(source);
+    // native는 macOS에서 디스크에 적힌 대소문자로 돌려준다. JS 구현은 받은 대소문자를 그대로 둔다
+    real = realpathSync.native(source);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;
@@ -288,20 +339,20 @@ function writeCopy(stateDir: string, rel: string, data: Buffer): void {
 }
 
 /**
- * 지운 주문의 사본 디렉토리를 지운다. `refs`나 주문 디렉토리가 심링크면 저장소 밖을 지우게 되니
- * 둘 다 진짜 디렉토리일 때만 지운다. 못 지우면 이유를 돌려주고 던지지 않는다
+ * 지운 주문의 사본 디렉토리를 지운다. `refs`가 심링크면 저장소 밖을 지우게 된다. 주문 디렉토리가
+ * 심링크면 누가 사본 자리를 바꿔 둔 것이라 손대지 않고 알린다. 못 지우면 이유를 돌려주고 던지지 않는다
  */
 export function removeOrderRefCopies(stateDir: string, orderId: string): string | undefined {
   if (!SAFE_ORDER_ID.test(orderId)) return `주문 id 꼴이 이상해 사본을 안 지웠어요: ${orderId}`;
-  const refs = join(stateDir, REFS_DIR);
-  const top = lstatSync(refs, { throwIfNoEntry: false });
-  if (!top) return undefined;
-  if (!top.isDirectory()) return `${REFS_DIR}가 디렉토리가 아니라 사본을 안 지웠어요`;
-  const dir = join(refs, orderId);
-  const own = lstatSync(dir, { throwIfNoEntry: false });
-  if (!own) return undefined;
-  if (!own.isDirectory()) return `${REFS_DIR}/${orderId}가 디렉토리가 아니라 사본을 안 지웠어요`;
   try {
+    const refs = join(stateDir, REFS_DIR);
+    const top = lstatSync(refs, { throwIfNoEntry: false });
+    if (!top) return undefined;
+    if (!top.isDirectory()) return `${REFS_DIR}가 디렉토리가 아니라 사본을 안 지웠어요`;
+    const dir = join(refs, orderId);
+    const own = lstatSync(dir, { throwIfNoEntry: false });
+    if (!own) return undefined;
+    if (!own.isDirectory()) return `${REFS_DIR}/${orderId}가 디렉토리가 아니라 사본을 안 지웠어요`;
     rmSync(dir, { recursive: true, force: true });
     return undefined;
   } catch (err) {
