@@ -70,7 +70,7 @@ archive/YYYY-MM/
 1. `tick.lock`을 잡는다. 못 잡으면 이번엔 넘긴다.
 2. `events.jsonl`을 `segments/<시각>.jsonl`로 이름을 바꾼다. 이 순간부터 덧붙는 이벤트는 새 `events.jsonl`로 간다.
 3. 이름을 바꾸기 직전에 파일을 연 워커가 옛 파일에 한 줄을 쓸 수 있다. 1초 기다린 뒤 segment 크기가 더 늘지 않는 걸 확인하고 읽는다.
-4. `base.json` + segment를 재생해 상태를 만들고 보관할 주문을 고른다. 고른 주문의 이벤트를 segment에서 골라 `archive/YYYY-MM/<주문 id>/events.jsonl`로 쓰고 `order.json`을 쓴다. `refs/<주문 id>/`는 `archive/YYYY-MM/<주문 id>/refs/`로 옮긴다.
+4. `base.json` + segment를 재생해 상태를 만들고 보관할 주문을 고른다. 고른 주문의 이벤트를 segment에서 골라 `archive/YYYY-MM/<주문 id>/events.jsonl`로 쓰고 `order.json`을 쓴다. `refs/<주문 id>/`는 `archive/YYYY-MM/<주문 id>/refs/`로 옮긴다. `order.json`의 `refCopies[].path`는 옮긴 자리로 바꿔 적고 `events.jsonl`은 원래 값 그대로 둔다.
 5. 상태에서 보관한 주문을 `removeFromSnapshot`과 같은 규칙으로 빼고 `archivedOrders`에 출처를 남긴 뒤 `base.json`을 원자적으로 쓴다. `foldedSegments`에 이 segment를 더한다.
 6. segment를 지운다(또는 압축해 둔다. 열린 질문 3).
 7. 잠금을 푼다.
