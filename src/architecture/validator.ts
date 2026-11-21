@@ -336,6 +336,7 @@ function checkCodeLocation(
     };
   }
   // 저장 IR에서 다시 들어온 가린 excerpt는 코드 줄과 같을 수 없다. 가린 자리 앞까지만 맞춘다
+  // 맨 앞이 가려졌으면 줄 범위만 보고 여러 줄 excerpt면 가린 자리 뒤 줄도 대조에서 빠진다
   const maskAt = excerpt?.indexOf(SECRET_MASK) ?? -1;
   const comparable = maskAt === -1 ? excerpt : excerpt!.slice(0, maskAt);
   const check = checkLineExcerpt(readSourceLines(resolved.abs, cache), line, comparable);
