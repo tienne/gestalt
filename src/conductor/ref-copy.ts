@@ -241,8 +241,11 @@ function isSecretName(path: string): boolean {
  * macOS 기본 파일 시스템은 대소문자를 안 가려 `~/library`도 같은 자리라 소문자로 비교한다
  */
 function isSecretLocation(path: string, home: string): boolean {
-  if (!isInside(home, path)) return false;
-  const rel = relative(home, path).toLowerCase();
+  const lowerHome = home.toLowerCase();
+  const lowerPath = path.toLowerCase();
+  // 홈 앞부분 대소문자만 바꿔 적어도 같은 자리라 홈 안 판정부터 소문자로 한다
+  if (!isInside(lowerHome, lowerPath)) return false;
+  const rel = relative(lowerHome, lowerPath);
   const first = rel.split(sep)[0]!;
   if (first.startsWith('.')) return true;
   if (first !== 'library') return false;

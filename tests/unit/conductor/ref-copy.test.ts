@@ -224,6 +224,20 @@ describe('refs 사본', () => {
     expect(out[2]!.path).toBe(out[0]!.path);
   });
 
+  // 대소문자를 가리는 파일 시스템이면 바꿔 적은 경로가 아예 안 풀려 볼 게 없다
+  it.skipIf(!existsSync(resolve(tempStateDir()).toUpperCase()))(
+    '홈 앞부분 대소문자를 바꿔 적어도 홈 밖으로 가는 점 디렉토리 심링크를 거부한다',
+    () => {
+      const { work, home, copy } = setup();
+      mkdirSync(join(work, 'docker'), { recursive: true });
+      writeFileSync(join(work, 'docker', 'config.json'), '{}');
+      symlinkSync(join(work, 'docker'), join(home, '.docker'));
+      const ref = join(home.toUpperCase(), '.docker', 'config.json');
+
+      expect(copy([ref])).toEqual([{ ref, skipped: 'denied' }]);
+    },
+  );
+
   it('다른 경로로 같은 파일을 가리키면 사본 하나를 같이 쓴다', () => {
     const { stateDir, work, file, copy } = setup();
     const md = file('a.md', 'x');
