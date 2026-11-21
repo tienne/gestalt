@@ -955,6 +955,6 @@ private 근거는 공유용 HTML에서 위치와 인용이 빠지고 출처 종�
 
 LLM이 채운 글자 칸(근거 `excerpt`, `label`, `description`, 흐름과 질문 문장 등)에 API 키나 비밀번호, 개인 키, JWT, 접속 주소 비밀번호처럼 보이는 값이 있으면 render가 본인용 HTML, 저장 IR, 공유본, 구조 변경 그림 네 곳 모두에서 `[비밀값]`으로 가린다. 환경변수 참조나 안내 문구, 공개 키, UUID와 커밋 해시는 놔둔다. 그래도 IR에 비밀값을 옮겨 적지 않는 게 먼저다. 가렸다고 알리는 `SECRET_MASKED` 경고에는 위치만 오고 값은 안 온다.
 
-공유본은 외부 통신을 막는 CSP(`connect-src 'none'`)가 붙는다. 본인용은 정책을 따로 두지만 지금도 외부로 요청을 보내지 않는다.
+공유본은 외부 통신을 막는 CSP(`connect-src 'none'`)가 붙는다. 본인용은 [라이브 Ask](#step-85--라이브-ask) 서버 주소(`http://127.0.0.1:7894`) 한 줄만 열고 그 밖으로는 요청을 보내지 않는다.
 
 커밋할 파일은 레포 공개 여부로 갈린다. 퍼블릭 레포(원격이 없거나 GitHub 밖이거나 gh로 확인을 못 한 경우 포함)면 render가 `.gestalt/architecture/.gitignore`에 본인용 HTML과 저장 IR, 질문별 그림 파일을 막는 줄을 써 두고 `.shared.html`만 커밋하게 둔다. 프라이빗 레포(`INTERNAL` 포함)면 아무것도 막지 않는다. render가 쓰는 줄은 `# >>> gestalt architecture` 표식 구역 안에만 있고 사람이 적은 줄은 건드리지 않는다.
