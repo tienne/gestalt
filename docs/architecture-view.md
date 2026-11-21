@@ -703,7 +703,7 @@ private 근거의 원문은 세 겹으로 막는다.
 
 ### 비밀값 가림
 
-LLM이 쓴 글자에 API 키나 비밀번호가 섞여 들어와도 네 산출물(본인용 HTML, 저장 IR JSON, 공유본 `.shared.html`, 구조 변경 그림 HTML)에 원문이 남지 않게 render가 가린다 (`src/architecture/secret-mask.ts`). 대상은 public 근거의 `excerpt`와 code가 아닌 근거의 `location`, 노드의 `label`, `displayName`, `description`, `summary`부터 흐름과 질문별 그림, 질문 문장, IR 최상위 `summary`와 `note`까지 LLM이 채운 글자 칸 전부다. 근거 `excerpt`를 코드 줄과 맞춰 보는 검증이 끝난 뒤에 가려서 가린 글자 때문에 대조가 어긋나지 않는다.
+LLM이 쓴 글자에 API 키나 비밀번호가 섞여 들어와도 네 산출물(본인용 HTML, 저장 IR JSON, 공유본 `.shared.html`, 구조 변경 그림 HTML)에 원문이 남지 않게 render가 가린다 (`src/architecture/secret-mask.ts`). 대상은 public 근거의 `excerpt`와 code가 아닌 근거의 `location`, 노드의 `label`, `displayName`, `description`, `summary`부터 흐름과 질문별 그림, 질문 문장, IR 최상위 `summary`와 `note`까지 LLM이 채운 글자 칸 전부다. 첫 render는 근거 `excerpt`를 코드 줄과 맞춰 보는 검증이 끝난 뒤에 가린다. 저장 IR에서 다시 들어온 가린 `excerpt`는 `[비밀값]` 앞부분만 코드 줄과 맞춘다. 가린 자리 앞에 남은 글자가 없으면 줄 범위만 본다.
 
 가리는 규칙은 여덟 겹이다.
 

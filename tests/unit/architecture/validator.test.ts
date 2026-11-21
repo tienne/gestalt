@@ -119,6 +119,12 @@ describe('code 근거 excerpt 대조 (이슈 #57)', () => {
     expect(warnings).toMatchObject([{ candidates: [] }]);
   });
 
+  it('저장 IR에서 다시 들어온 가린 excerpt는 가린 자리 앞까지만 맞춘다', () => {
+    expect(warningsOf(makeIr([node('a', [excerptEv(3, 'export function [비밀값]')])]))).toEqual([]);
+    const moved = warningsOf(makeIr([node('a', [excerptEv(1, 'export function [비밀값]')])]));
+    expect(moved).toMatchObject([{ candidates: [3] }]);
+  });
+
   it('줄이 excerpt로 시작하면 경고가 없다', () => {
     expect(warningsOf(makeIr([node('a', [excerptEv(3, 'export function foo(')])]))).toEqual([]);
   });

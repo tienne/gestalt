@@ -10,7 +10,7 @@ import { deriveEr, erCounts, erOverBudget, isUnconfirmedFk } from './er-layout.j
 import { deriveLifecycle, lifecycleCounts, lifecycleOverBudget } from './lifecycle-layout.js';
 import { resolveInfraPlacement } from './infra-placement.js';
 import { indexMicroApps } from './micro-app.js';
-import { maskIrSecrets } from './secret-mask.js';
+import { SECRET_MASK, maskIrSecrets } from './secret-mask.js';
 import type { IGNORED_FILE_TRACKED } from './commit-policy.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, packById } from './packs/index.js';
 import { KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
@@ -335,7 +335,10 @@ function checkCodeLocation(
           : `code 근거 위치 "${location}"의 경로가 레포 루트 밖을 가리킨다.`,
     };
   }
-  const check = checkLineExcerpt(readSourceLines(resolved.abs, cache), line, excerpt);
+  // 저장 IR에서 다시 들어온 가린 excerpt는 코드 줄과 같을 수 없다. 가린 자리 앞까지만 맞춘다
+  const maskAt = excerpt?.indexOf(SECRET_MASK) ?? -1;
+  const comparable = maskAt === -1 ? excerpt : excerpt!.slice(0, maskAt);
+  const check = checkLineExcerpt(readSourceLines(resolved.abs, cache), line, comparable);
   switch (check.status) {
     case 'missing_file': {
       const problem = `code 근거 위치 "${location}"의 파일이 레포 "${repoId}"에 없다.`;
