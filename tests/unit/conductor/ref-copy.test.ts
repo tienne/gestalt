@@ -178,6 +178,7 @@ describe('refs 사본', () => {
       'password-reset-flow.md',
       'api-key-rotation-review.md',
       'service-account-migration.md',
+      'login-auth.md',
     ].map((n) => file(n, 'x'));
 
     const out = copy([...blocked, ...allowed]);
@@ -196,6 +197,31 @@ describe('refs 사본', () => {
 
     expect(out).toHaveLength(1);
     expect(readFileSync(join(stateDir, out[0]!.path!), 'utf-8')).toBe('워크트리 결과');
+  });
+
+  it('저장소가 홈 점 디렉토리 아래여도 워크트리 파일은 복사하고 밖으로 가는 심링크는 거부한다', () => {
+    const { copy } = setup();
+    const home = resolve(tempStateDir());
+    const stateDir = join(home, '.gestalt', 'conductor');
+    const wt = join(stateDir, 'worktrees', 'w1');
+    mkdirSync(wt, { recursive: true });
+    writeFileSync(join(wt, 'out.md'), '워크트리 결과');
+    mkdirSync(join(home, '.ssh'), { recursive: true });
+    writeFileSync(join(home, '.ssh', 'notes.md'), 'x');
+    symlinkSync(join(home, '.ssh'), join(wt, 'ssh'));
+
+    const out = copy(
+      [join(wt, 'out.md'), join(wt, 'ssh', 'notes.md'), '~/.gestalt/conductor/worktrees/w1/out.md'],
+      {
+        stateDir,
+        homeDir: home,
+      },
+    );
+
+    expect(out[0]!.path).toBeDefined();
+    expect(readFileSync(join(stateDir, out[0]!.path!), 'utf-8')).toBe('워크트리 결과');
+    expect(out[1]).toEqual({ ref: join(wt, 'ssh', 'notes.md'), skipped: 'denied' });
+    expect(out[2]!.path).toBe(out[0]!.path);
   });
 
   it('다른 경로로 같은 파일을 가리키면 사본 하나를 같이 쓴다', () => {

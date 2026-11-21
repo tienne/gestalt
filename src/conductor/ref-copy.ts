@@ -83,6 +83,8 @@ const SECRET_LAST_WORDS = new Set([
   'auth',
   'kubeconfig',
 ]);
+/** 끝 낱말이 auth여도 문서 확장자면 `login-auth.md` 같은 리뷰 문서로 보고 복사한다 */
+const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
 const SECRET_STEM = /(^|[-_.])(api[-_]?key|private[-_]?key|service[-_]?account(-key)?)$/;
 
 /**
@@ -137,11 +139,13 @@ export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
       continue;
     }
     if (!found) continue;
-    if (isInside(stateReal, found.real) && !isInside(worktreesReal, found.real)) continue;
+    const inWorktree = isInside(worktreesReal, found.real);
+    if (isInside(stateReal, found.real) && !inWorktree) continue;
+    // 기본 저장소가 홈 점 디렉토리(`~/.gestalt`) 아래라 워크트리 파일은 위치 판정을 건너뛴다.
+    // 실제 경로로 판정하므로 워크트리 밖을 가리키는 심링크는 여기 안 들어온다
     if (
       isSecretName(found.real) ||
-      isSecretLocation(source, home) ||
-      isSecretLocation(found.real, homeReal)
+      (!inWorktree && (isSecretLocation(source, home) || isSecretLocation(found.real, homeReal)))
     ) {
       out.push({ ref, skipped: 'denied' });
       continue;
@@ -217,10 +221,12 @@ function isInside(base: string, target: string): boolean {
 function isSecretName(path: string): boolean {
   const name = basename(path).toLowerCase();
   if (SECRET_NAME.test(name)) return true;
-  const stem = name.slice(0, name.length - extname(name).length);
+  const ext = extname(name);
+  const stem = name.slice(0, name.length - ext.length);
   const words = stem.split(/[-_.\s]+/);
+  const last = words[words.length - 1]!;
   return (
-    SECRET_LAST_WORDS.has(words[words.length - 1]!) ||
+    (SECRET_LAST_WORDS.has(last) && !(last === 'auth' && MARKDOWN_EXTENSIONS.has(ext))) ||
     SECRET_STEM.test(stem) ||
     words.includes('adminsdk')
   );
