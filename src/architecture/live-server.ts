@@ -85,6 +85,14 @@ export interface ArchitectureLiveServerDeps {
   now?: () => number;
 }
 
+// 스킬이 서비스마다 나눠 그린 그림을 합쳐 두는 자리(`$HOME/.gestalt/architecture/split/<키>/_merged`)
+const SPLIT_MERGED_ROOT =
+  /[\\/]\.gestalt[\\/]architecture[\\/]split[\\/][^\\/]+[\\/]_merged[\\/]?$/;
+
+export function isSplitMergedRoot(repoRoot: string): boolean {
+  return SPLIT_MERGED_ROOT.test(repoRoot);
+}
+
 /**
  * `<repoRoot>/.gestalt/architecture/` 바로 아래 본인용 그림 HTML(`<그림>.html`)만 내주는 127.0.0.1 서버.
  * 뷰어가 라이브 Ask로 세션과 주고받으려면 file://이 아니라 http 출처가 있어야 해서 둔다.
@@ -369,7 +377,9 @@ export class ArchitectureLiveServer {
     this.askTimes = this.askTimes.filter((t) => now - t < ASK_RATE_WINDOW_MS);
     if (this.askTimes.length >= ASK_RATE_LIMIT) return this.reply(res, 429, 'rate_limited', 'rate');
     this.askTimes.push(now);
-    const sent = await this.session.send(frameLiveAsk(ask));
+    const sent = await this.session.send(
+      frameLiveAsk(ask, { splitMerged: isSplitMergedRoot(this.repoRoot) }),
+    );
     if (sent.ok) {
       this.recentAsks.set(key, now);
       return this.reply(res, 200, 'sent');

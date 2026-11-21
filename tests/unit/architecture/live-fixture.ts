@@ -76,8 +76,10 @@ afterEach(async () => {
 export const page = (title: string, connect = liveConnectSrc()) =>
   `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; ${connect}"><title>${title}</title></head><body><p>${title}</p></body></html>`;
 
-export async function startedLive(deps?: ArchitectureLiveServerDeps) {
-  const repo = resolve('.gestalt-test', `arch-live-${randomUUID()}`);
+export async function startedLive(
+  deps?: ArchitectureLiveServerDeps,
+  repo = resolve('.gestalt-test', `arch-live-${randomUUID()}`),
+) {
   const dir = join(repo, '.gestalt', 'architecture');
   mkdirSync(join(dir, 'views'), { recursive: true });
   writeFileSync(join(dir, 'screen-chain.html'), page('private chain'));

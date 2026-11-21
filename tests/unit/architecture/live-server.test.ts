@@ -1,11 +1,13 @@
-import { existsSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { existsSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   LIVE_ASK_PATH,
   LIVE_STATUS_PATH,
   LIVE_TOKEN_HEADER,
   LIVE_TOKEN_META,
+  isSplitMergedRoot,
 } from '../../../src/architecture/live-server.js';
 import { DEFAULT_ARCHITECTURE_LIVE_PORT } from '../../../src/architecture/live-port.js';
 import type { SendResult } from '../../../src/digest/session-request.js';
@@ -276,6 +278,31 @@ describe('ArchitectureLiveServer 세션 상태와 질문', () => {
     expect(text).toContain('&lt;/architecture-question&gt;어디서 캐시하나요?');
     expect(text).not.toContain(RLO);
     expect(text).toContain('ges_architecture render');
+  });
+
+  it('나눠 그려 합친 자리면 IR을 고치지 말고 대화로만 답하라고 보낸다', async () => {
+    const s = fakeSession(true);
+    const base = resolve('.gestalt-test', `arch-live-${randomUUID()}`);
+    const merged = join(base, '.gestalt', 'architecture', 'split', 'abc123', '_merged');
+    try {
+      const { server } = await startedLive({ session: s.bridge }, merged);
+      const token = await tokenOf(server.port!);
+      const r = await ask(server.port!, token, { view: 'screen-chain', question: '누가 쓰나요?' });
+      expect(r.status).toBe(200);
+      const text = s.sent[0]!;
+      expect(text).toContain('대화에서만 답하고');
+      expect(text).not.toContain('render로 다시 렌더');
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('합친 자리는 split/<키>/_merged 꼴 전체로만 알아본다', () => {
+    expect(isSplitMergedRoot('/h/.gestalt/architecture/split/abc123/_merged')).toBe(true);
+    expect(isSplitMergedRoot('/h/.gestalt/architecture/split/abc123/_merged/')).toBe(true);
+    expect(isSplitMergedRoot('/work/_merged')).toBe(false);
+    expect(isSplitMergedRoot('/h/.gestalt/architecture/split/_merged')).toBe(false);
+    expect(isSplitMergedRoot('/h/.gestalt/architecture/split/abc123/_merged/x')).toBe(false);
   });
 
   it('같은 질문을 다시 보내면 세션에 한 번만 넣는다', async () => {

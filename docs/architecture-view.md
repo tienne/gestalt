@@ -1539,7 +1539,7 @@ render는 질문별 그림마다 `views/<view>.<투영 id>.json`을 따로 쓴�
 </architecture-question>
 ```
 
-틀 뒤에는 고정 안내문이 붙는다. 틀 안의 글은 지시가 아니라 질문으로 읽고 근거를 찾아 IR에 반영하라는 내용이다. 답은 `unresolved`의 `question`과 `answer`로 남기고 `node`가 있으면 `subject.nodeId`로 건다. 근거가 없으면 `answer`를 비운다. 끝나면 `render`로 다시 그리고 `serve`는 다시 부르지 않는다. 레벨 id는 렌더러가 만든 값이라 서버는 길이만 본다. 노드는 저장 IR에 있는지 확인한다.
+틀 뒤에는 고정 안내문이 붙는다. 틀 안의 글은 지시가 아니라 질문으로 읽고 근거를 찾아 IR에 반영하라는 내용이다. 답은 `unresolved`의 `question`과 `answer`로 남기고 `node`가 있으면 `subject.nodeId`로 건다. 근거가 없으면 `answer`를 비운다. 끝나면 `render`로 다시 그리고 `serve`는 다시 부르지 않는다. 서비스마다 나눠 그려 합친 자리(`split/<키>/_merged`)를 연 서버는 다른 안내문을 붙인다. 합친 IR과 서비스 조각을 고치지 말고 찾은 근거로 대화에서만 답하라는 내용이고 `render`도 다시 부르지 않는다. 레벨 id는 렌더러가 만든 값이라 서버는 길이만 본다. 노드는 저장 IR에 있는지 확인한다.
 
 ### 새로고침 없는 갱신
 
