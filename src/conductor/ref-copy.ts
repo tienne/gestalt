@@ -85,6 +85,9 @@ const SECRET_LAST_WORDS = new Set([
 ]);
 /** 끝 낱말이 auth여도 문서 확장자면 `login-auth.md` 같은 리뷰 문서로 보고 복사한다 */
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
+/** `.env`, `.env.local` 같은 환경 변수 파일. 예시 파일은 값이 없어 막지 않는다 */
+const DOTENV = /^\.env(\.|$)/;
+const DOTENV_SAMPLE = /\.(example|sample|template)$/;
 const SECRET_STEM = /(^|[-_.])(api[-_]?key|private[-_]?key|service[-_]?account(-key)?)$/;
 
 /**
@@ -105,7 +108,7 @@ export interface CopyRefsInput {
 
 /**
  * 복사한 결과를 돌려준다. 복사 대상이 아닌 ref(주소, 상대 경로, 디렉토리, 없는 파일,
- * 바이너리)는 결과에 넣지 않는다. 비밀 값이 있을 만한 자리는 `skipped: 'denied'`로 남기고
+ * 바이너리)는 결과에 넣지 않는다. 비밀 값이 있을 만한 자리나 이름은 확장자와 상관없이 `skipped: 'denied'`로 남기고
  * 실패는 던지지 않고 `skipped: 'error'`로 남긴다.
  */
 export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
@@ -130,7 +133,20 @@ export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
     if (seen.has(ref)) continue;
     seen.add(ref);
     const source = localPath(ref, home);
-    if (!source || !REF_COPY_EXTENSIONS.has(extname(source).toLowerCase())) continue;
+    if (!source) continue;
+    const isDenied = (real: string): boolean =>
+      isSecretName(real) ||
+      // 기본 저장소가 홈 점 디렉토리(`~/.gestalt`) 아래라 워크트리 파일은 위치 판정을 건너뛴다.
+      // 실제 경로로 판정하므로 워크트리 밖을 가리키는 심링크는 여기 안 걸린다
+      (!isInside(worktreesReal, real) &&
+        (isSecretLocation(source, home) || isSecretLocation(real, homeReal)));
+    if (!REF_COPY_EXTENSIONS.has(extname(source).toLowerCase())) {
+      // 복사 대상이 아니어도 비밀 자리나 이름이면 남긴다. 사본도 기록도 없으면 원래 경로를 읽게 되기 때문이다
+      const real = realOrSelf(source);
+      const inState = isInside(stateReal, real) && !isInside(worktreesReal, real);
+      if (!inState && isDenied(real)) out.push({ ref, skipped: 'denied' });
+      continue;
+    }
     let found: Located | null;
     try {
       found = locate(source);
@@ -139,14 +155,8 @@ export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
       continue;
     }
     if (!found) continue;
-    const inWorktree = isInside(worktreesReal, found.real);
-    if (isInside(stateReal, found.real) && !inWorktree) continue;
-    // 기본 저장소가 홈 점 디렉토리(`~/.gestalt`) 아래라 워크트리 파일은 위치 판정을 건너뛴다.
-    // 실제 경로로 판정하므로 워크트리 밖을 가리키는 심링크는 여기 안 들어온다
-    if (
-      isSecretName(found.real) ||
-      (!inWorktree && (isSecretLocation(source, home) || isSecretLocation(found.real, homeReal)))
-    ) {
+    if (isInside(stateReal, found.real) && !isInside(worktreesReal, found.real)) continue;
+    if (isDenied(found.real)) {
       out.push({ ref, skipped: 'denied' });
       continue;
     }
@@ -221,6 +231,7 @@ function isInside(base: string, target: string): boolean {
 function isSecretName(path: string): boolean {
   const name = basename(path).toLowerCase();
   if (SECRET_NAME.test(name)) return true;
+  if (DOTENV.test(name) && !DOTENV_SAMPLE.test(name)) return true;
   const ext = extname(name);
   const stem = name.slice(0, name.length - ext.length);
   const words = stem.split(/[-_.\s]+/);

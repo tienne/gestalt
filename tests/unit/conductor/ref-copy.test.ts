@@ -238,6 +238,27 @@ describe('refs 사본', () => {
     },
   );
 
+  it('복사 대상 확장자가 아니어도 비밀 자리나 이름이면 denied로 남긴다', () => {
+    const { work, home, file, homeFile, copy } = setup();
+    const key = homeFile('.ssh/id_rsa', 'k');
+    const env = file('app/.env.local', 'A=1');
+    const sample = file('app/.env.example', 'A=');
+    const code = file('app/main.ts', 'x');
+    mkdirSync(join(home, '.aws'), { recursive: true });
+    writeFileSync(join(home, '.aws', 'credentials'), 'c');
+    symlinkSync(join(home, '.aws'), join(work, 'aws'));
+    const viaLink = join(work, 'aws', 'credentials');
+
+    const out = copy([key, '~/.ssh/id_rsa', env, sample, code, viaLink]);
+
+    expect(out).toEqual([
+      { ref: key, skipped: 'denied' },
+      { ref: '~/.ssh/id_rsa', skipped: 'denied' },
+      { ref: env, skipped: 'denied' },
+      { ref: viaLink, skipped: 'denied' },
+    ]);
+  });
+
   it('다른 경로로 같은 파일을 가리키면 사본 하나를 같이 쓴다', () => {
     const { stateDir, work, file, copy } = setup();
     const md = file('a.md', 'x');
