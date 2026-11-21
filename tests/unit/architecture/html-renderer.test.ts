@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   computeDrilldown,
@@ -11,6 +12,20 @@ import {
   type Evidence,
   type ValidatedIr,
 } from '../../../src/architecture/index.js';
+import { markBidi } from '../../../src/architecture/html-client.js';
+import { cspCoversInline, cspOf, directive, executableScripts } from './csp-check.js';
+import { embedJson, escapeHtml } from '../../../src/architecture/html-renderer.js';
+import {
+  LIVE_ASK_PATH,
+  LIVE_STATUS_PATH,
+  LIVE_TOKEN_META,
+  liveOrigin,
+} from '../../../src/architecture/live-port.js';
+import {
+  LIVE_FORM_CSS,
+  LIVE_HANDLE,
+  renderLiveScript,
+} from '../../../src/architecture/live-client.js';
 import { computeLayout, type LayoutResult } from '../../../src/architecture/layout.js';
 
 const codeEv: Evidence = { type: 'code', location: 'web:src/home.tsx:3', visibility: 'public' };
@@ -152,18 +167,54 @@ describe('renderArchitectureHtml', () => {
     expect(html).not.toContain('<b>bold</b>');
   });
 
-  it('IR 문자열 안의 </script>를 끊지 않게 바꾼다', async () => {
+  function dataBlockOf(html: string): string {
+    const start = html.indexOf('<script id="ir"');
+    const body = html.slice(html.indexOf('>', start) + 1);
+    return body.slice(0, body.indexOf('</script>'));
+  }
+
+  it.each([
+    ['</script>', '</script><script>alert(1)</script>'],
+    ['<!--', '<!-- <script>alert(1)</script> -->'],
+    ['<script', '<script src=x>'],
+    ['CDATA 끝', 'a ]]> b & c'],
+    ['줄 구분 문자', 'a\u2028b\u2029c'],
+    ['bidi 제어 문자', 'invoice\u202Efdp.exe \u2066x\u2069'],
+  ])(
+    'IR 문자열 안의 %s 를 데이터 블록에 글자 그대로 남기지 않고 JSON.parse로 되살린다',
+    async (_name, text) => {
+      const ir = makeIr();
+      ir.nodes[1] = { ...node('api'), description: text };
+      const { v, layout } = await prepare(ir);
+      const html = renderArchitectureHtml(v, layout, { audience: 'private' });
+      const json = dataBlockOf(html);
+      expect(json).not.toMatch(/[<>&\u2028\u2029]/);
+      expect(JSON.parse(json).nodes.find((n: { id: string }) => n.id === 'api').description).toBe(
+        text,
+      );
+    },
+  );
+
+  it('bidi 제어 문자는 화면 글자에서 눈에 보이는 표식으로 바뀐다', async () => {
     const ir = makeIr();
-    ir.nodes[1] = { ...node('api'), description: '</script><script>alert(1)</script>' };
+    ir.nodes[1] = { ...node('api', 'pay\u202Egnp.js'), description: 'x\u2067y\u200F' };
     const { v, layout } = await prepare(ir);
     const html = renderArchitectureHtml(v, layout, { audience: 'private' });
-    const dataBlock = html.slice(html.indexOf('<script id="ir"'));
-    const end = dataBlock.indexOf('</script>');
-    const json = dataBlock.slice(dataBlock.indexOf('>') + 1, end);
-    expect(json).toContain('<\\/script>');
-    expect(JSON.parse(json).nodes.find((n: { id: string }) => n.id === 'api').description).toBe(
-      '</script><script>alert(1)</script>',
-    );
+    const outside = html.replace(dataBlockOf(html), '');
+    expect(outside).not.toMatch(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/);
+    expect(outside).toContain('pay[U+202E]gnp.js');
+    // 데이터 블록에는 원문이 이스케이프된 채 남는다
+    expect(
+      JSON.parse(dataBlockOf(html)).nodes.find((n: { id: string }) => n.id === 'api').label,
+    ).toBe('pay\u202Egnp.js');
+  });
+
+  it('클라이언트 스크립트가 글자를 넣을 때 bidi 표식 함수를 거친다', async () => {
+    const { v, layout } = await prepare(makeIr());
+    const html = renderArchitectureHtml(v, layout, { audience: 'private' });
+    expect(html).toContain('function mark(s)');
+    expect(html).toContain('e.textContent = mark(text)');
+    expect(html).not.toContain('doc.createTextNode(textOf');
   });
 
   it('위쪽 바의 질문 수와 질문 팝오버가 답 없는 것과 자동 질문을 합쳐 보여준다', async () => {
@@ -392,12 +443,12 @@ describe('renderDrilldownHtml', () => {
   it('화면 이동을 주소 해시에 싣고 해시가 바뀌면 그 화면으로 돌아간다', async () => {
     const html = await render(drillIr(), 'private');
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]!);
-    // 테마를 먼저 거는 head 스크립트와 본문 스크립트 둘이다
-    expect(scripts).toHaveLength(2);
+    // 테마를 먼저 거는 head 스크립트와 본문 스크립트, 본인용에만 붙는 라이브 스크립트 셋이다
+    expect(scripts).toHaveLength(3);
     // 템플릿 문자열 안에서 이스케이프가 빠지면 브라우저에서만 문법 오류가 난다
     for (const s of scripts) expect(() => new Function(s)).not.toThrow();
     const main = scripts[1]!;
-    expect(main).toContain("window.addEventListener('hashchange', route)");
+    expect(main).toContain("onGlobal(window, 'hashchange', route)");
     expect(main).toContain("'#/level/'");
     expect(main).toContain("'#/pair/'");
     expect(main).toContain("'#/bundle/'");
@@ -442,10 +493,326 @@ describe('renderDrilldownHtml', () => {
     );
     expect(html).toContain('"id":"service:shop","kind":"service","title":"쇼핑"');
     expect(html).toContain('aria-label="쇼핑 → edge-gw');
-    expect(html).toContain('<span class="t">주문 관리</span><span class="guess">추정</span>');
+    // 드릴다운 큰 카드는 추정 배지를 이름 옆이 아니라 아래 칩 줄에 단다
+    expect(html).toMatch(
+      /<span class="t">주문 관리<\/span><\/span>(?:(?!<\/div>).)*<span class="chips-row">(?:<span class="cr-n">[^<]*<\/span>)?<span class="guess">추정<\/span>/,
+    );
     expect(html).toContain('return { label: levels[t].title, level: t };');
     expect(html).toContain('function label(id) { return nodes[id] ? nameOf(nodes[id]) : id; }');
     expect(await render(ir, 'private')).toBe(html);
+  });
+
+  describe('레벨 요약과 일러두기', () => {
+    interface DataBlock {
+      note?: string;
+      levels: Array<{ id: string; summary?: string }>;
+    }
+    const dataOf = (html: string): DataBlock => {
+      const start = html.indexOf('<script id="ir"');
+      const body = html.slice(html.indexOf('>', start) + 1);
+      return JSON.parse(body.slice(0, body.indexOf('</script>'))) as DataBlock;
+    };
+    const summaries = (data: DataBlock) =>
+      Object.fromEntries(data.levels.filter((l) => 'summary' in l).map((l) => [l.id, l.summary]));
+    const annotated = (): ArchitectureIr => {
+      const ir = drillIr();
+      ir.summary = '쇼핑 서비스 전체 그림';
+      ir.note = '결제 쪽은 이 그림에 없다';
+      ir.nodes = ir.nodes.map((n) => (n.id === 'shop' ? { ...n, summary: '쇼핑 화면과 API' } : n));
+      return ir;
+    };
+
+    it('값이 있는 레벨에만 summary를 싣고 note는 데이터 블록 맨 위에 싣는다', async () => {
+      const data = dataOf(await render(annotated(), 'private'));
+      expect(summaries(data)).toEqual({
+        root: '쇼핑 서비스 전체 그림',
+        'service:shop': '쇼핑 화면과 API',
+      });
+      expect(data.note).toBe('결제 쪽은 이 그림에 없다');
+    });
+
+    it('없거나 공백뿐이면 키를 안 싣고 HTML 바이트가 칸 없는 때와 같다', async () => {
+      const plain = await render(drillIr(), 'private');
+      const data = dataOf(plain);
+      expect(summaries(data)).toEqual({});
+      expect('note' in data).toBe(false);
+      const blank = drillIr();
+      blank.summary = '  ';
+      blank.note = '\n';
+      expect(await render(blank, 'private')).toBe(plain);
+      // 노드 원본은 nodes에 그대로 실리니 레벨 칸만 본다
+      const blankNode = drillIr();
+      blankNode.nodes = blankNode.nodes.map((n) => (n.id === 'shop' ? { ...n, summary: ' ' } : n));
+      expect(summaries(dataOf(await render(blankNode, 'private')))).toEqual({});
+    });
+
+    it('데이터 블록만 달라지고 CSP 해시는 그대로 인라인 본문을 덮는다', async () => {
+      for (const audience of ['private', 'shared'] as const) {
+        const plain = await render(drillIr(), audience);
+        const html = await render(annotated(), audience);
+        expect(cspOf(html)).toBe(cspOf(plain));
+        expect(cspCoversInline(html)).toBe(true);
+        expect(await render(annotated(), audience)).toBe(html);
+      }
+    });
+
+    it('공유본은 레벨 요약과 일러두기의 계정 ID를 가린다', async () => {
+      const ir = annotated();
+      ir.summary = '계정 123456789012의 전체 그림';
+      ir.note = '계정 123456789012 기준';
+      ir.nodes = ir.nodes.map((n) =>
+        n.id === 'shop' ? { ...n, summary: '계정 123456789012에서 도는 쇼핑' } : n,
+      );
+      const shared = await render(ir, 'shared');
+      expect(shared).not.toContain('123456789012');
+      const data = dataOf(shared);
+      expect(summaries(data)).toEqual({
+        root: '계정 [계정 ID]의 전체 그림',
+        'service:shop': '계정 [계정 ID]에서 도는 쇼핑',
+      });
+      expect(data.note).toBe('계정 [계정 ID] 기준');
+    });
+  });
+});
+
+describe('renderDrilldownHtml — 레벨 밖 맥락', () => {
+  // ep를 열 개 화면이 부르고 mod가 받는다. mod는 표 하나를 쓰고 mod2가 받는 ep2를 부른다. 부르는 쪽이 상한(8)을 넘는다
+  function outsideIr(): ArchitectureIr {
+    const screens = Array.from({ length: 10 }, (_, i) => `s-${String(i).padStart(2, '0')}`);
+    const n = (id: string, kind: ArchitectureNode['kind']): ArchitectureNode => ({
+      id,
+      kind,
+      label: id,
+      repo: 'web',
+      evidence: [codeEv],
+    });
+    const e = (
+      id: string,
+      from: string,
+      to: string,
+      kind: ArchitectureEdge['kind'],
+    ): ArchitectureEdge => ({
+      id,
+      from,
+      to,
+      kind,
+      evidence: [codeEv],
+      lineStyle: 'solid',
+    });
+    return {
+      ...makeIr(),
+      nodes: [
+        ...screens.map((s) => n(s, 'screen')),
+        n('ep', 'endpoint'),
+        n('mod', 'app_module'),
+        n('tbl', 'db_table'),
+        n('ep2', 'endpoint'),
+        n('mod2', 'app_module'),
+      ],
+      edges: [
+        ...screens.map((s) => e(`c-${s}`, s, 'ep', 'calls')),
+        e('h1', 'ep', 'mod', 'handles'),
+        e('rw1', 'mod', 'tbl', 'reads_writes'),
+        e('k2', 'mod', 'ep2', 'calls'),
+        e('h2', 'ep2', 'mod2', 'handles'),
+      ],
+      unresolved: [],
+    };
+  }
+
+  async function serverSection(): Promise<string> {
+    const result = validateArchitectureIr(outsideIr(), { checkFiles: false });
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    const html = renderDrilldownHtml(result.value, await computeDrilldown(result.value), {
+      audience: 'private',
+    });
+    const at = html.indexOf('<section class="level" data-level-id="server:mod"');
+    expect(at).toBeGreaterThan(-1);
+    return html.slice(at, html.indexOf('</section>', at));
+  }
+
+  it('server 레벨에 부르는 쪽과 받는 쪽 레인을 점선 레인으로 그린다', async () => {
+    const sec = await serverSection();
+    expect(sec).toContain('data-lane-id="outside_from"');
+    expect(sec).toContain('data-lane-id="outside_to"');
+    expect(sec.match(/<rect class="lane outside"/g)?.length).toBe(2);
+  });
+
+  it('바깥 카드에 outside 클래스와 "이 레벨 밖" 낭독을 붙인다', async () => {
+    const sec = await serverSection();
+    expect(sec).toMatch(/class="node [^"]*\boutside\b[^"]*" data-node-id="ep2"/);
+    expect(sec).toMatch(/data-node-id="s-00"[^>]*aria-label="[^"]*, 이 레벨 밖"/);
+    for (const id of ['mod', 'ep', 'tbl']) {
+      expect(sec).not.toMatch(
+        new RegExp(`class="node [^"]*\\boutside\\b[^"]*" data-node-id="${id}"`),
+      );
+    }
+  });
+
+  it('상한을 넘긴 바깥 카드 수를 레인 제목에 "외 N개"로 적고 낭독에도 싣는다', async () => {
+    const sec = await serverSection();
+    expect(sec).toContain(
+      '<span class="more" data-n="6" title="연결이 적은 바깥 카드 6개는 접어 뒀어요">+6</span>',
+    );
+    expect(sec).toMatch(/data-lane-id="outside_from"[^>]*aria-label="[^"]*, 밖에 6개 더"/);
+    expect(sec.match(/class="more"/g)?.length).toBe(1);
+  });
+
+  it('전체 검색 색인(nodeLevels)에 레벨에 선 카드를 전부 싣고 안에 선 레벨을 바깥 맥락 레벨보다 앞에 둔다', async () => {
+    const result = validateArchitectureIr(outsideIr(), { checkFiles: false });
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    const drill = await computeDrilldown(result.value);
+    const html = renderDrilldownHtml(result.value, drill, { audience: 'private' });
+    const start = html.indexOf('<script id="ir"');
+    const body = html.slice(html.indexOf('>', start) + 1);
+    const data = JSON.parse(body.slice(0, body.indexOf('</script>'))) as {
+      nodeLevels: Record<string, string[]>;
+    };
+    // 어떤 레벨에도 안 서는 카드(서비스 없는 화면 s-08, s-09)는 찾아도 갈 곳이 없어 싣지 않는다
+    const drawn = [...new Set(drill.levels.flatMap((l) => l.nodeIds))].sort();
+    expect(Object.keys(data.nodeLevels)).toEqual(drawn);
+    // 서버 모듈은 루트와 자기 레벨에 서고 mod2 레벨에는 부르는 쪽 바깥 카드로 선다
+    expect(data.nodeLevels.mod).toEqual(['root', 'server:mod', 'server:mod2']);
+    // ep2는 server:mod2 안에 서고 server:mod에는 바깥 카드로 선다. 안에 선 레벨이 먼저 온다
+    expect(data.nodeLevels.ep2).toEqual(['server:mod2', 'server:mod']);
+    for (const [id, ids] of Object.entries(data.nodeLevels)) {
+      for (const levelId of ids) {
+        expect(drill.levels.find((l) => l.id === levelId)?.nodeIds, `${id} @ ${levelId}`).toContain(
+          id,
+        );
+      }
+    }
+  });
+});
+
+describe('renderDrilldownHtml — 접힌 root와 큰 카드', () => {
+  // 서비스 둘, 게이트웨이, 저장소에 모듈과 엔드포인트가 n쌍 붙은 넓은 그림. root 카드가 문턱을 넘는다
+  function wideIr(modules: number): ArchitectureIr {
+    const ids = Array.from({ length: modules }, (_, i) => `m-${String(i).padStart(2, '0')}`);
+    const n = (id: string, kind: ArchitectureNode['kind'], parent?: string): ArchitectureNode => ({
+      id,
+      kind,
+      label: id,
+      repo: 'web',
+      evidence: [codeEv],
+      ...(parent ? { parent } : {}),
+    });
+    const e = (
+      id: string,
+      from: string,
+      to: string,
+      kind: ArchitectureEdge['kind'],
+    ): ArchitectureEdge => ({ id, from, to, kind, evidence: [codeEv], lineStyle: 'solid' });
+    return {
+      ...makeIr(),
+      nodes: [
+        n('svc-a', 'service'),
+        n('svc-b', 'service'),
+        n('s-a', 'screen', 'svc-a'),
+        n('s-b', 'screen', 'svc-b'),
+        n('gw', 'gateway'),
+        n('db', 'datastore'),
+        ...ids.flatMap((m) => [n(`ep-${m}`, 'endpoint'), n(m, 'app_module')]),
+      ],
+      edges: ids.flatMap((m, i) => [
+        e(`c-${m}`, i % 2 === 0 ? 's-a' : 's-b', `ep-${m}`, 'calls'),
+        e(`r-${m}`, 'gw', `ep-${m}`, 'routes'),
+        e(`h-${m}`, `ep-${m}`, m, 'handles'),
+        e(`rw-${m}`, m, 'db', 'reads_writes'),
+      ]),
+      unresolved: [],
+    };
+  }
+
+  async function renderWide(audience: 'private' | 'shared' = 'private'): Promise<string> {
+    const result = validateArchitectureIr(wideIr(12), { checkFiles: false });
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    return renderDrilldownHtml(result.value, await computeDrilldown(result.value), { audience });
+  }
+
+  function sectionOf(html: string, id: string): string {
+    const at = html.indexOf(`<section class="level" data-level-id="${id}"`);
+    expect(at).toBeGreaterThan(-1);
+    return html.slice(at, html.indexOf('</section>', at));
+  }
+
+  it('접힌 root는 노드 카드 대신 레인 레벨로 가는 덩어리 링크를 순서 숫자와 항목 수로 그린다', async () => {
+    const root = sectionOf(await renderWide(), 'root');
+    expect(root).not.toContain('data-node-id=');
+    const chunks = [
+      ...root.matchAll(
+        /<a class="chunk" href="#\/level\/(lane:[^"]+)" data-chunk-id="chunk:[^"]+"/g,
+      ),
+    ];
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+    expect(root).toMatch(/<span class="ord">1<\/span>/);
+    expect(root).toMatch(/<span class="cr-n">항목 \d+<\/span>/);
+    expect(root).toMatch(/aria-label="1번 레인 [^"]+, 카드 \d+개\. [^"]+"/);
+    // 덩어리 사이 묶음 선은 노드 선과 같은 마크업을 쓴다
+    expect(root).toMatch(/data-bundle-id="chunk:[^"]+-&gt;[^"]+"/);
+  });
+
+  it('데이터 블록의 root에 덩어리 목록과 펼친 선을 싣고 레인 레벨에는 대표 이름 요약을 싣는다', async () => {
+    const html = await renderWide();
+    const start = html.indexOf('<script id="ir"');
+    const body = html.slice(html.indexOf('>', start) + 1);
+    const data = JSON.parse(body.slice(0, body.indexOf('</script>'))) as {
+      levels: {
+        id: string;
+        kind: string;
+        summary?: string;
+        chunks?: { id: string; level: string; count: number }[];
+        flatEdges?: unknown[];
+      }[];
+    };
+    const root = data.levels.find((l) => l.id === 'root')!;
+    expect(root.chunks!.length).toBeGreaterThanOrEqual(2);
+    expect(root.flatEdges!.length).toBeGreaterThan(0);
+    for (const c of root.chunks!) {
+      const lane = data.levels.find((l) => l.id === c.level)!;
+      expect(lane.kind).toBe('lane');
+      expect(lane.summary).toBeTruthy();
+    }
+  });
+
+  it('드릴다운 카드는 큰 카드(lg)로 그리고 바깥 카드는 ↗ 알약으로 그린다', async () => {
+    const html = await renderWide();
+    const lane = html.match(
+      /data-level-id="(lane:[^"]+)"[^>]*>(?:(?!<\/section>).)*class="node [^"]*\bout-pill\b/s,
+    );
+    expect(lane).not.toBeNull();
+    expect(html).toMatch(
+      /class="node [^"]*\bout-pill\b[^"]*"[^>]*>(?:(?!<\/div>).)*<span class="ext" aria-hidden="true">↗<\/span><\/div>/,
+    );
+    // 카드에 pill 클래스를 달면 hover 때만 보이는 선 개수 알약 규칙(.pill { opacity: 0 })에 걸려 카드가 사라진다
+    expect(html).not.toMatch(/class="node(?: [^" ]+)* pill[ "]/);
+    expect(html).toMatch(/class="node [^"]*\blg\b/);
+    // 안으로 들어갈 수 있는 서비스 카드는 칩 줄에 안쪽 항목 수를 단다
+    expect(html).toMatch(
+      /data-node-id="svc-a"(?:(?!<\/div>).)*<span class="chips-row"><span class="cr-n">항목 \d+<\/span>/,
+    );
+  });
+
+  it('그림 위에 단계 머리 자리를 두고 바깥 레인 제목은 부르는 쪽과 부르는 대상이다', async () => {
+    const html = await renderWide();
+    expect(html).toMatch(
+      /<div class="canvas-col">\s*<header id="level-head" class="level-head"><span class="lh-kind"><\/span><h2 class="lh-title" aria-live="polite"><\/h2><p class="lh-sum" hidden><\/p><\/header>\s*<div id="stage"/,
+    );
+    expect(html).toMatch(/data-lane-id="outside_(?:from|to)"[^>]*>부르는 (?:쪽|대상)</);
+  });
+
+  it('공유본은 덩어리 제목과 대표 이름을 가리고 같은 입력이면 같은 바이트다', async () => {
+    const a = await renderWide('shared');
+    expect(a).toBe(await renderWide('shared'));
+    expect(a).toContain('<a class="chunk"');
+  });
+
+  it('카드가 문턱 이하인 평면 그림(renderArchitectureHtml)에는 단계 머리와 큰 카드가 없다', async () => {
+    const { v, layout } = await prepare(makeIr());
+    const html = renderArchitectureHtml(v, layout, { audience: 'private' });
+    expect(html).toMatch(/<div class="canvas-col">\s*<div id="stage"/);
+    expect(html).not.toContain('id="level-head"');
+    expect(html).not.toMatch(/class="node [^"]*\blg\b/);
   });
 });
 
@@ -550,7 +917,7 @@ describe('카드 설명 줄과 클릭 대상 속성', () => {
     expect(cardTag(html, 'detail')).not.toContain('\n   ');
   });
 
-  it('카드 style의 height는 layout이 낸 높이와 같고 설명이 있으면 18 더 높다', async () => {
+  it('카드 style의 height는 layout이 낸 높이와 같고 설명이 있으면 19 더 높다', async () => {
     const plain = await renderWithDescriptions({});
     const withDesc = await renderWithDescriptions({ home: '짧은 설명이에요.' });
     const heightOf = (html: string, id: string): number =>
@@ -558,7 +925,7 @@ describe('카드 설명 줄과 클릭 대상 속성', () => {
     const layoutH = (l: LayoutResult, id: string): number =>
       l.nodes.find((n) => n.id === id)!.height;
     expect(heightOf(withDesc.html, 'home')).toBe(layoutH(withDesc.layout, 'home'));
-    expect(heightOf(withDesc.html, 'home')).toBe(heightOf(plain.html, 'home') + 18);
+    expect(heightOf(withDesc.html, 'home')).toBe(heightOf(plain.html, 'home') + 19);
     expect(heightOf(withDesc.html, 'api')).toBe(heightOf(plain.html, 'api'));
   });
 
@@ -627,6 +994,106 @@ describe('카드 설명 줄과 클릭 대상 속성', () => {
       '이 종류는',
     ]) {
       expect(html).toContain(piece);
+    }
+  });
+});
+
+describe('글자 넣는 자리의 안전장치', () => {
+  it('html-client.ts는 HTML을 해석하는 DOM API를 쓰지 않는다', () => {
+    const src = readFileSync(
+      new URL('../../../src/architecture/html-client.ts', import.meta.url),
+      'utf8',
+    );
+    expect(src).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
+  });
+
+  it('markBidi는 제어 문자마다 고정 표식을 달고 두 번 불러도 같다', () => {
+    const once = markBidi('a\u202Eb\u2066c\u061Cd\u200Ee');
+    expect(once).toBe('a[U+202E]b[U+2066]c[U+061C]d[U+200E]e');
+    expect(markBidi(once)).toBe(once);
+    expect(markBidi('평범한 글자')).toBe('평범한 글자');
+  });
+
+  it('escapeHtml도 bidi 표식을 단다', () => {
+    expect(escapeHtml('<a>\u202E')).toBe('&lt;a&gt;[U+202E]');
+  });
+
+  it('embedJson 결과는 JSON.parse로 원래 값이 된다', () => {
+    const value = { s: '</script><!--<script>]]>&\u2028\u2029\\<' };
+    const out = embedJson(JSON.stringify(value));
+    expect(out).not.toMatch(/[<>&\u2028\u2029]/);
+    expect(JSON.parse(out)).toEqual(value);
+  });
+});
+
+describe('CSP meta', () => {
+  it('공유본은 통신을 막고 본인용은 다른 정책 문자열을 쓰며 둘 다 인라인 본문을 해시로 덮는다', async () => {
+    const { v, layout } = await prepare(makeIr());
+    const shared = renderArchitectureHtml(v, layout, { audience: 'shared' });
+    const priv = renderArchitectureHtml(v, layout, { audience: 'private' });
+    const sharedPolicy = cspOf(shared)!;
+    const privatePolicy = cspOf(priv)!;
+    expect(directive(sharedPolicy, 'connect-src')).toBe("'none'");
+    expect(directive(sharedPolicy, 'default-src')).toBe("'none'");
+    expect(privatePolicy).not.toBe(sharedPolicy);
+    // 본인용은 라이브 서버(127.0.0.1) 한 줄만 연다. 다른 출처는 default-src 'none'을 따른다
+    expect(directive(privatePolicy, 'default-src')).toBe("'none'");
+    expect(directive(privatePolicy, 'connect-src')).toBe(liveOrigin());
+    expect(sharedPolicy).not.toMatch(/https?:/);
+    expect(privatePolicy.replace(liveOrigin(), '')).not.toMatch(/https?:/);
+    for (const p of [sharedPolicy, privatePolicy]) {
+      expect(p).not.toMatch(/unsafe-eval|\*/);
+      expect(directive(p, 'script-src')).not.toContain('unsafe-inline');
+      expect(directive(p, 'img-src')).toBe('data:');
+    }
+    expect(cspCoversInline(shared)).toBe(true);
+    expect(cspCoversInline(priv)).toBe(true);
+    expect(executableScripts(priv)).toHaveLength(3);
+    expect(executableScripts(shared)).toHaveLength(2);
+  });
+
+  it('라이브 스크립트와 질문 폼 CSS는 본인용에만 싣고 공유본에는 한 글자도 없다', async () => {
+    const { v, layout } = await prepare(makeIr());
+    const shared = renderArchitectureHtml(v, layout, { audience: 'shared' });
+    const priv = renderArchitectureHtml(v, layout, { audience: 'private' });
+    expect(executableScripts(priv)).toContain(renderLiveScript());
+    expect(priv).toContain(LIVE_FORM_CSS);
+    for (const needle of [
+      LIVE_HANDLE,
+      LIVE_ASK_PATH,
+      LIVE_STATUS_PATH,
+      LIVE_TOKEN_META,
+      '.live-ask',
+      '127.0.0.1',
+    ]) {
+      expect(shared).not.toContain(needle);
+    }
+    // 입력창은 스크립트가 세션을 확인한 뒤에야 만든다. 렌더 결과에는 폼이 없다
+    expect(priv).not.toMatch(/<form|<textarea|id="live-ask"/);
+  });
+
+  it('meta는 charset 바로 뒤에 온다', async () => {
+    const { v, layout } = await prepare(makeIr());
+    const html = renderArchitectureHtml(v, layout, { audience: 'private' });
+    expect(html).toMatch(/<meta charset="utf-8">\n<meta http-equiv="Content-Security-Policy"/);
+  });
+
+  it('같은 IR을 두 번 그리면 해시가 같다', async () => {
+    const a = await prepare(makeIr());
+    const b = await prepare(makeIr());
+    for (const audience of ['private', 'shared'] as const) {
+      expect(cspOf(renderArchitectureHtml(a.v, a.layout, { audience }))).toBe(
+        cspOf(renderArchitectureHtml(b.v, b.layout, { audience })),
+      );
+    }
+  });
+
+  it('드릴다운 HTML도 인라인 본문을 해시로 덮는다', async () => {
+    const { v } = await prepare(makeIr());
+    const drill = await computeDrilldown(v);
+    for (const audience of ['private', 'shared'] as const) {
+      const html = renderDrilldownHtml(v, drill, { audience });
+      expect(cspCoversInline(html)).toBe(true);
     }
   });
 });

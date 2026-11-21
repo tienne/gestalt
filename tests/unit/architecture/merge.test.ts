@@ -280,10 +280,38 @@ describe('mergeArchitectureIrs — 레포를 넘는 연결', () => {
     expect(report.islands).toBe(1);
   });
 
-  it('prefix 후보가 없어 경로가 안 맞으면 잇지 않는다', () => {
-    const { report } = merged([feOnly(), beOnly()]);
+  it('prefix 후보가 없어 경로가 안 맞으면 잇지 않고 미연결 엔드포인트로 알린다', () => {
+    const { ir, report } = merged([feOnly(), beOnly()]);
     expect(report.crossRepoEdges).toEqual([]);
     expect(report.islands).toBe(2);
+    expect(report.unlinkedEndpoints).toEqual([
+      {
+        nodeId: 'ep:fe-order',
+        label: 'GET /api/v1/orders/{}',
+        repo: 'acme-shop-web',
+        suggested: [
+          { nodeId: 'ep:order', label: 'GET /v1/orders/{orderId}', repo: 'acme-api', score: 6.5 },
+        ],
+      },
+    ]);
+    // 후보는 알리기만 하고 엣지도 미해결 질문도 만들지 않는다
+    expect(ir.edges.filter((e) => e.from === 'ep:fe-order').map((e) => e.kind)).toEqual([]);
+    expect(report.conflictQuestions).toEqual([]);
+  });
+
+  it('레포 이름으로 받은 mountPrefix를 라우트 앞에 붙여 잇는다', () => {
+    const result = mergeArchitectureIrs([feOnly(), beOnly()], {
+      mountPrefixes: { 'acme-api': '/api' },
+    });
+    if (!result.ok) throw new Error(JSON.stringify(result.errors));
+    expect(result.report.crossRepoEdges).toHaveLength(1);
+    expect(result.report.unlinkedEndpoints).toBeUndefined();
+    expect(result.report.islands).toBe(1);
+  });
+
+  it('다 이으면 미연결 칸이 붙지 않는다', () => {
+    const { report } = merged([feOnly(), beOnly()], ['/api']);
+    expect(report).not.toHaveProperty('unlinkedEndpoints');
   });
 
   it('후보 핸들러가 여럿이면 긋지 않고 미해결 질문으로 남긴다', () => {
@@ -400,6 +428,36 @@ describe('mergeArchitectureIrs — 충돌', () => {
     expect(q.question).toContain('"acme-a"');
     expect(q.question).toContain('"acme-b"');
     expect(validateArchitectureIr(ir, { checkFiles: false }).ok).toBe(true);
+  });
+});
+
+describe('mergeArchitectureIrs — 요약과 일러두기', () => {
+  const withGatewaySummary = (ir: ArchitectureIr, summary: string): ArchitectureIr => ({
+    ...ir,
+    nodes: ir.nodes.map((n) => (n.kind === 'gateway' ? { ...n, summary } : n)),
+  });
+
+  it('겹친 노드의 summary는 한쪽에만 있어도 남는다', () => {
+    const { ir } = merged([withGatewaySummary(shopIr(), '게이트웨이 안쪽 요약'), adminIr()]);
+    expect(byLabel(ir, 'gateway', 'acme-gateway')[0]!.summary).toBe('게이트웨이 안쪽 요약');
+  });
+
+  it('양쪽 summary가 다르면 description처럼 넘긴 순서와 상관없이 한쪽을 고른다', () => {
+    const shop = withGatewaySummary(shopIr(), '샵 요약');
+    const admin = withGatewaySummary(adminIr(), '어드민 요약');
+    const a = byLabel(merged([shop, admin]).ir, 'gateway', 'acme-gateway')[0]!.summary;
+    const b = byLabel(merged([admin, shop]).ir, 'gateway', 'acme-gateway')[0]!.summary;
+    expect(['샵 요약', '어드민 요약']).toContain(a);
+    expect(b).toBe(a);
+  });
+
+  it('입력 한 장에 쓴 최상위 summary와 note는 합친 그림에 싣지 않는다', () => {
+    const { ir } = merged([
+      { ...shopIr(), summary: '샵 전체 요약', note: '샵 일러두기' },
+      { ...adminIr(), summary: '어드민 전체 요약' },
+    ]);
+    expect('summary' in ir).toBe(false);
+    expect('note' in ir).toBe(false);
   });
 });
 

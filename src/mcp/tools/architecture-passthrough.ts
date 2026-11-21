@@ -4,6 +4,13 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectGlobalContext } from '../../architecture/global-context.js';
 import {
+  maskValidatedIr,
+  maskWarningMessages,
+  secretMaskedWarnings,
+} from '../../architecture/secret-mask.js';
+import { resolveRepoVisibility, type RepoVisibility } from '../../architecture/repo-visibility.js';
+import { applyCommitPolicy } from '../../architecture/commit-policy.js';
+import {
   buildKnowledgeIr,
   scanDocRoots,
   summarizeScan,
@@ -33,7 +40,12 @@ import {
 } from '../../architecture/delta-renderer.js';
 import { computeDrilldown, shouldDrillDown } from '../../architecture/drilldown.js';
 import { renderArchitectureHtml, renderDrilldownHtml } from '../../architecture/html-renderer.js';
-import { parseArchitectureIr } from '../../architecture/ir-schema.js';
+import {
+  ArchitectureLiveServer,
+  type ArchitectureLiveServerDeps,
+  type ArchitectureLiveServerOptions,
+} from '../../architecture/live-server.js';
+import { findUnknownFields, parseArchitectureIr } from '../../architecture/ir-schema.js';
 import {
   iconModeFromEnv,
   resolveVendorIcons,
@@ -43,18 +55,23 @@ import { assignStages, computeLayout } from '../../architecture/layout.js';
 import { mergeArchitectureIrs } from '../../architecture/merge.js';
 import {
   ArchitectureStore,
-  mergeWithPrevious,
+  mergeWithPreviousDetailed,
   previousRunSummary,
+  type PreviousMergeReport,
 } from '../../architecture/store.js';
+import { createGitMoveFinder, readHead, viewFreshness } from '../../architecture/git-facts.js';
 import {
   ARCHITECTURE_VIEWS,
   type ArchitectureIr,
   type ArchitectureView,
 } from '../../architecture/types.js';
 import {
+  createCodeEvidenceCheck,
   redactForSharing,
   validateArchitectureIr,
   type BudgetWarning,
+  type IgnoredFileTrackedWarning,
+  type FindMovedFile,
   type ValidatedIr,
   type ValidateArchitectureIrResult,
 } from '../../architecture/validator.js';
@@ -85,6 +102,10 @@ interface ArchitectureToolError {
   nodeId?: string;
   edgeId?: string;
   evidenceIndex?: number;
+  /** UNKNOWN_FIELD가 가리키는 입력 JSON 경로 */
+  path?: string;
+  /** 쓰려던 것으로 보이는 값 하나 */
+  suggestion?: string;
 }
 
 interface ArchitectureFailure {
@@ -124,7 +145,24 @@ function parseIr(raw: unknown, label = ''): { ok: true; ir: ArchitectureIr } | A
   };
 }
 
-function prepareIr(input: ArchitectureInput, repoRoot: string): Prepared {
+/**
+ * strict는 세션이 막 쓴 IR을 받는 validate와 render에만 켠다. zod가 모르는 키를 버리면
+ * 오타 칸(discription)이 에러 없이 사라지기 때문이다. 저장된 IR을 다시 읽는 자리(load, merge, 문서 액션)는
+ * 예전 IR이 막히지 않게 그대로 느슨하게 둔다
+ */
+function unknownFieldErrors(raw: unknown): ArchitectureToolError[] {
+  return findUnknownFields(raw).map((field) => ({
+    code: 'UNKNOWN_FIELD',
+    message:
+      field.suggestion === undefined
+        ? `${field.path}: 스키마에 없는 칸 "${field.key}"다. 지우거나 스키마의 칸 이름으로 고친다.`
+        : `${field.path}: 스키마에 없는 칸 "${field.key}"다. "${field.suggestion}"의 오타인지 확인한다.`,
+    path: field.path,
+    ...(field.suggestion === undefined ? {} : { suggestion: field.suggestion }),
+  }));
+}
+
+function prepareIr(input: ArchitectureInput, repoRoot: string, strict = false): Prepared {
   let raw: unknown = input.ir;
   if (raw === undefined && input.irPath !== undefined) {
     const read = readIrFile(input.irPath, repoRoot);
@@ -133,8 +171,10 @@ function prepareIr(input: ArchitectureInput, repoRoot: string): Prepared {
   }
   if (raw === undefined)
     return fail('MISSING_INPUT', `${input.action}에는 ir이나 irPath가 필요하다.`);
+  const unknown = strict ? unknownFieldErrors(raw) : [];
   const parsed = parseIr(raw);
-  if (!parsed.ok) return parsed;
+  if (!parsed.ok) return { ok: false, errors: [...unknown, ...parsed.errors] };
+  if (unknown.length > 0) return { ok: false, errors: unknown };
   const ir = parsed.ir;
   if (input.view !== undefined && input.view !== ir.view) {
     return fail('VIEW_MISMATCH', `view(${input.view})와 ir.view(${ir.view})가 다르다.`);
@@ -142,14 +182,30 @@ function prepareIr(input: ArchitectureInput, repoRoot: string): Prepared {
   return { ok: true, ir, repoRoot };
 }
 
-function validate(ir: ArchitectureIr, repoRoot: string, checkFiles: boolean | undefined) {
-  // IR의 root는 상대경로로 적히기도 한다. 서버 cwd가 아니라 repoRoot 기준으로 풀어야 근거 파일을 찾는다
-  const repoRoots = Object.fromEntries(
+function validate(
+  ir: ArchitectureIr,
+  repoRoot: string,
+  checkFiles: boolean | undefined,
+  findMoved?: FindMovedFile,
+) {
+  const repoRoots = resolvedRepoRoots(ir, repoRoot);
+  return validateArchitectureIr(ir, { repoRoots, checkFiles, ...(findMoved ? { findMoved } : {}) });
+}
+
+// IR의 root는 상대경로로 적히기도 한다. 서버 cwd가 아니라 repoRoot 기준으로 풀어야 근거 파일을 찾는다
+function resolvedRepoRoots(ir: ArchitectureIr, repoRoot: string): Record<string, string> {
+  return Object.fromEntries(
     ir.repos.flatMap((r) =>
       r.root === undefined ? [] : [[r.id, isAbsolute(r.root) ? r.root : resolve(repoRoot, r.root)]],
     ),
   );
-  return validateArchitectureIr(ir, { repoRoots, checkFiles });
+}
+
+/** 없는 근거 파일의 새 경로를 git rename 기록에서 찾는다. 지난 저장 IR의 head가 있으면 그 뒤만 본다 */
+function moveFinderFor(prev: ArchitectureIr | null): FindMovedFile {
+  const heads = new Map<string, string>();
+  for (const r of prev?.repos ?? []) if (r.head !== undefined) heads.set(r.id, r.head);
+  return createGitMoveFinder(heads);
 }
 
 function asFailure(result: Extract<ValidateArchitectureIrResult, { ok: false }>) {
@@ -221,6 +277,111 @@ export interface ArchitectureHandlerOptions {
   /** 테스트에서 실제 홈 디렉토리를 건드리지 않게 주입한다 */
   homeDir?: string;
   projectsRoot?: string;
+  /** 레포 공개 여부 판정. 기본은 gh로 묻는다. 테스트는 네트워크 없이 돌게 바꿔 끼운다 */
+  resolveVisibility?: (repoRoot: string) => RepoVisibility;
+  /** serve가 띄울 라이브 서버의 포트와 세션 연결. 테스트는 0번 포트와 가짜 세션을 넣는다 */
+  live?: ArchitectureLiveServerOptions & { deps?: ArchitectureLiveServerDeps };
+}
+
+// 레포마다 라이브 서버 하나. MCP 서버 프로세스가 살아 있는 동안 유지하고 다시 serve하면 같은 서버를 돌려준다
+const liveServers = new Map<string, ArchitectureLiveServer>();
+
+/** 떠 있는 라이브 서버를 전부 내린다. 테스트 정리용 */
+export async function stopArchitectureLiveServers(): Promise<void> {
+  const servers = [...liveServers.values()];
+  liveServers.clear();
+  await Promise.all(servers.map((s) => s.stop()));
+}
+
+function runningLiveServer(repoRoot: string): ArchitectureLiveServer | undefined {
+  const server = liveServers.get(repoRoot);
+  return server?.running ? server : undefined;
+}
+
+async function handleServe(
+  input: ArchitectureInput,
+  repoRoot: string,
+  opts: ArchitectureHandlerOptions,
+): Promise<object> {
+  let server = liveServers.get(repoRoot);
+  if (server === undefined) {
+    server = new ArchitectureLiveServer(repoRoot, opts.live?.deps);
+    liveServers.set(repoRoot, server);
+  }
+  let port: number;
+  try {
+    port = await server.start({
+      ...(opts.live?.port !== undefined ? { port: opts.live.port } : {}),
+      ...(opts.live?.attempts !== undefined ? { attempts: opts.live.attempts } : {}),
+    });
+  } catch (e) {
+    liveServers.delete(repoRoot);
+    return fail('SERVE_FAILED', `라이브 서버를 띄우지 못했다. ${(e as Error).message ?? e}`);
+  }
+  const store = new ArchitectureStore(repoRoot);
+  // 이미 그린 본인용 HTML만 주소로 싣는다. 아직 안 그린 그림은 render 뒤에 열 수 있다
+  const views = ARCHITECTURE_VIEWS.filter((v) => existsSync(store.htmlPath(v, 'private')));
+  const session = server.sessionAlive();
+  return {
+    ok: true,
+    url: server.url,
+    port,
+    session,
+    ...(input.view !== undefined ? { liveUrl: server.liveUrl(input.view) } : {}),
+    liveUrls: Object.fromEntries(views.map((v) => [v, server.liveUrl(v)])),
+    ...(input.view !== undefined && !views.includes(input.view)
+      ? { message: `${input.view} 그림이 아직 없다. render로 그린 뒤 liveUrl을 연다.` }
+      : {}),
+    ...(session
+      ? {}
+      : {
+          warning:
+            '그림을 띄운 Claude Code 세션을 찾지 못했다. 뷰어의 질문 입력창은 세션이 잡힐 때까지 숨겨진다.',
+        }),
+  };
+}
+
+interface CommitPolicyOutcome {
+  visibility?: Pick<RepoVisibility, 'verdict' | 'source' | 'fallbackReason'>;
+  ignoreFilePath?: string;
+  warning?: IgnoredFileTrackedWarning;
+}
+
+/**
+ * 그림을 저장한 뒤 공개 여부에 맞춰 커밋할 파일을 정한다. 보조 단계라 실패해도 render는 성공으로 둔다.
+ * 판정은 됐는데 .gitignore 쓰기만 실패하면 판정 결과는 응답에 남긴다
+ */
+function commitPolicyAfterRender(
+  repoRoot: string,
+  opts: ArchitectureHandlerOptions,
+): CommitPolicyOutcome {
+  let visibility: RepoVisibility;
+  try {
+    visibility = (opts.resolveVisibility ?? resolveRepoVisibility)(repoRoot);
+  } catch (e) {
+    log(
+      `architecture: 레포 공개 여부를 못 정해 커밋 정책을 건너뜁니다 (${(e as Error).message ?? e})`,
+    );
+    return {};
+  }
+  const summary = {
+    verdict: visibility.verdict,
+    source: visibility.source,
+    ...(visibility.fallbackReason !== undefined
+      ? { fallbackReason: visibility.fallbackReason }
+      : {}),
+  };
+  try {
+    const policy = applyCommitPolicy(repoRoot, visibility.verdict);
+    return {
+      visibility: summary,
+      ...(policy.ignoreFilePath !== undefined ? { ignoreFilePath: policy.ignoreFilePath } : {}),
+      ...(policy.trackedWarning !== undefined ? { warning: policy.trackedWarning } : {}),
+    };
+  } catch (e) {
+    log(`architecture: .gitignore를 맞추지 못했습니다 (${(e as Error).message ?? e})`);
+    return { visibility: summary };
+  }
 }
 
 function handleStart(
@@ -251,7 +412,8 @@ function handleStart(
       '세션에 붙은 MCP 도구 이름을 filter_tools에 넘겨 allowed만 쓴다. ambiguous는 부르지 않는다.',
       'schemaPath의 JSON Schema대로 IR을 만든다. 실선 엣지에는 code나 spec 근거가 있어야 한다.',
       '클라우드 조회 결과는 live 근거로 싣는다. 명령의 하위 명령은 readOnlyCliRule.verbs로 시작해야 하고 응답 원문은 excerpt에 넣지 않는다.',
-      'FE 호출과 BE 라우트가 모이면 match_endpoints로 이어 붙이고, validate로 확인한 뒤 render한다.',
+      'FE 호출과 BE 라우트가 모이면 match_endpoints로 이어 붙이고, validate로 확인한 뒤 render한다. 서버가 context-path나 global prefix를 붙이면 beRoutes의 mountPrefix에 적는다.',
+      'match_endpoints의 suggested는 경로 뒤쪽이 닮은 후보일 뿐이다. 양쪽 줄을 읽어 같은 API일 때만 엣지를 긋고 후보 여럿을 추정 엣지로 만들지 않는다.',
     ],
   };
 }
@@ -273,13 +435,20 @@ function handleMatchEndpoints(input: ArchitectureInput): object {
       'match_endpoints에는 feCalls와 beRoutes, skillToolCalls와 serverTools, nameRefs 중 하나가 필요하다.',
     );
   }
+  const endpoints = http
+    ? matchEndpoints({
+        feCalls: input.feCalls!,
+        beRoutes: input.beRoutes!,
+        prefixCandidates: input.prefixCandidates,
+      })
+    : null;
+  const suggestedCalls = endpoints?.unmatched.filter((u) => u.suggested !== undefined).length ?? 0;
   return {
-    ...(http
-      ? matchEndpoints({
-          feCalls: input.feCalls!,
-          beRoutes: input.beRoutes!,
-          prefixCandidates: input.prefixCandidates,
-        })
+    ...(endpoints ?? {}),
+    ...(suggestedCalls > 0
+      ? {
+          suggestedNote: `못 맞춘 호출 ${suggestedCalls}개에 suggested 후보가 있다. 점수로 고른 후보라 그대로 잇지 않는다. FE 호출 줄과 BE 라우트 줄을 읽어 같은 API일 때만 IR에 엣지를 적는다.`,
+        }
       : {}),
     ...(mcp
       ? {
@@ -294,33 +463,77 @@ function handleMatchEndpoints(input: ArchitectureInput): object {
 }
 
 function handleValidate(input: ArchitectureInput, repoRoot: string): object {
-  const prepared = prepareIr(input, repoRoot);
+  const prepared = prepareIr(input, repoRoot, true);
   if (!prepared.ok) return prepared;
-  const result = validate(prepared.ir, repoRoot, input.checkFiles);
+  const prev = new ArchitectureStore(repoRoot).load(prepared.ir.view);
+  const result = validate(prepared.ir, repoRoot, input.checkFiles, moveFinderFor(prev));
   if (!result.ok) return asFailure(result);
   const { drawableNodeIds, drawableEdgeIds, autoUnresolved, warnings } = result.value;
+  const stats = computeStats(result.value);
+  const signals = loopSignals(prepared.ir.view, stats);
   return {
     ok: true,
     errors: [],
     autoUnresolved,
     ...(warnings.length > 0 ? { warnings } : {}),
     drawable: { nodeIds: [...drawableNodeIds].sort(), edgeIds: [...drawableEdgeIds].sort() },
+    stats,
+    ...(signals.length > 0 ? { signals } : {}),
   };
 }
 
-async function handleRender(input: ArchitectureInput, repoRoot: string): Promise<object> {
-  const prepared = prepareIr(input, repoRoot);
-  if (!prepared.ok) return prepared;
-  const first = validate(prepared.ir, repoRoot, input.checkFiles);
-  if (!first.ok) return asFailure(first);
+/** 엔드포인트를 부르는 화면이 이보다 적으면 호출 사슬을 덜 따라간 것으로 본다 */
+export const SCREEN_ENDPOINT_RATIO_THRESHOLD = 0.6;
 
+export interface LoopSignal {
+  code: 'SCREEN_ENDPOINT_RATIO_LOW';
+  value: number;
+  threshold: number;
+  hint: string;
+}
+
+// 세션이 validate를 한 번 더 돌지 정할 수 있게 문턱을 넘은 수치만 싣는다
+function loopSignals(view: string, stats: ReturnType<typeof computeStats>): LoopSignal[] {
+  const ratio = stats.screenToEndpointRatio;
+  if (view !== 'screen-chain' || ratio === null || ratio >= SCREEN_ENDPOINT_RATIO_THRESHOLD) {
+    return [];
+  }
+  return [
+    {
+      code: 'SCREEN_ENDPOINT_RATIO_LOW',
+      value: ratio,
+      threshold: SCREEN_ENDPOINT_RATIO_THRESHOLD,
+      hint: '엔드포인트를 부르는 화면이 적다. 엔드포인트가 안 붙은 화면부터 호출 사슬을 다시 따라간다.',
+    },
+  ];
+}
+
+async function handleRender(
+  input: ArchitectureInput,
+  repoRoot: string,
+  opts: ArchitectureHandlerOptions,
+): Promise<object> {
+  const prepared = prepareIr(input, repoRoot, true);
+  if (!prepared.ok) return prepared;
   const store = new ArchitectureStore(repoRoot);
   const prev = store.load(prepared.ir.view);
-  const merged = prev ? mergeWithPrevious(prev, prepared.ir) : prepared.ir;
+  const findMoved = moveFinderFor(prev);
+  const first = validate(prepared.ir, repoRoot, input.checkFiles, findMoved);
+  if (!first.ok) return asFailure(first);
+
+  // 파일 검사를 끈 render에서 근거로 흐름을 버리면 저장 IR에서 그 흐름을 영영 잃는다
+  const mergeOptions =
+    input.checkFiles === false
+      ? {}
+      : { evidenceOk: createCodeEvidenceCheck(resolvedRepoRoots(prepared.ir, repoRoot)) };
+  const mergeResult = prev ? mergeWithPreviousDetailed(prev, prepared.ir, mergeOptions) : null;
+  const merged = mergeResult?.ir ?? prepared.ir;
   // 병합이 id를 바꾸므로 그린 대상도 병합 결과로 다시 뽑는다
-  const second = validate(merged, repoRoot, input.checkFiles);
+  const second = validate(merged, repoRoot, input.checkFiles, findMoved);
   if (!second.ok) return asFailure(second);
-  const validated = second.value;
+  // excerpt를 코드와 대조하는 검증이 끝난 뒤에 가린다. 앞에서 가리면 가린 글자가 코드와 안 맞아 근거가 틀렸다고 나온다.
+  // 이 뒤로는 그림, 저장, 공유본, delta가 전부 가린 사본만 본다
+  const { validated, hits: secretHits } = maskValidatedIr(second.value);
 
   // 서비스가 그려지면 노드가 많아 평면 한 장으로는 못 읽는다. 레벨로 나눠 한 파일에 담는다
   const drilldown = shouldDrillDown(validated) ? await computeDrilldown(validated) : null;
@@ -351,9 +564,11 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
     sharedHtml = renderArchitectureHtml(validated, layout, { audience: 'shared' });
   }
 
-  // 자동 질문도 저장해 둬야 사람이 답을 달고 다음 실행이 그 답을 물려받는다
+  // 자동 질문도 저장해 둬야 사람이 답을 달고 다음 실행이 그 답을 물려받는다.
+  // 커밋 해시는 저장 IR에만 남긴다. HTML에 넣으면 커밋마다 바이트가 바뀌어 결정적 렌더가 깨진다
   const toSave = {
     ...validated.ir,
+    repos: withRepoHeads(validated.ir.repos, repoRoot),
     unresolved: [...validated.ir.unresolved, ...validated.autoUnresolved],
   };
   const irPath = store.save(toSave);
@@ -372,7 +587,15 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
       };
     },
   );
-  const warnings = [...validated.warnings, ...(delta.warning ? [delta.warning] : [])];
+  const commit = commitPolicyAfterRender(repoRoot, opts);
+  const live = runningLiveServer(repoRoot);
+  const warnings = [
+    ...maskWarningMessages(validated.warnings),
+    ...maskWarningMessages(mergeResult?.report.warnings ?? []),
+    ...secretMaskedWarnings(secretHits),
+    ...(delta.warning ? maskWarningMessages([delta.warning]) : []),
+    ...(commit.warning ? [commit.warning] : []),
+  ];
 
   return {
     ok: true,
@@ -381,6 +604,10 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
     sharedHtmlPath,
     openPath: input.audience === 'shared' ? sharedHtmlPath : htmlPath,
     ...(viewPaths.length > 0 ? { viewPaths } : {}),
+    // 라이브 서버가 떠 있을 때만 싣는다. 열린 뷰어는 이 주소에서 ETag 변화를 보고 스스로 갱신한다
+    ...(live !== undefined ? { liveUrl: live.liveUrl(view) } : {}),
+    ...(commit.visibility ? { visibility: commit.visibility } : {}),
+    ...(commit.ignoreFilePath !== undefined ? { ignoreFilePath: commit.ignoreFilePath } : {}),
     ...(drilldown
       ? {
           levels: drilldown.levels.map((l) => ({
@@ -396,8 +623,38 @@ async function handleRender(input: ArchitectureInput, repoRoot: string): Promise
       ...(iconStats !== undefined ? { iconStats } : {}),
     },
     delta: delta.result,
+    ...(mergeResult ? { merge: mergeSummary(mergeResult.report) } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
     sourcesUsed: validated.ir.sourcesUsed,
+  };
+}
+
+function absRepoRoot(repo: ArchitectureIr['repos'][number], repoRoot: string): string {
+  if (repo.root === undefined) return repoRoot;
+  return isAbsolute(repo.root) ? repo.root : resolve(repoRoot, repo.root);
+}
+
+/** 레포마다 지금 HEAD를 적는다. git이 아니면 head를 빼서 옛 값이 지금 것처럼 남지 않게 한다 */
+function withRepoHeads(repos: ArchitectureIr['repos'], repoRoot: string): ArchitectureIr['repos'] {
+  return repos.map((r) => {
+    const { head: _old, ...rest } = r;
+    const head = readHead(absRepoRoot(r, repoRoot));
+    return head === undefined ? rest : { ...rest, head };
+  });
+}
+
+function mergeSummary(report: PreviousMergeReport) {
+  return {
+    descriptionCarried: report.descriptionCarried.length,
+    // 0이면 키를 안 넣는다. summary를 안 쓰는 예전 흐름의 응답이 그대로다
+    ...(report.summaryCarried.length > 0 ? { summaryCarried: report.summaryCarried.length } : {}),
+    ...(report.topLevelCarried.length > 0 ? { topLevelCarried: report.topLevelCarried } : {}),
+    ...(report.relabeled.length > 0 ? { relabeled: report.relabeled } : {}),
+    ...(report.flowsCarried.length > 0 ? { flowsCarried: report.flowsCarried } : {}),
+    ...(report.flowsDropped.length > 0 ? { flowsDropped: report.flowsDropped } : {}),
+    ...(report.projectionsDropped.length > 0
+      ? { projectionsDropped: report.projectionsDropped }
+      : {}),
   };
 }
 
@@ -438,7 +695,9 @@ async function renderDelta(
       },
     };
   }
-  const delta = computeArchitectureDelta(deltaSnapshot(before.value), deltaSnapshot(next));
+  // 예전 실행이 가림 없이 저장한 IR일 수 있어 이전 쪽도 가린 뒤 비교한다. 경고는 이번 IR 것만 낸다
+  const prevMasked = maskValidatedIr(before.value).validated;
+  const delta = computeArchitectureDelta(deltaSnapshot(prevMasked), deltaSnapshot(next));
   if (delta.ledger.length === 0) {
     return { result: { status: 'unchanged', message: '이전 그림과 구조가 같다.' } };
   }
@@ -447,7 +706,7 @@ async function renderDelta(
   const privateLayout = await computeDeltaLayout(delta, scope);
   // 가린 글자끼리 다시 비교해야 공유본 원장에 계정 ID 같은 원문이 옛 값으로 새지 않는다
   const shared = computeArchitectureDelta(
-    deltaSnapshot(before.value, true),
+    deltaSnapshot(prevMasked, true),
     deltaSnapshot(next, true),
   );
   const sharedScope = deltaScope(shared);
@@ -504,10 +763,15 @@ function handleMerge(input: ArchitectureInput, repoRoot: string): object {
   const result = mergeArchitectureIrs(irs, {
     prefixCandidates: input.prefixCandidates,
     groupNames: input.groupNames,
+    mountPrefixes: input.mountPrefixes,
   });
   if (!result.ok) return result;
+  const unlinked = result.report.unlinkedEndpoints?.length ?? 0;
   const nextAction =
-    '합친 IR을 validate로 확인한 뒤 render한다. render는 repoRoot의 같은 뷰 IR과 병합하므로 원래 분석 레포가 아닌 따로 둔 디렉토리를 repoRoot로 준다.';
+    '합친 IR을 validate로 확인한 뒤 render한다. render는 repoRoot의 같은 뷰 IR과 병합하므로 원래 분석 레포가 아닌 따로 둔 디렉토리를 repoRoot로 준다.' +
+    (unlinked > 0
+      ? ` report.unlinkedEndpoints의 ${unlinked}개는 다른 분석에서 받는 핸들러를 못 찾은 FE 엔드포인트다. 오류가 아니라 알림이다. suggested가 있으면 양쪽 줄을 읽어 같은 API일 때만 엣지를 더한다.`
+      : '');
   if (input.outPath === undefined) {
     return { ok: true, ir: result.ir, report: result.report, nextAction };
   }
@@ -799,7 +1063,12 @@ function handleStatus(repoRoot: string): object {
   const views: Record<string, unknown> = {};
   for (const view of ARCHITECTURE_VIEWS) {
     const prev = store.load(view);
-    views[view] = prev ? previousRunSummary(prev) : null;
+    views[view] = prev
+      ? {
+          ...previousRunSummary(prev),
+          freshness: viewFreshness(prev, (r) => absRepoRoot(r, repoRoot)),
+        }
+      : null;
   }
   return { views };
 }
@@ -821,7 +1090,7 @@ export async function handleArchitecturePassthrough(
     case 'validate':
       return handleValidate(input, repoRoot);
     case 'render':
-      return handleRender(input, repoRoot);
+      return handleRender(input, repoRoot, opts);
     case 'status':
       return handleStatus(repoRoot);
     case 'merge':
@@ -832,5 +1101,7 @@ export async function handleArchitecturePassthrough(
       return handleLinkDocs(input, repoRoot);
     case 'stale_docs':
       return handleStaleDocs(input, repoRoot);
+    case 'serve':
+      return handleServe(input, repoRoot, opts);
   }
 }

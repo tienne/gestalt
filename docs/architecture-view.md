@@ -21,10 +21,10 @@
 
 `ges_architecture`는 Passthrough 도구다. 서버는 LLM을 부르지 않는다.
 
-| 맡는 쪽                   | 하는 일                                                                                                            |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| 세션 (Claude Code 등)     | 맥락 소스를 고르고 코드를 탐색한다. 근거 달린 IR을 JSON으로 쓴다. 미해결 질문을 사용자에게 묻는다                  |
-| 서버 (`ges_architecture`) | IR을 스키마로 검증하고 근거 파일과 줄을 확인한다. 이전 실행과 병합해 노드 id를 물려준다. 좌표를 계산해 HTML을 쓴다 |
+| 맡는 쪽                   | 하는 일                                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 세션 (Claude Code 등)     | 맥락 소스를 고르고 코드를 탐색한다. 근거 달린 IR을 JSON으로 쓴다. 미해결 질문을 사용자에게 묻는다                               |
+| 서버 (`ges_architecture`) | IR을 스키마로 검증하고 근거 파일과 줄을 확인한다. 이전 실행과 병합해 노드 id와 설명, 흐름을 물려준다. 좌표를 계산해 HTML을 쓴다 |
 
 탐색은 세션 모델의 판단이 필요한 일이라 세션에 둔다. 검증과 렌더는 같은 입력에 같은 결과가 나와야 하는 일이라 서버에 둔다. 세션이 그린 그림을 서버가 다시 보지 않으면 근거 없는 실선이 그대로 나가게 된다.
 
@@ -34,21 +34,23 @@
 
 IR(중간 표현)은 세션이 서버에 넘기는 JSON이다. 스키마는 [`schemas/architecture-ir.schema.json`](../schemas/architecture-ir.schema.json)에 있고 `start` 응답의 `schemaPath`가 이 파일의 절대 경로를 준다. 서버는 같은 구조를 zod로 다시 파싱한다 (`src/architecture/ir-schema.ts`).
 
-| 필드            | 내용                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `schemaVersion` | `"1.0.0"` 고정                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `view`          | `screen-chain` 또는 `deploy-path`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `packs`         | 선택. 이 IR이 쓰는 [어휘 팩](#어휘-팩) id 목록. 안 적으면 `web-product`와 `harness`로 읽는다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `repos`         | `{ id, name, root?, remote? }`. `root`는 로컬 경로다. 상대 경로면 `repoRoot` 기준으로 푼다. `root`가 없으면 [문서 묶음 레포](#문서-묶음-레포)다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `nodes`         | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, group?, description?, environment?, engine?, account?, provider?, region?, exposure?, placedIn?, platforms?, platformEvidence?, displayKind?, renderClass?, columns?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서, `provider`와 `region`, `exposure`, `placedIn`은 [인프라 구성 레벨](#인프라-구성-레벨)에서, `displayKind`와 `renderClass`는 [범용 component](#범용-component)에서, `columns`는 [테이블 컬럼](#테이블-컬럼)에서 설명한다. `description`은 카드의 설명 줄과 서랍에 나온다. 비우면 validate가 경고한다 ([검증 규칙](#검증-규칙)). `group`은 [서버 묶음 테두리](#서버-묶음-테두리)에서 설명한다 |
-| `edges`         | `{ id, from, to, kind, evidence[], lineStyle }`. `lineStyle`은 `solid` 또는 `dashed`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `unresolved`    | `{ id, subject: { nodeId?, edgeId?, stepId?, transitionId?, messageId? }, question, answer? }`. `messageId`는 질문별 그림의 메시지 id다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `flows`         | 선택. 도메인 흐름이다. 보통 서비스 하나에 딸리고 서비스 없이 따로 설 수도 있다. [도메인 흐름](#도메인-흐름)에서 설명한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `projections`   | 선택. 질문 하나에 답하는 그림이다. [질문별 그림](#질문별-그림)에서 설명한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `stages`        | 선택. 기술 그림을 왼쪽에서 오른쪽으로 나누는 구간이다. `{ id, label, nodes?, kinds?, repos? }`이고 배열 순서가 왼쪽부터다. [구간](#구간)에서 설명한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `groups`        | 합친 IR에만 있다. `{ id, name, members }`이고 `members`는 그 제품 분석에 있던 노드 id다. [분석 합치기](#분석-합치기)에서 설명한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `sourcesUsed`   | 이번 실행이 간 본 맥락 소스. `{ via, identifier, readOnly, probeHit, visibility }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `generatedAt`   | 생성 시각 문자열. HTML에 그대로 찍힌다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 필드            | 내용                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schemaVersion` | `"1.0.0"` 고정                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `view`          | `screen-chain` 또는 `deploy-path`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `packs`         | 선택. 이 IR이 쓰는 [어휘 팩](#어휘-팩) id 목록. 안 적으면 `web-product`와 `harness`로 읽는다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `repos`         | `{ id, name, root?, remote?, head? }`. `root`는 로컬 경로다. 상대 경로면 `repoRoot` 기준으로 푼다. `root`가 없으면 [문서 묶음 레포](#문서-묶음-레포)다. `head`는 render가 저장할 때 적는 커밋 해시라 세션이 쓰지 않는다. [`status`](#status)가 이 값으로 그림이 낡았는지 본다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `nodes`         | `{ id, kind, label, repo, parent?, displayName?, displayNameInferred?, group?, description?, summary?, environment?, engine?, account?, provider?, region?, exposure?, placedIn?, platforms?, platformEvidence?, displayKind?, renderClass?, columns?, evidence[] }`. `parent`는 이 노드를 담는 노드의 id다. [포함 관계](#포함-관계)에서 설명한다. 이름 두 필드는 [표시 이름](#표시-이름)에서, 인프라 필드는 [서빙 인프라](#서빙-인프라)에서, `provider`와 `region`, `exposure`, `placedIn`은 [인프라 구성 레벨](#인프라-구성-레벨)에서, `displayKind`와 `renderClass`는 [범용 component](#범용-component)에서, `columns`는 [테이블 컬럼](#테이블-컬럼)에서 설명한다. `description`은 카드의 설명 줄과 서랍에 나온다. 비우면 validate가 경고한다 ([검증 규칙](#검증-규칙)). `summary`는 선택이고 이 노드를 누르면 열리는 드릴다운 레벨의 요약이다. `service`, `micro_app`, `gateway`, `app_module`, `feature`처럼 레벨을 여는 노드와 묶음 부모에 단다 ([레벨](#레벨)). `group`은 [서버 묶음 테두리](#서버-묶음-테두리)에서 설명한다 |
+| `edges`         | `{ id, from, to, kind, evidence[], lineStyle }`. `lineStyle`은 `solid` 또는 `dashed`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `unresolved`    | `{ id, subject: { nodeId?, edgeId?, stepId?, transitionId?, messageId? }, question, answer? }`. `messageId`는 질문별 그림의 메시지 id다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `flows`         | 선택. 도메인 흐름이다. 보통 서비스 하나에 딸리고 서비스 없이 따로 설 수도 있다. [도메인 흐름](#도메인-흐름)에서 설명한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `projections`   | 선택. 질문 하나에 답하는 그림이다. [질문별 그림](#질문별-그림)에서 설명한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `stages`        | 선택. 기술 그림을 왼쪽에서 오른쪽으로 나누는 구간이다. `{ id, label, nodes?, kinds?, repos? }`이고 배열 순서가 왼쪽부터다. [구간](#구간)에서 설명한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `groups`        | 합친 IR에만 있다. `{ id, name, members }`이고 `members`는 그 제품 분석에 있던 노드 id다. [분석 합치기](#분석-합치기)에서 설명한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `sourcesUsed`   | 이번 실행이 간 본 맥락 소스. `{ via, identifier, readOnly, probeHit, visibility }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `generatedAt`   | 생성 시각 문자열. HTML에 그대로 찍힌다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `summary`       | 선택. 전체 레벨의 요약이다. 그림이 무엇을 보여 주는지 1~3문장으로 쓴다. 드릴다운으로 그리면 전체 레벨(`root`)의 요약이 되고 비우면 validate가 `LEVEL_SUMMARY_MISSING` 경고를 낸다 ([레벨](#레벨))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `note`          | 선택. 일러두기다. 그림이 다루는 범위와 읽는 법처럼 요약에 안 맞는 안내를 쓴다. 값이 있으면 드릴다운 HTML의 데이터 블록에 최상위 `note`로 실린다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 근거(`evidence`) 하나는 `{ type, location, visibility, updatedAt?, excerpt?, command?, observedAt? }`다. 뒤의 두 필드는 `live` 근거에만 쓴다.
 
@@ -216,6 +218,7 @@ parent 노드가 근거가 없어 그려지지 않으면 자식은 parent가 없
 - 패널 제목, 드릴다운 레벨 제목, 빵부스러기, 두 노드 선택 표도 `displayName`을 먼저 쓴다.
 - `.shared.html`에도 이름은 그대로 보인다. 가리는 건 근거뿐이다.
 - 병합 키가 아니다. `displayName`을 바꾸거나 새로 달아도 노드 id는 유지된다. [재실행과 노드 id](#재실행과-노드-id)를 본다.
+- 카드 제목이 경로나 파일 이름 꼴이면 validate가 `NODE_TITLE_PATHLIKE`, 설명 글은 대부분 한글인데 `displayName`에 한글이 없으면 `DISPLAY_NAME_LANGUAGE` 경고를 낸다. 둘 다 render는 막지 않는다 ([검증 규칙](#검증-규칙)).
 
 ### MCP 도구
 
@@ -530,78 +533,96 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 ## 검증 규칙
 
-`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 마흔넷은 IR 전체를 거부한다.
+`validate`와 `render`는 같은 검증을 탄다 (`src/architecture/validator.ts`). 아래 쉰넷은 IR 전체를 거부한다.
 
-| 에러 코드                            | 언제                                                                                                                                                                                                                                           |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SOLID_EDGE_WITHOUT_EVIDENCE`        | `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다. 근거가 0개인 실선도, `doc`, `user`, `live` 근거만 있는 실선도 여기 걸린다                                                                                                                |
-| `CODE_EVIDENCE_NOT_FOUND`            | `code` 근거의 위치가 `<repoId>:<relPath>:<line>` 꼴이 아니거나, `repoId`가 `repos`에 없거나, 경로가 절대 경로이거나 레포 루트 밖을 가리키거나, 파일이 없거나, 줄 번호가 파일 범위 밖이다                                                       |
-| `PRIVATE_EXCERPT_PRESENT`            | `visibility: "private"` 근거에 `excerpt`가 들어 있다. private `live` 근거면 조회 응답 원문을 넣었다는 문구가 따로 나온다                                                                                                                       |
-| `LIVE_COMMAND_NOT_READ_ONLY`         | `live` 근거의 `command`가 [CLI 명령 판정](#cli-명령-판정)에서 `allow`가 아니다                                                                                                                                                                 |
-| `ACCOUNT_NOT_FOUND`                  | `account`가 가리키는 노드가 `nodes`에 없다                                                                                                                                                                                                     |
-| `INVALID_ACCOUNT_KIND`               | `account`가 `cloud_account`가 아닌 노드를 가리킨다                                                                                                                                                                                             |
-| `PLACED_IN_NOT_FOUND`                | `placedIn`이 가리키는 노드가 `nodes`에 없다                                                                                                                                                                                                    |
-| `INVALID_PLACED_IN_KIND`             | `placedIn`이 `network`, `subnet`, `cluster`가 아닌 노드를 가리킨다                                                                                                                                                                             |
-| `COLUMN_REFERENCE_NOT_FOUND`         | 컬럼 `references.table`이 `nodes`에 없거나, 대상 테이블이 `columns`를 적었는데 `references.column`이 그 안에 없다                                                                                                                              |
-| `INVALID_COLUMN_REFERENCE_KIND`      | 컬럼 `references.table`이 `db_table`이 아닌 노드를 가리킨다                                                                                                                                                                                    |
-| `CLOUD_ID_IN_ID`                     | 노드나 엣지 id에 계정 ID 꼴(12자리 숫자)이 들었거나, `cdn` 노드 id에 CDN 배포 ID 꼴이 들었다                                                                                                                                                   |
-| `DANGLING_EDGE`                      | 엣지의 `from`이나 `to`가 `nodes`에 없다                                                                                                                                                                                                        |
-| `PARENT_NOT_FOUND`                   | `parent`가 가리키는 노드가 `nodes`에 없다                                                                                                                                                                                                      |
-| `PARENT_CYCLE`                       | `parent`를 따라가면 자기 자신으로 돌아온다                                                                                                                                                                                                     |
-| `INVALID_PARENT_KIND`                | [포함 관계](#포함-관계) 규칙에 어긋난다. parent를 가질 수 없는 kind에 달았거나 담을 수 없는 kind를 가리킨다                                                                                                                                    |
-| `DUPLICATE_GROUP_ID`                 | `groups`에 같은 id가 둘 있다                                                                                                                                                                                                                   |
-| `GROUP_MEMBER_NOT_FOUND`             | `groups[].members`의 id가 `nodes`에 없다                                                                                                                                                                                                       |
-| `SERVES_SERVICE_WITH_APPS`           | `serves`가 `micro_app`이 달린 서비스를 가리킨다                                                                                                                                                                                                |
-| `INVALID_LOADS_ENDS`                 | `loads`가 `micro_app → micro_app`, `client → service`, `app_module → agent` 중 어느 것도 아니다. 스킬에서 에이전트로 가는 선은 `loads`가 아니라 `spawns`다                                                                                     |
-| `INVALID_HARNESS_EDGE_ENDS`          | `spawns`가 스킬이나 에이전트에서 에이전트로 가지 않거나 `invokes`가 스킬끼리가 아니다. 스킬이나 에이전트의 `calls`가 `endpoint` 밖을 가리켜도 여기 걸린다. 다른 팩의 엣지가 [어휘 팩](#어휘-팩)의 from → to 규칙을 어겨도 같은 코드다          |
-| `INVALID_CALL_ACTIONS`               | 엣지 `actions`를 MCP 도구로 가는 `calls`가 아닌 엣지에 달았다                                                                                                                                                                                  |
-| `UNKNOWN_MCP_ACTION`                 | 엣지 `actions`에 도구 노드의 `actions`에 없는 값이 있다                                                                                                                                                                                        |
-| `MD_CODE_EVIDENCE`                   | 하네스 IR에서 `skill`, `agent` 노드와 그 둘에서 나가는 엣지 밖에 md 파일 줄을 `code` 근거로 달았다                                                                                                                                             |
-| `FLOW_SERVICE_NOT_FOUND`             | 흐름에 `service`를 적었는데 `nodes`에 없거나 `service` 노드가 아니다                                                                                                                                                                           |
-| `DUPLICATE_FLOW_ID`                  | 흐름, 단계, 전이 id가 흐름 전체에서 겹치거나 한 흐름 안에서 행위자 id가 겹친다                                                                                                                                                                 |
-| `FLOW_ACTOR_NOT_FOUND`               | 단계의 `actor`가 그 흐름의 `actors`에 없다                                                                                                                                                                                                     |
-| `FLOW_STEP_NOT_FOUND`                | 전이의 `from`이나 `to`가 그 흐름의 `steps`에 없다                                                                                                                                                                                              |
-| `FLOW_REF_NOT_FOUND`                 | 단계의 `refs`가 `nodes`에 없다                                                                                                                                                                                                                 |
-| `INVALID_FLOW_REF_KIND`              | 단계의 `refs`가 `screen`, `endpoint`, `feature`, `micro_app`, `skill`, `agent`, `component`가 아닌 노드를 가리킨다                                                                                                                             |
-| `SOLID_TRANSITION_WITHOUT_EVIDENCE`  | 전이가 `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다                                                                                                                                                                                    |
-| `DUPLICATE_STAGE_ID`                 | 구간 id가 겹친다                                                                                                                                                                                                                               |
-| `STAGE_NODE_NOT_FOUND`               | 구간의 `nodes`가 `nodes`에 없다                                                                                                                                                                                                                |
-| `STAGE_NODE_TWICE`                   | 한 노드가 두 구간의 `nodes`에 함께 올라 있다                                                                                                                                                                                                   |
-| `UNKNOWN_PACK`                       | `packs`에 없는 팩 id가 있다                                                                                                                                                                                                                    |
-| `KIND_NOT_IN_PACKS`                  | 노드나 엣지의 kind가 IR이 적은 팩(끌어온 팩 포함)에 없다                                                                                                                                                                                       |
-| `CODE_EVIDENCE_IN_DOC_REPO`          | `code` 근거가 `root` 없는 [문서 묶음 레포](#문서-묶음-레포)를 가리킨다                                                                                                                                                                         |
-| `DUPLICATE_PROJECTION_ID`            | 질문별 그림 id가 겹친다                                                                                                                                                                                                                        |
-| `DUPLICATE_MESSAGE_ID`               | 메시지 id가 겹친다. 질문별 그림을 넘어서도 겹치면 안 된다                                                                                                                                                                                      |
-| `PROJECTION_NODE_NOT_FOUND`          | `participants`, `sides[].nodes`, 메시지 `from`이나 `to`가 `nodes`에 없다. `participants`를 적었는데 메시지 끝이 거기 없어도 여기 걸린다                                                                                                        |
-| `PROJECTION_EDGE_NOT_FOUND`          | 메시지 `edge`가 `edges`에 없다                                                                                                                                                                                                                 |
-| `PROJECTION_EDGE_MISMATCH`           | 메시지 `edge`가 메시지의 두 끝을 잇는 엣지가 아니다                                                                                                                                                                                            |
-| `PROJECTION_BLOCK_NOT_FOUND`         | 메시지 `block`이 그 그림의 `blocks`에 없다                                                                                                                                                                                                     |
-| `PROJECTION_BLOCK_SPLIT`             | 한 묶음의 메시지가 이어져 있지 않고 중간에 끊겼다가 다시 나온다                                                                                                                                                                                |
-| `SOLID_MESSAGE_WITHOUT_EVIDENCE`     | 메시지가 실선인데 자기 근거와 가리킨 엣지 근거 어디에도 `code`나 `spec`이 없다                                                                                                                                                                 |
-| `PROJECTION_EMPTY`                   | `sequence`나 `dataflow` 그림에 메시지가 하나도 없다. `lifecycle` 그림이 가리킨 흐름에 `state`를 단 단계가 하나도 없거나 `blueprint` 그림이 가리킨 흐름에 갈림길 말고 단계가 하나도 없거나 `er` 그림의 `participants`가 비어 있어도 여기 걸린다 |
-| `PROJECTION_FLOW_NOT_FOUND`          | `lifecycle`이나 `blueprint` 그림의 `flow`가 `flows`에 없다                                                                                                                                                                                     |
-| `PROJECTION_SHAPE_FIELD`             | 모양에 안 맞는 필드를 썼다. [질문별 그림](#질문별-그림)의 모양별 필드 표를 본다                                                                                                                                                                |
-| `DUPLICATE_PHASE_ID`                 | 한 sequence 그림 안에서 구간 id가 겹친다                                                                                                                                                                                                       |
-| `PROJECTION_PHASE_MESSAGE_NOT_FOUND` | 구간 `from`이나 `to`가 그 그림의 `messages`에 없다                                                                                                                                                                                             |
-| `PROJECTION_PHASE_REVERSED`          | 구간 `from`이 `to`보다 뒤 메시지다                                                                                                                                                                                                             |
-| `PROJECTION_PHASE_OVERLAP`           | 구간이 앞 구간과 겹친다. 구간 배열이 메시지 순서를 안 따라도 여기 걸린다                                                                                                                                                                       |
-| `PROJECTION_PHASE_GAP`               | 첫 구간이 첫 메시지에서 시작하지 않거나, 구간 사이에 어느 구간에도 안 든 메시지가 있거나, 마지막 구간이 마지막 메시지에서 끝나지 않는다                                                                                                        |
+| 에러 코드                            | 언제                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SOLID_EDGE_WITHOUT_EVIDENCE`        | `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다. 근거가 0개인 실선도, `doc`, `user`, `live` 근거만 있는 실선도 여기 걸린다                                                                                                                                                                        |
+| `CODE_EVIDENCE_NOT_FOUND`            | `code` 근거의 위치가 `<repoId>:<relPath>:<line>` 꼴이 아니거나, `repoId`가 `repos`에 없거나, 경로가 절대 경로이거나 레포 루트 밖을 가리키거나, 파일이 없거나, 줄 번호가 파일 범위 밖이다. 파일이 없는데 git 이력에 옮겨진 기록이 있으면 `movedTo`에 고쳐 쓸 위치(`<repoId>:<새 경로>:<line>`)를 싣는다 |
+| `PRIVATE_EXCERPT_PRESENT`            | `visibility: "private"` 근거에 `excerpt`가 들어 있다. private `live` 근거면 조회 응답 원문을 넣었다는 문구가 따로 나온다                                                                                                                                                                               |
+| `LIVE_COMMAND_NOT_READ_ONLY`         | `live` 근거의 `command`가 [CLI 명령 판정](#cli-명령-판정)에서 `allow`가 아니다                                                                                                                                                                                                                         |
+| `ACCOUNT_NOT_FOUND`                  | `account`가 가리키는 노드가 `nodes`에 없다. 비슷한 노드 id가 있으면 `suggestion`에 하나 싣는다                                                                                                                                                                                                         |
+| `INVALID_ACCOUNT_KIND`               | `account`가 `cloud_account`가 아닌 노드를 가리킨다                                                                                                                                                                                                                                                     |
+| `PLACED_IN_NOT_FOUND`                | `placedIn`이 가리키는 노드가 `nodes`에 없다. 비슷한 노드 id가 있으면 `suggestion`에 하나 싣는다                                                                                                                                                                                                        |
+| `INVALID_PLACED_IN_KIND`             | `placedIn`이 `network`, `subnet`, `cluster`가 아닌 노드를 가리킨다                                                                                                                                                                                                                                     |
+| `COLUMN_REFERENCE_NOT_FOUND`         | 컬럼 `references.table`이 `nodes`에 없거나, 대상 테이블이 `columns`를 적었는데 `references.column`이 그 안에 없다                                                                                                                                                                                      |
+| `INVALID_COLUMN_REFERENCE_KIND`      | 컬럼 `references.table`이 `db_table`이 아닌 노드를 가리킨다                                                                                                                                                                                                                                            |
+| `CLOUD_ID_IN_ID`                     | 노드나 엣지 id에 계정 ID 꼴(12자리 숫자)이 들었거나, `cdn` 노드 id에 CDN 배포 ID 꼴이 들었다                                                                                                                                                                                                           |
+| `DANGLING_EDGE`                      | 엣지의 `from`이나 `to`가 `nodes`에 없다. 비슷한 노드 id가 있으면 `suggestion`에 하나 싣는다                                                                                                                                                                                                            |
+| `PARENT_NOT_FOUND`                   | `parent`가 가리키는 노드가 `nodes`에 없다. 비슷한 노드 id가 있으면 `suggestion`에 하나 싣는다                                                                                                                                                                                                          |
+| `PARENT_CYCLE`                       | `parent`를 따라가면 자기 자신으로 돌아온다                                                                                                                                                                                                                                                             |
+| `INVALID_PARENT_KIND`                | [포함 관계](#포함-관계) 규칙에 어긋난다. parent를 가질 수 없는 kind에 달았거나 담을 수 없는 kind를 가리킨다                                                                                                                                                                                            |
+| `DUPLICATE_GROUP_ID`                 | `groups`에 같은 id가 둘 있다                                                                                                                                                                                                                                                                           |
+| `GROUP_MEMBER_NOT_FOUND`             | `groups[].members`의 id가 `nodes`에 없다                                                                                                                                                                                                                                                               |
+| `SERVES_SERVICE_WITH_APPS`           | `serves`가 `micro_app`이 달린 서비스를 가리킨다                                                                                                                                                                                                                                                        |
+| `INVALID_LOADS_ENDS`                 | `loads`가 `micro_app → micro_app`, `client → service`, `app_module → agent` 중 어느 것도 아니다. 스킬에서 에이전트로 가는 선은 `loads`가 아니라 `spawns`다                                                                                                                                             |
+| `INVALID_HARNESS_EDGE_ENDS`          | `spawns`가 스킬이나 에이전트에서 에이전트로 가지 않거나 `invokes`가 스킬끼리가 아니다. 스킬이나 에이전트의 `calls`가 `endpoint` 밖을 가리켜도 여기 걸린다. 다른 팩의 엣지가 [어휘 팩](#어휘-팩)의 from → to 규칙을 어겨도 같은 코드다                                                                  |
+| `INVALID_CALL_ACTIONS`               | 엣지 `actions`를 MCP 도구로 가는 `calls`가 아닌 엣지에 달았다                                                                                                                                                                                                                                          |
+| `UNKNOWN_MCP_ACTION`                 | 엣지 `actions`에 도구 노드의 `actions`에 없는 값이 있다                                                                                                                                                                                                                                                |
+| `MD_CODE_EVIDENCE`                   | 하네스 IR에서 `skill`, `agent` 노드와 그 둘에서 나가는 엣지 밖에 md 파일 줄을 `code` 근거로 달았다                                                                                                                                                                                                     |
+| `FLOW_SERVICE_NOT_FOUND`             | 흐름에 `service`를 적었는데 `nodes`에 없거나 `service` 노드가 아니다                                                                                                                                                                                                                                   |
+| `DUPLICATE_FLOW_ID`                  | 흐름, 단계, 전이 id가 흐름 전체에서 겹치거나 한 흐름 안에서 행위자 id가 겹친다                                                                                                                                                                                                                         |
+| `FLOW_ACTOR_NOT_FOUND`               | 단계의 `actor`가 그 흐름의 `actors`에 없다                                                                                                                                                                                                                                                             |
+| `FLOW_STEP_NOT_FOUND`                | 전이의 `from`이나 `to`가 그 흐름의 `steps`에 없다                                                                                                                                                                                                                                                      |
+| `FLOW_REF_NOT_FOUND`                 | 단계의 `refs`가 `nodes`에 없다                                                                                                                                                                                                                                                                         |
+| `INVALID_FLOW_REF_KIND`              | 단계의 `refs`가 `screen`, `endpoint`, `feature`, `micro_app`, `skill`, `agent`, `component`가 아닌 노드를 가리킨다                                                                                                                                                                                     |
+| `SOLID_TRANSITION_WITHOUT_EVIDENCE`  | 전이가 `lineStyle: "solid"`인데 `code`나 `spec` 근거가 없다                                                                                                                                                                                                                                            |
+| `DUPLICATE_STAGE_ID`                 | 구간 id가 겹친다                                                                                                                                                                                                                                                                                       |
+| `STAGE_NODE_NOT_FOUND`               | 구간의 `nodes`가 `nodes`에 없다                                                                                                                                                                                                                                                                        |
+| `STAGE_NODE_TWICE`                   | 한 노드가 두 구간의 `nodes`에 함께 올라 있다                                                                                                                                                                                                                                                           |
+| `UNKNOWN_PACK`                       | `packs`에 없는 팩 id가 있다                                                                                                                                                                                                                                                                            |
+| `KIND_NOT_IN_PACKS`                  | 노드나 엣지의 kind가 IR이 적은 팩(끌어온 팩 포함)에 없다                                                                                                                                                                                                                                               |
+| `CODE_EVIDENCE_IN_DOC_REPO`          | `code` 근거가 `root` 없는 [문서 묶음 레포](#문서-묶음-레포)를 가리킨다                                                                                                                                                                                                                                 |
+| `DUPLICATE_PROJECTION_ID`            | 질문별 그림 id가 겹친다                                                                                                                                                                                                                                                                                |
+| `DUPLICATE_MESSAGE_ID`               | 메시지 id가 겹친다. 질문별 그림을 넘어서도 겹치면 안 된다                                                                                                                                                                                                                                              |
+| `PROJECTION_NODE_NOT_FOUND`          | `participants`, `sides[].nodes`, 메시지 `from`이나 `to`가 `nodes`에 없다. `participants`를 적었는데 메시지 끝이 거기 없어도 여기 걸린다                                                                                                                                                                |
+| `PROJECTION_EDGE_NOT_FOUND`          | 메시지 `edge`가 `edges`에 없다                                                                                                                                                                                                                                                                         |
+| `PROJECTION_EDGE_MISMATCH`           | 메시지 `edge`가 메시지의 두 끝을 잇는 엣지가 아니다                                                                                                                                                                                                                                                    |
+| `PROJECTION_BLOCK_NOT_FOUND`         | 메시지 `block`이 그 그림의 `blocks`에 없다                                                                                                                                                                                                                                                             |
+| `PROJECTION_BLOCK_SPLIT`             | 한 묶음의 메시지가 이어져 있지 않고 중간에 끊겼다가 다시 나온다                                                                                                                                                                                                                                        |
+| `SOLID_MESSAGE_WITHOUT_EVIDENCE`     | 메시지가 실선인데 자기 근거와 가리킨 엣지 근거 어디에도 `code`나 `spec`이 없다                                                                                                                                                                                                                         |
+| `PROJECTION_EMPTY`                   | `sequence`나 `dataflow` 그림에 메시지가 하나도 없다. `lifecycle` 그림이 가리킨 흐름에 `state`를 단 단계가 하나도 없거나 `blueprint` 그림이 가리킨 흐름에 갈림길 말고 단계가 하나도 없거나 `er` 그림의 `participants`가 비어 있어도 여기 걸린다                                                         |
+| `PROJECTION_FLOW_NOT_FOUND`          | `lifecycle`이나 `blueprint` 그림의 `flow`가 `flows`에 없다                                                                                                                                                                                                                                             |
+| `PROJECTION_SHAPE_FIELD`             | 모양에 안 맞는 필드를 썼다. [질문별 그림](#질문별-그림)의 모양별 필드 표를 본다                                                                                                                                                                                                                        |
+| `DUPLICATE_PHASE_ID`                 | 한 sequence 그림 안에서 구간 id가 겹친다                                                                                                                                                                                                                                                               |
+| `PROJECTION_PHASE_MESSAGE_NOT_FOUND` | 구간 `from`이나 `to`가 그 그림의 `messages`에 없다                                                                                                                                                                                                                                                     |
+| `PROJECTION_PHASE_REVERSED`          | 구간 `from`이 `to`보다 뒤 메시지다                                                                                                                                                                                                                                                                     |
+| `PROJECTION_PHASE_OVERLAP`           | 구간이 앞 구간과 겹친다. 구간 배열이 메시지 순서를 안 따라도 여기 걸린다                                                                                                                                                                                                                               |
+| `PROJECTION_PHASE_GAP`               | 첫 구간이 첫 메시지에서 시작하지 않거나, 구간 사이에 어느 구간에도 안 든 메시지가 있거나, 마지막 구간이 마지막 메시지에서 끝나지 않는다                                                                                                                                                                |
+| `INVALID_DESCRIBES_FROM`             | `describes` 엣지가 `document`나 `design_screen`이 아닌 노드에서 나간다                                                                                                                                                                                                                                 |
+| `SOLID_DESCRIBES`                    | `describes` 엣지가 실선이다. 문서가 가리킨 연결은 파일이 있어도 점선이다                                                                                                                                                                                                                               |
 
 `checkFiles: false`를 넘기면 `CODE_EVIDENCE_NOT_FOUND`의 파일 존재와 줄 범위 확인을 건너뛴다. 기본값은 `true`다.
 
+`suggestion`은 늘 하나다. 못 찾은 id와 글자 차이(대소문자 무시, 이웃 글자 자리바꿈은 한 번으로 셈)가 id 길이의 3분의 1 이내(최소 1, 최대 3)인 노드 id 가운데 가장 가까운 것이고 거리가 같으면 `nodes`에서 앞에 있는 것이다. 가까운 게 없으면 키 자체가 안 온다. 후보를 여럿 보이면 세션이 그중 하나를 확인 없이 고르기 쉬워서 하나만 싣는다 (`src/architecture/did-you-mean.ts`).
+
+`movedTo`는 render와 validate가 지난 실행 IR의 `repos[].head` 이후 git 이력에서 rename을 찾아 채운다. head가 없는 레포는 최근 커밋 200개를 본다. 스테이징한 rename도 넣고 a→b→c처럼 여러 번 옮긴 파일은 마지막 경로를 준다. 옮긴 경로의 파일이 지금 없거나 레포 밖이면 후보에서 뺀다. 줄 번호는 그대로 옮겨 적으므로 세션이 그 줄을 다시 확인한다. 에러는 그대로 거부이고 세션이 후보를 보고 근거 위치를 고쳐 다시 낸다.
+
 거부하지 않고 알리기만 하는 경고도 있다. 성공 응답의 `warnings`에 실리고 render를 막지 않는다. 경고가 없으면 키 자체가 안 온다.
 
-| 경고 코드                        | 언제                                                                                                                                                                                                                                                                                                                                                                                     |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NODE_DESCRIPTION_MISSING`       | 그리는 노드 중 `description`이 없거나 공백뿐이다. 해당 노드 id를 정렬해 `nodeIds`에 모은다. 경고는 이 코드 하나로 한 번만 온다                                                                                                                                                                                                                                                           |
-| `LIFECYCLE_OVER_BUDGET`          | `lifecycle` 그림 하나가 한 장에 읽히는 양을 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts`는 띠별 상태 수와 전이 수다. 기준은 [상태 흐름](#상태-흐름)에 있다                                                                                                                                                                                                               |
-| `BLUEPRINT_OVER_BUDGET`          | `blueprint` 그림 하나의 단계 열이 6을 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts.stages`는 열 수다. 기준은 [서비스 블루프린트](#서비스-블루프린트)에 있다                                                                                                                                                                                                               |
-| `ER_OVER_BUDGET`                 | `er` 그림 하나가 테이블 5개, 한 테이블의 컬럼 8개, 외래 키 선 6개 중 하나를 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts`는 테이블 수와 가장 긴 테이블의 컬럼 수, 선 수다. 기준은 [테이블 관계](#테이블-관계)에 있다                                                                                                                                                      |
-| `INFRA_PLACEMENT_CONFLICT`       | 노드에 적은 `provider`나 `region`이 `placedIn`, `parent`, `account`에서 물려받을 값과 다르다. 필드마다 하나씩 오고 `field`는 `provider`나 `region`, `nodeIds`는 걸린 노드 id다. 그림은 노드에 적은 값을 따른다. [인프라 구성 레벨](#인프라-구성-레벨)에서 설명한다                                                                                                                       |
-| `DELTA_OVER_BUDGET`              | 구조 변경 그림이 바뀐 곳 주변으로 좁혀도 구성 요소 8개, 관계 10개, 변경 목록 8줄 중 하나를 넘는다. render에서만 오고 `subjectId`는 view, `counts`는 그린 구성 요소 수와 관계 수, 변경 목록 줄 수다                                                                                                                                                                                       |
-| `CODE_EVIDENCE_EXCERPT_MISMATCH` | public `code` 근거에 적은 `excerpt`가 그 줄 내용과 다르다. 코드가 바뀌어 줄이 밀렸을 때 난다. 앞뒤 공백을 걷고 줄이 excerpt로 시작하면 맞은 것으로 본다. 근거마다 하나씩 오고 근거의 주인 id와 `evidenceIndex`가 붙는다. `candidates`에는 위아래 200줄 안에서 excerpt와 맞는 줄 번호가 가까운 순으로 최대 3개 실린다. 못 찾았으면 비어 있다. 재실행 때 이 경고가 나오면 후보 줄로 고친다 |
+| 경고 코드                        | 언제                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_DESCRIPTION_MISSING`       | 그리는 노드 중 `description`이 없거나 공백뿐이다. 해당 노드 id를 정렬해 `nodeIds`에 모은다. 경고는 이 코드 하나로 한 번만 온다                                                                                                                                                                                                                                                                                                                                                                            |
+| `NODE_TITLE_PATHLIKE`            | 그리는 노드 중 카드 제목(`displayName`, 없으면 `label`)이 경로나 파일 이름 꼴이다. 앞뒤 공백을 걷은 제목에 공백과 한글이 없고 아래 셋 중 하나면 경로로 본다. 슬래시나 역슬래시가 있다. `sqlite:.gestalt/events.db`처럼 소문자 scheme 뒤에 콜론과 경로가 온다. 정해 둔 확장자(`ts`, `json`, `md`, `db`, `yml` 등)로 끝난다. `Next.js`처럼 대문자로 시작하는 `이름.js`는 프레임워크 이름이라 뺀다 (`isPathlikeTitle`). `endpoint` 노드는 보지 않는다. 걸린 노드 id를 정렬해 `nodeIds`에 모으고 한 건만 온다 |
+| `DISPLAY_NAME_LANGUAGE`          | 그리는 노드 가운데 `description`이 있는 노드의 절반 넘게 설명에 한글이 들어 있는데 `displayName`에 한글이 한 글자도 없는 노드가 있다. `displayName`이 없거나 공백뿐인 노드는 보지 않는다. 걸린 노드 id를 정렬해 `nodeIds`에 모으고 한 건만 온다. 옮기면 안 되는 고유명사면 경고를 그대로 둬도 된다                                                                                                                                                                                                        |
+| `LEVEL_SUMMARY_MISSING`          | 드릴다운으로 그리는데 요약이 없거나 공백뿐인 레벨이 있다. 전체 레벨은 IR 최상위 `summary`, 나머지는 그 레벨을 여는 노드의 `summary`를 본다. 흐름, 질문, 인프라 구성 레벨은 보지 않는다. 레벨 id를 `levelIds`에, 여는 노드 id를 `nodeIds`에 모아 한 건만 온다. 평면 그림에는 안 온다. [레벨](#레벨)에 있다                                                                                                                                                                                                 |
+| `FLOW_STEP_DESCRIPTION_MISSING`  | 그리는 흐름의 그리는 단계 중 `description`이 없거나 공백뿐인 단계가 있다. 흐름마다 한 건씩 흐름 id 순으로 오고 `flowId`와 걸린 단계 id를 모은 `stepIds`가 붙는다. 단계 서랍에 거기서 하는 일이 안 나온다                                                                                                                                                                                                                                                                                                  |
+| `LIFECYCLE_OVER_BUDGET`          | `lifecycle` 그림 하나가 한 장에 읽히는 양을 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts`는 띠별 상태 수와 전이 수다. 기준은 [상태 흐름](#상태-흐름)에 있다                                                                                                                                                                                                                                                                                                                                |
+| `BLUEPRINT_OVER_BUDGET`          | `blueprint` 그림 하나의 단계 열이 6을 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts.stages`는 열 수다. 기준은 [서비스 블루프린트](#서비스-블루프린트)에 있다                                                                                                                                                                                                                                                                                                                                |
+| `ER_OVER_BUDGET`                 | `er` 그림 하나가 테이블 5개, 한 테이블의 컬럼 8개, 외래 키 선 6개 중 하나를 넘는다. 그림마다 하나씩 오고 `subjectId`는 그림 id, `counts`는 테이블 수와 가장 긴 테이블의 컬럼 수, 선 수다. 기준은 [테이블 관계](#테이블-관계)에 있다                                                                                                                                                                                                                                                                       |
+| `INFRA_PLACEMENT_CONFLICT`       | 노드에 적은 `provider`나 `region`이 `placedIn`, `parent`, `account`에서 물려받을 값과 다르다. 필드마다 하나씩 오고 `field`는 `provider`나 `region`, `nodeIds`는 걸린 노드 id다. 그림은 노드에 적은 값을 따른다. [인프라 구성 레벨](#인프라-구성-레벨)에서 설명한다                                                                                                                                                                                                                                        |
+| `DELTA_OVER_BUDGET`              | 구조 변경 그림이 바뀐 곳 주변으로 좁혀도 구성 요소 8개, 관계 10개, 변경 목록 8줄 중 하나를 넘는다. render에서만 오고 `subjectId`는 view, `counts`는 그린 구성 요소 수와 관계 수, 변경 목록 줄 수다                                                                                                                                                                                                                                                                                                        |
+| `CODE_EVIDENCE_EXCERPT_MISMATCH` | public `code` 근거에 적은 `excerpt`가 그 줄 내용과 다르다. 코드가 바뀌어 줄이 밀렸을 때 난다. 앞뒤 공백을 걷고 줄이 excerpt로 시작하면 맞은 것으로 본다. 근거마다 하나씩 오고 근거의 주인 id와 `evidenceIndex`가 붙는다. `candidates`에는 위아래 200줄 안에서 excerpt와 맞는 줄 번호가 가까운 순으로 최대 3개 실린다. 못 찾았으면 비어 있다. 재실행 때 이 경고가 나오면 후보 줄로 고친다                                                                                                                  |
+| `SECRET_MASKED`                  | render가 LLM 글자 칸에서 비밀값을 가렸다. 가린 자리마다 하나씩 오고 주인 id(`nodeId`, `edgeId`, `flowId`, `projectionId`, `questionId` 등)와 `field` 경로만 붙는다. 값은 싣지 않는다. render에서만 온다. [비밀값 가림](#비밀값-가림)에 있다                                                                                                                                                                                                                                                               |
+| `IGNORED_FILE_TRACKED`           | 퍼블릭 레포인데 `.gitignore`가 막을 산출물을 git이 이미 추적한다. 파일이 여럿이어도 한 건이고 `paths`에 경로를 모은다. render에서만 오고 `git rm --cached`는 안내만 한다. [커밋 정책](#커밋-정책)에 있다                                                                                                                                                                                                                                                                                                  |
+| `LABEL_CHANGED_ID_LOST`          | 지난 실행에서 설명이나 요약, 답 달린 질문이 있던 노드가 이번 IR의 어느 노드와도 짝이 안 났는데 같은 `kind`와 `repo`의 짝 없는 노드가 있다. label과 id를 함께 바꿨는데 code 근거 파일로도 하나로 못 좁힌 경우다. `previousId`, `previousLabel`, `kind`, `repo`, `candidates`가 붙는다. render에서만 온다. [재실행과 노드 id](#재실행과-노드-id)에 있다                                                                                                                                                     |
+| `MERGE_KEY_DUPLICATE`            | 이번 IR에 같은 병합 키(kind, repo, 정규화한 label)를 쓰는 노드가 둘 이상이고 지난 실행에 그 키가 있다. 첫 노드만 지난 id를 받아서 순서만 바뀌어도 id가 뒤바뀐다. `key`와 `nodeIds`가 붙는다. render에서만 온다                                                                                                                                                                                                                                                                                            |
+| `FLOW_DROPPED`                   | 이번 IR에 없는 지난 흐름을 이어 싣지 못해 사라졌다. `reason`은 가리키던 노드가 없어진 `node_gone`, 노드를 하나도 안 가리킨 `no_refs`, 단계나 전이의 `code` 근거 파일이 없거나 줄이 범위 밖인 `evidence_stale`, 이번 흐름과 단계나 전이 id가 겹친 `id_conflict` 중 하나다. `flowId`와 `missingNodeIds`가 붙는다. render에서만 온다                                                                                                                                                                         |
+| `PROJECTION_DROPPED`             | 이번 IR에 없는 지난 질문별 그림(투영)을 근거가 낡아 이어 싣지 못했다. `reason`은 메시지의 `code` 근거 파일이 없거나 줄이 범위 밖인 `evidence_stale` 하나다. `projectionId`가 붙고 message에는 투영 title을 싣지 않는다. 아직 필요한 그림이면 근거를 다시 찾아 이번 IR에 적는다. render에서만 온다                                                                                                                                                                                                         |
 
 설명이 비면 카드에 설명 줄이 안 붙고 서랍에서도 그 노드가 무엇인지 안 나온다. 그래도 거부하지 않는 건 설명이 없다고 그림이 틀리지는 않아서다. 공백뿐인 설명을 없는 것으로 치는 판정은 레이아웃 높이와 같다 (`src/architecture/types.ts`의 `hasCardDescription`).
+
+`NODE_TITLE_PATHLIKE`, `DISPLAY_NAME_LANGUAGE`, `LEVEL_SUMMARY_MISSING`, `FLOW_STEP_DESCRIPTION_MISSING` 넷은 작성 품질 경고다. 근거와 선은 맞아도 읽는 사람이 카드 제목이나 레벨, 단계를 못 읽는 자리를 짚는다. 같은 이유로 거부하지 않는다. 요약과 단계 설명의 공백 판정도 `hasCardDescription`을 쓴다.
 
 근거 없는 실선을 미해결로 조용히 돌리지 않고 거부하는 이유가 있다. 실선은 확인했다는 주장이라, 근거 없이 나온 실선 하나가 그림 전체를 못 믿게 만든다.
 
@@ -632,7 +653,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 
 같은 대상을 묻는 질문이 IR의 `unresolved`에 이미 있으면 자동 질문을 또 만들지 않는다.
 
-이 밖에 `prepareIr`가 앞에서 거르는 에러가 셋 있다. `ir`이나 액션별 필수 입력이 빠지면 `MISSING_INPUT`, 스키마 위반이면 `IR_PARSE_ERROR`, `view` 인자와 `ir.view`가 다르면 `VIEW_MISMATCH`다.
+이 밖에 `prepareIr`가 앞에서 거르는 에러가 넷 있다. `ir`이나 액션별 필수 입력이 빠지면 `MISSING_INPUT`, 스키마 위반이면 `IR_PARSE_ERROR`, `view` 인자와 `ir.view`가 다르면 `VIEW_MISMATCH`다. validate와 render에 넘긴 IR에 스키마에 없는 칸이 있으면 `UNKNOWN_FIELD`다. 칸마다 하나씩 오고 `path`에 입력 JSON 경로(`nodes[2].discription` 꼴), `suggestion`에 그 자리에서 쓸 수 있는 칸 이름 중 가장 가까운 하나가 붙는다. 예전에는 모르는 칸을 조용히 버려서 `discription`처럼 오타 난 설명이 에러 없이 사라졌다. 저장된 IR을 다시 읽는 자리(`status`, 지난 실행 IR 읽기, `merge`, 문서 액션)는 예전 IR이 막히지 않게 그대로 모르는 칸을 버린다.
 
 실패 응답은 모두 같은 꼴이다.
 
@@ -643,7 +664,7 @@ id에는 클라우드 계정 ID(12자리 숫자)와 CDN 배포 ID, 저장소의 
 }
 ```
 
-`errors[]` 항목에는 해당하면 `nodeId`, `edgeId`, `flowId`, `stepId`, `transitionId`, `projectionId`, `messageId`, `phaseId`, `evidenceIndex`가 붙는다.
+`errors[]` 항목에는 해당하면 `nodeId`, `edgeId`, `flowId`, `stepId`, `transitionId`, `projectionId`, `messageId`, `phaseId`, `evidenceIndex`, `path`, `suggestion`, `movedTo`가 붙는다.
 
 ---
 
@@ -665,7 +686,7 @@ private 근거의 원문은 세 겹으로 막는다.
 2. 저장하는 IR에서 private 근거의 `excerpt`를 지운다 (`stripPrivateExcerpts`).
 3. 공유용 HTML(`.shared.html`)은 private 근거의 `location`까지 빼고 `type`과 `visibility`만 남긴다 (`redactForSharing`). 패널에는 출처 종류만 보인다.
 
-`live` 근거는 `public`으로 적었어도 공유본에서 `type`, `visibility`, `observedAt`만 남는다. 명령과 리소스 위치에 계정 ID나 리소스 이름이 들어가기 때문이다. 공유본은 노드 이름(`label`, `displayName`, `description`)과 흐름의 제목, 행위자, 단계 글자, 전이의 누른 것(`trigger`)과 조건(`condition`), 메모(`label`), 질문 문장, 레벨 제목, 상태 이름, 구간 이름, 제품 그룹 이름에 든 계정 ID도 가린다. `db_table` 노드는 컬럼 이름과 타입, 외래 키 대상 컬럼, `onDelete`에 든 계정 ID도 가린다. `cdn` 노드는 CDN 배포 ID도 가린다. 인프라 노드의 `region`에 든 계정 ID도 가린다. [인프라 구성 레벨](#인프라-구성-레벨)의 박스 라벨 가운데 노드가 아닌 것(리전 이름, 계정 노드가 없을 때의 기본 Cloud 라벨)과 박스 id(`data-box-id`)도 같은 규칙으로 가린다. 노드인 박스의 라벨과 타일 이름, `aria-label`, `title`은 이미 가린 노드 이름에서 꺼낸다. 자동 질문도 공유본에 싣고 질문 문장은 같은 규칙으로 가린다.
+`live` 근거는 `public`으로 적었어도 공유본에서 `type`, `visibility`, `observedAt`만 남는다. 명령과 리소스 위치에 계정 ID나 리소스 이름이 들어가기 때문이다. 공유본은 노드 이름(`label`, `displayName`, `description`, `summary`)과 IR 최상위 `summary`와 `note`, 흐름의 제목, 행위자, 단계 글자, 전이의 누른 것(`trigger`)과 조건(`condition`), 메모(`label`), 질문 문장, 레벨 제목과 요약, 상태 이름, 구간 이름, 제품 그룹 이름에 든 계정 ID도 가린다. `db_table` 노드는 컬럼 이름과 타입, 외래 키 대상 컬럼, `onDelete`에 든 계정 ID도 가린다. `cdn` 노드는 CDN 배포 ID도 가린다. 인프라 노드의 `region`에 든 계정 ID도 가린다. [인프라 구성 레벨](#인프라-구성-레벨)의 박스 라벨 가운데 노드가 아닌 것(리전 이름, 계정 노드가 없을 때의 기본 Cloud 라벨)과 박스 id(`data-box-id`)도 같은 규칙으로 가린다. 노드인 박스의 라벨과 타일 이름, `aria-label`, `title`은 이미 가린 노드 이름에서 꺼낸다. 자동 질문도 공유본에 싣고 질문 문장은 같은 규칙으로 가린다.
 
 지식 문서 그림(`knowledge`, `knowledge-link`)의 공유본은 문서 정보도 줄인다 (`maskDocInfo`).
 
@@ -679,6 +700,66 @@ private 근거의 원문은 세 겹으로 막는다.
 두 HTML 모두 페이지가 쓰는 필드만 싣는다. `repos`는 `id`와 `name`만 들어가고 `root`와 `remote`는 빠진다. `sourcesUsed`도 HTML에 들어가지 않는다. 그래서 로컬 경로나 사용한 도구 이름이 공유본으로 새지 않는다.
 
 > ⚠️ 다른 사람에게 넘길 때는 `.shared.html`만 넘긴다. `.html`은 private 근거의 위치가 그대로 보이는 본인용이다.
+
+### 비밀값 가림
+
+LLM이 쓴 글자에 API 키나 비밀번호가 섞여 들어와도 네 산출물(본인용 HTML, 저장 IR JSON, 공유본 `.shared.html`, 구조 변경 그림 HTML)에 원문이 남지 않게 render가 가린다 (`src/architecture/secret-mask.ts`). 대상은 public 근거의 `excerpt`와 code가 아닌 근거의 `location`, 노드의 `label`, `displayName`, `description`, `summary`부터 흐름과 질문별 그림, 질문 문장, IR 최상위 `summary`와 `note`까지 LLM이 채운 글자 칸 전부다. 첫 render는 근거 `excerpt`를 코드 줄과 맞춰 보는 검증이 끝난 뒤에 가린다. 저장 IR에서 다시 들어온 가린 `excerpt`는 `[비밀값]` 앞부분만 코드 줄과 맞춘다. 가린 자리 앞에 남은 글자가 없으면 줄 범위만 본다.
+
+가리는 규칙은 여덟 겹이다.
+
+1. 서비스가 정한 꼴이 뚜렷한 키 (GitHub, GitLab, Slack, AWS, Google, Stripe, OpenAI, Anthropic, npm, Hugging Face, SendGrid 등)
+2. `-----BEGIN ... PRIVATE KEY-----`부터 `END`까지. `END`가 없으면 글 끝까지 가린다
+3. JWT, 그리고 DB 접속 주소(`postgres://user:비밀번호@host`)의 비밀번호. 사용자와 호스트는 남긴다
+4. `password`, `apiKey`, `client_secret`, `token`처럼 비밀 같은 이름에 대입한 따옴표 값
+5. URL 쿼리와 fragment에서 키가 비밀 같은 이름이거나 `sig`, `signature`, `X-Amz-Signature`, `X-Amz-Credential`, `code`, `key`인 값. 키는 남기고 값만 가린다
+6. 비밀 같은 이름에 따옴표 없이 대입한 값(`password=...`, `export API_KEY=...`, `TOKEN := ...`). `:` 뒤 값은 숫자와 글자가 섞였거나 무작위 글자처럼 보일 때만 가린다. `auth: Keycloak`, `Authorization: Bearer`, `token: AccessToken`, `apiKey: z.string()` 같은 산문과 타입 선언은 그대로 둔다. 바깥 이름이 비밀 이름이 아니어도 값 안에 든 대입(`Environment=DB_PASSWORD=...`, `cfg=f(password=...)`)은 따로 보고 가린다. 명령행 인자(`--password=...`)도 같다
+7. 이름이 없어도 따옴표 안에 든 무작위 긴 글자
+8. 산문 속 따옴표 없는 글자 중 대소문자와 숫자가 고루 섞인 생성 키 꼴
+
+놓치는 쪽보다 멀쩡한 값을 가리는 쪽을 택한다. 그래도 아래는 비밀이 아니라서 놔둔다. 환경변수와 템플릿 참조(`process.env.API_KEY`, `${API_TOKEN}`, `env(...)`), `changeme`나 `여기에-키-입력` 같은 안내 문구, 웹 페이지에 박으라고 만든 공개 키(`pk_live_`, `pk_test_` 등), 일반 URL과 비밀번호 없는 접속 주소, 프로젝트 파일 경로, UUID와 커밋 해시, ULID, CamelCase 식별자, 알파벳을 차례로 늘어놓은 지어낸 키가 여기 든다. 코드 근거의 `token = getToken()`이나 `token = this.token`처럼 함수 호출과 멤버 참조를 대입한 줄도 값이 아니라서 놔둔다. 다만 이름이 비밀번호 꼴이고 값에 숫자가 있으면 호출로 보지 않고 가리는 경우가 있다. 이름이 .env 대문자 꼴이거나 값이 대문자로 시작하거나 값의 첫 괄호 앞에 숫자가 있을 때다(`password=Hunter(2)`, `DB_PASSWORD=Summer(2024)`). code 근거의 `location`(`<repoId>:<경로>:<줄>`)은 가리지 않고 문서 근거 URL의 `#절` 앵커도 남긴다.
+
+가린 자리는 고정 표식 `[비밀값]`으로 바꾼다. 표식은 어느 규칙에도 안 걸려서 두 번 가려도 결과가 같다. 저장 IR은 디스크에 쓸 때 한 번 더 가린다. 공유본은 `redactForSharing`이 private 근거 축약과 계정 ID 가림을 마친 뒤 다시 가린다. 그래서 가림 이전에 저장한 IR을 다시 그려도 표식이 겹치지 않는다.
+
+가린 자리마다 render 응답에 `SECRET_MASKED` 경고가 한 건씩 온다. 같은 자리는 한 번만 싣는다. 경고에는 위치(`nodeId`나 `edgeId`, `flowId`, `projectionId`, `questionId` 같은 주인 id와 `field` 경로)만 들어가고 값이나 값의 일부는 안 들어간다. 경고 문구에 노드 이름이 섞이는 다른 경고도 같은 규칙으로 문구를 가린다.
+
+### 콘텐츠 보안 정책(CSP)
+
+두 HTML 모두 `<meta http-equiv="Content-Security-Policy">`를 싣는다. 인라인 `<script>`와 `<style>` 본문마다 sha256 해시를 뽑아 허용 목록에 넣으므로 render가 쓴 스크립트 말고는 돌지 않는다. 같은 IR이면 해시도 같아서 렌더 바이트는 그대로 결정적이다. 인라인 이벤트 핸들러(`onclick=` 등)는 쓰지 않는다.
+
+| 지시어                                      | 본인용                  | 공유본            |
+| ------------------------------------------- | ----------------------- | ----------------- |
+| `default-src`                               | `'none'`                | `'none'`          |
+| `script-src`, `style-src`, `style-src-elem` | 본문 해시               | 본문 해시         |
+| `style-src-attr`                            | `'unsafe-inline'`       | `'unsafe-inline'` |
+| `img-src`                                   | `data:`                 | `data:`           |
+| `base-uri`, `form-action`                   | `'none'`                | `'none'`          |
+| `connect-src`                               | `http://127.0.0.1:7894` | `'none'`          |
+
+공유본은 `connect-src 'none'`을 직접 적어 어디로도 요청을 못 보내게 한다. 본인용은 [라이브 Ask](#라이브-ask) 서버 주소 한 줄만 연다. 디스크에 쓰는 HTML에는 기본 포트 7894가 들어가고 서버가 다른 포트로 떴으면 내줄 때 그 포트로 바꿔 끼운다. file://로 연 본인용 HTML은 출처가 달라서 이 줄이 있어도 요청이 안 나간다. `style-src-attr 'unsafe-inline'`은 레이아웃 좌표를 `style` 속성으로 넣기 때문에 남긴다. Safari 15.4나 Firefox 108보다 오래된 브라우저는 `style-src-attr`를 몰라 `style-src`의 해시 규칙만 보므로 `style` 속성이 막혀 배치가 깨질 수 있다.
+
+데이터 블록(`<script type="application/json">`)에 IR을 실을 때는 `<`, `>`, `&`와 줄 구분 문자(U+2028, U+2029)를 `\u` 이스케이프로 바꾼다. 그래서 글자 칸에 `</script>`나 `<!--`가 들어와도 블록이 일찍 닫히지 않는다. 페이지 스크립트는 글자를 `textContent`로만 넣고 `innerHTML`을 쓰지 않는다. 글자 방향을 뒤집는 bidi 제어 문자는 보이는 표식으로 바꿔 그린다.
+
+### 커밋 정책
+
+render는 그릴 때마다 레포 공개 여부를 보고 `.gestalt/architecture/.gitignore`를 맞춘다. 공개 여부는 이 순서로 정한다.
+
+1. `git remote get-url origin`으로 원격 주소를 읽는다. 원격이 없으면 퍼블릭으로 본다.
+2. GitHub 주소가 아니면 퍼블릭으로 본다.
+3. `gh repo view <owner/repo> --json visibility`로 묻는다 (타임아웃 5초). `PRIVATE`면 프라이빗, `PUBLIC`이면 퍼블릭이다. 엔터프라이즈 조직 안에서만 보이는 `INTERNAL`은 조직 밖에 안 보이니 프라이빗으로 본다.
+4. gh가 없거나 실패했거나 응답을 못 읽었으면 퍼블릭으로 본다.
+
+애매하면 퍼블릭으로 보는 이유는 본인용 산출물이 공개 레포에 올라가는 쪽이 더 큰 사고라서다. 공개 여부를 못 읽어도 render는 막히지 않는다.
+
+| 공개 여부 | `.gitignore`가 막는 파일                                                                                                                       | 커밋할 수 있는 파일                              |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| 퍼블릭    | 본인용 HTML(`*.html`), 저장 IR(`*.json`), 질문별 그림(`views/`), 본인용 구조 변경 그림, 쓰다 남은 임시 파일(`*.tmp`), 격리 파일(`*.corrupt-*`) | `<그림>.shared.html`, `<그림>.delta.shared.html` |
+| 프라이빗  | 없음                                                                                                                                           | 전부                                             |
+
+임시 파일은 산출물을 원자적으로 쓰려고 잠깐 만드는 `<파일>.<pid>.<uuid>.tmp`다. 이름에 `.shared.html`이 들어 있어도 끝이 `.tmp`라 예외에 안 걸리고 무시된다. 격리 파일은 스키마가 안 맞아 옮겨 둔 저장 IR이라 가림 이전 원문일 수 있다. 막을 꼴을 나열하는 이유는 허용 목록(`*` 뒤에 예외)으로 쓰면 관리 구역이 든 `.gitignore` 자신까지 무시되어서다.
+
+render가 쓰는 줄은 `# >>> gestalt architecture`와 `# <<< gestalt architecture` 표식 사이의 관리 구역에만 있다. 사람이 그 밖에 적은 줄은 건드리지 않는다. 프라이빗이 되면 관리 구역만 걷어내고 관리 구역만 있던 파일은 지운다.
+
+퍼블릭인데 막을 파일을 git이 이미 추적하고 있으면 `IGNORED_FILE_TRACKED` 경고가 한 건 온다. 파일이 여럿이어도 한 건이고 `paths`에 레포 루트 기준 경로를 모은다. 문구에는 `git rm --cached -- <경로>` 명령을 안내만 한다. 서버는 이 명령을 실행하지 않으므로 다음 커밋에서 뺄지는 사람이 정한다. 프라이빗이던 레포가 퍼블릭으로 바뀐 경우도 다음 render 때 `.gitignore`를 갱신하고 이 경고를 내는 데까지만 한다. 이미 커밋된 이력은 손대지 않는다.
 
 ---
 
@@ -714,6 +795,7 @@ private 근거의 원문은 세 겹으로 막는다.
 | 레벨        | id               | 보이는 것                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 전체        | `root`           | 서비스, 게이트웨이, 서버(앱 모듈), 저장소만. 인프라 구성 레벨 때문에만 나뉜 그림이면 평면 그림 그대로다. prod 기준이다. 엣지는 세부 엣지를 묶은 것이고 굵기와 숫자가 건수다. 마이크로 프론트엔드 서비스는 서비스 카드 아래 앱 카드를 이어 쌓고 테두리로 한 묶음을 그린다                                                                                                                                                                                                          |
+| 레인        | `lane:<레인 키>` | 카드가 많아 [접힌 전체 레벨](#첫-화면-접기)에서 덩어리 하나를 누르면 오는 단계. 그 레인에 선 전체 레벨 카드와 그 사이 묶음 선, 레인 밖에서 부르는 쪽과 부르는 대상 알약이 선다. 레인 키는 구간이 있으면 `stage-<순번>`, 없으면 레인 이름이다                                                                                                                                                                                                                                      |
 | 서비스      | `service:<id>`   | 서비스 카드에서 기능영역, 화면으로 이어지는 위계와 화면이 부르는 게이트웨이와 서버. 화면 호출은 화면에서 바로 묶인다. 서비스를 서빙하는 버킷이나 배포 대상이 있으면 그 노드와 앞단 CDN, 도메인이 서비스 카드 왼쪽에 선다. 화면 사이 이동은 기능영역 레벨에서 본다                                                                                                                                                                                                                 |
 | 앱          | `app:<id>`       | 마이크로 프론트엔드 리모트 앱 하나. 서비스 레벨과 같은 구성(서빙 사슬, 앱, 기능영역, 화면, 게이트웨이, 서버)이다. 진입 앱은 서비스 레벨이 대신해서 이 레벨이 없다                                                                                                                                                                                                                                                                                                                 |
 | 기능영역    | `feature:<id>`   | 그 기능영역의 화면, 화면이 부르는 엔드포인트, 거쳐 가는 게이트웨이, 받는 모듈. 세부 엣지 그대로                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -724,6 +806,24 @@ private 근거의 원문은 세 겹으로 막는다.
 | 인프라 구성 | `infra`          | prod와 환경 없는 인프라 노드를 벤더, 리전, VPC, 서브넷 박스 안에 그린 것. 전체 바로 아래에 선다. 서비스 레벨의 인프라 카드와 전체 레벨의 저장소 카드가 이 레벨로 들어간다(`enter`). 이 레벨에 그려지는 인프라 노드에 `provider`, `region`, `exposure`, `placedIn` 중 하나라도 적어야 생긴다. `placedIn`이나 `parent`를 따라 올라간 자리 중 하나라도 환경을 prod 말고 다른 값으로 적었으면 그 인프라 노드는 이 레벨에서 빠진다. [인프라 구성 레벨](#인프라-구성-레벨)에서 설명한다 |
 
 전체 레벨에는 parent 없는 [범용 component](#범용-component)도 선다. 그 사이 선은 묶지 않고 그대로 긋는다. component로만 이뤄진 그림이 독립 흐름이나 질문별 그림 때문에 드릴다운이 돼도 전체 레벨이 비지 않는다.
+
+레벨에는 요약을 붙일 수 있다 (`drilldown.ts`의 `levelSummary`). 전체 레벨은 IR 최상위 `summary`를 쓰고 서비스, 앱, 기능영역, 서버, 묶음 레벨은 그 레벨을 여는 노드의 `summary`를 쓴다. 레벨 id의 `<id>` 자리가 그 노드다. 공백뿐인 요약은 없는 것으로 친다. 흐름, 질문, 인프라 구성 레벨에는 요약이 없다. 요약은 값이 있을 때만 HTML 데이터 블록의 `levels[].summary`에 실린다. IR 최상위 `note`도 값이 있을 때만 데이터 블록 최상위 `note`로 실린다. 공유본에서는 둘 다 계정 ID를 가린 글자로 실린다. 화면에서는 요약을 [단계 머리](#단계-머리)가, 일러두기를 [개요 패널](#개요-패널)이 보여준다.
+
+validate는 render가 만들 레벨 목록을 배치 없이 뽑아(`drillLevelOwners`) 요약이 빠진 레벨을 `LEVEL_SUMMARY_MISSING` 경고로 알린다. 여는 노드가 IR에 없는 레벨은 채울 자리가 없어 묻지 않는다.
+
+### 첫 화면 접기
+
+전체 레벨 카드가 열두 장을 넘으면 카드를 레인별 덩어리로 접는다 (`drilldown.ts`의 `collapseRoot`). 첫 화면에서 수십 장을 한꺼번에 보여주면 어디부터 읽을지 안 잡혀서다.
+
+- 덩어리 하나가 레인 하나다. 구간을 정한 그림이면 구간 하나가 덩어리 하나다. 순서는 레인이 왼쪽에서 서는 순서와 같다.
+- 덩어리 카드에는 레인 순서 숫자와 레인 이름, 대표 카드 이름 한두 줄, 항목 수가 붙는다. 대표 이름은 전체 레벨 선에 많이 걸린 카드부터 세 장까지 잇고 남은 장수는 "외 N개"로 적는다. 선 수가 같으면 id 순이라 같은 IR이면 같은 글자가 나온다.
+- 덩어리 사이 간격은 72px(`CHUNK_LAYER_GAP`)로 일반 레벨보다 좁다. 처음 맞출 때는 배율을 0.6(`CHUNK_FIT_MIN_K`)까지 낮춰 덩어리를 한 화면에 다 넣는다. 일반 레벨은 0.75 밑으로 내려가면 읽히는 배율로 열고 왼쪽 위부터 보여준다.
+- 덩어리 사이에는 묶음 선만 긋는다. id는 `chunk:<레인 키>-><레인 키>`이고 건수와 멤버 세부 엣지는 그 사이 전체 레벨 묶음 선을 합친 것이다. 근거 점선과 섞인 묶음의 점선 알약 규칙은 일반 묶음 선과 같다. 누르면 `#/bundle/root/<묶음 id>`로 그 세부 엣지를 본다.
+- 덩어리를 누르면 그 [레인 레벨](#레벨)로 간다. 주소는 `#/level/lane%3A<레인 키>`다. 레인 레벨에서 카드를 누르면 예전처럼 서비스나 서버 레벨로 들어가고 Shift나 ⌘로 두 카드를 고르면 경로를 펼친다.
+- 덩어리가 하나뿐이거나 카드가 열두 장 이하면 접지 않고 예전처럼 펼친다. 덩어리 하나로 접으면 누르는 단계만 하나 늘어서다.
+- 전체 레벨 카드가 39장인 하네스 그림은 첫 화면이 덩어리 5장과 묶음 선 4개로 줄었다.
+
+문턱과 덩어리 카드 크기, 아래에서 말할 간격과 알약 수 같은 상수는 전부 `src/architecture/layout-tuning.ts` 한 파일에 모았다. 눈으로 보며 정한 값이라 바꿀 땐 여기만 고친다.
 
 ### 묶음 엣지의 주인
 
@@ -784,14 +884,14 @@ private 근거의 원문은 세 겹으로 막는다.
 - **전체 레벨**에는 parent 없는 노드가 선다.
 - **자식이 있는 노드**마다 `group:<노드 id>` 레벨이 하나 생긴다. 그 레벨에는 직속 자식이 선다. 빵부스러기는 전체에서 그 노드까지 조상 순서다.
 - **안쪽 선은 끌어올린다.** 레벨에 선 카드의 자손끼리 이어진 선은 그 카드까지 올려서 묶음 엣지로 그린다. 끌어올리지 않은 선이 한 쌍에 하나뿐이면 원래 kind 그대로 그린다. 그래야 범례 글자가 맞는다.
-- **밖으로 나가는 선**의 상대 쪽은 지금 레벨을 품은 조상 바로 아래까지만 올린다. 옆 서브넷이나 옆 조직처럼 한 단계 위 형제로 보이게 하려는 것이다. 그 카드는 보내기만 하면 왼쪽 끝 **밖에서 들어옴** 레인에, 받는 쪽이면 오른쪽 끝 **밖으로 나감** 레인에 선다. kind 순위대로 두면 안쪽 카드 사이에 끼어 선이 크게 돌아서다.
+- **밖으로 나가는 선**의 상대 쪽은 지금 레벨을 품은 조상 바로 아래까지만 올린다. 옆 서브넷이나 옆 조직처럼 한 단계 위 형제로 보이게 하려는 것이다. 그 카드는 보내기만 하면 왼쪽 끝 **부르는 쪽** 레인에, 받는 쪽이면 오른쪽 끝 **부르는 대상** 레인에 선다. kind 순위대로 두면 안쪽 카드 사이에 끼어 선이 크게 돌아서다.
 - **바깥 카드는 레인 안에서 열을 나눈다.** kind 순위마다 열을 따로 잡고 한 열에 네 장(`OUTSIDE_PER_COLUMN`)이 넘으면 옆 열로 넘긴다. 받는 쪽은 안쪽 카드 오른쪽부터, 보내기만 하는 쪽은 안쪽 카드 왼쪽으로 열이 늘어난다. 한 열에 다 쌓으면 바깥 카드가 많을 때 그림이 세로로만 길어진다.
 
 `tree` 팩이어도 그려지는 노드 사이에 parent 관계가 하나도 없으면 레벨을 나눌 이유가 없어 평면 그림이다.
 
 ### 레인
 
-그림은 세로 띠(레인)로 나뉜다. 레인 하나가 레이어 하나이고 왼쪽에서 오른쪽으로 요청이 흐르는 순서로 놓인다. 레인 위쪽에 제목과 그 레인의 카드 수가 붙는다. 카드가 없는 레인은 아예 그리지 않는다. 드릴다운이 아닌 평면 그림도 같은 레인을 쓴다.
+그림은 세로 띠(레인)로 나뉜다. 레인 하나가 레이어 하나이고 왼쪽에서 오른쪽으로 요청이 흐르는 순서로 놓인다. 레인에는 면과 테두리를 그리지 않는다. 위쪽에 얇은 괄호선(양끝에 짧은 눈금이 달린 가로선)과 제목, 그 레인의 카드 수만 붙는다. 제목은 13px 굵기 600의 옅은 글자다. 칸을 면으로 칠하면 카드보다 띠가 먼저 눈에 들어와서다. 카드가 없는 레인은 아예 그리지 않는다. 드릴다운이 아닌 평면 그림도 같은 레인을 쓴다.
 
 | 그림                            | 왼쪽부터                                                                                                       |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -813,6 +913,17 @@ private 근거의 원문은 세 겹으로 막는다.
 
 레인 제목은 카드 칩의 종류 이름과 같은 말을 쓴다 (`src/architecture/kind-text.ts`의 `LANE_TITLES`, `NODE_KIND_SHORT`).
 
+### 레벨 밖 맥락
+
+서비스 레벨과 서버 레벨은 안쪽만 보여주면 이 묶음을 누가 부르고 이 묶음이 어디를 부르는지가 안 보인다. 그래서 선 한쪽 끝만 레벨 안에 있는 IR 선을 찾아 다른 쪽 끝 카드를 레벨 밖 카드로 같이 세운다 (`drilldown.ts`의 `withOutsideContext`).
+
+- 레벨 안으로 선을 보내는 카드는 맨 왼쪽 **부르는 쪽** 레인에, 레벨 안에서 나간 선을 받는 카드는 맨 오른쪽 **부르는 대상** 레인에 선다. 보내기도 하고 받기도 하는 카드는 부르는 쪽에 한 번만 세운다. 레인 레벨도 같은 규칙으로 바깥 카드를 세운다.
+- 한쪽에 네 장(`OUTSIDE_PER_SIDE`)까지만 세운다. 선이 많은 카드부터 고르고 수가 같으면 id 순이다. 넘친 장수는 레인 제목에 `+N`으로 적고 마우스를 올리면 "연결이 적은 바깥 카드 N개는 접어 뒀어요"가 뜬다. `aria-label`에도 ", 밖에 N개 더"를 붙인다.
+- 드릴다운에서 밖 카드는 점선 테두리의 알약이다. 이름과 오른쪽 `↗`만 보이고 카드 낭독 이름 뒤에 ", 이 레벨 밖"이 붙는다. 알약을 누르거나 Enter를 치면 그 노드가 안쪽 카드로 서는 다른 레벨로 가서 그 카드를 고른다(`nodeLevels`의 첫 레벨). Shift나 ⌘를 누른 채 누르면 예전처럼 두 카드를 고른다.
+- 레벨 선이 이미 품은 선(묶음 선 포함)은 건너뛴다. 묶음이 접어 둔 엔드포인트가 밖 카드로 다시 나오지 않게 하려는 것이다. 레벨을 연 카드와 그 안에 든 노드도 밖으로 치지 않는다.
+- 서빙과 배포 사슬 선(`serves` 같은 것)은 호출이 아니라서 밖 맥락으로 세우지 않는다. 서비스 레벨은 제 서빙 사슬을 이미 그리고 나머지는 인프라 레벨과 배포 경로 그림이 보여준다.
+- 서비스 레벨은 그 서비스의 화면이 부르는 서버가 다시 부르는 쪽까지 **부르는 대상**에 세운다.
+
 ### 구간
 
 종류별 레인은 서버가 둘이어도 한 열에 겹쳐 세운다. 요청이 앱에서 줄서기 서버로, 거기서 알림 서버로, 다시 DB로 가는 순서를 보이려면 세션이 `stages`로 구간을 정한다. 구간이 있으면 위 표 대신 레인 하나가 구간 하나가 되고 레인 제목이 구간 이름이 된다. 전체 레벨과 드릴다운 레벨, 평면 그림이 같은 구간을 쓴다.
@@ -831,11 +942,76 @@ private 근거의 원문은 세 겹으로 막는다.
 - 구간 순번이 elk 열 순위의 앞자리가 된다 (`src/architecture/layout.ts`의 `assignStages`). 구간 안에서는 원래 종류 순서가 그대로 남는다. 구간 순서가 요청 방향과 반대면 선이 왼쪽으로 꺾여 돌아간다.
 - 분석 둘을 합치면 같은 id 구간은 하나로 묶는다. 한쪽이 `repos`를 안 줬으면 합친 구간도 레포를 가리지 않는다.
 
+### 색과 테마
+
+색 토큰은 `src/architecture/html-theme.ts`의 `LIGHT_TOKENS`와 `DARK_TOKENS` 한 곳에서 정한다. 다른 렌더 파일은 `var(--토큰)`만 읽고 hex나 `rgb()` 값을 직접 쓰지 않는다. `tests/unit/architecture/theme-tokens.test.ts`가 `src/architecture/` 바로 아래 파일(팩 폴더 제외)을 훑어 이 규칙을 지킨다.
+
+바탕은 색이 없는 회색이다. 어두운 화면은 바탕 `#0f0f0f`에 면 `#191919`, 카드 `#1c1c1c`이고 테두리까지 R과 G와 B가 같은 회색이다. 밝은 화면은 바탕 `#f3f3f1`(아주 살짝 따뜻한 회색)에 면과 카드가 흰색이다.
+
+강조색(`--accent`)은 파랑이 아니라 글자와 같은 잉크다. 어두운 화면에서 `#ececec`, 밝은 화면에서 `#161616`이다. 고른 카드 링과 포커스 테두리, 눌린 단추, 흐름 배지, 지금 단계 카드 테두리가 모두 이 잉크를 쓴다. 잉크 바탕 위 글자는 `--on-accent`(어두운 화면 `#0f0f0f`, 밝은 화면 흰색)다. 강조와 글자가 같은 색이라 패널 안 코드 위치 링크(`a.loc`)는 색 대신 밑줄로 가른다.
+
+선은 회색(`--edge`)에 불투명도 0.5(`--edge-alpha`)로 깔린다. 카드를 고르거나 선에 마우스를 올린 선만 `--edge-strong`으로 진하게 뜬다. 근거 없는 선의 6 4 점선은 그대로라 회색에서도 실선과 갈린다. 로드 선(`loads`)은 많이 겹쳐서 기본은 회색 1 6 점선으로 물리고 고르거나 올렸을 때만 하늘색 `--loads`로 바뀐다. 계정 넘는 선은 늘 자홍 `--x-account`이고 골랐을 때도 진한 회색에 덮이지 않고 자홍으로 남는다.
+
+색이 뜻을 가진 자리는 그대로 남겼다.
+
+| 토큰          | 뜻                                                  |
+| ------------- | --------------------------------------------------- |
+| `--x-account` | 계정이 다른 두 노드를 잇는 선                       |
+| `--loads`     | 고르거나 올린 로드 선                               |
+| `--warn`      | "추정" 배지와 옆 흐름 칩                            |
+| `--live`      | 라이브 조회 근거 배지                               |
+| 종류 색       | 종류 칩. 칩 글자가 함께 있어 색만으로 가르지 않는다 |
+
+글자는 네 단계다. 바탕에서 먼 순서로 `--text`, `--text-2`, `--text-3`, `--text-4`이고 넷 다 무채색이다.
+
+| 단계       | 어두운 화면 | 밝은 화면 | 쓰는 자리                                                   |
+| ---------- | ----------- | --------- | ----------------------------------------------------------- |
+| `--text`   | `#ececec`   | `#161616` | 카드 이름, 제목, 본문                                       |
+| `--text-2` | `#b4b4b4`   | `#3f3f3f` | 설명 문장 (카드 설명, 힌트, 질문 문장, 변경 요약)           |
+| `--text-3` | `#999999`   | `#595959` | 메타 (둘째 줄, 출처 배지, 개수, 레인 제목, 빈 상태, 아이콘) |
+| `--text-4` | `#5c5c5c`   | `#8c8c8c` | 아래 세 자리만                                              |
+
+`--text-4`는 대비가 4.5:1에 못 미쳐(어두운 화면 2.6에서 2.9, 밝은 화면 3.0에서 3.4) 읽어야 하는 글자에는 쓰지 않는다. 쓰는 자리는 셋이고 테스트가 이 셋 밖으로 번지면 깨진다.
+
+| 자리                  | 왜 흐려도 되나                                               |
+| --------------------- | ------------------------------------------------------------ |
+| `.q:disabled .q-subj` | 누를 수 없는 질문 단추. 흐린 것 자체가 비활성 표시다         |
+| `.infra-credit`       | 아이콘 출처 표기. 화면 구석의 법적 고지라 읽기 대상이 아니다 |
+| `.sp-arrow`           | 구간 사이 장식 화살표. 글자가 아니다                         |
+
+캔버스에는 24px 간격의 점 격자를 깐다(`--grid-dot`, 어두운 화면 `#262626`, 밝은 화면 `#dadad5`). 격자는 화면에 고정되고 그림을 확대하거나 옮겨도 따라 움직이지 않는다. 그림과 함께 움직이려면 확대와 이동마다 스크립트가 배경 위치를 다시 써야 해서 고정으로 뒀다. 스타일시트 규칙의 `radial-gradient`라 인라인 style 속성이 없고 [CSP](#콘텐츠-보안-정책csp)에 걸리지 않는다. 인쇄할 때는 격자를 끈다.
+
 ### 카드와 위쪽 바
 
-카드는 레고 브릭처럼 그린다. 바탕은 종류 색을 옅게 섞은 파스텔이다. 밝은 테마는 흰색에 24%, 어두운 테마는 카드 바탕에 44%를 섞는다. 위에는 돌기 네 개를 올리고 아래에는 3px 두께를 붙인다. 돌기와 두께, 테두리는 종류 색을 조금 더 섞은 같은 색이고 흐린 그림자는 안 쓴다. 글자는 원래 글자색 그대로라 진한 바탕에 흰 글자를 올릴 때처럼 대비를 따로 맞출 일이 없다. 축소해서 글자가 안 읽혀도 색 덩어리만으로 종류가 갈린다. 카드 안 배지는 파스텔 위에서 묻히지 않게 꽉 채운다. 흐름 배지는 강조색 바탕에 흰 글자이고 아래에 작은 두께가 붙는다. "추정" 배지는 경고색 바탕이다. 흐름 그림의 단계 카드도 같은 브릭이고 정상 흐름은 파랑, 옆 흐름은 호박색이다.
+카드는 카드 면 한 장으로 그린다. 바탕은 밝은 테마에서 흰색(`--card`, `#ffffff`)이고 어두운 테마에서 `#1c1c1c`다. 1px 옅은 테두리와 10px 둥근 모서리를 두르고 밝은 테마에만 아주 옅은 그림자를 깐다. 종류는 바탕색이 아니라 맨 위 종류 칩의 색과 글자로 가른다. 칩 바탕은 종류 색을 13%만 섞고 칩 글자는 종류 색 64%에 글자색을 섞는다. 카드 안 배지는 카드 면 위에서 묻히지 않게 꽉 채운다. 흐름 배지는 잉크 바탕에 `--on-accent` 글자이고 "추정" 배지는 옅은 경고색 바탕에 경고색 글자다. 흐름 그림의 단계 카드도 같은 카드이고 정상 흐름은 잉크, 옆 흐름은 호박색 칩으로 가른다. 테마는 이 하나뿐이라 고를 단추가 없다. 밝은 화면과 어두운 화면 토글은 그대로 있다.
 
-노드에 `description`이 있으면 이름 줄 밑에 설명 한 줄이 붙는다. 한 줄을 넘으면 말줄임표로 자르고 전체 문장은 카드 툴팁과 서랍에서 보인다. 설명이 없거나 공백뿐이면 빈 줄을 남기지 않는다. 서버가 카드 높이를 잴 때 설명 줄 18px를 더하고 (`src/architecture/layout.ts`의 `NODE_DESC_LINE`) 카드 폭도 설명 길이만큼 넓히되 안쪽 폭 200px에서 멈춘다. 설명 하나 때문에 열 전체가 끝없이 넓어지지 않게 하려는 것이다. 두 노드 화면처럼 브라우저가 좌표를 내는 화면도 같은 값을 쓴다.
+카드 위 글자는 밝은 화면과 어두운 화면 둘 다 배경과 4.5:1 이상 대비가 난다. `tests/unit/architecture/theme-contrast.test.ts`가 `renderTokenCss()`의 토큰과 `renderCss()`의 color-mix 비율을 그대로 읽어 WCAG 대비를 계산한다. 반투명 배경은 카드 면 위에 합성하고 잰다. 대상은 카드 이름과 둘째 줄, 설명, 들어가기 표시, 출처 배지, 추정 배지, 흐름 배지, 흐름 단계 글자, 모든 팩의 종류 칩, 제품 브릭, 레인 제목과 개수, 드릴다운 큰 카드의 칩 줄과 알약, 덩어리 카드, 단계 머리, 개요 패널 글자, 글자 4단계 중 앞 세 단계와 잉크를 네 바탕(`--bg`, `--surface`, `--surface-2`, `--card`)에 올린 조합, 검색 목록에서 고른 줄이다. 레인 제목과 단계 머리는 면 없이 캔버스 배경 위에 놓여서 배경과 잰다. 지금 값 중 낮은 것은 아래와 같다.
+
+| 글자                              | 밝은 화면 | 어두운 화면 |
+| --------------------------------- | --------: | ----------: |
+| 카드 이름 (`.nm`)                 |     18.10 |       14.43 |
+| 카드 설명 (`.ds`)                 |     10.53 |        8.22 |
+| 둘째 줄, 들어가기, 출처 배지      |      7.00 |        5.98 |
+| 추정 배지                         |      4.51 |        7.51 |
+| 흐름 단계 글자 (`.st`)            |      6.63 |        5.68 |
+| 종류 칩 (모든 팩 중 가장 낮은 것) |      5.10 |        6.74 |
+| 제품 브릭 (가장 낮은 것)          |      4.99 |        4.99 |
+| 레인 제목과 `+N`                  |      6.30 |        6.73 |
+| 단계 머리 종류 (`.lh-kind`)       |      6.30 |        6.73 |
+| 바깥 알약 `↗`                     |      7.00 |        5.98 |
+| 덩어리 순서 숫자 (`.ord`)         |     18.10 |       16.23 |
+| 검색 목록 고른 줄의 위치 (`.lv`)  |      5.95 |        4.76 |
+
+토큰이나 비율을 바꿔 한 칸이라도 4.5 밑으로 내려가면 이 테스트가 깨진다.
+
+노드에 `description`이 있으면 이름 줄 밑에 설명 한 줄이 붙는다. 설명은 12px 글꼴에 17px 줄이고 `--text-2` 색이다. 한 줄을 넘으면 말줄임표로 자르고 여러 줄로 접지 않는다. 전체 문장은 카드 툴팁과 서랍에서 보인다. 설명이 없거나 공백뿐이면 빈 줄을 남기지 않는다. 서버가 카드 높이를 잴 때 설명 줄 19px(줄 17px와 이름 줄과의 간격 2px)를 더하고 (`src/architecture/layout.ts`의 `NODE_DESC_LINE`) 카드 폭도 설명 글자 수에 6px를 곱한 만큼 넓히되 안쪽 폭 216px에서 멈춘다. 6px는 헤드리스 크롬에서 한글과 영문 설명을 12px로 재서 정했다 (`DESC_CHAR_WIDTH`). 설명 하나 때문에 열 전체가 끝없이 넓어지지 않게 하려는 것이다. 두 노드 화면처럼 브라우저가 좌표를 내는 화면도 같은 값을 쓴다.
+
+드릴다운 그림은 카드를 더 크게 그린다 (`layout.ts`의 `measureCard`). 평면 그림은 위 크기 그대로다.
+
+- 이름은 15px 굵기 600에 22px 줄이다. 설명은 13px에 19px 줄이고 세 줄까지 접어 보인 뒤 말줄임표로 자른다.
+- 설명 밑에 칩 줄이 붙는다. 들어갈 수 있는 카드면 안쪽 카드 수(`항목 N`), 근거가 약하면 추정 배지, 흐름이 있으면 흐름 배지가 여기 선다. 평면 그림과 달리 추정 배지가 이름 옆이 아니라 칩 줄에 있다.
+- 카드 폭은 200px에서 300px 사이에서 이름과 설명 글자 폭으로 정한다. 높이는 이름 줄과 둘째 줄, 설명 줄 수, 칩 줄을 더한 값이라 선과 포트가 카드 테두리에 붙는다.
+- 열 사이는 120px, 카드 사이는 32px로 넓혔다(`DRILL_LAYER_GAP`, `DRILL_NODE_GAP`). 카드가 커진 만큼 선이 지나갈 자리를 남기려는 것이다.
 
 카드 맨 위에는 종류 칩이 붙는다. 칩은 종류별 아이콘과 짧은 이름(서비스, 기능 영역, 화면, 게이트웨이, API, 서버, 클라이언트, DB, 트리거, 빌드, 산출물, 배포 대상, 도메인, CDN, 버킷, 계정)이다. 종류마다 색도 다르지만 색만으로 구분하지 않는다. 색을 못 가리는 사람도 칩 글자로 종류를 읽는다. 한 단계 안으로 들어갈 수 있는 카드에는 오른쪽에 `›`가 붙는다.
 
@@ -851,18 +1027,41 @@ screen-chain 제목은 "화면별 호출 흐름"이다. 화면이 하나도 없�
 
 위쪽 바에는 왼쪽부터 제목, 빵부스러기(드릴다운일 때), 포커스 표시가 있고 오른쪽에 도구가 모여 있다.
 
-| 도구                 | 하는 일                                                                                                   | 키       |
-| -------------------- | --------------------------------------------------------------------------------------------------------- | -------- |
-| **포커스**           | 고른 카드가 있을 때만 보인다. [포커스](#포커스) 화면으로 바꾼다                                           | `F`      |
-| 이름으로 찾기        | 지금 보이는 화면의 카드만 찾는다. 찾은 수가 옆에 나오고 Enter로 다음 카드, Shift+Enter로 앞 카드로 옮긴다 | `/`      |
-| 작게 보기, 크게 보기 | 가운데를 기준으로 줄이고 키운다. 사이에 배율이 나온다                                                     | `-`, `+` |
-| **맞춤**             | 그림 전체를 화면에 맞춘다                                                                                 | `0`      |
-| **범례**             | 선 모양(실선, 점선, 묶음 선)과 이 그림에 나온 종류의 칩을 보여준다                                        |          |
-| **확인할 질문**      | 미해결 질문 목록과 건수. 질문을 누르면 그 노드가 있는 레벨로 가서 카드를 고른다                           |          |
-| **질문별 그림**      | 그려진 [질문별 그림](#질문별-그림)이 있을 때만 보인다. 그림 목록을 열고 고르면 그 레벨로 간다             |          |
-| 테마                 | 밝은 화면과 어두운 화면을 바꾼다                                                                          |          |
+| 도구                 | 하는 일                                                                                                                                                                  | 키       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| **포커스**           | 고른 카드가 있을 때만 보인다. [포커스](#포커스) 화면으로 바꾼다                                                                                                          | `F`      |
+| 이름으로 찾기        | 지금 보이는 화면의 카드를 강조한다. 찾은 수가 옆에 나오고 Enter로 다음 카드, Shift+Enter로 앞 카드로 옮긴다. 드릴다운이면 [모든 레벨의 결과](#전체-검색)도 목록으로 뜬다 | `/`, ⌘K  |
+| 작게 보기, 크게 보기 | 가운데를 기준으로 줄이고 키운다. 사이에 배율이 나온다                                                                                                                    | `-`, `+` |
+| **맞춤**             | 그림 전체를 화면에 맞춘다                                                                                                                                                | `0`      |
+| **범례**             | 선 모양(실선, 점선, 묶음 선)과 이 그림에 나온 종류의 칩을 보여준다                                                                                                       |          |
+| **확인할 질문**      | 미해결 질문 목록과 건수. 질문을 누르면 그 노드가 있는 레벨로 가서 카드를 고른다                                                                                          |          |
+| **질문별 그림**      | 그려진 [질문별 그림](#질문별-그림)이 있을 때만 보인다. 그림 목록을 열고 고르면 그 레벨로 간다                                                                            |          |
+| 테마                 | 밝은 화면과 어두운 화면을 바꾼다                                                                                                                                         |          |
 
 테마는 처음에 시스템 설정을 따른다. 토글로 바꾸면 그 값을 브라우저 `localStorage`에 남겨 다음에 열 때도 쓴다. 남긴 값이 없으면 시스템 설정이 바뀔 때 함께 바뀐다.
+
+### 단계 머리
+
+드릴다운 그림은 모든 레벨의 그림 위 왼쪽에 머리를 둔다 (`html-client.ts`의 `renderHead`). 지금 어느 단계를 무슨 이유로 보고 있는지 그림보다 먼저 읽히게 하려는 것이다.
+
+- 맨 위 작은 글자는 단계 종류다(전체 그림, 레인, 서비스, 앱, 서버 모듈, 기능 영역, 묶음, 인프라, 흐름, 질문별 그림).
+- 그 아래 24px 제목은 레벨 이름이다. 전체 레벨은 페이지 제목을 쓴다.
+- 요약은 세 줄까지 보이고 넘치면 자른다. 전체 레벨은 IR `summary`를 쓰고 안쪽 레벨은 레벨 요약이 없으면 그 레벨을 연 카드의 `description`을 쓴다. 레인 레벨은 덩어리 카드의 대표 이름 줄을 쓴다. 쓸 글이 없으면 요약 줄을 숨긴다.
+- 머리는 `aria-live="polite"`라 레벨을 옮기면 화면 낭독기가 새 단계 이름을 읽는다. 글자는 전부 `textContent`로 넣는다.
+- 평면 그림에는 머리가 없다.
+
+### 개요 패널
+
+**개요** 패널은 그림 오른쪽 옆 칸(폭 300px)에 선다 (`html-client.ts`의 `renderOverview`). 패널을 열면 그림 칸이 그만큼 좁아지고 [맞춤](#키)도 남은 칸을 기준으로 다시 계산한다. 닫으면 그림이 다시 넓어지고 또 맞춘다. 레벨을 옮길 때마다 그 레벨 내용으로 다시 채운다.
+
+- **숫자 타일**: 드릴다운이면 맨 위에 항목, 연결, 엔드포인트 타일 셋이 선다. 항목은 그 레벨 안쪽 카드 수(접힌 전체 레벨이면 덩어리 안 카드를 합친 수)이고 연결은 레벨 선 건수의 합이다. 엔드포인트는 전체 레벨이면 그림 전체에서, 안쪽 레벨이면 그 레벨 카드에서 센다.
+- **레인별 항목**: 접힌 전체 레벨이면 덩어리마다 "순서. 레인 이름"과 항목 수를 링크로 늘어놓는다. 누르면 그 레인 레벨로 간다.
+- **전체 레벨**: IR `note`, 레인별 카드 수, 종류별 카드 수, 열린 질문 수, 설명 없는 카드 수.
+- **안쪽 레벨**: 레인별 카드 수.
+
+드릴다운에서는 요약을 [단계 머리](#단계-머리)에만 두고 패널에는 다시 적지 않는다. 평면 그림은 머리가 없어서 예전처럼 패널 맨 위에 요약을 둔다.
+
+값이 없는 줄은 빠진다. `summary`와 `note`가 없는 예전 IR이면 숫자만 나온다. 화면 폭이 560px(`SIDE_PANEL_SHEET_MAX`)보다 넓으면 펼친 채로, 그 이하면 접은 채로 시작한다. 560px 이하에서 펼치면 옆 칸 대신 화면 아래에서 올라오는 시트(높이 최대 60%)가 된다. 390px 폭에서는 접힌 `개요` 단추 하나만 떠서 카드를 가리지 않는다. 순서도 보기 바가 떠 있는 동안은 숨고 그림 칸도 다시 넓어진다. 글자는 전부 `textContent`로 넣는다. 평면 그림에도 같은 패널이 붙지만 평면 데이터 블록에는 `summary`와 `note`가 없어 숫자만 나온다.
 
 ### 조작
 
@@ -871,10 +1070,38 @@ screen-chain 제목은 "화면별 호출 흐름"이다. 화면이 하나도 없�
 - 레인 제목을 누르면 레인 패널이 열린다. 레인 이름과 그 칸에 무엇이 서는지, 그 칸에 있는 카드 목록이 나온다. 카드를 누르면 그 카드를 고른다. 세션이 정한 구간(`stage:` 레인)은 구간 설명 한 문장이 대신 나온다.
 - 카드와 선, 레인 제목은 Tab으로 옮겨 가고 Enter나 스페이스로 연다. 선과 레인 제목에도 `role="button"`과 `aria-label`이 붙는다. 레인 제목의 `aria-label`은 "<이름> 레인, 카드 N개"이고 환경 필터를 바꾸면 숫자도 따라 바뀐다.
 - 환경이 둘 이상 나오는 그림이면 상단에 환경 버튼(prod, stage, qa, dev 순)이 뜬다. 처음엔 prod만 켜져 있고 누를 때마다 그 환경이 켜지고 꺼진다. 하나는 늘 켜져 있어야 해서 마지막 하나는 안 꺼진다. 고르지 않은 환경의 카드와 거기 걸린 선은 숨고 레인 제목 숫자도 보이는 카드만 센다. 자리는 서버가 낸 좌표 그대로다. prod가 열 맨 위 줄이라 prod만 남겨도 빈 자리가 안 생긴다. 포커스와 검색도 숨은 카드는 건너뛴다. 고른 환경은 주소 해시에 같이 실린다(아래 주소 해시 설명). 전체 레벨은 원래 prod만 올리므로 이 버튼과 상관없다.
-- 전체 레벨에서 Shift나 ⌘를 누른 채 두 번째 노드를 누르면 두 노드 사이 경로를 경유지까지 펼친다. 화면 → 게이트웨이(사슬 순서) → 엔드포인트 → 모듈 → 클라이언트 → 게이트웨이 → 받는 모듈 → 테이블 순서의 열로 놓고 세부 엣지 표를 함께 보여준다. 경로가 없으면 "두 항목은 서로 이어져 있지 않아요."라고 나온다.
+- 전체 레벨과 레인 레벨에서 Shift나 ⌘를 누른 채 두 번째 노드를 누르면 두 노드 사이 경로를 경유지까지 펼친다. 화면 → 게이트웨이(사슬 순서) → 엔드포인트 → 모듈 → 클라이언트 → 게이트웨이 → 받는 모듈 → 테이블 순서의 열로 놓고 세부 엣지 표를 함께 보여준다. 경로가 없으면 "두 항목은 서로 이어져 있지 않아요."라고 나온다.
 - 경로는 중간에 게이트웨이(몇 단이든)와 모듈 하나까지만 지난다. 출발이 모듈이면 중간 모듈 없이 게이트웨이만 지난다. 화면에서 모듈 하나를 지나 클라이언트로 다른 모듈에 닿는 데까지가 한 요청 흐름이다. 그보다 멀리 돌아가는 길까지 펼치면 두 노드와 상관없는 엔드포인트가 쏟아진다.
-- 전체 레벨의 묶음 엣지를 누르면 두 노드를 고른 것과 같은 화면이 뜬다. 다른 레벨에서 묶음 엣지를 누르면 그 묶음의 세부 엣지만 보여준다.
+- 전체 레벨의 묶음 엣지를 누르면 두 노드를 고른 것과 같은 화면이 뜬다. 다른 레벨에서 묶음 엣지를 누르면 그 묶음의 세부 엣지만 보여준다. 접힌 전체 레벨의 덩어리 사이 묶음 선은 양 끝이 카드가 아니라서 세부 엣지 화면으로 간다.
+- 접힌 전체 레벨에서 덩어리 카드를 누르면 그 레인 레벨로 간다. 덩어리는 링크라 Tab으로 옮겨 가고 Enter로 연다. 더블클릭 확대는 덩어리에 걸리지 않는다.
 - 지금 보는 화면은 주소 해시에 실린다. 전체는 `#/`, 레벨은 `#/level/<레벨 id>`, 두 노드 화면은 `#/pair/<노드 a>/<노드 b>`, 묶음 세부는 `#/bundle/<레벨 id>/<묶음 id>`, 포커스는 `#/focus/<레벨 id>/<노드 id>`이고 id는 `encodeURIComponent`로 감싼다. 질문별 그림 `checkout`이면 `#/level/view%3Acheckout`이다. 그래서 브라우저 뒤로가기와 앞으로가기, 새로고침이 그 화면으로 돌아온다. 주소를 복사해 보내면 같은 HTML 파일을 가진 사람에게 같은 화면이 열린다. 모르는 주소면 기록을 남기지 않고 전체로 바꾼다. 환경 버튼을 처음 상태와 다르게 고르면 해시 뒤에 `?env=prod,dev`처럼 켠 환경이 붙는다. 처음 상태 그대로면 안 붙는다. 환경을 바꾸는 건 기록을 남기지 않고 지금 주소만 고치므로 뒤로가기는 레벨을 오간 길만 되짚는다. 없는 환경 이름만 적힌 주소는 처음 상태로 열고 주소에서도 뺀다. 평면 그림에는 레벨이 `root` 하나뿐이라 `#/`와 `#/focus/root/<노드 id>`만 쓴다.
+
+### 전체 검색
+
+드릴다운 그림의 검색창은 지금 레벨만이 아니라 모든 레벨의 카드를 찾는다. 입력하면 검색창 아래에 결과 목록이 뜬다. 지금 레벨에 있는 카드가 **이 화면** 표시와 함께 먼저 오고 나머지는 그 카드가 선 첫 레벨 이름과 함께 이름순(대소문자 무시)으로 온다. 결과는 50개까지 보이고 하나도 없으면 "모든 레벨에서 못 찾았어요"가 뜬다. 환경 필터로 숨긴 카드는 빠진다.
+
+- 결과를 고르면 지금 레벨 카드는 그 자리에서 고르고 다른 레벨 카드는 그 레벨로 옮겨 가서 고른다. 주소 해시도 그 레벨로 바뀐다.
+- 어느 레벨에 섰는지는 데이터 블록의 `nodeLevels`(노드 id → 레벨 id 목록)에서 찾는다. 레벨 안에 선 레벨이 앞이고 [레벨 밖 맥락](#레벨-밖-맥락)으로만 선 레벨이 뒤다. 어느 레벨에도 안 서는 카드는 갈 곳이 없어 싣지 않는다.
+- 검색창은 `role="combobox"`이고 목록은 `role="listbox"`다. 고른 항목은 `aria-activedescendant`로 알린다.
+- 평면 그림은 레벨이 하나라 목록 없이 캔버스 강조만 한다.
+
+### 키
+
+| 키                   | 하는 일                                                                                                        |
+| -------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `/`                  | 검색창으로 간다                                                                                                |
+| ⌘K, Ctrl+K           | 검색창으로 간다. 입력칸 안에서도 먹고 브라우저 주소창 검색보다 먼저 받는다                                     |
+| ↑, ↓                 | 결과 목록이 열려 있으면 항목을 옮긴다. 끝에서 반대쪽 끝으로 넘어간다                                           |
+| Enter                | 목록에서 고른 항목으로 간다. 고른 항목이 없으면 지금 화면의 다음 찾은 카드로                                   |
+| Shift+Enter          | 지금 화면의 앞 찾은 카드로                                                                                     |
+| Esc                  | 결과 목록을 먼저 닫고 한 번 더 누르면 검색어를 지운다. 검색창 밖에서는 팝오버, 상세 패널, 포커스 순서로 닫는다 |
+| `F`                  | 고른 카드로 [포커스](#포커스)                                                                                  |
+| `0`                  | 그림 전체를 화면에 맞춘다                                                                                      |
+| `-`, `+`             | 줄이고 키운다                                                                                                  |
+| ←, →                 | 순서도 따라가기 보기에서 단계를 옮긴다                                                                         |
+| Tab, Enter, 스페이스 | 카드와 선, 레인 제목을 옮겨 다니고 연다                                                                        |
+
+시스템 설정이 움직임 줄이기(`prefers-reduced-motion: reduce`)면 화면을 옮길 때 미끄러지는 효과를 끈다.
 
 레벨마다 좌표는 `computeGraphLayout`(`src/architecture/layout.ts`)이 따로 낸다. IR 노드가 아닌 일반 노드와 엣지 목록을 받으므로 묶음 엣지도 그대로 넣는다. 정렬은 전부 id 기준이라 [결정적 렌더](#결정적-렌더) 성질이 그대로 유지된다.
 
@@ -948,18 +1175,18 @@ screen-chain 제목은 "화면별 호출 흐름"이다. 화면이 하나도 없�
 }
 ```
 
-| 필드                      | 내용                                                                                                                                                                                                                                                                                                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `stateLabels`             | 상태 값마다 그림에 찍을 이름. `state`는 코드의 enum 그대로라 사용자 언어로 된 이름을 여기 단다. 구간 머리와 단계 칩에 이 이름이 나오고 단계 서랍에는 `대기 (WAITING)`처럼 둘 다 나온다. 이름이 없는 상태는 상태 값 그대로 찍는다                                                                                                      |
-| `service`                 | 이 흐름이 딸린 `service` 노드 id. 적으면 그 서비스 레벨 아래에 흐름 레벨이 선다. 안 적으면 독립 흐름이다                                                                                                                                                                                                                              |
-| `actors`                  | 가로줄 하나씩. `kind`는 `person`(손님, 직원), `system`(예약 발송, 배치), `agent`(서브에이전트) 중 하나다. 적은 순서대로 위에서부터 놓인다                                                                                                                                                                                             |
-| `steps`                   | 카드 하나씩. `state`는 그 단계를 지나면 바뀌는 상태값이다. `refs`는 기술 그림의 `screen`, `endpoint`, `feature`, `micro_app`, `skill`, `agent`, `component` 노드 id다. `terminal`은 흐름이 여기서 끝날 수 있다는 표시다. 카드에 "끝" 칩이 붙고 단계 서랍에 "다음" 줄이 나온다                                                         |
-| `steps[].kind`            | 비우면 `step`이다. 조건에 따라 길이 나뉘는 자리는 `decision`으로 적는다. 카드 대신 마름모로 그리고 나가는 전이마다 `condition`을 단다. 갈림길은 흐름이 끝나는 자리가 아니라서 `terminal: true`를 함께 달면 스키마 위반으로 `IR_PARSE_ERROR`다                                                                                         |
-| `steps[].outcome`         | 선택. 끝 단계가 어떻게 끝났는지다. `done`(완료), `cancel`(취소), `fail`(실패) 중 하나다. 흐름 그림은 안 쓰고 [상태 흐름](#상태-흐름) 그림의 끝 상태 카드 배지로 쓴다. `terminal: true` 없이 달면 스키마 위반으로 `IR_PARSE_ERROR`다                                                                                                   |
-| `transitions`             | 단계 사이 화살표. `path`는 정상 흐름이면 `main`, 취소나 노쇼처럼 옆으로 빠지면 `side`다. 선 위 글자는 아래 `trigger`와 `condition`에 적는다. `actors`는 그 전이를 일으키는 행위자 id 목록이다. 되돌리기처럼 여럿이 할 수 있는 전이에 달고 선 글자 옆에 이름이 붙는다 (괄호 앞까지만). 없는 행위자를 가리키면 `FLOW_ACTOR_NOT_FOUND`다 |
-| `transitions[].trigger`   | 사용자가 누른 것. "주문 변경하기"처럼 이 전이를 일으키는 버튼 이름이나 동작을 적는다. 선 위에 찍힌다                                                                                                                                                                                                                                  |
-| `transitions[].condition` | 이 길로 가는 조건. 갈림길에서 나가는 선에 단다. 선 위에서 누른 것보다 앞에 굵은 강조색으로 찍힌다                                                                                                                                                                                                                                     |
-| `transitions[].label`     | 예전 칸. `trigger`와 `condition`이 둘 다 없으면 예전처럼 선 위에 찍힌다. 하나라도 있으면 선에는 그 둘만 찍히고 `label`은 전이 서랍의 **메모** 줄로 간다. 그래서 `label`만 쓴 예전 IR은 고치지 않아도 선 글자가 그대로다                                                                                                               |
+| 필드                      | 내용                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stateLabels`             | 상태 값마다 그림에 찍을 이름. `state`는 코드의 enum 그대로라 사용자 언어로 된 이름을 여기 단다. 구간 머리와 단계 칩에 이 이름이 나오고 단계 서랍에는 `대기 (WAITING)`처럼 둘 다 나온다. 이름이 없는 상태는 상태 값 그대로 찍는다                                                                                                                                                                         |
+| `service`                 | 이 흐름이 딸린 `service` 노드 id. 적으면 그 서비스 레벨 아래에 흐름 레벨이 선다. 안 적으면 독립 흐름이다                                                                                                                                                                                                                                                                                                 |
+| `actors`                  | 가로줄 하나씩. `kind`는 `person`(손님, 직원), `system`(예약 발송, 배치), `agent`(서브에이전트) 중 하나다. 적은 순서대로 위에서부터 놓인다                                                                                                                                                                                                                                                                |
+| `steps`                   | 카드 하나씩. `state`는 그 단계를 지나면 바뀌는 상태값이다. `refs`는 기술 그림의 `screen`, `endpoint`, `feature`, `micro_app`, `skill`, `agent`, `component` 노드 id다. `terminal`은 흐름이 여기서 끝날 수 있다는 표시다. 카드에 "끝" 칩이 붙고 단계 서랍에 "다음" 줄이 나온다. `description`은 단계 서랍에 나오는 그 단계에서 하는 일이다. 비우면 validate가 `FLOW_STEP_DESCRIPTION_MISSING` 경고를 낸다 |
+| `steps[].kind`            | 비우면 `step`이다. 조건에 따라 길이 나뉘는 자리는 `decision`으로 적는다. 카드 대신 마름모로 그리고 나가는 전이마다 `condition`을 단다. 갈림길은 흐름이 끝나는 자리가 아니라서 `terminal: true`를 함께 달면 스키마 위반으로 `IR_PARSE_ERROR`다                                                                                                                                                            |
+| `steps[].outcome`         | 선택. 끝 단계가 어떻게 끝났는지다. `done`(완료), `cancel`(취소), `fail`(실패) 중 하나다. 흐름 그림은 안 쓰고 [상태 흐름](#상태-흐름) 그림의 끝 상태 카드 배지로 쓴다. `terminal: true` 없이 달면 스키마 위반으로 `IR_PARSE_ERROR`다                                                                                                                                                                      |
+| `transitions`             | 단계 사이 화살표. `path`는 정상 흐름이면 `main`, 취소나 노쇼처럼 옆으로 빠지면 `side`다. 선 위 글자는 아래 `trigger`와 `condition`에 적는다. `actors`는 그 전이를 일으키는 행위자 id 목록이다. 되돌리기처럼 여럿이 할 수 있는 전이에 달고 선 글자 옆에 이름이 붙는다 (괄호 앞까지만). 없는 행위자를 가리키면 `FLOW_ACTOR_NOT_FOUND`다                                                                    |
+| `transitions[].trigger`   | 사용자가 누른 것. "주문 변경하기"처럼 이 전이를 일으키는 버튼 이름이나 동작을 적는다. 선 위에 찍힌다                                                                                                                                                                                                                                                                                                     |
+| `transitions[].condition` | 이 길로 가는 조건. 갈림길에서 나가는 선에 단다. 선 위에서 누른 것보다 앞에 굵은 강조색으로 찍힌다                                                                                                                                                                                                                                                                                                        |
+| `transitions[].label`     | 예전 칸. `trigger`와 `condition`이 둘 다 없으면 예전처럼 선 위에 찍힌다. 하나라도 있으면 선에는 그 둘만 찍히고 `label`은 전이 서랍의 **메모** 줄로 간다. 그래서 `label`만 쓴 예전 IR은 고치지 않아도 선 글자가 그대로다                                                                                                                                                                                  |
 
 화면 흐름을 그릴 때는 사용자가 누른 것을 `trigger`에, 길이 나뉘는 조건을 `condition`에 나눠 적는다. 한 칸에 섞어 적으면 어느 쪽이 버튼이고 어느 쪽이 분기 조건인지 그림에서 안 갈린다. 아래는 손님이 주문에 메뉴를 더하다가 품절 상품이 있는지에 따라 길이 나뉘는 흐름이다.
 
@@ -1260,11 +1487,78 @@ render는 질문별 그림마다 `views/<view>.<투영 id>.json`을 따로 쓴�
 - 메시지 id도 이번 실행의 메시지와 안 겹친다.
 - `participants`와 `sides`의 노드가 병합 결과에 다 남아 있다. er은 그 노드가 이번에도 `db_table`이어야 한다. 같은 id를 다른 종류 노드가 쓰면 검증기의 `PROJECTION_SHAPE_FIELD`에 걸린다.
 - 메시지마다 양 끝 노드가 남아 있고 가리킨 엣지도 같은 두 노드를 잇는 채로 남아 있다.
-- lifecycle과 blueprint는 가리킨 `flow`가 이번 실행의 `flows`에 있고 그 흐름에 그릴 단계가 남아 있다. lifecycle은 `state`를 단 단계가, blueprint는 갈림길이 아닌 단계가 하나 이상 있어야 한다. 검증기의 `PROJECTION_EMPTY`와 같은 조건이다. 흐름은 지난 IR에서 이어받지 않으니 이번 IR에 다시 적어야 한다.
+- lifecycle과 blueprint는 가리킨 `flow`가 이번 실행의 `flows`에 있고 그 흐름에 그릴 단계가 남아 있다. lifecycle은 `state`를 단 단계가, blueprint는 갈림길이 아닌 단계가 하나 이상 있어야 한다. 검증기의 `PROJECTION_EMPTY`와 같은 조건이다. 이번 실행의 `flows`에는 지난 IR에서 이어받은 흐름도 든다 ([재실행과 노드 id](#재실행과-노드-id)).
+- 파일 검사를 하는 render에서는 메시지의 `code` 근거 파일이 있고 줄이 범위 안이다.
 
-하나라도 어긋나면 그 투영은 버린다. 반쯤 맞는 그림을 남기면 지도와 어긋난 답을 보여주기 때문이다.
+하나라도 어긋나면 그 투영은 버린다. 반쯤 맞는 그림을 남기면 지도와 어긋난 답을 보여주기 때문이다. 근거가 낡아 버린 투영은 `PROJECTION_DROPPED` 경고가 오고 응답 `merge.projectionsDropped`에 id가 모인다. 나머지 조건으로 버린 투영은 경고 없이 빠진다.
 
 [분석 합치기](#분석-합치기)에서는 입력마다의 투영을 나란히 둔다. 노드와 엣지 id가 바뀌면 투영 안의 참조도 따라가고 투영 id와 메시지 id가 부딪히면 새로 매긴다. 메시지 id가 바뀌면 `phases`의 `from`과 `to`도 따라 바뀐다. 같은 테이블로 합쳐진 노드의 `columns`는 이름으로 합치고 근거는 합집합이다. 외래 키 `references.table`도 바뀐 노드 id를 따라간다.
+
+---
+
+## 라이브 Ask
+
+본인용 그림을 127.0.0.1 서버로 열면 뷰어에서 질문을 넣을 수 있다. 질문은 그림을 띄운 Claude Code 세션으로 가고 세션이 답을 IR에 반영해 다시 render하면 열린 뷰어가 새로고침 없이 바뀐다. 서버는 LLM을 부르지 않는다. 질문을 틀에 넣어 세션에 건네고 바뀐 HTML을 내줄 뿐이다. 구조는 digest 뷰어(`gestalt digest serve`)를 따른다.
+
+1. 세션이 `ges_architecture` `serve`를 부른다. MCP 서버 프로세스 안에 레포마다 서버 하나가 뜬다. 기본 포트는 7894이고 차 있으면 다음 포트로 넘어간다.
+2. 사람이 응답의 `liveUrl`(`http://127.0.0.1:<포트>/<그림>.html?k=<접근 키>`)을 연다. 키가 맞으면 서버가 `gestalt-live-<포트>` 쿠키를 내리고 그다음 요청은 이 쿠키로 들어온다. 서버는 HTML을 내줄 때마다 `</head>` 앞에 토큰 meta(`gestalt-live-token`)를 끼운다.
+3. 뷰어가 `GET /__live/status`로 세션이 잡히는지 묻는다. `session: true`일 때만 오른쪽 아래에 질문 입력창을 만든다. 세션이 꺼져 있으면 입력창 요소 자체가 DOM에 없다. 15초마다 다시 묻고 탭이 가려지면 60초로 늦춘다. 서버는 세션 확인 결과를 2.5초 동안 기억해 탭이 여럿이어도 세션 파일을 매번 훑지 않는다. 질문 보내기가 `no_session`으로 실패하면 기억을 바로 버린다.
+4. 질문을 보내면 뷰어가 지금 보던 레벨과 고른 노드를 함께 `POST /__live/ask`로 보낸다. Cmd+Enter나 Ctrl+Enter로도 보낸다. 입력창 안의 키는 그림 단축키로 새지 않는다.
+5. 서버가 질문을 틀에 넣어 세션 인박스 소켓에 쓴다. 세션 찾기와 쓰기는 digest와 같은 `src/digest/session-request.ts`의 `sendToSession`을 쓴다. MCP 서버의 부모 프로세스를 따라 올라가 Claude Code 세션의 `sessions/<pid>.json`을 찾고 그 파일의 `messagingSocketPath`에 쓴다. 못 찾으면 30초 동안 다시 훑지 않는다.
+6. 세션이 근거를 찾아 IR을 고치고 `render`를 다시 부른다. render 응답에는 서버가 떠 있을 때만 `liveUrl`이 온다.
+7. 뷰어는 질문을 보낸 뒤 3초마다 `HEAD`로 ETag(파일 수정 시각과 크기)를 본다. 값이 바뀌면 새 HTML을 받아 body만 갈아 끼운다. 10분 동안 안 바뀌면 기다림 표시를 걷고 평소 주기로 돌아간다.
+
+스킬이 서비스마다 서브에이전트로 나눠 그린 그림은 라이브 Ask를 지원하지 않는다. 라이브로 찾은 연결을 서비스 조각에 되적고 다시 합치는 규칙이 아직 없어서 다음 실행에서 그 연결이 빠진다. 합친 그림은 `serve`의 `repoRoot`에 `<work>/_merged`를 홈 절대 경로로 줘서 열어 보여 주기만 한다([`merge`](#merge)). 뷰어에서 들어온 질문은 세션이 대화로만 답하고 합친 IR과 서비스 조각은 고치지 않는다.
+
+### 서버 방어
+
+| 막는 것        | 방법                                                                                                                                                                                                                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 다른 기기      | `127.0.0.1`에만 바인딩한다                                                                                                                                                                                                                                                                                   |
+| DNS 리바인딩   | `Host`가 정확히 `127.0.0.1:<포트>`가 아니면 403                                                                                                                                                                                                                                                              |
+| 다른 사이트    | 질문 POST는 `Origin`이 서버 출처와 같아야 한다. 아니면 403                                                                                                                                                                                                                                                   |
+| 키 없는 요청   | HTML은 쿼리 `k`나 `gestalt-live-<포트>` 쿠키가 접근 키와 맞을 때만 내준다. 아니면 403. 쿼리로 맞으면 `HttpOnly; SameSite=Strict; Path=/` 쿠키를 내린다. 쿠키 이름에 포트를 넣어 다른 레포의 라이브 서버와 덮어쓰지 않는다. 키는 서버가 떠 있는 동안 바뀌지 않아서 serve와 render가 같은 `liveUrl`을 돌려준다 |
+| 토큰 없는 요청 | 상태와 질문 요청은 접근 쿠키에 더해 `x-gestalt-token` 헤더가 페이지에 끼운 토큰과 같아야 한다. 키와 토큰은 디스크에 안 쓰고 서버를 다시 띄우면 바뀐다                                                                                                                                                        |
+| 큰 본문        | `application/json`만 받고 2KB를 넘으면 413                                                                                                                                                                                                                                                                   |
+| 연타           | 1분에 6번까지 보낸다. 넘으면 429. 같은 그림, 레벨, 노드, 질문을 2분 안에 다시 보내면 세션에 또 쓰지 않고 `sent`로 답한다                                                                                                                                                                                     |
+| 엉뚱한 대상    | 그림 이름이 다르거나 고른 노드가 저장 IR에 없으면 404 `unknown_target`. 저장 IR은 읽기만 하고 깨져 있어도 `.corrupt-*`로 옮기지 않는다                                                                                                                                                                       |
+| 파일 훔쳐보기  | `/<그림>.html` 꼴의 본인용 그림만 내준다. `.shared.html`, IR JSON, `views/`, 디렉토리 밖을 가리키는 심링크는 404                                                                                                                                                                                             |
+| 끼워 넣기      | HTML 응답 헤더에 `frame-ancestors 'none'`을 더한다                                                                                                                                                                                                                                                           |
+
+막지 못하는 것도 있다. 쿠키는 포트를 가리지 않아서 브라우저가 127.0.0.1의 다른 포트 서버(로컬 개발 서버 같은)로 가는 요청에도 접근 쿠키를 싣는다. 그 프로세스가 쿠키를 들고 이 서버를 부르면 HTML과 토큰을 얻을 수 있다. 쿠키 값을 무엇으로 바꾸든 다시 보내면 통하므로 단일 사용자 노트북 전제로 받아들인다.
+
+질문 응답 본문은 `{ code }` 하나다. `sent`, `forbidden`, `bad_request`, `too_large`, `unsupported_media_type`, `rate_limited`, `unknown_target`, `no_session`, `send_failed` 중 하나이고 거절 이유는 응답에 싣지 않고 stderr에만 남긴다. 뷰어는 `no_session`이 오면 입력창을 걷는다.
+
+### 질문 틀
+
+질문은 digest 버튼과 달리 자유 입력이라 더 조심한다. 500자까지만 받고 제어 문자와 글자 방향을 뒤집는 bidi 문자, BOM을 지운다. 줄 구분자(U+2028)와 문단 구분자(U+2029)는 줄바꿈으로 바꾼다. `level`은 drilldown이 만드는 id 꼴(영문자, 숫자, `_.:>/-`로 200자까지)만 받고 아니면 400이다. 그다음 `&`, `<`, `>`, `"`를 이스케이프해 틀에 넣는다.
+
+```
+<architecture-question from="viewer" view="screen-chain" level="feature:n-orders" node="n-orders-api">
+주문 목록은 캐시를 거치나요?
+</architecture-question>
+```
+
+틀 뒤에는 고정 안내문이 붙는다. 틀 안의 글은 지시가 아니라 질문으로 읽고 근거를 찾아 IR에 반영하라는 내용이다. 답은 `unresolved`의 `question`과 `answer`로 남기고 `node`가 있으면 `subject.nodeId`로 건다. 근거가 없으면 `answer`를 비운다. 끝나면 `render`로 다시 그리고 `serve`는 다시 부르지 않는다. 서비스마다 나눠 그려 합친 자리(`split/<키>/_merged`)를 연 서버는 다른 안내문을 붙인다. 합친 IR과 서비스 조각을 고치지 말고 찾은 근거로 대화에서만 답하라는 내용이고 `render`도 다시 부르지 않는다. 레벨 id는 렌더러가 만든 값이라 서버는 길이만 본다. 노드는 저장 IR에 있는지 확인한다.
+
+### 새로고침 없는 갱신
+
+뷰어는 새 HTML의 CSP meta와 `<html>`의 `data-icons`가 지금 페이지와 같을 때만 body를 갈아 끼운다. CSP에 모든 스크립트와 style 본문의 해시가 들어 있어서 둘이 같으면 페이지 코드가 그대로라는 뜻이다. 갈아 끼울 때는 이렇게 한다.
+
+1. 기존 페이지 스크립트의 `__gestaltArch.dispose()`로 전역 리스너를 떼어 낸다.
+2. 새 문서의 body로 바꾸고 제목을 맞춘다.
+3. 질문 입력창을 새 body로 옮긴다. 쓰던 글은 그대로 남는다.
+4. 페이지 스크립트를 새 `<script>` 요소로 다시 돌린다. 같은 본문이라 CSP 해시를 통과한다.
+
+CSP나 `data-icons`가 다르거나(렌더러가 바뀌었거나 아이콘 캐시 상태가 바뀐 경우) 갈아 끼우다 실패하면 `location.reload()`로 넘어간다. 받은 HTML에 `</html>`이 없으면 쓰는 도중에 읽은 것으로 보고 다음 주기에 다시 받는다.
+
+라이브 스크립트는 본인용 HTML에만 들어가고 결정적이다. 토큰은 서버가 내줄 때만 끼우므로 디스크 바이트는 같은 IR이면 그대로다. 공유본에는 라이브 스크립트도, 입력창 CSS도, 서버 주소도 없다. file://로 열거나 토큰 meta가 없으면 라이브 스크립트는 아무 요청도 하지 않는다.
+
+### 아직 확인 안 한 것
+
+서버가 인박스에 쓰는 데까지는 이 레포 코드와 테스트로 확인했다. 그 뒤 Claude Code가 인박스로 들어온 글을 어떻게 다루는지는 digest와 같은 상태로 사람이 확인하지 않았다. MCP 서버는 세션의 자손이라 승인 창이 뜨는지, bypass 세션에서도 뜨는지, 놀던 세션이 이 글로 새 턴을 여는지가 남아 있다. 세션이 질문을 읽고 IR을 고쳐 render를 다시 부르는 몫은 [스킬](../plugin/skills/architecture/SKILL.md)의 안내를 따른다.
+
+서버는 MCP 서버 프로세스가 끝나면 같이 내려간다. 세션을 다시 시작하면 `serve`를 다시 불러야 하고 토큰도 바뀌어서 열어 둔 탭은 새로 열어야 한다.
 
 ---
 
@@ -1279,11 +1573,12 @@ render는 질문별 그림마다 `views/<view>.<투영 id>.json`을 따로 쓴�
 | `match_endpoints` | FE 호출과 BE 라우트를 method와 정규화한 경로로 맞춘다. MCP 도구 호출과 팩별 이름 참조(`nameRefs`)도 맞춘다                                                     |
 | `validate`        | IR을 검증만 한다. 저장하지 않는다                                                                                                                              |
 | `render`          | 검증하고 이전 실행과 병합한 뒤 IR과 HTML 두 개를 저장한다. `service` 노드가 있으면 HTML이 드릴다운이 된다. 질문별 그림이 있으면 그림마다 파일을 하나씩 더 쓴다 |
-| `status`          | 두 뷰의 이전 실행 요약을 돌려준다                                                                                                                              |
+| `status`          | 두 뷰의 이전 실행 요약과 그 뒤로 코드가 바뀌었는지(`freshness`)를 돌려준다                                                                                     |
 | `merge`           | 따로 돌린 분석 IR 여럿을 하나로 합친다. 저장도 렌더도 안 한다                                                                                                  |
 | `scan_docs`       | 문서 레포의 md를 읽어 근거 표시와 구멍, 질문 안내 표, 화면 색인을 뽑고 지식 문서 지도 초안을 쓴다                                                              |
 | `link_docs`       | `scan_docs` 결과를 기술 IR에 엮어 지식과 아키텍처 초안을 쓰고 빈 곳, 낡은 곳, 어긋난 곳 신호를 낸다                                                            |
 | `stale_docs`      | 바뀐 파일 목록이나 git diff로 손봐야 할 문서를 고른다                                                                                                          |
+| `serve`           | 본인용 그림을 127.0.0.1 라이브 서버로 띄우고 주소를 돌려준다. 뷰어 질문이 이 세션으로 온다 ([라이브 Ask](#라이브-ask))                                         |
 
 ### Common Parameters
 
@@ -1322,29 +1617,41 @@ render는 질문별 그림마다 `views/<view>.<투영 id>.json`을 따로 쓴�
 
 ### `match_endpoints`
 
-| Parameter          | Type                                                       | Required | Description                                 |
-| ------------------ | ---------------------------------------------------------- | :------: | ------------------------------------------- |
-| `feCalls`          | `{ id, method, path, baseUrl? }[]`                         |   Y\*    | FE 쪽 API 호출                              |
-| `beRoutes`         | `{ id, method, path, repo }[]`                             |   Y\*    | BE 쪽 라우트 선언                           |
-| `prefixCandidates` | `string[]`                                                 |    N     | FE 경로 앞에 붙는 게이트웨이 prefix 후보    |
-| `skillToolCalls`   | `{ id, server?, tool, action? }[]`                         |   Y\*    | 스킬과 에이전트 문서에서 찾은 MCP 도구 호출 |
-| `serverTools`      | `{ id, server, tool, actions? }[]`                         |   Y\*    | MCP 서버 코드에서 찾은 도구 등록            |
-| `nameRefs`         | `{ matcher, refs: { id, name }[], decls: { id, name }[] }` |   Y\*    | 팩 matcher로 맞출 이름 참조와 선언          |
+| Parameter          | Type                                                       | Required | Description                                                                                                                 |
+| ------------------ | ---------------------------------------------------------- | :------: | --------------------------------------------------------------------------------------------------------------------------- |
+| `feCalls`          | `{ id, method, path, baseUrl? }[]`                         |   Y\*    | FE 쪽 API 호출                                                                                                              |
+| `beRoutes`         | `{ id, method, path, repo, mountPrefix? }[]`               |   Y\*    | BE 쪽 라우트 선언. `mountPrefix`는 서버가 라우트 앞에 붙이는 context-path나 global prefix다. 경로에 이미 들어 있으면 비운다 |
+| `prefixCandidates` | `string[]`                                                 |    N     | FE 경로 앞에 붙는 게이트웨이 prefix 후보                                                                                    |
+| `skillToolCalls`   | `{ id, server?, tool, action? }[]`                         |   Y\*    | 스킬과 에이전트 문서에서 찾은 MCP 도구 호출                                                                                 |
+| `serverTools`      | `{ id, server, tool, actions? }[]`                         |   Y\*    | MCP 서버 코드에서 찾은 도구 등록                                                                                            |
+| `nameRefs`         | `{ matcher, refs: { id, name }[], decls: { id, name }[] }` |   Y\*    | 팩 matcher로 맞출 이름 참조와 선언                                                                                          |
 
 \* `feCalls`와 `beRoutes` 짝, `skillToolCalls`와 `serverTools` 짝, `nameRefs` 중 하나는 있어야 한다. 셋 다 없으면 `MISSING_INPUT`이다. 여럿을 함께 넘겨도 된다.
 
 경로 변수 표기(`{id}`, `:id`, `${expr}`, `<int:id>`, `[id]` 등)는 이름과 무관하게 전부 `{}`로 맞춘 뒤 비교한다. 절대 URL의 스킴과 호스트, 쿼리 문자열, 끝 슬래시도 걷어낸다. method가 `*`, `ANY`, `ALL`인 라우트는 어떤 method로 불러도 받는다.
 
-FE 경로는 그대로 한 번 비교한다. `baseUrl`의 경로 부분과 `prefixCandidates`를 각각 떼어낸 경로로도 따로 비교한다. 떼지 않은 경로로 맞은 쪽이 먼저다.
+비교는 세 단계로 한다. 앞 단계에서 맞거나 모호하다고 판정이 나면 그 호출은 거기서 끝나고 뒤 단계로 가지 않는다.
 
-응답은 `{ matches, unmatched }`다.
+1. **1단계**는 예전부터 있던 비교다. FE 경로를 그대로 한 번 비교하고 `baseUrl`의 경로 부분과 `prefixCandidates`를 각각 떼어낸 경로로도 따로 비교한다. 떼지 않은 경로로 맞은 쪽이 먼저다. 하나라도 맞으면 판정은 여기서 끝난다. 경로가 비었는데 `baseUrl`이 있으면 실제 요청은 `baseUrl` 그대로라서 루트(`/`) 라우트와는 비교하지 않는다.
+2. **2단계**는 1단계에서 아무것도 못 맞춘 호출만 본다. 상대 경로 앞에 `baseUrl`을 붙인 경로(`base_url_join`)와 `mountPrefix`를 붙인 라우트(`mount_prefix`)를 비교한다. 두 방법이 서로 다른 라우트를 가리키면 `ambiguous_prefix`다.
+3. **3단계**는 2단계까지 남은 호출 중 `baseUrl`이 없는 것만 본다. 같은 배치에서 같은 레포에 두 번 이상 쓰인 prefix(`learnedPrefixes`)를 `mountPrefix`가 없는 그 레포 라우트에 붙이거나 떼어 비교한다. 덜 쓰인 prefix로만 맞으면 잇지 않는다. 같은 배치에서 `baseUrl`이나 `mountPrefix`로 맞은 매치가 prefix를 세는 재료다. 쓰인 횟수 기준은 `LEARNED_MIN_SUPPORT`(2)다.
 
-| 키          | 꼴                                                                                                         |
-| ----------- | ---------------------------------------------------------------------------------------------------------- |
-| `matches`   | `{ feCallId, beRouteId, viaPrefix }[]`. prefix 없이 맞았으면 `viaPrefix`는 `null`                          |
-| `unmatched` | `{ feCallId, reason, candidates }[]`. `reason`은 `no_route`, `ambiguous_prefix`, `multiple_routes` 중 하나 |
+세 단계를 지나고도 `no_route`면 경로 뒤쪽이 닮은 라우트를 점수로 골라 `suggested`로 단다. 최대 3개이고 `matches`에는 들어가지 않는다.
 
-`unmatched`는 눈으로 맞춰 실선을 긋지 않는다. `candidates`를 담아 미해결 질문으로 남긴다.
+새 칸(`mountPrefix`, `matchedBy`, `learnedPrefixes`, `suggested`, `suggestedNote`)은 전부 선택 칸이다. 예전 입력은 1단계에서 같은 결과가 나오고 응답에 칸만 더 붙는다.
+
+응답은 `{ matches, unmatched, learnedPrefixes }`다.
+
+| 키                | 꼴                                                                                                                                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `matches`         | `{ feCallId, beRouteId, viaPrefix, matchedBy? }[]`. prefix 없이 맞았으면 `viaPrefix`는 `null`. `matchedBy`는 2단계 이후에 이은 매치에만 붙고 `base_url_join`, `mount_prefix`, `learned_prefix` 중 하나다 |
+| `unmatched`       | `{ feCallId, reason, candidates, suggested? }[]`. `reason`은 `no_route`, `ambiguous_prefix`, `multiple_routes` 중 하나. `suggested`는 `no_route`에만 붙는다                                              |
+| `learnedPrefixes` | `{ repo, prefix, support }[]`. `support`는 그 prefix로 맞은 서로 다른 라우트 수이고 2 이상인 prefix만 담긴다                                                                                             |
+| `suggestedNote`   | `suggested`가 붙은 호출이 하나라도 있을 때만 온다. 후보를 그대로 잇지 말고 양쪽 줄을 읽어 확인하라는 안내다                                                                                              |
+
+`suggested`는 `{ beRouteId, score, fePrefix, routePrefix }[]`다. `fePrefix`는 FE 경로 앞에 남은 조각, `routePrefix`는 라우트 경로 앞에 남은 조각이고 없으면 `null`이다. 경로 끝에서부터 조각을 맞춰 점수를 매기고 점수가 높은 순으로 최대 3개를 준다.
+
+`unmatched`는 눈으로 맞춰 실선을 긋지 않는다. `candidates`를 담아 미해결 질문으로 남긴다. `suggested`도 같다. 점수로 고른 후보라 실선 근거가 아니다. 세션이 FE 호출 줄과 BE 라우트 줄을 직접 읽어 같은 API일 때만 엣지를 긋고 후보 여럿을 추정 엣지로 만들지 않는다. 확인하지 못하면 미해결 질문으로 남긴다.
 
 MCP 짝을 넘기면 응답에 `tools: { matches, unmatched }`가 붙는다 (`src/architecture/mcp-tool-match.ts`).
 
@@ -1392,13 +1699,21 @@ matcher마다 참조와 선언을 같은 비교 키로 바꾼 뒤 키가 같은 
 
 성공 응답이다.
 
-| 키               | 내용                                           |
-| ---------------- | ---------------------------------------------- |
-| `ok`             | `true`                                         |
-| `errors`         | `[]`                                           |
-| `autoUnresolved` | 근거가 없어 자동으로 만든 질문                 |
-| `drawable`       | `{ nodeIds, edgeIds }`. 그리기 대상 id, 정렬됨 |
-| `warnings`       | [경고](#검증-규칙) 목록. 있을 때만 온다        |
+| 키               | 내용                                                                              |
+| ---------------- | --------------------------------------------------------------------------------- |
+| `ok`             | `true`                                                                            |
+| `errors`         | `[]`                                                                              |
+| `autoUnresolved` | 근거가 없어 자동으로 만든 질문                                                    |
+| `drawable`       | `{ nodeIds, edgeIds }`. 그리기 대상 id, 정렬됨                                    |
+| `warnings`       | [경고](#검증-규칙) 목록. 있을 때만 온다                                           |
+| `stats`          | [render stats](#render-stats)와 같은 수치. `iconStats`는 render에서만 붙는다      |
+| `signals`        | 다시 볼 자리를 알리는 신호 목록. 문턱을 넘은 것만 실리고 없으면 키 자체가 안 온다 |
+
+`signals` 항목은 `{ code, value, threshold, hint }`다. 세션이 validate를 한 번 더 돌지 정하는 데 쓴다. 지금 신호는 하나다.
+
+| 신호 코드                   | 언제                                                                                                                                                                                                                          |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SCREEN_ENDPOINT_RATIO_LOW` | screen-chain에서 `stats.screenToEndpointRatio`가 0.6(`SCREEN_ENDPOINT_RATIO_THRESHOLD`)보다 작다. 엔드포인트를 부르는 화면이 적다는 뜻이라 엔드포인트가 안 붙은 화면부터 호출 사슬을 다시 따라간다. 비율이 `null`이면 안 온다 |
 
 실패하면 [검증 규칙](#검증-규칙)의 `{ ok: false, errors }`다.
 
@@ -1419,56 +1734,74 @@ render는 이 순서로 돈다.
 3. 병합 결과를 다시 검증한다. 병합이 id를 바꾸므로 그리기 대상도 다시 뽑는다.
 4. 그린 `service` 노드가 있거나 [드릴다운](#드릴다운)의 다른 조건에 맞으면 레벨을 계산한다. 아니면 평면 그림 한 장이다.
 5. 좌표를 계산해 private HTML과 shared HTML을 쓴다.
-6. 자동 질문을 `unresolved`에 합쳐 IR을 저장한다. 사람이 거기 답을 달면 다음 실행이 물려받는다.
+6. 자동 질문을 `unresolved`에 합쳐 IR을 저장한다. 사람이 거기 답을 달면 다음 실행이 물려받는다. 저장할 때 레포마다 지금 HEAD 커밋을 `repos[].head`에 적는다. 입력 IR에 적힌 head는 버리고 다시 읽는다. git 레포가 아니거나 커밋이 없으면 칸을 비운다. head는 저장 IR에만 남고 HTML에는 안 들어가서 같은 IR이면 커밋이 달라도 HTML 바이트가 같다.
 7. 질문별 그림이 있으면 그림마다 [따로 저장되는 파일](#따로-저장되는-파일)을 쓴다.
 8. 이전 실행 IR이 있었으면 병합 전 IR과 병합 결과를 비교해 [구조 변경 그림](#구조-변경-그림)을 쓴다.
 
 성공 응답이다.
 
-| 키               | 내용                                                                                                                                                |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ok`             | `true`                                                                                                                                              |
-| `irPath`         | 저장한 IR 경로                                                                                                                                      |
-| `htmlPath`       | 본인용 HTML 경로                                                                                                                                    |
-| `sharedHtmlPath` | 공유용 HTML 경로                                                                                                                                    |
-| `openPath`       | `audience`에 따라 둘 중 하나                                                                                                                        |
-| `viewPaths`      | 질문별 그림 파일 경로 목록. 쓴 파일이 있을 때만 온다                                                                                                |
-| `levels`         | `{ id, title, nodes, edges }[]`. 드릴다운으로 그렸을 때만 온다. `nodes`와 `edges`는 그 레벨에 그린 수다. 엣지는 묶음 엣지 하나를 하나로 센다        |
-| `stats`          | [render stats](#render-stats)                                                                                                                       |
-| `sourcesUsed`    | 병합 결과의 `sourcesUsed`                                                                                                                           |
-| `delta`          | 지난 그림과 비교한 결과. `status`가 `no_previous`, `unchanged`, `created`, `failed` 중 하나다. 자세한 꼴은 [구조 변경 그림](#구조-변경-그림)에 있다 |
-| `warnings`       | validate와 같은 [경고](#검증-규칙) 목록. 있을 때만 온다                                                                                             |
+| 키               | 내용                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`             | `true`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `irPath`         | 저장한 IR 경로                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `htmlPath`       | 본인용 HTML 경로                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `sharedHtmlPath` | 공유용 HTML 경로                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `openPath`       | `audience`에 따라 둘 중 하나                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `viewPaths`      | 질문별 그림 파일 경로 목록. 쓴 파일이 있을 때만 온다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `levels`         | `{ id, title, nodes, edges }[]`. 드릴다운으로 그렸을 때만 온다. `nodes`와 `edges`는 그 레벨에 그린 수다. 엣지는 묶음 엣지 하나를 하나로 센다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `stats`          | [render stats](#render-stats)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `sourcesUsed`    | 병합 결과의 `sourcesUsed`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `delta`          | 지난 그림과 비교한 결과. `status`가 `no_previous`, `unchanged`, `created`, `failed` 중 하나다. 자세한 꼴은 [구조 변경 그림](#구조-변경-그림)에 있다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `visibility`     | `{ verdict, source, fallbackReason? }`. 커밋 정책을 정한 레포 공개 여부다. `verdict`는 `public`이나 `private`, `source`는 `gh`나 `fallback`이다. 판정에 실패하면 안 온다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `ignoreFilePath` | 관리 구역을 쓴 `.gitignore` 경로. 퍼블릭일 때만 온다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `liveUrl`        | 이 그림의 [라이브 Ask](#라이브-ask) 주소. `serve`로 띄운 서버가 떠 있을 때만 온다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `warnings`       | validate와 같은 [경고](#검증-규칙) 목록. 있을 때만 온다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `merge`          | 지난 실행 IR이 있을 때만 온다. `descriptionCarried`는 지난 설명을 이어받은 노드 수다. 지난 요약을 이어받은 노드가 있으면 `summaryCarried`(노드 수), IR 최상위 칸을 이어받았으면 `topLevelCarried`(`summary`와 `note` 중 이어받은 칸 이름 목록)가 붙는다. 2차 짝으로 label이 바뀐 채 이어진 노드가 있으면 `relabeled`(`{ id, previousLabel, label, matchedBy, evidenceOverlap? }[]`, `matchedBy`는 `id`나 `evidence`. `evidenceOverlap`은 `id`로 이었을 때 양쪽 `code` 근거 파일이 하나라도 겹치는지이고 어느 쪽이든 `code` 근거가 없으면 빠진다), 지난 IR에서 이어받은 흐름이 있으면 `flowsCarried`(흐름 id 목록), 이어 싣지 못하고 사라진 흐름이 있으면 `flowsDropped`(흐름 id 목록), 근거가 낡아 이어 싣지 못한 질문별 그림이 있으면 `projectionsDropped`(투영 id 목록)가 붙는다. 규칙은 [재실행과 노드 id](#재실행과-노드-id)에 있다 |
 
 ### `status`
 
-추가 파라미터가 없다. 응답은 `{ views: { "screen-chain": 요약 | null, "deploy-path": 요약 | null } }`다. 요약은 `{ generatedAt, nodeCount, edgeCount, unresolvedOpen, sourcesUsed }`다.
+추가 파라미터가 없다. 응답은 `{ views: { "screen-chain": 요약 | null, "deploy-path": 요약 | null } }`다. 요약은 `{ generatedAt, nodeCount, edgeCount, unresolvedOpen, sourcesUsed, freshness }`다.
+
+`freshness`는 저장 IR의 `repos[].head`와 지금 레포를 비교한 결과다 (`src/architecture/git-facts.ts`의 `viewFreshness`). 서버는 git만 부르고 LLM은 안 부른다.
+
+| 키                   | 내용                                                                                                                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`             | 레포 하나라도 `stale`이면 `stale`, 전부 `fresh`면 `fresh`, 나머지는 `unknown`                                                                                                                |
+| `repos`              | 레포마다 하나. 비교했으면 `{ repo, status, head, current, changedFiles, uncommitted }`이고 `status`는 `fresh`나 `stale`이다. 비교 못 했으면 `{ repo, status: "unknown", reason, message }`다 |
+| `staleEvidenceFiles` | `code` 근거로 쓰인 파일 중 head 뒤로 바뀐 것. `<repoId>:<경로>` 꼴이고 노드, 엣지, 흐름, 투영 근거를 다 본다                                                                                 |
+
+`changedFiles`는 head부터 지금 HEAD까지 커밋으로 바뀐 파일 수, `uncommitted`는 아직 커밋 안 된 추적 파일 수다. 추적 안 하는 새 파일은 세지 않는다. 옮긴 파일은 옛 경로와 새 경로를 둘 다 센다. 근거는 옛 경로를 가리키고 있어서다. 근거 파일이 하나도 안 바뀌어도 레포에 바뀐 파일이 있으면 그 레포는 `stale`이다. 근거에 안 잡힌 새 연결이 생겼을 수 있어서다.
+
+`reason`은 셋이다. `no_head`는 head 칸이 없는 예전 IR이다. 다시 render하면 기록된다. `not_git`은 git 레포가 아니거나 커밋이 없을 때다. `head_not_found`는 rebase나 얕은 clone으로 기록된 커밋을 지금 레포에서 못 찾을 때다.
 
 ### `merge`
 
-| Parameter          | Type       | Required | Default            | Description                                                                                                            |
-| ------------------ | ---------- | :------: | ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `irs`              | `object[]` |   Y\*    | —                  | 합칠 ArchitectureIR JSON 목록                                                                                          |
-| `irPaths`          | `string[]` |   Y\*    | —                  | 합칠 IR 파일 경로 목록. `repoRoot` 기준으로 푼다. `irs`와 함께 주면 `irs` 뒤에 이어 붙인다                             |
-| `groupNames`       | `string[]` |    N     | 입력의 서비스 이름 | 입력마다 붙일 제품 이름. 넘긴 순서에 맞춘다. 결과 `groups[].name`이 되고 [제품 띠](#제품-띠) 이름과 제품 브릭에 찍힌다 |
-| `prefixCandidates` | `string[]` |    N     | —                  | 레포를 넘는 엔드포인트 매칭에서 FE 경로 앞에 붙는 게이트웨이 prefix 후보                                               |
-| `outPath`          | `string`   |    N     | —                  | 합친 IR을 쓸 파일. 주면 응답에 IR 대신 경로를 싣는다                                                                   |
+| Parameter          | Type                     | Required | Default            | Description                                                                                                                                         |
+| ------------------ | ------------------------ | :------: | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `irs`              | `object[]`               |   Y\*    | —                  | 합칠 ArchitectureIR JSON 목록                                                                                                                       |
+| `irPaths`          | `string[]`               |   Y\*    | —                  | 합칠 IR 파일 경로 목록. `repoRoot` 기준으로 푼다. `irs`와 함께 주면 `irs` 뒤에 이어 붙인다                                                          |
+| `groupNames`       | `string[]`               |    N     | 입력의 서비스 이름 | 입력마다 붙일 제품 이름. 넘긴 순서에 맞춘다. 결과 `groups[].name`이 되고 [제품 띠](#제품-띠) 이름과 제품 브릭에 찍힌다                              |
+| `prefixCandidates` | `string[]`               |    N     | —                  | 레포를 넘는 엔드포인트 매칭에서 FE 경로 앞에 붙는 게이트웨이 prefix 후보                                                                            |
+| `mountPrefixes`    | `Record<string, string>` |    N     | —                  | 레포 이름(`repos`의 `name`) → 그 레포 라우트 앞에 서버가 붙이는 context-path나 global prefix. 레포를 넘는 매칭에서 그 레포의 라우트에 붙여 비교한다 |
+| `outPath`          | `string`                 |    N     | —                  | 합친 IR을 쓸 파일. 주면 응답에 IR 대신 경로를 싣는다                                                                                                |
 
 입력은 둘 이상이고 뷰가 모두 같아야 한다. 입력마다 파일 확인을 뺀 검증을 먼저 돌려 끊긴 엣지나 private 원문이 있으면 거부한다. 에러 메시지에 몇 번째 입력인지 붙는다. 합치는 규칙은 [분석 합치기](#분석-합치기)에 있다.
 
 성공 응답이다.
 
-| 키                         | 내용                                                                                                            |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `ok`                       | `true`                                                                                                          |
-| `ir` 또는 `irPath`         | 합친 IR, `outPath`를 줬으면 쓴 경로                                                                             |
-| `report.inputs`            | 입력 수                                                                                                         |
-| `report.sharedNodes`       | 둘 이상의 입력에 있던 노드. `{ id, kind, label, repo, displayName?, inputs }`이고 `inputs`는 넘긴 순서의 번호다 |
-| `report.crossRepoEdges`    | 레포를 넘는 매칭으로 새로 그은 엣지 id                                                                          |
-| `report.conflictQuestions` | 충돌이나 애매한 매칭으로 새로 만든 질문 id                                                                      |
-| `report.islands`           | 공유 노드나 새 엣지로 이어지지 않은 입력 묶음 수. 1이면 한 덩어리다                                             |
-| `nextAction`               | 다음에 할 일                                                                                                    |
+| 키                         | 내용                                                                                                                                                                                                                 |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`                       | `true`                                                                                                                                                                                                               |
+| `ir` 또는 `irPath`         | 합친 IR, `outPath`를 줬으면 쓴 경로                                                                                                                                                                                  |
+| `report.inputs`            | 입력 수                                                                                                                                                                                                              |
+| `report.sharedNodes`       | 둘 이상의 입력에 있던 노드. `{ id, kind, label, repo, displayName?, inputs }`이고 `inputs`는 넘긴 순서의 번호다                                                                                                      |
+| `report.crossRepoEdges`    | 레포를 넘는 매칭으로 새로 그은 엣지 id                                                                                                                                                                               |
+| `report.conflictQuestions` | 충돌이나 애매한 매칭으로 새로 만든 질문 id                                                                                                                                                                           |
+| `report.islands`           | 공유 노드나 새 엣지로 이어지지 않은 입력 묶음 수. 1이면 한 덩어리다                                                                                                                                                  |
+| `report.unlinkedEndpoints` | 다른 분석에 라우트가 있는데도 받는 핸들러를 못 찾은 FE 엔드포인트. 있을 때만 온다. `{ nodeId, label, repo, suggested? }[]`이고 `suggested`는 `{ nodeId, label, repo, score }[]`(경로 뒤쪽이 닮은 라우트, 최대 3개)다 |
+| `nextAction`               | 다음에 할 일                                                                                                                                                                                                         |
 
-합친 IR은 `validate`와 `render`에 그대로 넘긴다. render는 `repoRoot`의 같은 뷰 IR과 병합하므로 **원래 분석 레포가 아닌 따로 둔 디렉토리를 `repoRoot`로 준다.** 원래 레포를 주면 그 레포의 단독 분석 IR이 합친 IR로 덮인다.
+합친 IR은 `validate`와 `render`에 그대로 넘긴다. render는 `repoRoot`의 같은 뷰 IR과 병합하므로 **원래 분석 레포가 아닌 따로 둔 디렉토리를 `repoRoot`로 준다.** 원래 레포를 주면 그 레포의 단독 분석 IR이 합친 IR로 덮인다. 스킬이 서비스마다 서브에이전트로 나눠 그렸으면 조각은 `$HOME/.gestalt/architecture/split/<키>/<서비스>`, 합친 결과는 같은 자리의 `_merged`에 둔다. 키는 체크아웃 최상위 경로를 realpath로 푼 글자의 sha256 앞 12자다. 자리가 체크아웃마다 고정이라 다음 실행이 지난 조각과 합친 IR을 이어받고 같은 origin의 다른 워크트리나 클론과는 섞이지 않는다. 서버가 `repoRoot`의 `~`를 풀지 않으므로 이 자리는 홈 절대 경로로 넘긴다.
 
 ### `scan_docs`
 
@@ -1612,6 +1945,27 @@ render는 이 순서로 돈다.
 
 결과는 `stale-docs.json`에 쓴다. 응답의 `summary`는 `{ changedFiles, staleDocs, viaCodeRef, viaNode, linkedIr }`다. `linkedIr`는 `node` 이유까지 봤는지다. `sample`에 문서와 제목, 걸린 파일을 최대 20개 싣고 `stalePath`가 따라온다.
 
+### `serve`
+
+| Parameter | Type     | Required | Default | Description                            |
+| --------- | -------- | :------: | ------- | -------------------------------------- |
+| `view`    | `string` |    N     | —       | 주면 그 그림의 `liveUrl`을 따로 싣는다 |
+
+레포마다 서버 하나를 띄운다. 이미 떠 있으면 같은 서버와 포트를 돌려준다. 동작은 [라이브 Ask](#라이브-ask)에 있다.
+
+| 키         | 내용                                                                         |
+| ---------- | ---------------------------------------------------------------------------- |
+| `ok`       | `true`                                                                       |
+| `url`      | 서버 출처. `http://127.0.0.1:<포트>`                                         |
+| `port`     | 실제로 묶은 포트                                                             |
+| `session`  | 그림을 띄운 Claude Code 세션을 지금 찾았는지. `false`면 뷰어 입력창이 숨는다 |
+| `liveUrl`  | `view`를 줬을 때만 온다                                                      |
+| `liveUrls` | 이미 그린 본인용 그림마다 주소. 아직 render 안 한 그림은 없다                |
+| `message`  | `view`의 그림을 아직 안 그렸을 때 render부터 하라는 안내                     |
+| `warning`  | `session`이 `false`일 때 입력창이 숨는다는 안내                              |
+
+포트를 하나도 못 묶으면 `SERVE_FAILED`로 실패한다.
+
 ### 지식 그림 렌더
 
 렌더는 기존 [`render`](#render) 그대로다. `knowledge.draft.json`이나 `knowledge-link.draft.json`을 `irPath`로 준다. 결과 파일은 다른 뷰처럼 `knowledge.html`, `knowledge-link.html`과 각 `.shared.html`이다.
@@ -1675,9 +2029,27 @@ render는 이 순서로 돈다.
 - 노드의 `parent`도 바뀐 id를 따라간다.
 - 새 IR의 다른 id와 부딪히면 바꾸지 않는다.
 - 이전 IR에서 답이 달린 질문은 대상 노드나 엣지가 병합 결과에 남아 있을 때만 이어 붙인다. 같은 대상에 같은 질문이 새로 왔으면 답만 옮긴다.
-- 이전 IR의 질문별 그림은 가리킨 노드와 엣지가 다 남아 있을 때만 이어진다. lifecycle과 blueprint는 가리킨 흐름도 이번 IR에 있어야 한다. 조건은 [재실행과 합치기](#재실행과-합치기)에 있다.
+- 이전 IR의 질문별 그림은 가리킨 노드와 엣지가 다 남아 있을 때만 이어진다. lifecycle과 blueprint는 가리킨 흐름도 병합 결과에 있어야 한다. 조건은 [재실행과 합치기](#재실행과-합치기)에 있다.
 
-label을 바꾸면 다른 노드가 된다. 엔드포인트 label을 `METHOD /정규화 경로` 꼴로 고정하는 이유다. 사람이 읽을 이름을 다듬고 싶으면 label 대신 `displayName`을 고친다. 병합 키에 안 들어가서 id가 그대로다.
+안정 키로 짝이 안 난 노드는 label만 바뀌었을 수 있다. 그래서 같은 `kind`와 `repo` 안에서 두 번 더 짝을 찾는다 (`mergeWithPreviousDetailed`).
+
+1. **같은 id**: 이번 IR 노드의 id가 짝 없는 지난 노드의 id와 같으면 잇는다.
+2. **같은 code 근거 파일**: `code` 근거의 파일 집합(줄 번호는 뺀다)이 같은 노드끼리 잇는다. 같은 IR에서 같은 `kind`와 `repo`의 다른 노드도 근거로 단 파일은 집합에서 뺀다. 라우터 파일 하나에 화면 여럿이 걸리면 화면 하나를 지우고 하나를 더했을 때 새 화면이 지운 화면의 id와 답을 물려받아서다. 빼고 남는 파일이 없으면 이 짝은 찾지 않는다. 이번 IR과 지난 IR 양쪽에 그 파일 집합을 쓰는 짝 없는 노드가 딱 하나씩일 때만 잇는다. 어느 쪽이든 둘 이상이면 무엇이 무엇인지 몰라 잇지 않는다. 잘못 이으면 답이 엉뚱한 노드에 붙어서다.
+
+병합 키는 그대로 `kind`, `repo`, 정규화한 `label`이다. 2차 짝은 키로 못 찾은 노드에만 쓴다. 이렇게 이어진 노드는 render 응답의 `merge.relabeled`에 지난 label과 함께 실린다.
+
+짝을 찾은 노드는 지난 실행의 것을 이어받는다.
+
+- **설명**: 이번 IR에서 `description` 칸이 아예 없으면 지난 설명을 쓴다. 빈 문자열(`""`)을 적으면 일부러 지운 것으로 보고 이어받지 않는다. 재실행 IR에 설명을 빠뜨려도 지난 설명이 안 사라진다.
+- **요약**: 노드 `summary`도 설명과 같은 규칙으로 이어받는다.
+- **답 달린 질문**: 위 규칙대로 대상이 남아 있으면 이어진다. 2차로 이은 노드는 지난 id를 받으므로 질문의 대상도 그대로 맞는다. 짝은 지었는데 이번 IR의 다른 노드가 그 id를 써서 지난 id를 못 받았으면 질문과 흐름, 질문별 그림이 가리키는 id를 짝 노드의 이번 id로 옮긴다. 짝을 못 찾은 지난 노드의 id를 이번 IR의 다른 노드가 쓰고 있으면 같은 노드가 아니라서 그 노드에 붙이지 않는다.
+- **흐름**: 이번 IR의 `flows`에 없는 지난 흐름은 아래를 다 지킬 때 이어진다. 흐름 id가 이번 흐름과 안 겹친다. `service`를 적었으면 병합 결과에 그 id가 `service` 노드로 남아 있다. 단계 `refs`가 가리킨 노드가 다 남아 있고 흐름이 가리킬 수 있는 종류다. 단계 id와 전이 id가 이번 흐름들의 것과 안 겹친다. 파일 검사를 하는 render(`checkFiles`가 `false`가 아닐 때)에서는 단계와 전이의 `code` 근거 파일이 있고 줄이 범위 안이다. 세션 IR에 없는 지난 흐름의 근거가 낡으면 고칠 자리가 안 보인 채 render 전체가 근거 오류로 막혀서다. excerpt 불일치는 경고라 따지지 않는다. 질문별 그림의 메시지 근거도 같은 검사를 거치고 걸리면 `PROJECTION_DROPPED` 경고가 온다. 흐름은 코드에 붙은 노드를 근거로 남는다. 코드가 없어져 가리키던 노드가 이번 IR에서 빠지면 흐름도 함께 지워진다. `service`도 단계 `refs`도 없는 흐름은 언제 지울지 판단할 근거가 없어 이어지지 않는다. 이어 싣지 못한 흐름마다 `FLOW_DROPPED` 경고가 오고 응답 `merge.flowsDropped`에 id가 모인다. 코드는 그대로인데 흐름만 지우려면 같은 id로 고친 흐름을 적는다.
+
+IR 최상위 `summary`와 `note`도 같은 규칙이다. 이번 IR에 칸이 없고 지난 IR 값이 공백이 아니면 지난 값을 쓰고 빈 문자열을 적으면 지운 것으로 본다.
+
+짝을 못 찾으면 알린다. 지난 노드에 설명이나 요약, 답 달린 질문이 있었는데 짝이 안 났고 같은 `kind`와 `repo`의 짝 없는 노드가 이번 IR에 있으면 `LABEL_CHANGED_ID_LOST` 경고를 낸다. label과 id를 함께 바꿨고 근거 파일로도 하나로 못 좁힌 경우다. 경고의 `candidates`에서 맞는 노드를 골라 지난 id를 다시 적으면 다음 render가 잇는다. 이번 IR에 같은 병합 키를 쓰는 노드가 여럿이면 첫 노드만 지난 id를 받으므로 `MERGE_KEY_DUPLICATE` 경고를 낸다.
+
+사람이 읽을 이름만 다듬고 싶으면 label 대신 `displayName`을 고치는 편이 여전히 안전하다. 병합 키에 안 들어가서 id가 그대로다. 엔드포인트 label을 `METHOD /정규화 경로` 꼴로 고정하는 이유도 같다.
 
 ### 구조 변경 그림
 
@@ -1696,7 +2068,7 @@ label을 바꾸면 다른 노드가 된다. 엔드포인트 label을 `METHOD /�
 | `MOVED`   | 노드의 부모, 계정, 배포 구간이 바뀌었다                                                                                                                                                                                                                    |
 | `REWIRED` | 엣지의 한쪽 끝이 바뀌었다. 같은 id가 끝을 바꿨거나, 빠진 엣지와 생긴 엣지가 종류가 같고 한쪽 끝을 같은 자리에서 공유하며 서로 짝이 하나뿐일 때다. 짝이 여럿이면 모호해서 빠짐과 생김으로 둔다. 짝지은 엣지도 액션이 다르면 `CHANGED`와 `REWIRED` 두 줄이다 |
 
-한 노드가 속성도 바뀌고 부모도 바뀌면 `CHANGED`와 `MOVED` 두 줄이다. label을 바꾼 노드는 [재실행과 노드 id](#재실행과-노드-id)대로 다른 노드가 되니 `REMOVED`와 `ADDED` 두 줄로 잡힌다.
+한 노드가 속성도 바뀌고 부모도 바뀌면 `CHANGED`와 `MOVED` 두 줄이다. label을 바꾼 노드가 [재실행과 노드 id](#재실행과-노드-id)의 2차 짝으로 이어졌으면 id가 같아서 `CHANGED` 한 줄로 잡히고 바뀐 속성에 `이름`이 든다. 짝을 못 찾았으면 다른 노드가 되니 `REMOVED`와 `ADDED` 두 줄이다.
 
 - **색만으로 가르지 않는다**: 카드에 배지 글자(`+ 생김`, `− 빠짐`, `Δ 변경`, `→ 이동`, `↻ 다시 이음`)를 달고 빠진 카드는 점 테두리, 생긴 카드는 굵은 테두리를 쓴다. 빠진 선은 점선이다. 강조색은 변경 목록의 변경어에만 쓴다.
 - **예산**: 한 장에 구성 요소 8개, 관계 10개, 변경 목록 8줄까지 읽힌다고 본다. 합집합이 넘으면 바뀐 노드와 그 1홉 이웃만 남겨 그린다. 좁혀도 하나라도 넘으면 [`DELTA_OVER_BUDGET`](#검증-규칙) 경고가 온다. 넘지 않으면 이 경고는 안 온다.
@@ -1719,14 +2091,15 @@ render 응답의 `delta`는 넷 중 하나다.
 - **노드**는 재실행 병합과 같은 키(`kind`, 레포, 정규화한 `label`)로 알아본다. 레포는 위에서 묶은 기준이라 두 분석이 다른 별칭을 썼어도 같은 노드가 된다. 같은 노드면 하나로 합치고 근거는 합집합으로 남긴다. 한 입력 안에서 키가 겹친 노드끼리는 그 분석이 일부러 나눈 것으로 보고 합치지 않는다.
 - **id**는 먼저 합친 쪽 것을 쓴다. 다른 노드와 부딪히면 `-2`를 붙인다. `parent`, `account`, 엣지 양 끝, 질문 대상이 바뀐 id를 따라간다.
 - **엣지**는 바뀐 id 기준 `from`, `to`, `kind`가 같으면 하나로 합친다. 한쪽이라도 실선이면 실선이다. 근거는 합집합이라 실선의 근거가 줄지 않는다.
-- **레포를 넘는 연결**: 핸들러(`handles` → `app_module`)가 없는 엔드포인트를 다른 입력의 핸들러 달린 엔드포인트와 [`match_endpoints`](#match_endpoints)와 같은 규칙(method와 정규화한 경로)으로 맞춘다. 맞으면 FE 엔드포인트에서 그 모듈로 `handles`를 긋고 FE 쪽 경로 줄과 BE 쪽 라우트 줄을 둘 다 근거로 단다. 같은 입력 안의 쌍은 다시 맞추지 않는다. 그 분석이 이미 못 맞춘 쌍이라서다. 후보가 여럿이면 긋지 않고 질문으로 남긴다.
-- **충돌**: 같은 노드인데 `displayName`, `parent`, `environment`, `account`가 입력마다 다르면 어느 쪽도 고르지 않는다. 그 값을 비우고 후보를 담은 미해결 질문(`merge:<필드>:<노드 id>`)을 만든다. 단 `user` 근거가 있는 쪽 값은 그대로 둔다. 사람이 답해서 정한 값이라서다. 한쪽만 값을 줬으면 충돌이 아니라 그 값을 쓴다. 테이블 컬럼은 이름으로 합치고 먼저 준 입력 값으로 그린다. 외래 키 대상 테이블이나 타입이 입력마다 다르면 질문(`merge:column:<노드 id>:<컬럼 순번>`)을 만든다. 대상 테이블은 합친 id로 바꾼 뒤 견준다. `description`은 먼저 합친 쪽 것을 쓴다.
+- **레포를 넘는 연결**: 핸들러(`handles` → `app_module`)가 없는 엔드포인트를 다른 입력의 핸들러 달린 엔드포인트와 [`match_endpoints`](#match_endpoints)와 같은 규칙(method와 정규화한 경로)으로 맞춘다. 맞으면 FE 엔드포인트에서 그 모듈로 `handles`를 긋고 FE 쪽 경로 줄과 BE 쪽 라우트 줄을 둘 다 근거로 단다. 같은 입력 안의 쌍은 다시 맞추지 않는다. 그 분석이 이미 못 맞춘 쌍이라서다. 후보가 여럿이면 긋지 않고 질문으로 남긴다. 받는 핸들러를 못 찾은(`no_route`) FE 엔드포인트는 질문을 만들지 않고 `report.unlinkedEndpoints`에 담아 알리기만 한다. 오류가 아니다. 서버가 라우트 앞에 prefix를 붙이는 레포는 `mountPrefixes`(레포 이름 → prefix)로 알려 주면 그 레포의 라우트에 붙여 비교한다. `nextAction`에 `unlinkedEndpoints`가 몇 개인지와 `suggested`는 양쪽 줄을 읽어 같은 API일 때만 엣지를 더하라는 안내가 붙는다.
+- **충돌**: 같은 노드인데 `displayName`, `parent`, `environment`, `account`가 입력마다 다르면 어느 쪽도 고르지 않는다. 그 값을 비우고 후보를 담은 미해결 질문(`merge:<필드>:<노드 id>`)을 만든다. 단 `user` 근거가 있는 쪽 값은 그대로 둔다. 사람이 답해서 정한 값이라서다. 한쪽만 값을 줬으면 충돌이 아니라 그 값을 쓴다. 테이블 컬럼은 이름으로 합치고 먼저 준 입력 값으로 그린다. 외래 키 대상 테이블이나 타입이 입력마다 다르면 질문(`merge:column:<노드 id>:<컬럼 순번>`)을 만든다. 대상 테이블은 합친 id로 바꾼 뒤 견준다. `description`과 노드 `summary`는 먼저 합친 쪽 것을 쓴다.
 - **마이크로 프론트엔드 앱**은 레포를 빼고 `kind`와 정규화한 `label`로 알아본다. 호스트 레포 분석이 리모트를 `loads`로 들여오고 리모트 레포 분석이 그 앱을 직접 그려도 한 노드가 된다. 레포는 그 앱으로 들어오는 `loads`가 없는 입력, 곧 자기 레포를 분석한 쪽 것을 쓴다. 두 제품이 같은 리모트를 각자 자기 서비스에 달았으면 parent를 비우고 질문은 만들지 않는다. 같이 쓰는 리모트는 어느 한 서비스 것이 아니라서 전체 레벨에 따로 서는 게 맞다.
 - **겹치는 노드가 없으면** 입력이 섬처럼 나란히 선다. 서비스가 둘 이상이라 드릴다운 전체 화면에 서비스가 나란히 서고 서비스마다 레벨이 생긴다. 포커스도 그대로 쓸 수 있다.
 - **질문**은 대상을 바뀐 id로 옮긴다. 같은 대상에 같은 문장이면 하나만 남기고 답이 있는 쪽 답을 쓴다.
 - **질문별 그림**은 나란히 둔다. 안의 노드와 엣지 참조는 바뀐 id를 따라간다. 투영 id나 메시지 id가 부딪히면 `-2`를 붙여 다시 매긴다. 메시지를 가리키는 질문의 `messageId`와 구간의 `from`, `to`도 함께 바뀐다.
 - **어휘 팩**: 입력 중 하나라도 `packs`를 적었으면 결과에도 적는다. 값은 입력들 팩의 합집합이다. `packs`를 안 적은 입력은 `web-product`와 `harness`를 쓴 것으로 친다.
 - **맥락 소스**는 `via`와 `identifier`로 묶는다. 한쪽이라도 `private`이면 `private`로 남긴다. `generatedAt`은 입력 중 가장 늦은 시각이다.
+- **요약과 일러두기**: IR 최상위 `summary`와 `note`는 결과에 싣지 않는다. 입력 한 장의 그림을 두고 쓴 글이라 합친 그림에 안 맞는다. 합친 뒤 세션이 새로 쓴다.
 - **공개 범위**: private 근거의 원문은 입력 검증에서 거부하고 결과에서도 한 번 더 지운다. 근거는 원래 `visibility`를 그대로 갖고 가므로 shared 렌더의 가리기 규칙이 합친 결과에도 똑같이 걸린다.
 - **결정적이다.** 입력을 정규화한 JSON의 해시 순으로 정렬한 뒤 합치므로 넘긴 순서나 객체 키 순서와 상관없이 같은 바이트가 나온다. 보고서의 `inputs` 번호만 넘긴 순서를 따른다.
 
@@ -1745,7 +2118,7 @@ render 응답의 `delta`는 넷 중 하나다.
 
 띠마다 머리에 점선 구분선을 긋고 그 선에 띠 이름을 단다. 맨 위는 `같이 쓰는 카드`, 나머지는 제품 색 네모와 `A 전용`이다. 띠 높이는 모든 열에서 같게 맞춘다. 그래야 구분선 한 줄로 띠가 갈린다. 같이 쓰는 띠 안에서는 쓰는 제품이 많은 카드가 위로 간다. 여러 제품이 기대는 카드부터 눈에 들어오게 하려는 것이다.
 
-같이 쓰는 카드는 돌기 대신 그 카드를 쓰는 제품을 작은 브릭으로 한 줄 꽂는다. 브릭은 제품 색으로 꽉 채우고 제품 이름을 흰 글자로 적는다. 색만으로 제품을 가리지 않으려고 이름을 함께 적는다. 제품 색은 여덟 가지이고 제품이 더 많으면 처음 색부터 다시 돈다. 브릭은 그 카드와 선으로 바로 이어진 제품 전용 카드가 많은 제품부터 놓는다. 게이트웨이라면 그 제품 API로 가는 선이, 서버라면 그 제품 엔드포인트에서 들어오는 선이, 저장소라면 그 제품 서버에서 들어오는 선이 많은 쪽이 앞이다. 같이 쓰는 카드끼리 이은 선은 어느 제품 몫도 아니라서 안 센다. 수가 같으면 합칠 때 넘긴 순서를 따른다. 카드마다 순서는 달라도 제품 색은 그대로라 색으로 제품을 따라갈 수 있다. 카드 폭에 다 안 들어가면 들어가는 만큼만 꽂고 남은 수를 `+N` 버튼에 적는다. 폭은 카드 폭처럼 글자 수로 어림해서 서버가 정한다. 버튼을 누르면 `카드이름을 같이 쓰는 제품` 드롭다운이 뜨고 그 카드를 쓰는 제품 전부와 제품마다 그 레벨의 전용 카드 수가 나온다. 캔버스는 확대와 스크롤 상자 안이라 드롭다운은 화면 기준으로 띄운다. 바깥을 누르거나 Esc를 누르거나 화면을 옮기면 닫힌다.
+같이 쓰는 카드에는 카드 위쪽에 그 카드를 쓰는 제품을 작은 브릭으로 한 줄 꽂는다. 브릭은 제품 색으로 꽉 채우고 제품 이름을 흰 글자로 적는다. 색만으로 제품을 가리지 않으려고 이름을 함께 적는다. 제품 색은 여덟 가지이고 제품이 더 많으면 처음 색부터 다시 돈다. 브릭은 그 카드와 선으로 바로 이어진 제품 전용 카드가 많은 제품부터 놓는다. 게이트웨이라면 그 제품 API로 가는 선이, 서버라면 그 제품 엔드포인트에서 들어오는 선이, 저장소라면 그 제품 서버에서 들어오는 선이 많은 쪽이 앞이다. 같이 쓰는 카드끼리 이은 선은 어느 제품 몫도 아니라서 안 센다. 수가 같으면 합칠 때 넘긴 순서를 따른다. 카드마다 순서는 달라도 제품 색은 그대로라 색으로 제품을 따라갈 수 있다. 카드 폭에 다 안 들어가면 들어가는 만큼만 꽂고 남은 수를 `+N` 버튼에 적는다. 폭은 카드 폭처럼 글자 수로 어림해서 서버가 정한다. 버튼을 누르면 `카드이름을 같이 쓰는 제품` 드롭다운이 뜨고 그 카드를 쓰는 제품 전부와 제품마다 그 레벨의 전용 카드 수가 나온다. 캔버스는 확대와 스크롤 상자 안이라 드롭다운은 화면 기준으로 띄운다. 바깥을 누르거나 Esc를 누르거나 화면을 옮기면 닫힌다.
 
 - 그룹 순서는 합친 결과의 `groups` 순서다. 합치기가 입력을 정렬하므로 넘긴 순서와 상관없이 같다.
 - 레벨마다 따로 정한다. 그 레벨에 카드가 있는 띠가 하나뿐이면 띠를 나누지 않는다.

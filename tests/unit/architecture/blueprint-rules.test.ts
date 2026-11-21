@@ -309,9 +309,14 @@ describe('blueprint 저장과 이월', () => {
     const next = flowIr();
     next.flows = next.flows!.map((f) => ({ ...f, id: 'queue-v2' }));
     expect(mergeWithPrevious(withBp(), next).projections ?? []).toEqual([]);
+  });
+
+  it('다음 IR에 flows가 빠지면 지난 흐름과 함께 이어 싣는다', () => {
     const none = flowIr();
     delete none.flows;
-    expect(mergeWithPrevious(withBp(), none).projections ?? []).toEqual([]);
+    const merged = mergeWithPrevious(withBp(), none);
+    expect(merged.flows?.map((f) => f.id)).toEqual(['queue']);
+    expect((merged.projections ?? []).length).toBe(1);
   });
 
   it('같은 id의 흐름에 갈림길만 남으면 버린다', () => {
@@ -394,6 +399,8 @@ describe('ges_architecture blueprint 경고', () => {
     return (await handleArchitecturePassthrough(input, process.cwd(), {
       homeDir,
       projectsRoot: join(homeDir, '.claude', 'projects'),
+      // gh와 네트워크를 타지 않게 비공개로 고정한다
+      resolveVisibility: () => ({ verdict: 'private', source: 'gh', visibility: 'PRIVATE' }),
     })) as Record<string, unknown>;
   }
 

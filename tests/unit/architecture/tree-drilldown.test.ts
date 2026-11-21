@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { computeDrilldown, shouldDrillDown } from '../../../src/architecture/drilldown.js';
+import {
+  computeDrilldown,
+  drillLevelOwners,
+  shouldDrillDown,
+} from '../../../src/architecture/drilldown.js';
 import {
   parseArchitectureIr,
   validateArchitectureIr,
@@ -102,5 +106,25 @@ describe('tree 드릴다운', () => {
     ir.nodes.find((n) => n.id === 'k8s')!.parent = 'api';
     const r = validateArchitectureIr(ir, { checkFiles: false });
     expect(r.ok ? [] : r.errors.map((e) => e.code)).toContain('INVALID_PARENT_KIND');
+  });
+
+  it('group 레벨은 그 레벨을 여는 노드의 summary를 싣고 infra 레벨에는 싣지 않는다', async () => {
+    const ir = infraIr();
+    ir.summary = '두 VPC로 나뉜 배포 구성';
+    ir.nodes = ir.nodes.map((n) => ({ ...n, summary: `${n.id} 요약` }));
+    const v = validated(ir);
+    const { levels } = await computeDrilldown(v);
+    const owners = drillLevelOwners(v);
+    expect(owners.map((o) => o.levelId)).toEqual(
+      levels.filter((l) => l.kind !== 'infra').map((l) => l.id),
+    );
+    expect(
+      Object.fromEntries(levels.filter((l) => 'summary' in l).map((l) => [l.id, l.summary])),
+    ).toEqual(
+      Object.fromEntries(
+        owners.map((o) => [o.levelId, o.ownerId === undefined ? ir.summary : `${o.ownerId} 요약`]),
+      ),
+    );
+    expect(levels.find((l) => l.id === 'group:vpc-main')!.summary).toBe('vpc-main 요약');
   });
 });

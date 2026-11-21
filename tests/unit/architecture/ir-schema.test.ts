@@ -11,6 +11,7 @@ import {
   contextSourceViaSchema,
   edgeKindSchema,
   evidenceTypeSchema,
+  findUnknownFields,
   FLOW_ACTOR_KINDS,
   FLOW_PATHS,
   FLOW_STEP_KINDS,
@@ -349,5 +350,137 @@ describe('인프라 배치 필드 (provider, region, exposure, placedIn, engine)
     const r = parseArchitectureIr(withNode({ engine: 'ecs' }, 'service'));
     expect(r.ok).toBe(false);
     expect(issues(r).some((i) => i.includes('engine'))).toBe(true);
+  });
+});
+
+describe('repos[].head (렌더 시점 커밋)', () => {
+  const withHead = (head: unknown): Record<string, unknown> => {
+    const ir = minimalIr();
+    (ir.repos as Array<Record<string, unknown>>)[0]!.head = head;
+    return ir;
+  };
+
+  it('없어도 통과한다 (예전 IR)', () => {
+    expect(parseArchitectureIr(minimalIr()).ok).toBe(true);
+  });
+
+  it('16진수 7~64자를 받는다', () => {
+    expect(parseArchitectureIr(withHead('a1b2c3d')).ok).toBe(true);
+    expect(parseArchitectureIr(withHead('0'.repeat(40))).ok).toBe(true);
+    expect(parseArchitectureIr(withHead('0'.repeat(64))).ok).toBe(true);
+  });
+
+  it('16진수가 아니거나 길이가 맞지 않으면 거부한다', () => {
+    expect(parseArchitectureIr(withHead('HEAD')).ok).toBe(false);
+    expect(parseArchitectureIr(withHead('abc')).ok).toBe(false);
+    expect(parseArchitectureIr(withHead('g'.repeat(40))).ok).toBe(false);
+  });
+
+  it('JSON 스키마에도 같은 패턴의 선택 칸으로 있다', () => {
+    const schema = JSON.parse(
+      readFileSync(resolve(__dirname, '../../../schemas/architecture-ir.schema.json'), 'utf-8'),
+    ) as {
+      definitions: {
+        repo: { required: string[]; properties: Record<string, { pattern?: string }> };
+      };
+    };
+    expect(schema.definitions.repo.properties.head?.pattern).toBe('^[0-9a-f]{7,64}$');
+    expect(schema.definitions.repo.required).not.toContain('head');
+  });
+});
+
+describe('summary와 note (레벨 요약과 일러두기)', () => {
+  it('없어도 통과한다 (예전 IR)', () => {
+    expect(parseArchitectureIr(minimalIr()).ok).toBe(true);
+  });
+
+  it('최상위 summary, note와 노드 summary를 받고 strict 검사에도 안 걸린다', () => {
+    const ir = minimalIr();
+    ir.summary = '홈 화면이 상품 목록 API를 부르는 그림이에요.';
+    ir.note = '웹 레포만 읽었어요.';
+    (ir.nodes as Array<Record<string, unknown>>)[0]!.summary = '홈 화면 하나만 있어요.';
+    const parsed = parseArchitectureIr(ir);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.summary).toBe('홈 화면이 상품 목록 API를 부르는 그림이에요.');
+      expect(parsed.value.note).toBe('웹 레포만 읽었어요.');
+      expect(parsed.value.nodes[0]!.summary).toBe('홈 화면 하나만 있어요.');
+    }
+    expect(findUnknownFields(ir)).toEqual([]);
+  });
+
+  it('문자열이 아니면 거부한다', () => {
+    const ir = minimalIr();
+    ir.summary = 3;
+    expect(parseArchitectureIr(ir).ok).toBe(false);
+  });
+
+  it('오타 칸은 여전히 제안과 함께 알린다', () => {
+    const ir = minimalIr();
+    ir.sumary = 'x';
+    expect(findUnknownFields(ir)).toContainEqual({
+      path: 'sumary',
+      key: 'sumary',
+      suggestion: 'summary',
+    });
+  });
+
+  it('JSON 스키마에도 선택 칸으로 있다', () => {
+    const schema = JSON.parse(
+      readFileSync(resolve(__dirname, '../../../schemas/architecture-ir.schema.json'), 'utf-8'),
+    ) as {
+      required: string[];
+      properties: Record<string, { type?: string }>;
+      definitions: {
+        node: { required: string[]; properties: Record<string, { type?: string }> };
+      };
+    };
+    expect(schema.properties.summary?.type).toBe('string');
+    expect(schema.properties.note?.type).toBe('string');
+    expect(schema.required).not.toContain('summary');
+    expect(schema.required).not.toContain('note');
+    expect(schema.definitions.node.properties.summary?.type).toBe('string');
+    expect(schema.definitions.node.required).not.toContain('summary');
+  });
+});
+
+describe('findUnknownFields (입력 오타 칸)', () => {
+  it('스키마에 맞는 IR은 빈 목록', () => {
+    expect(findUnknownFields(minimalIr())).toEqual([]);
+  });
+
+  it('노드의 오타 칸을 경로와 제안 하나로 알린다', () => {
+    const ir = minimalIr();
+    (ir.nodes as Array<Record<string, unknown>>)[0]!.discription = '오타';
+    expect(findUnknownFields(ir)).toEqual([
+      { path: 'nodes[0].discription', key: 'discription', suggestion: 'description' },
+    ]);
+  });
+
+  it('최상위와 근거 안쪽까지 내려가 찾는다', () => {
+    const ir = minimalIr();
+    ir.generatedAtt = 'x';
+    const nodes = ir.nodes as Array<{ evidence: Array<Record<string, unknown>> }>;
+    nodes[0]!.evidence.push({ type: 'user', location: 'chat', visibility: 'public', exerpt: 'x' });
+    const found = findUnknownFields(ir);
+    expect(found).toContainEqual({
+      path: 'generatedAtt',
+      key: 'generatedAtt',
+      suggestion: 'generatedAt',
+    });
+    expect(found.find((f) => f.key === 'exerpt')?.suggestion).toBe('excerpt');
+  });
+
+  it('가까운 키가 없으면 제안을 비운다', () => {
+    const ir = minimalIr();
+    (ir.nodes as Array<Record<string, unknown>>)[0]!.zzzzzzzz = 1;
+    const [field] = findUnknownFields(ir);
+    expect(field).toEqual({ path: 'nodes[0].zzzzzzzz', key: 'zzzzzzzz' });
+  });
+
+  it('모양이 틀린 자리는 건너뛴다(형식 오류는 parseArchitectureIr 몫)', () => {
+    const ir = minimalIr();
+    ir.nodes = 'not-an-array';
+    expect(findUnknownFields(ir)).toEqual([]);
   });
 });
