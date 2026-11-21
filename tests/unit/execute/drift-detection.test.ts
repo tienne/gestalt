@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from 'vitest';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
 import { EventStore } from '../../../src/events/store.js';
 import { DRIFT_THRESHOLD } from '../../../src/core/constants.js';
@@ -16,6 +16,9 @@ import type {
   TaskExecutionResult,
   AtomicTask,
 } from '../../../src/core/types.js';
+import { EMBEDDING_WARMUP_TIMEOUT, warmDriftEmbedding } from '../../helpers/warm-embedding.js';
+
+beforeAll(warmDriftEmbedding, EMBEDDING_WARMUP_TIMEOUT);
 
 function createTestSpec(): Spec {
   return {

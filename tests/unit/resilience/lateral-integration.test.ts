@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll } from 'vitest';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
 import { EventStore } from '../../../src/events/store.js';
 import { EventType } from '../../../src/events/types.js';
@@ -21,6 +21,9 @@ import type {
   EvaluationResult,
 } from '../../../src/core/types.js';
 import { asRequested } from '../../helpers/structural.js';
+import { EMBEDDING_WARMUP_TIMEOUT, warmDriftEmbedding } from '../../helpers/warm-embedding.js';
+
+beforeAll(warmDriftEmbedding, EMBEDDING_WARMUP_TIMEOUT);
 
 // ─── Test Helpers ─────────────────────────────────────────────
 

@@ -1,6 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, beforeAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { EMBEDDING_WARMUP_TIMEOUT, warmDriftEmbedding } from '../../helpers/warm-embedding.js';
+
+beforeAll(warmDriftEmbedding, EMBEDDING_WARMUP_TIMEOUT);
 
 // Mock better-sqlite3 to avoid Node.js version mismatch
 vi.mock('better-sqlite3', () => {

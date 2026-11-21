@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,6 +20,9 @@ import type {
   ProximityResult,
   ContinuityResult,
 } from '../../../src/core/types.js';
+import { EMBEDDING_WARMUP_TIMEOUT, warmDriftEmbedding } from '../../helpers/warm-embedding.js';
+
+beforeAll(warmDriftEmbedding, EMBEDDING_WARMUP_TIMEOUT);
 
 /**
  * execute_task의 completed 보고를 git 작업 트리와 대조하는 경로.

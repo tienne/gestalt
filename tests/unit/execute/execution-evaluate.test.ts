@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll } from 'vitest';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
 import { EventStore } from '../../../src/events/store.js';
 import { isOk, isErr } from '../../../src/core/result.js';
@@ -21,15 +21,9 @@ import type { IHostAdapter } from '../../../src/mcp/host-adapter.js';
 import { createFakeRepo, cleanupFakeRepos } from '../../helpers/fake-repo.js';
 import { codeGraphEngine } from '../../../src/code-graph/index.js';
 import type { BlastRadiusResult } from '../../../src/code-graph/types.js';
+import { EMBEDDING_WARMUP_TIMEOUT, warmDriftEmbedding } from '../../helpers/warm-embedding.js';
 
-// 첫 submitTaskResult가 drift 측정용 임베딩 모델을 처음 띄우면 CI에서 5초를 넘긴다. 이 파일은 drift 값을 안 보니 Jaccard 폴백으로 넘긴다
-vi.mock('../../../src/code-graph/providers/local-embedding.js', () => ({
-  LocalEmbeddingProvider: class {
-    embed(): Promise<number[][]> {
-      return Promise.reject(new Error('embedding disabled in this test'));
-    }
-  },
-}));
+beforeAll(warmDriftEmbedding, EMBEDDING_WARMUP_TIMEOUT);
 
 function createTestSpec(): Spec {
   return {
