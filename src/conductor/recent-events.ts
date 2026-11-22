@@ -1,7 +1,7 @@
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { oneLine } from './intake.js';
-import { EVENTS_FILE, SEGMENTS_DIR, listSegments } from './store.js';
+import { EVENTS_FILE, SEGMENTS_DIR, listSegments, storeLayout } from './store.js';
 import type { ConductorEvent, ConductorSnapshot } from './types.js';
 
 /**
@@ -121,6 +121,21 @@ export function readRecentEvents(
   dir: string,
   snapshot: Readonly<ConductorSnapshot>,
   limit = RECENT_EVENTS_LIMIT,
+): RecentEvent[] {
+  // 목록을 뽑고 읽는 사이에 떼어 내기가 끼면 이름이 바뀐 이벤트를 놓친다. 모양이 그대로일 때까지 다시 읽는다
+  let out: RecentEvent[] = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const layout = storeLayout(dir);
+    out = collectRecent(dir, snapshot, limit);
+    if (storeLayout(dir) === layout) break;
+  }
+  return out;
+}
+
+function collectRecent(
+  dir: string,
+  snapshot: Readonly<ConductorSnapshot>,
+  limit: number,
 ): RecentEvent[] {
   const out: RecentEvent[] = [];
   const files = [
