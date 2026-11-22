@@ -77,7 +77,8 @@ export const GATE_LABEL: Record<string, string> = {
   'slack-post': '슬랙 게시',
   interview: '인터뷰 답',
   'review-manual-switch': '리뷰 수동 전환',
-  'no-procedure': '처리 절차 없음'
+  'no-procedure': '처리 절차 없음',
+  'file-overlap': '파일 겹침 확인'
 }
 
 /** 이벤트 유형처럼 바깥에서 온 키로 표를 찾는다. constructor 같은 이름이 Object 원형의 함수를 꺼내지 않게 제 키만 본다 */

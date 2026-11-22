@@ -38,6 +38,8 @@ export interface WorkerActivityInfo {
   overlaps?: { orderId: string; files: string[] }[];
   /** 백그라운드 gate 뒤 멈춤 알림을 보낸 시각. 한 워커에 한 번만 보낸다 */
   gateStallNotifiedAt?: string;
+  /** 이 워커 주문에 겹침 게이트를 이미 연 상대 주문. 사람이 답한 뒤 다시 열지 않는다 */
+  overlapGated?: string[];
 }
 
 export function activityDir(stateDir: string): string {

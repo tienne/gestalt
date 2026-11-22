@@ -23,6 +23,7 @@ import {
   writeReport,
   type EngineDeps,
 } from '../../../src/conductor/engine.js';
+import { readWorkerInfo } from '../../../src/conductor/activity.js';
 import { resolveGate } from '../../../src/conductor/gates.js';
 import { saveSkillCheckpoint } from '../../../src/conductor/resume.js';
 import type { DeploySignal, JiraClient } from '../../../src/conductor/jira.js';
@@ -2039,5 +2040,61 @@ describe('백그라운드 gate 멈춤', () => {
     advance(60_000);
     await tick(store, d, { force: true });
     expect(git.sent.filter((s) => s.message.includes('포그라운드'))).toHaveLength(1);
+  });
+});
+
+describe('파일 겹침', () => {
+  function overlapSetup(filesA: string[], filesB: string[]) {
+    const { store, advance } = clockedStore();
+    const wa = resolve(tempStateDir());
+    const wb = resolve(tempStateDir());
+    const files: Record<string, string[]> = { [wa]: filesA, [wb]: filesB };
+    const runner: CommandRunner = async (_cmd, args, opts) => {
+      if (args[0] === 'merge-base') return { code: 0, stdout: 'abcdef1\n', stderr: '' };
+      if (args[0] === 'diff')
+        return { code: 0, stdout: (files[opts?.cwd ?? ''] ?? []).join('\n'), stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    for (const [id, handle, at] of [
+      ['a', wa, '2026-11-01T00:00:00.000Z'],
+      ['b', wb, '2026-11-01T00:05:00.000Z'],
+    ] as const) {
+      store.addOrder(order({ id: `ord-${id}`, status: 'running', workerId: `wrk-${id}` }));
+      store.startWorker(
+        worker(`ord-${id}`, {
+          id: `wrk-${id}`,
+          kind: 'git-worktree',
+          handle,
+          startedAt: at,
+          lastSeenAt: at,
+        }),
+      );
+    }
+    const { deps: d } = deps({ gitRunner: runner, transcriptRoots: [] });
+    return { store, advance, d };
+  }
+
+  it('겹치면 경고 한 줄과 겹친 파일을 남기고 기준 이하면 게이트는 안 연다', async () => {
+    const { store, d } = overlapSetup(['a.ts', 'b.ts', 'c.ts'], ['b.ts', 'c.ts', 'd.ts']);
+    const r = await tick(store, d, { force: true });
+    expect(r.warnings.filter((w) => w.includes('같은 파일'))).toEqual([
+      'ord-a와 ord-b가 같은 파일 2개를 고치고 있어요',
+    ]);
+    expect(store.openGates()).toHaveLength(0);
+    expect(readWorkerInfo(store.dir, 'wrk-b').overlaps).toEqual([
+      { orderId: 'ord-a', files: ['b.ts', 'c.ts'] },
+    ]);
+  });
+
+  it('기준을 넘으면 뒤에 뜬 주문에 게이트를 한 번만 연다', async () => {
+    const many = ['1', '2', '3', '4', '5', '6'].map((n) => `f${n}.ts`);
+    const { store, d } = overlapSetup(many, many);
+    await tick(store, d, { force: true });
+    const gates = store.openGates();
+    expect(gates.map((g) => [g.orderId, g.type])).toEqual([['ord-b', 'file-overlap']]);
+    expect(store.order('ord-b')!.status).toBe('waiting-gate');
+    resolveGate(store, gates[0]!.id, 'approved');
+    await tick(store, d, { force: true });
+    expect(store.openGates()).toHaveLength(0);
   });
 });

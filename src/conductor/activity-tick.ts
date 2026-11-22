@@ -136,3 +136,41 @@ export function gateStalled(
   const t = ended ? Date.parse(ended) : NaN;
   return !Number.isNaN(t) && now.getTime() - t >= afterMs;
 }
+
+export interface FileOverlap {
+  /** 먼저 뜬 워커 */
+  first: Worker;
+  /** 뒤에 뜬 워커. 게이트는 이쪽 주문에 연다 */
+  later: Worker;
+  files: string[];
+}
+
+/** 같은 레포에서 도는 워커 둘씩 고친 파일의 교집합을 본다. 한 레포 안 쌍만 본다 */
+export function fileOverlaps(
+  workers: Worker[],
+  repoOf: (w: Worker) => string | undefined,
+  filesOf: (w: Worker) => string[] | undefined,
+): FileOverlap[] {
+  const byRepo = new Map<string, Worker[]>();
+  for (const w of workers) {
+    const repo = repoOf(w);
+    if (!repo || !filesOf(w)?.length) continue;
+    byRepo.set(repo, [...(byRepo.get(repo) ?? []), w]);
+  }
+  const out: FileOverlap[] = [];
+  for (const list of byRepo.values()) {
+    const sorted = [...list].sort(
+      (a, b) => a.startedAt.localeCompare(b.startedAt) || a.orderId.localeCompare(b.orderId),
+    );
+    for (let i = 0; i < sorted.length; i++) {
+      const a = sorted[i]!;
+      const mine = new Set(filesOf(a));
+      for (const b of sorted.slice(i + 1)) {
+        if (a.orderId === b.orderId) continue;
+        const files = filesOf(b)!.filter((f) => mine.has(f));
+        if (files.length > 0) out.push({ first: a, later: b, files });
+      }
+    }
+  }
+  return out;
+}

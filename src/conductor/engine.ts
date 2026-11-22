@@ -17,6 +17,7 @@ import { join, resolve } from 'node:path';
 import { log } from '../core/log.js';
 import { isAccountName } from './account-name.js';
 import {
+  fileOverlaps,
   GATE_STALL_MESSAGE,
   gateStalled,
   refreshWorkerActivity,
@@ -331,6 +332,7 @@ async function runTick(
       ...(deps.transcriptRoots ? { transcriptRoots: deps.transcriptRoots } : {}),
     });
     await nudgeStalledGates(store, deps, report, activity);
+    checkFileOverlaps(store, deps, report, activity);
     saveFinishedSummaries(store.dir, store.workers(), {
       now: report.at,
       ...(deps.transcriptRoots ? { roots: deps.transcriptRoots } : {}),
@@ -398,6 +400,52 @@ async function runTick(
     idleTicks: store.snapshot.idleTicks ?? 0,
     counts: counts(store, unanswered),
   };
+}
+
+/**
+ * 같은 레포 워커끼리 고친 파일이 겹치면 경고를 남기고 워커 작업 내용에 겹친 파일을 적는다.
+ * 겹친 파일이 overlapGateFiles를 넘으면 뒤에 뜬 주문에 게이트를 연다. 상대 주문마다 한 번만 연다
+ */
+function checkFileOverlaps(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+  activity: Map<string, WorkerActivitySnapshot>,
+): void {
+  const workers = store.activeWorkers().filter((w) => activity.has(w.id));
+  const overlaps = fileOverlaps(
+    workers,
+    (w) => store.order(w.orderId)?.repo,
+    (w) => activity.get(w.id)?.info.changedFiles,
+  );
+  const byWorker = new Map<string, { orderId: string; files: string[] }[]>();
+  const note = (w: Worker, orderId: string, files: string[]) =>
+    byWorker.set(w.id, [...(byWorker.get(w.id) ?? []), { orderId, files }]);
+  const limit = deps.config.overlapGateFiles ?? 5;
+  for (const { first, later, files } of overlaps) {
+    note(first, later.orderId, files);
+    note(later, first.orderId, files);
+    report.warnings.push(
+      `${first.orderId}와 ${later.orderId}가 같은 파일 ${files.length}개를 고치고 있어요`,
+    );
+    if (files.length <= limit) continue;
+    const info = activity.get(later.id)!.info;
+    if (info.overlapGated?.includes(first.orderId)) continue;
+    openOrReuse(store, {
+      orderId: later.orderId,
+      type: 'file-overlap',
+      reason: `${first.orderId}와 같은 파일 ${files.length}개를 고치고 있어요(기준 ${limit}개). 이어서 할지 정해 주세요`,
+      refs: files.slice(0, 20),
+    });
+    info.overlapGated = [...(info.overlapGated ?? []), first.orderId];
+    updateWorkerInfo(store.dir, later.id, { overlapGated: info.overlapGated });
+  }
+  for (const w of workers) {
+    const next = byWorker.get(w.id) ?? [];
+    const prev = activity.get(w.id)!.info.overlaps ?? [];
+    if (JSON.stringify(prev) !== JSON.stringify(next))
+      updateWorkerInfo(store.dir, w.id, { overlaps: next });
+  }
 }
 
 /** 백그라운드 gate 뒤 멈춘 워커에 포그라운드 재실행을 한 번 보낸다. 보낸 뒤엔 같은 워커에 다시 안 보낸다 */
@@ -879,6 +927,10 @@ export function decisionMessage(gate: Gate): string {
       return `인터뷰 답${note || ': (빈 답)'}`;
     case 'review-manual-switch':
       return ok ? `사람이 확인했어요${note}. 다음 라운드로 진행하세요` : `여기서 멈추세요${note}`;
+    case 'file-overlap':
+      return ok
+        ? `다른 주문과 파일이 겹치는 걸 사람이 확인했어요${note}. 이어서 진행하세요`
+        : `다른 주문과 같은 파일을 고치고 있어 여기서 멈추세요${note}. 고친 내용은 그대로 두고 --status done으로 보고하세요`;
     default:
       return ok ? `사람이 처리했어요${note}. 이어서 진행하세요` : `중단하세요${note}`;
   }
