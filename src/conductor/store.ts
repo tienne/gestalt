@@ -50,7 +50,7 @@ export const SEGMENTS_DIR = 'segments';
 /** 떼어 낸 순번 10자리가 앞이라 이름 순서가 떼어 낸 순서다. 이 꼴이 아닌 이름은 읽지도 지우지도 않는다 */
 export const SEGMENT_NAME = /^\d{10}-[0-9A-Z-]+\.jsonl$/;
 /** 반영하는 사이 저장소 모양이 바뀌면 다시 읽는 횟수 */
-const MAX_REPLAY_ATTEMPTS = 5;
+export const MAX_REPLAY_ATTEMPTS = 5;
 
 export interface FoldedSegment {
   name: string;
@@ -525,6 +525,21 @@ export function replayStore(
     if (attempt >= MAX_REPLAY_ATTEMPTS) {
       throw new Error(`${dir}를 읽는 동안 저장소가 계속 바뀌어요. 잠시 뒤 다시 열어 주세요`);
     }
+  }
+}
+
+/**
+ * 반영해도 되는 바이트 수. 마지막 줄바꿈까지가 기본이다. 줄바꿈 없이 끝난 마지막 줄도 JSON으로 읽히면
+ * `replay`가 그 줄을 적용하므로 포함한다. 여기서 빼면 반영한 길이 뒤에 남은 줄로 보고 지울 때 버린다
+ */
+export function completeLength(buf: Buffer): number {
+  const end = buf.lastIndexOf(0x0a) + 1;
+  if (end === buf.length) return end;
+  try {
+    JSON.parse(buf.subarray(end).toString('utf-8'));
+    return buf.length;
+  } catch {
+    return end;
   }
 }
 

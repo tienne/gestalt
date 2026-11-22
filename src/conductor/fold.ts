@@ -16,6 +16,7 @@ import { acquireLock } from './engine.js';
 import {
   BASE_FILE,
   EVENTS_FILE,
+  completeLength as completeBytes,
   SEGMENTS_DIR,
   emptySnapshot,
   listSegments,
@@ -29,6 +30,8 @@ export interface FoldOptions {
   /** 떼어 낸 뒤 늦게 도착하는 줄을 기다리는 시간. 테스트만 줄인다 */
   settleMs?: number;
   now?: () => Date;
+  /** 테스트가 반영한 길이를 잰 뒤, 지우기 전에 줄을 덧붙여 보는 자리 */
+  beforeRemove?: () => void;
 }
 
 /** segments는 이번에 떼어 냈거나 새로 반영한 segment, removed는 지난 반영에서 남겨 뒀다 지운 segment */
@@ -86,12 +89,14 @@ export async function foldEvents(dir: string, opts: FoldOptions = {}): Promise<F
       folded.push({ name, size: Math.max(end, from) });
     }
     if (segments.length === 0) {
+      opts.beforeRemove?.();
       return { status: 'empty', removed: removeSettled(segDir, settled, before) };
     }
 
     const next: BaseFile = { version: 1, foldedSegments: folded, state };
     writeDurable(join(dir, BASE_FILE), JSON.stringify(next));
     fsyncDir(dir);
+    opts.beforeRemove?.();
     const sizes = new Map(folded.map((f) => [f.name, f.size]));
     return { status: 'folded', segments, removed: removeSettled(segDir, settled, sizes) };
   } finally {
@@ -131,15 +136,13 @@ function nextSegmentName(dir: string, base: BaseFile | undefined, at: Date): str
   return `${String(last + 1).padStart(10, '0')}-${stamp}.jsonl`;
 }
 
-/** 마지막 줄바꿈까지의 바이트 수. 쓰는 중인 반쪽 줄은 다음에 읽는다 */
+/** 반영해도 되는 바이트 수. 쓰는 중인 반쪽 줄은 다음에 읽는다 */
 function completeLength(path: string): number {
-  let buf: Buffer;
   try {
-    buf = readFileSync(path);
+    return completeBytes(readFileSync(path));
   } catch {
     return 0;
   }
-  return buf.lastIndexOf(0x0a) + 1;
 }
 
 function writeDurable(path: string, text: string): void {
