@@ -1,8 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import { extname, join } from 'node:path';
+import { extname } from 'node:path';
 import { renderMarkdown } from '../conductor/results-markdown.js';
 import {
   BodyCache,
@@ -19,7 +18,7 @@ import {
   type ResultFile,
   type ResultFilters,
 } from '../conductor/results.js';
-import { EVENTS_FILE } from '../conductor/store.js';
+import { storeStamp } from '../conductor/store.js';
 import { ORDER_STATUSES } from '../conductor/types.js';
 import { renderBrowsePage } from './html.js';
 
@@ -37,7 +36,7 @@ class BadRequest extends Error {}
  * 요청이 경로를 정하면 인증 없는 이 서버가 이 머신의 아무 파일이나 읽어 주는 도구가 되니
  * 경로는 받지 않는다. 주문 id와 refs 번호, 수집 때 발급한 파일 키로만 고른다.
  *
- * 저장소는 events.jsonl의 크기나 수정 시각이 바뀌었을 때만 다시 읽는다. 파일 본문은 경로와 mtime, 크기로 캐시해
+ * 저장소는 base.json과 segment 목록, events.jsonl 중 하나가 바뀌었을 때만 다시 읽는다. 파일 본문은 경로와 mtime, 크기로 캐시해
  * 이벤트 없이 파일만 바뀌어도 다음 요청에서 새로 읽는다.
  *
  * Routes:
@@ -52,8 +51,8 @@ class BadRequest extends Error {}
 export class ConductorWebServer {
   private server: Server | null = null;
   private sigintHandler: (() => void) | null = null;
-  private cache: { results: LoadedResults; size: number; mtimeMs: number } | null = null;
-  // events.jsonl이 바뀔 때마다 결과를 다시 로드해도 이미 읽은 본문은 다시 읽지 않는다
+  private cache: { results: LoadedResults; stamp: string } | null = null;
+  // 저장소가 바뀔 때마다 결과를 다시 로드해도 이미 읽은 본문은 다시 읽지 않는다
   private readonly bodies = new BodyCache();
 
   constructor(private readonly opts: LoadOptions) {}
@@ -108,14 +107,10 @@ export class ConductorWebServer {
   }
 
   private results(): LoadedResults {
-    const st = statSync(join(this.opts.stateDir, EVENTS_FILE), { throwIfNoEntry: false });
-    const size = st?.size ?? -1;
-    const mtimeMs = st?.mtimeMs ?? -1;
-    if (this.cache && this.cache.size === size && this.cache.mtimeMs === mtimeMs) {
-      return this.cache.results;
-    }
+    const stamp = storeStamp(this.opts.stateDir);
+    if (this.cache?.stamp === stamp) return this.cache.results;
     const results = loadResults({ ...this.opts, bodies: this.bodies });
-    this.cache = { results, size, mtimeMs };
+    this.cache = { results, stamp };
     return results;
   }
 
