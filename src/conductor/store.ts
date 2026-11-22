@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
   closeSync,
-  existsSync,
   fstatSync,
   mkdirSync,
   openSync,
@@ -12,7 +11,7 @@ import {
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { writeJsonAtomic } from '../core/json-file.js';
+import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
 import { log } from '../core/log.js';
 import {
   ACTIVE_WORKER_STATUSES,
@@ -46,13 +45,23 @@ export const EVENTS_FILE = 'events.jsonl';
 export const SNAPSHOT_FILE = 'snapshot.json';
 /** 떼어 낸 로그를 반영한 기준점 상태. 재생은 여기서 시작한다 */
 export const BASE_FILE = 'base.json';
-/** `events.jsonl`에서 떼어 냈지만 아직 base.json에 반영하지 않았을 수 있는 로그 */
+/** `events.jsonl`에서 떼어 낸 로그. 반영한 뒤에도 다음 반영 때까지 남겨 둔다 */
 export const SEGMENTS_DIR = 'segments';
+/** 떼어 낸 순번 10자리가 앞이라 이름 순서가 떼어 낸 순서다. 이 꼴이 아닌 이름은 읽지도 지우지도 않는다 */
+export const SEGMENT_NAME = /^\d{10}-[0-9A-Z-]+\.jsonl$/;
+/** 반영하는 사이 저장소 모양이 바뀌면 다시 읽는 횟수 */
+const MAX_REPLAY_ATTEMPTS = 5;
+
+export interface FoldedSegment {
+  name: string;
+  /** base.json 상태에 반영한 앞쪽 바이트 수. 늘 줄 끝에서 끊는다 */
+  size: number;
+}
 
 export interface BaseFile {
   version: 1;
-  /** 이 상태에 이미 반영한 segment 이름. 반영 뒤 지우다 죽어 남은 segment를 다시 재생하지 않는다 */
-  foldedSegments: string[];
+  /** 반영한 segment와 반영한 길이. 그 뒤에 늦게 붙은 줄만 재생한다 */
+  foldedSegments: FoldedSegment[];
   state: ConductorSnapshot;
 }
 
@@ -241,7 +250,7 @@ export class ConductorStore {
     this.now = now;
   }
 
-  /** 로그를 처음부터 재생해 연다. 디렉토리가 없으면 만든다 */
+  /** base.json과 남은 로그를 재생해 연다. 디렉토리가 없으면 만든다 */
   static open(dir: string, opts: { now?: () => Date } = {}): ConductorStore {
     mkdirSync(dir, { recursive: true });
     return new ConductorStore(dir, replayStore(dir), opts.now ?? (() => new Date()));
@@ -451,9 +460,23 @@ function endsWithoutNewline(path: string): boolean {
  * 마지막 줄이거나, 다음 append가 개행을 붙이고 남긴 tail-repaired 표시가 바로 뒤에 올 때다.
  * 그 밖의 중간 줄이 깨졌으면 복원 결과를 믿을 수 없으니 멈춘다.
  */
-export function replay(path: string, s: ConductorSnapshot = emptySnapshot()): ConductorSnapshot {
-  if (!existsSync(path)) return s;
-  const lines = readFileSync(path, 'utf-8').split('\n');
+export function replay(
+  path: string,
+  s: ConductorSnapshot = emptySnapshot(),
+  range: { from?: number; to?: number } = {},
+): ConductorSnapshot {
+  let buf: Buffer;
+  try {
+    buf = readFileSync(path);
+  } catch (e) {
+    // 떼어 내기가 이름을 바꾸거나 지운 파일. replayStore가 모양이 바뀐 걸 보고 다시 읽는다
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return s;
+    throw e;
+  }
+  const lines = buf
+    .subarray(range.from ?? 0, range.to ?? buf.length)
+    .toString('utf-8')
+    .split('\n');
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     if (!line.trim()) continue;
@@ -475,28 +498,32 @@ export function replay(path: string, s: ConductorSnapshot = emptySnapshot()): Co
 }
 
 /**
- * 저장소 디렉토리 하나를 재생한다. base.json에서 시작해 아직 반영 안 된 segment를 이름 순서로,
- * 그다음 `events.jsonl`을 재생한다. base.json이 없으면 빈 상태에서 시작하므로 떼어 낸 적 없는
- * 저장소는 예전과 같게 돈다.
+ * 저장소 디렉토리 하나를 재생한다. base.json에서 시작해 segment를 이름 순서로, 그다음 `events.jsonl`을
+ * 재생한다. base.json에 반영한 segment는 반영한 길이 뒤에 붙은 줄만 읽는다. base.json이 없으면
+ * 빈 상태에서 시작하므로 떼어 낸 적 없는 저장소는 예전과 같게 돈다.
  *
  * 떼어 내기(fold.ts)는 잠금 없이 읽는 쪽과 겹칠 수 있다. 읽는 사이 segment가 생기거나
- * base.json이 바뀌면 이벤트를 빠뜨리거나 두 번 반영할 수 있어서 앞뒤 모양이 같을 때까지 다시 읽는다.
+ * base.json이 바뀌면 이벤트를 빠뜨리거나 두 번 반영할 수 있어서 앞뒤 모양이 같을 때까지
+ * 다시 읽는다. MAX_REPLAY_ATTEMPTS번 읽어도 계속 바뀌면 어긋난 상태를 돌려주지 않고 던진다.
  */
 export function replayStore(dir: string): ConductorSnapshot {
-  for (let attempt = 0; ; attempt++) {
+  for (let attempt = 1; ; attempt++) {
     const before = layoutKey(dir);
     const base = readBase(dir);
     const s = base ? base.state : emptySnapshot();
-    const folded = new Set(base?.foldedSegments ?? []);
+    const folded = new Map(base?.foldedSegments.map((f) => [f.name, f.size]) ?? []);
     for (const name of listSegments(dir)) {
-      if (!folded.has(name)) replay(join(dir, SEGMENTS_DIR, name), s);
+      replay(join(dir, SEGMENTS_DIR, name), s, { from: folded.get(name) ?? 0 });
     }
     replay(join(dir, EVENTS_FILE), s);
-    if (layoutKey(dir) === before || attempt >= 4) return s;
+    if (layoutKey(dir) === before) return s;
+    if (attempt >= MAX_REPLAY_ATTEMPTS) {
+      throw new Error(`${dir}를 읽는 동안 저장소가 계속 바뀌어요. 잠시 뒤 다시 열어 주세요`);
+    }
   }
 }
 
-/** segment 파일 이름. 시각이 앞이라 이름 순서가 떼어 낸 순서다 */
+/** segment 파일 이름을 떼어 낸 순서로 */
 export function listSegments(dir: string): string[] {
   let names: string[];
   try {
@@ -504,28 +531,72 @@ export function listSegments(dir: string): string[] {
   } catch {
     return [];
   }
-  return names.filter((n) => n.endsWith('.jsonl')).sort();
+  return names.filter((n) => SEGMENT_NAME.test(n)).sort();
 }
 
 export function readBase(dir: string): BaseFile | undefined {
   const path = join(dir, BASE_FILE);
-  if (!existsSync(path)) return undefined;
-  const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Partial<BaseFile>;
-  if (parsed.version !== 1 || !parsed.state || !Array.isArray(parsed.foldedSegments)) {
-    throw new Error(`${path}를 못 읽어요. 저장소가 깨졌어요`);
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw e;
   }
-  return { version: 1, foldedSegments: parsed.foldedSegments, state: parsed.state };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = undefined;
+  }
+  if (!isBaseFile(parsed)) throw new Error(`${path}를 못 읽어요. 저장소가 깨졌어요`);
+  return parsed;
+}
+
+const SNAPSHOT_RECORDS = [
+  'orders',
+  'removedOrders',
+  'workers',
+  'checkpoints',
+  'gates',
+  'slackPosted',
+  'appliedReports',
+  'reports',
+] as const;
+
+function isBaseFile(v: unknown): v is BaseFile {
+  if (!isPlainObject(v) || v.version !== 1 || !Array.isArray(v.foldedSegments)) return false;
+  const st = v.state;
+  if (!isPlainObject(st)) return false;
+  if (!SNAPSHOT_RECORDS.every((k) => isPlainObject(st[k]))) return false;
+  if (!Array.isArray(st.bypasses) || !Array.isArray(st.jiraTransitions)) return false;
+  if (!Number.isSafeInteger(st.ticks) || !Number.isSafeInteger(st.eventCount)) return false;
+  return v.foldedSegments.every(
+    (f) =>
+      isPlainObject(f) &&
+      typeof f.name === 'string' &&
+      SEGMENT_NAME.test(f.name) &&
+      Number.isSafeInteger(f.size) &&
+      (f.size as number) >= 0,
+  );
+}
+
+function statKey(path: string): string {
+  try {
+    const st = statSync(path);
+    return `${st.ino}:${st.size}:${st.mtimeMs}`;
+  } catch {
+    return '-';
+  }
 }
 
 function layoutKey(dir: string): string {
-  let base = '-';
-  try {
-    const st = statSync(join(dir, BASE_FILE));
-    base = `${st.ino}:${st.size}:${st.mtimeMs}`;
-  } catch {
-    // base.json이 없는 저장소
-  }
-  return `${base}|${listSegments(dir).join(',')}`;
+  return `${statKey(join(dir, BASE_FILE))}|${listSegments(dir).join(',')}`;
+}
+
+/** 저장소 내용이 바뀌었는지 가늠하는 값. 다시 재생할지 정하는 캐시 키로 쓴다 */
+export function storeStamp(dir: string): string {
+  return `${layoutKey(dir)}|${statKey(join(dir, EVENTS_FILE))}`;
 }
 
 function nextNonEmpty(lines: string[], from: number): string | undefined {
