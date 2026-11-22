@@ -208,6 +208,82 @@ describe('foldEvents', () => {
       if (once++ === 0) churn();
     };
     expect(replayStore(dir, { afterReplay: settleAfterOne }).ticks).toBe(1);
+    expect(once).toBe(2);
+  });
+
+  it('최근 이벤트도 읽는 동안 모양이 계속 바뀌면 재생과 같은 횟수 뒤 에러를 낸다', () => {
+    const dir = tempStateDir();
+    const s = seed(dir);
+    mkdirSync(join(dir, SEGMENTS_DIR));
+    let n = 0;
+    const churn = () => {
+      n++;
+      writeFileSync(segPath(dir, `${String(n).padStart(10, '0')}-X.jsonl`), '');
+    };
+    expect(() => readRecentEvents(dir, s.snapshot, 50, { afterRead: churn })).toThrow(
+      '계속 바뀌어요',
+    );
+    expect(n).toBe(5);
+
+    let once = 0;
+    const settleAfterOne = () => {
+      if (once++ === 0) churn();
+    };
+    expect(
+      readRecentEvents(dir, s.snapshot, 50, { afterRead: settleAfterOne }).length,
+    ).toBeGreaterThan(0);
+    expect(once).toBe(2);
+  });
+
+  it('줄바꿈 없이 끝났어도 JSON으로 읽히는 마지막 줄은 두 번 반영해도 남는다', async () => {
+    const dir = tempStateDir();
+    ConductorStore.open(dir).append({ type: 'tick', at: '2026-11-01T00:00:00.000Z' });
+    appendFileSync(join(dir, EVENTS_FILE), TICK.trimEnd());
+    expect(ConductorStore.open(dir).snapshot.ticks).toBe(2);
+
+    await foldEvents(dir, fast);
+    expect(ConductorStore.open(dir).snapshot.ticks).toBe(2);
+    const second = await foldEvents(dir, fast);
+
+    expect(second).toMatchObject({ status: 'empty' });
+    expect(listSegments(dir)).toEqual([]);
+    expect(ConductorStore.open(dir).snapshot.ticks).toBe(2);
+  });
+
+  it('반영한 길이를 잰 뒤 지우기 전에 줄이 붙으면 지우지 않고 다음 반영으로 넘긴다', async () => {
+    const dir = tempStateDir();
+    seed(dir);
+    await foldEvents(dir, fast);
+    const [first] = listSegments(dir);
+    ConductorStore.open(dir).updateOrder('ord-2', { status: 'done' });
+
+    const second = await foldEvents(dir, {
+      ...fast,
+      beforeRemove: () => appendFileSync(segPath(dir, first!), TICK),
+    });
+
+    expect(second.status).toBe('folded');
+    expect(second.status === 'folded' && second.removed).toEqual([]);
+    expect(listSegments(dir)).toContain(first);
+    const ticks = ConductorStore.open(dir).snapshot.ticks;
+    const third = await foldEvents(dir, fast);
+    expect(third.status === 'folded' || third.status === 'empty').toBe(true);
+    expect(listSegments(dir)).not.toContain(first);
+    expect(ConductorStore.open(dir).snapshot.ticks).toBe(ticks);
+  });
+
+  it('한 주기가 지나도 끝나지 않은 반쪽 줄은 버리고 segment를 지운다', async () => {
+    const dir = tempStateDir();
+    const before = seed(dir).snapshot;
+    await foldEvents(dir, fast);
+    const [first] = listSegments(dir);
+    appendFileSync(segPath(dir, first!), TICK.slice(0, 20));
+
+    const second = await foldEvents(dir, fast);
+
+    expect(second).toEqual({ status: 'empty', removed: [first] });
+    expect(existsSync(segPath(dir, first!))).toBe(false);
+    expect(ConductorStore.open(dir).snapshot).toEqual(before);
   });
 
   it('시계가 뒤로 가도 segment 이름 순서가 떼어 낸 순서다', async () => {
