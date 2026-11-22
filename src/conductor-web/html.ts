@@ -109,6 +109,18 @@ mark { background:var(--hl); color:inherit; }
 .hits li { padding:8px 0; border-bottom:1px solid var(--line); }
 .hits a { color:inherit; }
 .ex { font-size:13px; overflow-wrap:anywhere; }
+.tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin:0 0 16px; }
+.tabs a { padding:6px 12px; color:var(--muted); text-decoration:none; border-bottom:2px solid transparent; }
+.tabs a.sel { color:var(--fg); border-bottom-color:#3b82f6; }
+.work-tl { list-style:none; padding:0; margin:0; font-size:13px; }
+.work-tl li { display:flex; gap:8px; padding:3px 0; border-bottom:1px solid var(--line); }
+.work-tl .at { color:var(--muted); white-space:nowrap; font-family: ui-monospace, Menlo, monospace; }
+.work-tl .tool { font-weight:600; white-space:nowrap; }
+.work-tl .d { overflow-wrap:anywhere; font-family: ui-monospace, Menlo, monospace; }
+.work-tl .bad { color:#b91c1c; }
+.work-tl li.say { display:block; padding:6px 8px; background:var(--side); white-space:pre-wrap; overflow-wrap:anywhere; }
+.work-lists { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin:8px 0 12px; }
+.work-lists ul { margin:4px 0; padding-left:18px; font-size:13px; overflow-wrap:anywhere; }
 `;
 
 /**
@@ -161,7 +173,9 @@ function highlight(parent, text, start, len) {
   add(parent, document.createTextNode(text.slice(0, start)), el('mark', '', text.slice(start, start + len)), document.createTextNode(text.slice(start + len)));
   return parent;
 }
+function stopWorkPoll() { if (state.workTimer) { clearInterval(state.workTimer); state.workTimer = null; } }
 function setMain(nodes) {
+  stopWorkPoll();
   var main = $('main');
   main.textContent = '';
   nodes.forEach(function (n) { if (n) main.appendChild(n); });
@@ -293,6 +307,23 @@ function showOrder(id, focus) {
     if (o.prRef) { var pu = prUrl(o.prRef); add(meta, pu ? link(pu, o.prRef) : el('span', '', o.prRef)); }
     add(meta, el('span', '', '생성 ' + stamp(o.createdAt)), el('span', '', '갱신 ' + stamp(o.updatedAt)));
     nodes.push(meta);
+    var tabs = el('div', 'tabs');
+    var onWork = focus && focus.type === 'work';
+    var t1 = el('a', '', '결과');
+    var t2 = el('a', '', '작업 내용');
+    t1.href = '#order/' + encodeURIComponent(o.id);
+    t2.href = t1.href + '/work';
+    if (onWork) t2.className = 'sel'; else t1.className = 'sel';
+    add(tabs, t1, t2);
+    nodes.push(tabs);
+    if (onWork) {
+      var box = el('div');
+      box.appendChild(el('p', 'muted', '읽는 중…'));
+      nodes.push(box);
+      setMain(nodes);
+      loadWork(o.id, box);
+      return;
+    }
     var desc = null;
     if (o.description) {
       // 설명은 주문 지시문이라 길다. 보고 이력이 먼저 보이게 접어 두고 보고가 없을 때만 펼친다
@@ -388,6 +419,69 @@ function showOrder(id, focus) {
   }).catch(fail);
 }
 
+var WORK_POLL_MS = 5000;
+var SOURCE_LABEL = { transcript: '트랜스크립트', summary: '저장한 요약', none: '기록 없음' };
+var TASK_MARK = { completed: '✓', in_progress: '▸', pending: '·' };
+function clock(iso) {
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  function p(n) { return n < 10 ? '0' + n : String(n); }
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+function listBlock(title, items) {
+  var b = el('div');
+  b.appendChild(el('div', 'small muted', title));
+  var ul = el('ul');
+  items.forEach(function (t) { ul.appendChild(el('li', '', t)); });
+  if (!items.length) ul.appendChild(el('li', 'muted', '없음'));
+  return add(b, ul);
+}
+function workSection(s) {
+  var sec = el('section');
+  sec.appendChild(el('h2', '', s.attempt + '회차 · ' + s.workerId));
+  var meta = el('div', 'meta small');
+  add(meta, badge(s.status), el('span', '', '시작 ' + stamp(s.startedAt)), el('span', '', '출처 ' + (SOURCE_LABEL[s.source] || s.source)));
+  if (s.partial) meta.appendChild(el('span', '', '앞부분은 건너뛰고 읽었어요'));
+  sec.appendChild(meta);
+  var lists = el('div', 'work-lists');
+  if (s.tasks) lists.appendChild(listBlock('todo', s.tasks.map(function (t) { return (TASK_MARK[t.status] || '·') + ' ' + t.title; })));
+  lists.appendChild(listBlock('서브에이전트', s.subagents.map(function (a) { return a.name + ' · ' + a.state; })));
+  if (s.changedFiles) lists.appendChild(listBlock('고친 파일 (' + s.changedFiles.length + ')', s.changedFiles));
+  sec.appendChild(lists);
+  var rows = s.timeline.map(function (t) { return { at: t.at, tool: t }; })
+    .concat(s.texts.map(function (x) { return { at: x.at, text: x.text }; }))
+    .sort(function (a, b) { return a.at < b.at ? -1 : a.at > b.at ? 1 : 0; });
+  if (!rows.length) { sec.appendChild(el('p', 'muted', s.source === 'none' ? '트랜스크립트도 저장한 요약도 없어요' : '아직 기록이 없어요')); return sec; }
+  var ul = el('ul', 'work-tl');
+  rows.forEach(function (r) {
+    if (r.text !== undefined) { ul.appendChild(el('li', 'say', r.text)); return; }
+    var t = r.tool;
+    var li = el('li');
+    add(li, el('span', 'at', clock(t.at)), el('span', 'tool' + (t.ok === false ? ' bad' : ''), (t.ok === false ? '✗ ' : '') + t.tool), el('span', 'd', t.detail));
+    if (typeof t.ms === 'number') li.appendChild(el('span', 'at', (t.ms / 1000).toFixed(1) + 's'));
+    ul.appendChild(li);
+  });
+  sec.appendChild(ul);
+  return sec;
+}
+function loadWork(id, box) {
+  function once() {
+    return getJson('/api/orders/' + encodeURIComponent(id) + '/work').then(function (d) {
+      if (state.current !== id || !box.isConnected) return stopWorkPoll();
+      var main = $('main');
+      var atEnd = main.scrollTop + main.clientHeight >= main.scrollHeight - 40;
+      box.textContent = '';
+      if (!d.sections.length) box.appendChild(el('p', 'muted', '이 주문에는 워커가 없어요'));
+      d.sections.forEach(function (s) { box.appendChild(workSection(s)); });
+      if (d.live) box.appendChild(el('p', 'muted small', '도는 중이라 ' + (WORK_POLL_MS / 1000) + '초마다 이어서 읽어요'));
+      else stopWorkPoll();
+      if (atEnd && d.live) main.scrollTop = main.scrollHeight;
+    }).catch(function (e) { box.textContent = '못 읽었어요: ' + e.message; stopWorkPoll(); });
+  }
+  once();
+  state.workTimer = setInterval(once, WORK_POLL_MS);
+}
+
 function showUnlinked(focusKey) {
   state.current = '';
   markSelected();
@@ -448,6 +542,7 @@ function route() {
     if (parts[2] === 'report') focus = { type: 'report', n: Number(parts[3]) };
     else if (parts[2] === 'ref') focus = { type: 'ref', n: Number(parts[3]), entry: parts[4] !== undefined ? Number(parts[4]) : undefined };
     else if (parts[2] === 'file') focus = { type: 'file', key: parts[3] };
+    else if (parts[2] === 'work') focus = { type: 'work' };
     return showOrder(parts[1], focus);
   }
   if (parts[0] === 'unlinked') return showUnlinked(parts[1]);

@@ -23,6 +23,7 @@ import {
   type WorkerActivitySnapshot,
 } from './activity-tick.js';
 import { updateWorkerInfo } from './activity.js';
+import { saveFinishedSummaries } from './work-log.js';
 import { existingRepoContext } from './context.js';
 import { handleNeed, openOrReuse, type BypassHandlers } from './gates.js';
 import {
@@ -330,6 +331,15 @@ async function runTick(
       ...(deps.transcriptRoots ? { transcriptRoots: deps.transcriptRoots } : {}),
     });
     await nudgeStalledGates(store, deps, report, activity);
+    saveFinishedSummaries(store.dir, store.workers(), {
+      now: report.at,
+      ...(deps.transcriptRoots ? { roots: deps.transcriptRoots } : {}),
+      nextStartOf: (w) =>
+        store
+          .workersOf(w.orderId)
+          .filter((n) => n.attempt > w.attempt)
+          .sort((a, b) => a.attempt - b.attempt)[0]?.startedAt,
+    });
   });
   await step(report, async () => {
     const orca = deps.launchers['orca-worktree'];

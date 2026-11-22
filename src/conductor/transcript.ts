@@ -224,7 +224,7 @@ export function locateWorkerTranscript(opts: LocateOptions): string | undefined 
       }
       if (mtime < startMs - START_SLACK_MS) continue;
       const began = sessionStartMs(file);
-      if (began === undefined || began < startMs - START_SLACK_MS || began > endMs) continue;
+      if (began === undefined || began < startMs - START_SLACK_MS || began >= endMs) continue;
       if (!best || mtime > best.mtime) best = { file, mtime };
     }
   }
