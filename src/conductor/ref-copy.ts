@@ -85,8 +85,8 @@ const SECRET_LAST_WORDS = new Set([
 ]);
 /** 끝 낱말이 auth여도 문서 확장자면 `login-auth.md` 같은 리뷰 문서로 보고 복사한다 */
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
-/** `.env`, `.env.local` 같은 환경 변수 파일. 예시 파일은 값이 없어 막지 않는다 */
-const DOTENV = /^\.env(\.|$)/;
+/** `.env`, `.env.local`, `prod.env`, `.envrc` 같은 환경 변수 파일. 예시 파일은 값이 없어 막지 않는다 */
+const DOTENV = /^\.env(\.|rc$|$)|\.env$/;
 const DOTENV_SAMPLE = /\.(example|sample|template)$/;
 const SECRET_STEM = /(^|[-_.])(api[-_]?key|private[-_]?key|service[-_]?account(-key)?)$/;
 
@@ -107,8 +107,8 @@ export interface CopyRefsInput {
 }
 
 /**
- * 복사한 결과를 돌려준다. 복사 대상이 아닌 ref(주소, 상대 경로, 디렉토리, 없는 파일,
- * 바이너리)는 결과에 넣지 않는다. 비밀 값이 있을 만한 자리나 이름은 확장자와 상관없이 `skipped: 'denied'`로 남기고
+ * 복사한 결과를 돌려준다. 주소, 상대 경로, 디렉토리, 없는 파일, 바이너리처럼 복사 대상이 아닌 ref는
+ * 결과에 넣지 않는다. 다만 비밀 값이 있을 만한 자리나 이름이면 대상이 아니어도 `skipped: 'denied'`로 남긴다.
  * 실패는 던지지 않고 `skipped: 'error'`로 남긴다.
  */
 export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
@@ -134,29 +134,24 @@ export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
     seen.add(ref);
     const source = localPath(ref, home);
     if (!source) continue;
-    const isDenied = (real: string): boolean =>
-      isSecretName(real) ||
-      // 기본 저장소가 홈 점 디렉토리(`~/.gestalt`) 아래라 워크트리 파일은 위치 판정을 건너뛴다.
-      // 실제 경로로 판정하므로 워크트리 밖을 가리키는 심링크는 여기 안 걸린다
-      (!isInside(worktreesReal, real) &&
-        (isSecretLocation(source, home) || isSecretLocation(real, homeReal)));
-    if (!REF_COPY_EXTENSIONS.has(extname(source).toLowerCase())) {
-      // 복사 대상이 아니어도 비밀 자리나 이름이면 남긴다. 사본도 기록도 없으면 원래 경로를 읽게 되기 때문이다
-      const real = realOrSelf(source);
-      const inState = isInside(stateReal, real) && !isInside(worktreesReal, real);
-      if (!inState && isDenied(real)) out.push({ ref, skipped: 'denied' });
+    const where: DenyContext = { source, home, homeReal, stateReal, worktreesReal };
+    let found: Located | null = null;
+    if (REF_COPY_EXTENSIONS.has(extname(source).toLowerCase())) {
+      try {
+        found = locate(source);
+      } catch (err) {
+        out.push({ ref, skipped: 'error', reason: message(err) });
+        continue;
+      }
+    }
+    if (!found) {
+      // 복사하지 않는 ref도 비밀 자리나 이름이면 남긴다. 기록이 없으면 컨덕터 스킬이 원래 경로를 읽는다.
+      // 마지막 칸이 심링크인 ref도 여기로 와서 실제 경로로 판정한다
+      if (isDenied(realOrSelf(source), where)) out.push({ ref, skipped: 'denied' });
       continue;
     }
-    let found: Located | null;
-    try {
-      found = locate(source);
-    } catch (err) {
-      out.push({ ref, skipped: 'error', reason: message(err) });
-      continue;
-    }
-    if (!found) continue;
-    if (isInside(stateReal, found.real) && !isInside(worktreesReal, found.real)) continue;
-    if (isDenied(found.real)) {
+    if (isInStore(found.real, where)) continue;
+    if (isDenied(found.real, where)) {
       out.push({ ref, skipped: 'denied' });
       continue;
     }
@@ -201,6 +196,32 @@ export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
     out.push(copied);
   }
   return out;
+}
+
+interface DenyContext {
+  /** 워커가 적은 경로에서 `~/`만 푼 것 */
+  source: string;
+  home: string;
+  homeReal: string;
+  stateReal: string;
+  worktreesReal: string;
+}
+
+/** 저장소 안이라 복사할 필요가 없는 자리면 true다. 워커 워크트리는 워커를 거두면 지워지므로 뺀다 */
+function isInStore(real: string, where: DenyContext): boolean {
+  return isInside(where.stateReal, real) && !isInside(where.worktreesReal, real);
+}
+
+/**
+ * 비밀 값이 있을 만한 이름이나 자리면 true다. 저장소 안 파일은 거부할 일이 없어 false다.
+ * 기본 저장소가 홈 점 디렉토리(`~/.gestalt`) 아래라 워크트리 파일은 자리 판정 없이 이름만 본다.
+ * 실제 경로로 판정하므로 워크트리 밖을 가리키는 심링크는 자리 판정을 그대로 받는다
+ */
+function isDenied(real: string, where: DenyContext): boolean {
+  if (isInStore(real, where)) return false;
+  if (isSecretName(real)) return true;
+  if (isInside(where.worktreesReal, real)) return false;
+  return isSecretLocation(where.source, where.home) || isSecretLocation(real, where.homeReal);
 }
 
 /** 절대 경로와 `~/`만 받는다. 상대 경로는 워커 작업 디렉토리 기준이라 컨덕터가 풀 수 없다 */

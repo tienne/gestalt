@@ -259,6 +259,52 @@ describe('refs 사본', () => {
     ]);
   });
 
+  it('마지막 칸이 심링크인 ref도 실제 경로가 비밀 자리면 denied로 남긴다', () => {
+    const { work, homeFile, copy } = setup();
+    const key = homeFile('.ssh/id_rsa', 'k');
+    const plain = join(work, 'plain.txt');
+    writeFileSync(plain, 'x');
+    symlinkSync(key, join(work, 'link.txt'));
+    symlinkSync(plain, join(work, 'ok.txt'));
+
+    const out = copy([join(work, 'link.txt'), join(work, 'ok.txt')]);
+
+    expect(out).toEqual([{ ref: join(work, 'link.txt'), skipped: 'denied' }]);
+  });
+
+  it('여러 꼴의 환경 변수 파일을 막고 예시 파일은 둔다', () => {
+    const { file, copy } = setup();
+    const blocked = ['prod.env', 'secrets.env', '.envrc', '.env'].map((n) =>
+      file(`app/${n}`, 'A=1'),
+    );
+    const allowed = ['.env.sample', '.env.template', 'environment.md'].map((n) =>
+      file(`app/${n}`, 'x'),
+    );
+
+    const out = copy([...blocked, ...allowed]);
+
+    expect(out.filter((c) => c.skipped === 'denied').map((c) => c.ref)).toEqual(blocked);
+    expect(out.filter((c) => c.path).map((c) => c.ref)).toEqual([allowed[2]]);
+  });
+
+  it('저장소가 홈 점 디렉토리 아래면 저장소 파일은 건너뛰고 워크트리 파일은 이름으로만 거부한다', () => {
+    const { copy } = setup();
+    const home = resolve(tempStateDir());
+    const stateDir = join(home, '.gestalt', 'conductor');
+    const wt = join(stateDir, 'worktrees', 'w1');
+    mkdirSync(join(stateDir, 'refs', 'ord-0'), { recursive: true });
+    mkdirSync(wt, { recursive: true });
+    const stored = join(stateDir, 'refs', 'ord-0', 'a.md');
+    const events = join(stateDir, 'events.jsonl');
+    const code = join(wt, 'main.ts');
+    const env = join(wt, '.env');
+    for (const p of [stored, events, code, env]) writeFileSync(p, 'x');
+
+    const out = copy([stored, events, code, env], { stateDir, homeDir: home });
+
+    expect(out).toEqual([{ ref: env, skipped: 'denied' }]);
+  });
+
   it('다른 경로로 같은 파일을 가리키면 사본 하나를 같이 쓴다', () => {
     const { stateDir, work, file, copy } = setup();
     const md = file('a.md', 'x');
