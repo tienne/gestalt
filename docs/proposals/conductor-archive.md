@@ -92,7 +92,7 @@ archive/YYYY-MM/
 
 ### 중복 판정
 
-지라 소스와 PR 감시는 `sourceRef`로 이미 받은 주문인지 본다. 지운 주문은 `removedOrders`가 막는다. 보관한 주문은 `archivedOrders`(`sourceRef`, `parentOrderId`, `archivedAt`)가 같은 일을 한다. `removedAtOf`가 두 곳을 같이 본다. 하위 주문 상한(`MAX_SPAWN_PER_ORDER`)도 `parentOrderId`로 보관한 하위 주문을 센다.
+지라 소스와 PR 감시는 `sourceRef`로 이미 받은 주문인지 본다. 지운 주문은 `removedOrders`가 막는다. 보관한 주문은 `archivedOrders`(`sourceRef`, `parentOrderId`, `archivedAt`, parked 주문이면 사람에게 넘긴 PR `humanPr`)가 같은 일을 한다. `removedAtOf`가 두 곳을 같이 본다. 하위 주문 상한(`MAX_SPAWN_PER_ORDER`)도 `parentOrderId`로 보관한 하위 주문을 센다.
 
 `archivedOrders`도 늘기만 한다. 한 줄이 100바이트쯤이라 1년에 주문 1.5만 개가 쌓여도 1.5MB라 지금은 그대로 둔다.
 
