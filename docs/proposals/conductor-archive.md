@@ -32,7 +32,7 @@
 
 | 항목 | 결정 | 근거 |
 | --- | --- | --- |
-| 재생 기준점 | `base.json`(상태 스냅샷)에 덮어쓴 뒤 `events.jsonl`만 이어서 재생한다 | 로그를 잘라도 같은 상태를 만든다 |
+| 재생 기준점 | `base.json`(상태 스냅샷)에서 시작해 남은 segment의 반영 길이 뒤와 `events.jsonl`을 이어서 재생한다 | 로그를 잘라도 같은 상태를 만든다 |
 | 자르는 방식 | `events.jsonl`을 `segments/`로 이름 바꿔 떼어 내고 새 파일에 이어 쓴다 | 워커 프로세스가 잠금 없이 덧붙이므로 파일을 다시 쓰지 않는다 |
 | 잠금 | tick과 같은 `tick.lock`을 잡는다 | tick, `order remove`와 겹치지 않는다 |
 | 중복 판정 | 보관한 주문의 출처를 `base.json`의 `archivedOrders`에 남긴다 | `removedOrders`와 같은 방식이다 |
@@ -43,7 +43,7 @@
 ```
 events.jsonl            base.json 이후의 이벤트
 base.json               기준점 상태. 어느 segment까지 반영했는지(foldedSegments) 함께 남긴다
-segments/               떼어 냈지만 아직 base.json에 반영하지 않은 로그
+segments/               떼어 낸 로그. 반영한 뒤에도 다음 반영까지 남겨 둔다
 archive/YYYY-MM/
   <주문 id>/
     events.jsonl        그 주문의 이벤트(주문, 워커, 게이트, 보고, 체크포인트, bypass, 지라 전이)
