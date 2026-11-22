@@ -147,6 +147,8 @@ export interface Worker {
    * 않고 비워 둔다. 다음 재개는 앞 워크트리의 실제 체크아웃을 다시 읽는다
    */
   branch?: string;
+  /** 워커 세션의 Claude Code 세션 id. 런처가 띄울 때 응답에서 받았을 때만 있다. 트랜스크립트를 바로 찾는 데 쓴다 */
+  sessionId?: string;
   account?: string;
   startedAt: string;
   lastSeenAt: string;

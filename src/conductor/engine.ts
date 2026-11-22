@@ -16,6 +16,7 @@ import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
 import { log } from '../core/log.js';
 import { isAccountName } from './account-name.js';
+import { refreshWorkerActivity } from './activity-tick.js';
 import { existingRepoContext } from './context.js';
 import { handleNeed, openOrReuse, type BypassHandlers } from './gates.js';
 import {
@@ -31,8 +32,10 @@ import {
   buildWorkerPrompt,
   chooseWorkerKind,
   ensureAccount,
+  execRunner,
   OrcaReleaseLiveError,
   type AccountSwitcher,
+  type CommandRunner,
   type HostAction,
   type LauncherSet,
   type ReleaseOptions,
@@ -97,6 +100,8 @@ export interface EngineDeps {
   bypass?: BypassHandlers;
   readShip?: ShipReader;
   env?: NodeJS.ProcessEnv;
+  /** 워크트리에서 고친 파일을 구할 때 쓰는 git 실행기. 테스트가 바꿔 끼운다 */
+  gitRunner?: CommandRunner;
 }
 
 export interface TickReport {
@@ -328,6 +333,14 @@ async function runTick(
   });
   await step(report, () => deliverPendingDecisions(store, deps, report));
   await step(report, () => launchQueued(store, deps, report));
+  await step(report, async () => {
+    await refreshWorkerActivity(store.activeWorkers(), (w) => store.order(w.orderId), {
+      stateDir: store.dir,
+      runner: deps.gitRunner ?? execRunner,
+      launchers: deps.launchers,
+      now: new Date(report.at),
+    });
+  });
   // 사람이 넘겨받은 주문의 PR을 확인만 하고 바뀐 게 없으면 prCheckedAt 기록만 남는다. 이건 idle 판정에서 뺀다
   let prCheckEvents = 0;
   await step(report, async () => {
@@ -958,6 +971,7 @@ async function launchQueued(
         ...worker,
         handle: started.handle,
         ...(started.branch ? { branch: started.branch } : {}),
+        ...(started.sessionId ? { sessionId: started.sessionId } : {}),
         status: started.hostAction ? 'starting' : 'running',
       });
       store.updateOrder(order.id, { status: 'running', workerId: worker.id });
