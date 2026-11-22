@@ -58,7 +58,7 @@ archive/YYYY-MM/
 `ConductorStore.open`은 아래 순서로 상태를 만든다.
 
 1. `base.json`이 있으면 읽어 시작 상태로 쓴다. 없으면 빈 상태다. 지금 저장소는 `base.json`이 없으니 지금과 같게 돈다.
-2. `segments/`에 남은 파일을 이름 순서로 재생한다. `base.json`의 `foldedSegments`에 있는 segment는 적힌 길이 뒤에 붙은 줄만 재생한다. 반영한 뒤 늦게 붙은 줄과 base.json에 반영하는 도중에 죽었을 때를 위한 자리다.
+2. `segments/`에 남은 파일을 이름 순서로 재생한다. `base.json`의 `foldedSegments`에 있는 segment는 적힌 길이 뒤에 붙은 줄만 재생한다. 반영한 뒤 늦게 붙은 줄을 받는 자리다. base.json에 반영하다 죽었을 때 남은 segment도 여기서 다시 재생한다.
 3. `events.jsonl`을 재생한다.
 
 `base.json`은 `eventCount`와 `ticks` 같은 누적 값도 담는다. 재생 결과가 반영 전과 같아야 하고 테스트는 "반영 전 상태 = 반영 뒤 다시 연 상태 + 보관한 주문"으로 확인한다.
