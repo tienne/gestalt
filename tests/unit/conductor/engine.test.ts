@@ -1865,6 +1865,52 @@ describe('워커 에이전트와 보고 보존', () => {
     expect(JSON.stringify(reopened.snapshot.reports)).not.toContain('spawnRequest');
   });
 
+  it('보고 refs의 저장소 밖 텍스트 파일을 복사하고 refs는 워커가 보낸 값 그대로 둔다', async () => {
+    const { store, now } = clockedStore();
+    const o = order();
+    store.addOrder(o);
+    const { deps: d, git } = deps();
+    await tick(store, d, { now: now(), force: true });
+    const workerId = git.started[0]!.worker.id;
+    const work = resolve(tempStateDir());
+    const md = join(work, 'review.md');
+    writeFileSync(md, '# 결과');
+    const refs = [md, join(work, 'gone.md'), 'https://example.com/x'];
+    report(store, d, { workerId, status: 'done', summary: '끝', refs });
+    await tick(store, d, { now: now(), force: true });
+
+    const [stored] = ConductorStore.open(store.dir).snapshot.reports[o.id]!;
+    expect(stored!.refs).toEqual(refs);
+    expect(stored!.refCopies).toHaveLength(1);
+    const copy = stored!.refCopies![0]!;
+    expect(copy.ref).toBe(md);
+    expect(copy.path).toMatch(new RegExp(`^refs/${o.id}/[0-9a-f]{8}-review\\.md$`));
+    expect(readFileSync(join(store.dir, copy.path!), 'utf-8')).toBe('# 결과');
+    expect(store.order(o.id)!.status).toBe('done');
+  });
+
+  it('refs 복사가 실패해도 보고는 그대로 적용하고 기록한다', async () => {
+    const { store, now } = clockedStore();
+    const o = order();
+    store.addOrder(o);
+    const { deps: d, git } = deps();
+    await tick(store, d, { now: now(), force: true });
+    const workerId = git.started[0]!.worker.id;
+    const work = resolve(tempStateDir());
+    const md = join(work, 'review.md');
+    writeFileSync(md, '# 결과');
+    // refs 자리에 파일이 있어 디렉토리를 못 만든다
+    writeFileSync(join(store.dir, 'refs'), '');
+    report(store, d, { workerId, status: 'done', summary: '끝', refs: [md] });
+    const r = await tick(store, d, { now: now(), force: true });
+
+    expect(r.errors).toEqual([]);
+    expect(store.order(o.id)!.status).toBe('done');
+    const [stored] = store.snapshot.reports[o.id]!;
+    expect(stored!.refCopies).toEqual([{ ref: md, skipped: 'error', reason: expect.any(String) }]);
+    expect(readdirSync(inboxDirOf(store, d))).toEqual([]);
+  });
+
   it('적용 뒤 이력 기록만 실패한 보고는 다시 적용하지 않고 다음 tick에 기록만 남긴다', async () => {
     const { store, now } = clockedStore();
     const o = order();
@@ -1904,5 +1950,32 @@ describe('워커 에이전트와 보고 보존', () => {
     expect(ConductorStore.open(store.dir).snapshot.reports[o.id]).toMatchObject([
       { workerId, status: 'needs', summary: '승인 부탁' },
     ]);
+  });
+
+  it('기록만 실패한 보고를 다음 tick에 기록할 때도 refs 사본을 남기고 사본은 하나다', async () => {
+    const { store, now } = clockedStore();
+    const o = order();
+    store.addOrder(o);
+    const { deps: d, git } = deps();
+    await tick(store, d, { now: now(), force: true });
+    const workerId = git.started[0]!.worker.id;
+    const work = resolve(tempStateDir());
+    const md = join(work, 'review.md');
+    writeFileSync(md, '# 결과');
+    report(store, d, { workerId, status: 'done', summary: '끝', refs: [md] });
+    const append = store.append.bind(store);
+    store.append = (e) => {
+      if (e.type === 'report-applied') throw new Error('디스크가 찼어요');
+      append(e);
+    };
+    await tick(store, d, { now: now(), force: true });
+    store.append = append;
+    const second = await tick(store, d, { now: now(), force: true });
+
+    expect(second.errors).toEqual([]);
+    const [stored] = ConductorStore.open(store.dir).snapshot.reports[o.id]!;
+    expect(stored!.refCopies).toHaveLength(1);
+    expect(readFileSync(join(store.dir, stored!.refCopies![0]!.path!), 'utf-8')).toBe('# 결과');
+    expect(readdirSync(join(store.dir, 'refs', o.id))).toHaveLength(1);
   });
 });

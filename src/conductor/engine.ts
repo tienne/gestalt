@@ -14,6 +14,7 @@ import {
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
+import { log } from '../core/log.js';
 import { isAccountName } from './account-name.js';
 import { existingRepoContext } from './context.js';
 import { handleNeed, openOrReuse, type BypassHandlers } from './gates.js';
@@ -39,6 +40,7 @@ import {
 import { watchHumanOwned, type HumanOwnedChange, type PrStateSource } from './ownership.js';
 import { repoOfPrRef } from './pr-ref.js';
 import { pollPrs, type PrWatchSource } from './pr-watch.js';
+import { copyReportRefs } from './ref-copy.js';
 import { parseWorkerReport } from './result.js';
 import {
   detectStale,
@@ -59,6 +61,7 @@ import type {
   Order,
   OrderScope,
   OrderStatus,
+  RefCopy,
   StoredReport,
   Worker,
   WorkerKind,
@@ -469,7 +472,7 @@ async function ingestReports(
           type: 'report-applied',
           at: report.at,
           name: f,
-          report: pickStoredReport(r),
+          report: pickStoredReport(r, copyRefs(store, f, r)),
         });
       } catch (err) {
         // inbox에 두면 다음 tick이 다시 적용하고 failed로 보내면 사람이 다시 넣을 수 있다.
@@ -515,7 +518,7 @@ function recordUnrecorded(
           type: 'report-applied',
           at: report.at,
           name: f,
-          report: pickStoredReport(r),
+          report: pickStoredReport(r, copyRefs(store, f, r)),
         });
       }
       unlinkSync(path);
@@ -528,8 +531,23 @@ function recordUnrecorded(
   }
 }
 
+/**
+ * 보고 refs 중 저장소 밖 텍스트 파일을 `refs/<주문 id>/`로 복사한다. 사본은 결과를 남기려는 것이라
+ * 복사가 어떻게 실패해도 보고 적용과 기록은 그대로 간다.
+ */
+function copyRefs(store: ConductorStore, reportName: string, r: WorkerReport): RefCopy[] {
+  const orderId = store.worker(r.workerId)?.orderId;
+  if (!orderId || r.refs.length === 0) return [];
+  try {
+    return copyReportRefs({ stateDir: store.dir, orderId, reportName, refs: r.refs });
+  } catch (err) {
+    log(`결과 ${reportName}의 refs를 복사하지 못했어요: ${message(err)}`);
+    return [];
+  }
+}
+
 /** 이력에 남길 칸만 고른다. 하위 주문 요청은 적용할 때 주문으로 옮겨졌다 */
-function pickStoredReport(r: WorkerReport): StoredReport {
+function pickStoredReport(r: WorkerReport, refCopies: RefCopy[] = []): StoredReport {
   return {
     workerId: r.workerId,
     status: r.status,
@@ -540,6 +558,7 @@ function pickStoredReport(r: WorkerReport): StoredReport {
     ...(r.merged !== undefined ? { merged: r.merged } : {}),
     ...(r.stopReason !== undefined ? { stopReason: r.stopReason } : {}),
     ...(r.need !== undefined ? { need: r.need } : {}),
+    ...(refCopies.length > 0 ? { refCopies } : {}),
   };
 }
 

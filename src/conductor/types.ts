@@ -276,8 +276,26 @@ export interface WorkerReport {
   spawnRequest?: { title: string; detail: string };
 }
 
+/**
+ * 보고의 ref 하나를 저장소로 복사한 결과. `refs`는 워커가 보낸 값 그대로 두고 사본은 여기 따로 남긴다.
+ * 옛 이벤트에는 이 칸이 없다.
+ */
+export interface RefCopy {
+  /** 워커가 보낸 원래 값 */
+  ref: string;
+  /** 저장소 기준 상대 경로(`refs/<주문 id>/<이름>`). 건너뛰었으면 없다 */
+  path?: string;
+  /** 파일 상한을 넘어 앞부분만 남겼다 */
+  truncated?: boolean;
+  /** 원래 파일 크기(바이트). 자르거나 건너뛰었을 때만 남긴다 */
+  size?: number;
+  /** 복사하지 않은 이유. report-limit은 보고 하나 합계 상한, denied는 비밀 값이 있을 만한 자리, error는 읽기나 쓰기 실패다 */
+  skipped?: 'report-limit' | 'error' | 'denied';
+  reason?: string;
+}
+
 /** 이력에 남기는 보고. 하위 주문 요청은 적용할 때 주문으로 옮겨지므로 다시 남기지 않는다 */
-export type StoredReport = Omit<WorkerReport, 'spawnRequest'>;
+export type StoredReport = Omit<WorkerReport, 'spawnRequest'> & { refCopies?: RefCopy[] };
 
 export interface BypassRecord {
   orderId?: string;
