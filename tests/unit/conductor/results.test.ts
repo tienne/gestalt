@@ -1,5 +1,7 @@
 import {
   existsSync,
+  lstatSync,
+  lutimesSync,
   mkdirSync,
   readFileSync,
   realpathSync,
@@ -585,17 +587,38 @@ describe('searchResults', () => {
     expect(single.hits.some((h) => h.source === 'ref')).toBe(true);
   });
 
+  it('개행이 든 검색어는 큰 파일이 있어도 partialFiles를 올리지 않는다', () => {
+    const base = tempStateDir();
+    const big = put(
+      join(realpathSync(base), 'reports', 'nl-big.md'),
+      `${'x'.repeat(MAX_FULL_READ_BYTES + 10)}\n둘째줄`,
+    );
+    seed([{ order: { id: A }, reports: [{ refs: [big] }] }], base);
+    const found = searchResults(loadResults({ stateDir: base }), '첫줄\n둘째줄');
+    expect(found.partialFiles).toBeUndefined();
+  });
+
   it('캐시에 올라 있던 파일이 심링크로 바뀌면 본문을 안 준다', () => {
     const base = tempStateDir();
-    const note = put(join(realpathSync(base), 'reports', 'cached-swap.md'), '평범한 본문');
-    seed([{ order: { id: A }, reports: [{ refs: [note] }] }], base);
-    const r = loadResults({ stateDir: base });
-    const ref = r.orderRefs.get(A)!.refs[0]!;
-    expect(readRefBody(r, A, ref)?.text).toBe('평범한 본문');
     const secret = put(join(outsideDir(), 'secret.md'), '비밀 본문');
+    // 심링크의 lstat 크기는 대상 경로 문자열의 바이트 길이라, 원본을 같은 길이로 맞추면 캐시 키가 같아진다
+    const original = 'a'.repeat(Buffer.byteLength(secret));
+    const note = put(join(realpathSync(base), 'reports', 'cached-swap.md'), original);
+    const T = 1_700_000_000;
+    utimesSync(note, T, T);
+    seed([{ order: { id: A } }], base);
+    const r = loadResults({ stateDir: base });
+    const key = r.files.find((f) => f.path === note)!.key;
+    const before = lstatSync(note);
+    expect(readResultFile(r, key)?.text).toBe(original);
     rmSync(note);
     symlinkSync(secret, note);
-    expect(readRefBody(r, A, ref)).toBeNull();
+    lutimesSync(note, T, T);
+    const after = lstatSync(note);
+    expect(after.isSymbolicLink()).toBe(true);
+    expect(after.size).toBe(before.size);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+    expect(readResultFile(r, key)).toBeNull();
   });
 
   it('loadResults에 넘긴 본문 캐시는 다시 로드해도 이어 쓴다', () => {
