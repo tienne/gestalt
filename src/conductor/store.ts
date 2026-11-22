@@ -8,6 +8,8 @@ import {
   openSync,
   readFileSync,
   readSync,
+  readdirSync,
+  statSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { writeJsonAtomic } from '../core/json-file.js';
@@ -26,7 +28,8 @@ import {
 /**
  * 컨덕터 실행 상태 저장소.
  *
- * 이벤트를 `events.jsonl`에 한 줄씩 덧붙이고 상태는 그 로그를 처음부터 재생해서 만든다.
+ * 이벤트를 `events.jsonl`에 한 줄씩 덧붙이고 상태는 그 로그를 재생해서 만든다. 떼어 낸 로그는
+ * `base.json`에 반영돼 있어 재생은 거기서 시작한다(replayStore).
  * 컨덕터 세션이 압축되거나 새로 떠도 이 디렉토리만 있으면 주문과 워커, 체크포인트,
  * 승인 대기를 같게 복원한다. `snapshot.json`은 사람과 도구가 빨리 읽으라고 두는
  * 사본이라 복원에는 쓰지 않는다. 둘이 어긋나면 로그가 맞다. tick처럼 이벤트를 몰아 쓰는
@@ -41,6 +44,17 @@ import {
 
 export const EVENTS_FILE = 'events.jsonl';
 export const SNAPSHOT_FILE = 'snapshot.json';
+/** 떼어 낸 로그를 반영한 기준점 상태. 재생은 여기서 시작한다 */
+export const BASE_FILE = 'base.json';
+/** `events.jsonl`에서 떼어 냈지만 아직 base.json에 반영하지 않았을 수 있는 로그 */
+export const SEGMENTS_DIR = 'segments';
+
+export interface BaseFile {
+  version: 1;
+  /** 이 상태에 이미 반영한 segment 이름. 반영 뒤 지우다 죽어 남은 segment를 다시 재생하지 않는다 */
+  foldedSegments: string[];
+  state: ConductorSnapshot;
+}
 
 export function emptySnapshot(): ConductorSnapshot {
   return {
@@ -230,7 +244,7 @@ export class ConductorStore {
   /** 로그를 처음부터 재생해 연다. 디렉토리가 없으면 만든다 */
   static open(dir: string, opts: { now?: () => Date } = {}): ConductorStore {
     mkdirSync(dir, { recursive: true });
-    return new ConductorStore(dir, replay(join(dir, EVENTS_FILE)), opts.now ?? (() => new Date()));
+    return new ConductorStore(dir, replayStore(dir), opts.now ?? (() => new Date()));
   }
 
   get snapshot(): Readonly<ConductorSnapshot> {
@@ -243,7 +257,7 @@ export class ConductorStore {
 
   /** 다른 프로세스가 덧붙인 이벤트까지 다시 읽는다 */
   reload(): void {
-    this.state = replay(join(this.dir, EVENTS_FILE));
+    this.state = replayStore(this.dir);
   }
 
   append(event: ConductorEvent): void {
@@ -437,8 +451,7 @@ function endsWithoutNewline(path: string): boolean {
  * 마지막 줄이거나, 다음 append가 개행을 붙이고 남긴 tail-repaired 표시가 바로 뒤에 올 때다.
  * 그 밖의 중간 줄이 깨졌으면 복원 결과를 믿을 수 없으니 멈춘다.
  */
-export function replay(path: string): ConductorSnapshot {
-  const s = emptySnapshot();
+export function replay(path: string, s: ConductorSnapshot = emptySnapshot()): ConductorSnapshot {
   if (!existsSync(path)) return s;
   const lines = readFileSync(path, 'utf-8').split('\n');
   for (let i = 0; i < lines.length; i++) {
@@ -459,6 +472,60 @@ export function replay(path: string): ConductorSnapshot {
     applyEvent(s, event);
   }
   return s;
+}
+
+/**
+ * 저장소 디렉토리 하나를 재생한다. base.json에서 시작해 아직 반영 안 된 segment를 이름 순서로,
+ * 그다음 `events.jsonl`을 재생한다. base.json이 없으면 빈 상태에서 시작하므로 떼어 낸 적 없는
+ * 저장소는 예전과 같게 돈다.
+ *
+ * 떼어 내기(fold.ts)는 잠금 없이 읽는 쪽과 겹칠 수 있다. 읽는 사이 segment가 생기거나
+ * base.json이 바뀌면 이벤트를 빠뜨리거나 두 번 반영할 수 있어서 앞뒤 모양이 같을 때까지 다시 읽는다.
+ */
+export function replayStore(dir: string): ConductorSnapshot {
+  for (let attempt = 0; ; attempt++) {
+    const before = layoutKey(dir);
+    const base = readBase(dir);
+    const s = base ? base.state : emptySnapshot();
+    const folded = new Set(base?.foldedSegments ?? []);
+    for (const name of listSegments(dir)) {
+      if (!folded.has(name)) replay(join(dir, SEGMENTS_DIR, name), s);
+    }
+    replay(join(dir, EVENTS_FILE), s);
+    if (layoutKey(dir) === before || attempt >= 4) return s;
+  }
+}
+
+/** segment 파일 이름. 시각이 앞이라 이름 순서가 떼어 낸 순서다 */
+export function listSegments(dir: string): string[] {
+  let names: string[];
+  try {
+    names = readdirSync(join(dir, SEGMENTS_DIR));
+  } catch {
+    return [];
+  }
+  return names.filter((n) => n.endsWith('.jsonl')).sort();
+}
+
+export function readBase(dir: string): BaseFile | undefined {
+  const path = join(dir, BASE_FILE);
+  if (!existsSync(path)) return undefined;
+  const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Partial<BaseFile>;
+  if (parsed.version !== 1 || !parsed.state || !Array.isArray(parsed.foldedSegments)) {
+    throw new Error(`${path}를 못 읽어요. 저장소가 깨졌어요`);
+  }
+  return { version: 1, foldedSegments: parsed.foldedSegments, state: parsed.state };
+}
+
+function layoutKey(dir: string): string {
+  let base = '-';
+  try {
+    const st = statSync(join(dir, BASE_FILE));
+    base = `${st.ino}:${st.size}:${st.mtimeMs}`;
+  } catch {
+    // base.json이 없는 저장소
+  }
+  return `${base}|${listSegments(dir).join(',')}`;
 }
 
 function nextNonEmpty(lines: string[], from: number): string | undefined {
