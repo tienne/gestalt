@@ -16,7 +16,13 @@ import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
 import { log } from '../core/log.js';
 import { isAccountName } from './account-name.js';
-import { refreshWorkerActivity } from './activity-tick.js';
+import {
+  GATE_STALL_MESSAGE,
+  gateStalled,
+  refreshWorkerActivity,
+  type WorkerActivitySnapshot,
+} from './activity-tick.js';
+import { updateWorkerInfo } from './activity.js';
 import { existingRepoContext } from './context.js';
 import { handleNeed, openOrReuse, type BypassHandlers } from './gates.js';
 import {
@@ -102,6 +108,8 @@ export interface EngineDeps {
   env?: NodeJS.ProcessEnv;
   /** 워크트리에서 고친 파일을 구할 때 쓰는 git 실행기. 테스트가 바꿔 끼운다 */
   gitRunner?: CommandRunner;
+  /** 워커 트랜스크립트를 찾을 projects 폴더. 테스트가 바꿔 끼운다 */
+  transcriptRoots?: string[];
 }
 
 export interface TickReport {
@@ -312,6 +320,17 @@ async function runTick(
   const quietSinceLastTick = store.snapshot.lastTickEventCount === eventsBefore;
   await step(report, () => ingestReports(store, deps, report).then((c) => (cleared = c)));
   await step(report, () => intake(store, deps, report).then((n) => (unanswered = n)));
+  let activity = new Map<string, WorkerActivitySnapshot>();
+  await step(report, async () => {
+    activity = await refreshWorkerActivity(store.activeWorkers(), (w) => store.order(w.orderId), {
+      stateDir: store.dir,
+      runner: deps.gitRunner ?? execRunner,
+      launchers: deps.launchers,
+      now: new Date(report.at),
+      ...(deps.transcriptRoots ? { transcriptRoots: deps.transcriptRoots } : {}),
+    });
+    await nudgeStalledGates(store, deps, report, activity);
+  });
   await step(report, async () => {
     const orca = deps.launchers['orca-worktree'];
     const stale = await detectStale(store, {
@@ -321,6 +340,7 @@ async function runTick(
       rateLimitEscalateAfterMs: deps.config.rateLimitEscalateAfterSec * 1000,
       ...(orca?.probe ? { probe: (w: Worker) => orca.probe!(w) } : {}),
       ...(orca?.peek ? { peek: (w: Worker) => orca.peek!(w) } : {}),
+      activityAt: (w: Worker) => activity.get(w.id)?.lastEventAt,
     });
     report.warnings.push(...stale.warnings);
     report.escalated.push(...stale.escalated.map((g) => g.id));
@@ -333,14 +353,6 @@ async function runTick(
   });
   await step(report, () => deliverPendingDecisions(store, deps, report));
   await step(report, () => launchQueued(store, deps, report));
-  await step(report, async () => {
-    await refreshWorkerActivity(store.activeWorkers(), (w) => store.order(w.orderId), {
-      stateDir: store.dir,
-      runner: deps.gitRunner ?? execRunner,
-      launchers: deps.launchers,
-      now: new Date(report.at),
-    });
-  });
   // 사람이 넘겨받은 주문의 PR을 확인만 하고 바뀐 게 없으면 prCheckedAt 기록만 남는다. 이건 idle 판정에서 뺀다
   let prCheckEvents = 0;
   await step(report, async () => {
@@ -376,6 +388,23 @@ async function runTick(
     idleTicks: store.snapshot.idleTicks ?? 0,
     counts: counts(store, unanswered),
   };
+}
+
+/** 백그라운드 gate 뒤 멈춘 워커에 포그라운드 재실행을 한 번 보낸다. 보낸 뒤엔 같은 워커에 다시 안 보낸다 */
+async function nudgeStalledGates(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+  activity: ReadonlyMap<string, WorkerActivitySnapshot>,
+): Promise<void> {
+  const now = new Date(report.at);
+  for (const w of store.activeWorkers()) {
+    if (!gateStalled(activity.get(w.id), now, (deps.config.gateStallAfterSec ?? 900) * 1000))
+      continue;
+    if ((await sendTo(deps, report, w, GATE_STALL_MESSAGE)) !== 'sent') continue;
+    updateWorkerInfo(store.dir, w.id, { gateStallNotifiedAt: report.at });
+    report.warnings.push(`${w.orderId}: 백그라운드 gate 뒤 멈춰 포그라운드 재실행을 보냈어요`);
+  }
 }
 
 /**

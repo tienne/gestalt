@@ -1,5 +1,11 @@
 import { existsSync } from 'node:fs';
-import { readWorkerInfo, updateWorkerInfo, type WorkerActivityInfo } from './activity.js';
+import {
+  readWorkerInfo,
+  refreshTranscript,
+  updateWorkerInfo,
+  type WorkerActivityInfo,
+} from './activity.js';
+import type { BackgroundGate } from './transcript.js';
 import type { CommandRunner, Launcher } from './launcher.js';
 import type { Order, Worker } from './types.js';
 
@@ -49,23 +55,32 @@ export async function changedFilesOf(
   return { files: files.slice(0, MAX_CHANGED_FILES), base };
 }
 
+export interface WorkerActivitySnapshot {
+  info: WorkerActivityInfo;
+  /** 트랜스크립트에서 읽은 마지막 줄의 시각. 못 읽었으면 없다 */
+  lastEventAt?: string;
+  backgroundGate?: BackgroundGate;
+}
+
 export interface ActivityTickDeps {
   stateDir: string;
   runner: CommandRunner;
   launchers: Partial<Record<Worker['kind'], Launcher>>;
   now: Date;
+  /** 트랜스크립트를 찾을 projects 폴더. 없으면 CLAUDE_CONFIG_DIR와 ~/.claude 아래를 본다 */
+  transcriptRoots?: string[];
 }
 
 /**
- * tick 한 번에 워커마다 워크트리 경로와 고친 파일을 저장한다. status는 이 값을 읽기만 한다.
+ * tick 한 번에 워커마다 워크트리 경로와 고친 파일을 저장하고 트랜스크립트를 새 줄까지 읽는다. status는 고친 파일을 읽기만 한다.
  * 워커 하나가 실패해도 나머지는 계속 돈다
  */
 export async function refreshWorkerActivity(
   workers: Worker[],
   orderOf: (w: Worker) => Order | undefined,
   deps: ActivityTickDeps,
-): Promise<Map<string, WorkerActivityInfo>> {
-  const out = new Map<string, WorkerActivityInfo>();
+): Promise<Map<string, WorkerActivitySnapshot>> {
+  const out = new Map<string, WorkerActivitySnapshot>();
   for (const w of workers) {
     if (w.kind === 'subagent') continue;
     try {
@@ -85,10 +100,39 @@ export async function refreshWorkerActivity(
             changedAt: deps.now.toISOString(),
           });
       }
-      out.set(w.id, info);
+      const state = refreshTranscript(
+        deps.stateDir,
+        w,
+        info,
+        deps.transcriptRoots ? { roots: deps.transcriptRoots } : {},
+      );
+      const d = state?.digest;
+      out.set(w.id, {
+        info,
+        ...(d?.lastEventAt ? { lastEventAt: d.lastEventAt } : {}),
+        ...(d?.backgroundGate ? { backgroundGate: d.backgroundGate } : {}),
+      });
     } catch {
       // 작업 내용은 보여 주기용이라 실패해도 tick을 멈추지 않는다
     }
   }
   return out;
+}
+
+export const GATE_STALL_MESSAGE =
+  '백그라운드로 띄운 gate가 끝났는데 턴이 멈춰 있어요. gate를 포그라운드로 다시 돌려 결과를 확인하고 이어서 진행해 주세요';
+
+/**
+ * gate를 백그라운드로 띄우고 턴을 끝낸 채 기준 시간을 넘긴 워커. 한 워커에 한 번만 고른다.
+ * 새 턴이 오면 리더가 표시를 지우니 이미 깨어난 워커는 안 고른다
+ */
+export function gateStalled(
+  snap: WorkerActivitySnapshot | undefined,
+  now: Date,
+  afterMs: number,
+): boolean {
+  if (!snap || snap.info.gateStallNotifiedAt) return false;
+  const ended = snap.backgroundGate?.turnEndedAt;
+  const t = ended ? Date.parse(ended) : NaN;
+  return !Number.isNaN(t) && now.getTime() - t >= afterMs;
 }

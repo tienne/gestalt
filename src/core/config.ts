@@ -403,6 +403,11 @@ const conductorConfigSchema = z.object({
    * 대기 중에는 staleAfterSec로 끊김 판정을 하지 않는다
    */
   waitingEscalateAfterSec: z.number().int().min(600).max(604800).default(21600),
+  /**
+   * 워커가 gate를 백그라운드로 띄우고 턴을 끝낸 채 이 시간(초)을 넘기면 포그라운드로 다시 돌리라고 한 번 보낸다.
+   * 백그라운드 명령이 끝나도 워커가 깨지 않아 멈춘 채 남는 경우가 있어서다
+   */
+  gateStallAfterSec: z.number().int().min(60).max(86400).default(900),
   /** 머지 뒤 배포 신호를 기다리는 상한(초) */
   deployWaitMaxSec: z.number().int().positive().default(86400),
   /** 살아 있는 오르카 워커의 release 거절을 재시도하는 상한(초) */

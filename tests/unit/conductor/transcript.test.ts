@@ -320,3 +320,18 @@ describe('parseSessionId', () => {
     expect(parseSessionId('not json')).toBeUndefined();
   });
 });
+
+describe('gateStalled', () => {
+  const now = new Date(T0 + 3600_000);
+  it('gate를 백그라운드로 띄우고 턴이 끝난 채 기준 시간을 넘기면 한 번만 고른다', async () => {
+    const { gateStalled } = await import('../../../src/conductor/activity-tick.js');
+    const snap = { info: {}, backgroundGate: { at: at(0), turnEndedAt: at(10) } };
+    expect(gateStalled(snap, now, 900_000)).toBe(true);
+    expect(gateStalled(snap, new Date(T0 + 60_000), 900_000)).toBe(false);
+    expect(gateStalled({ ...snap, info: { gateStallNotifiedAt: at(20) } }, now, 900_000)).toBe(
+      false,
+    );
+    expect(gateStalled({ info: {}, backgroundGate: { at: at(0) } }, now, 900_000)).toBe(false);
+    expect(gateStalled(undefined, now, 900_000)).toBe(false);
+  });
+});

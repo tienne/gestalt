@@ -1979,3 +1979,65 @@ describe('워커 에이전트와 보고 보존', () => {
     expect(readdirSync(join(store.dir, 'refs', o.id))).toHaveLength(1);
   });
 });
+
+describe('백그라운드 gate 멈춤', () => {
+  it('gate를 백그라운드로 띄우고 턴을 끝낸 워커에 포그라운드 재실행을 한 번만 보낸다', async () => {
+    const { store, advance } = clockedStore();
+    const wt = resolve(tempStateDir());
+    const roots = [resolve(tempStateDir(), 'projects')];
+    const dir = join(roots[0]!, wt.replace(/[^A-Za-z0-9-]/g, '-'));
+    mkdirSync(dir, { recursive: true });
+    const rows = [
+      {
+        type: 'user',
+        timestamp: '2026-11-01T00:00:01.000Z',
+        message: { role: 'user', content: '시작' },
+      },
+      {
+        type: 'assistant',
+        timestamp: '2026-11-01T00:00:02.000Z',
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'g1',
+              name: 'Bash',
+              input: { command: 'pnpm gate', run_in_background: true },
+            },
+          ],
+        },
+      },
+      {
+        type: 'assistant',
+        timestamp: '2026-11-01T00:00:03.000Z',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: '기다려요' }],
+          stop_reason: 'end_turn',
+        },
+      },
+    ];
+    writeFileSync(join(dir, 's.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    store.addOrder(order({ id: 'ord-g', status: 'running', workerId: 'wrk-g' }));
+    store.startWorker(
+      worker('ord-g', {
+        id: 'wrk-g',
+        kind: 'git-worktree',
+        handle: wt,
+        startedAt: '2026-11-01T00:00:00.000Z',
+        lastSeenAt: '2026-11-01T00:00:00.000Z',
+      }),
+    );
+    const noGit: CommandRunner = async () => ({ code: 1, stdout: '', stderr: '' });
+    const { deps: d, git } = deps({ transcriptRoots: roots, gitRunner: noGit });
+    advance(10 * 60_000);
+    await tick(store, d, { force: true });
+    expect(git.sent).toHaveLength(0);
+    advance(10 * 60_000);
+    await tick(store, d, { force: true });
+    advance(60_000);
+    await tick(store, d, { force: true });
+    expect(git.sent.filter((s) => s.message.includes('포그라운드'))).toHaveLength(1);
+  });
+});
