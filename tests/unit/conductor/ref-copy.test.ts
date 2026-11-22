@@ -134,12 +134,14 @@ describe('refs 사본', () => {
     homeFile('.aws/notes.md', 'x');
     file('sub/token.md', 'x');
     file('sub/plain.md', 'x');
+    homeFile('notes.md', 'x');
+    const homePlain = '~/docs/../notes.md';
     const toKey = `${work}/sub/../${relative(work, join(home, '.ssh/id_rsa'))}`;
     const toDot = `~/docs/../.aws/notes.md`;
     const toName = `${work}/sub/../sub/token.md`;
     const plain = `${work}/sub/../sub/plain.md`;
 
-    const out = copy([toKey, toDot, toName, plain]);
+    const out = copy([toKey, toDot, toName, plain, homePlain]);
 
     expect(out).toEqual([
       { ref: toKey, skipped: 'denied' },

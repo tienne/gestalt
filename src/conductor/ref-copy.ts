@@ -240,7 +240,8 @@ function localPath(ref: string, home: string): { path: string; dotdot: boolean }
   const path = raw.startsWith('~/') ? join(home, raw.slice(2)) : raw;
   if (!isAbsolute(path)) return null;
   // `..`로 경로를 돌려 확장자 검사나 저장소 안 판정을 비켜 가지 못하게 복사 대상에서 뺀다
-  return { path, dotdot: path.split(/[\\/]/).includes('..') };
+  // join이 `~/a/../b`의 `..`을 먼저 접으므로 워커가 적은 값으로 본다
+  return { path, dotdot: raw.split(/[\\/]/).includes('..') };
 }
 
 function realOrSelf(path: string): string {
