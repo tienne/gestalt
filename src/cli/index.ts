@@ -49,6 +49,12 @@ import {
   conductorWorkerReportCommand,
 } from './commands/conductor.js';
 import {
+  conductorBrowseCommand,
+  conductorResultsListCommand,
+  conductorResultsSearchCommand,
+  conductorResultsShowCommand,
+} from './commands/conductor-results.js';
+import {
   harnessRefsClonesPruneCommand,
   harnessRefsCollectCommand,
 } from './commands/harness-refs.js';
@@ -1158,6 +1164,51 @@ export function createCli(): Command {
     .option('--all', '끝난 주문까지 보여준다 (bypass 사후 보고용)')
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorStatusCommand(o));
+
+  const results = conductor
+    .command('results')
+    .description('끝난 주문까지 결과 보고와 refs 본문을 찾아 읽는다 (읽기 전용)');
+  results
+    .command('list')
+    .description('주문을 최근 갱신순으로 보여준다. 끝난 주문도 들어간다')
+    .option('--repo <owner/name>', '이 레포 주문만')
+    .option('--status <status>', '이 상태 주문만')
+    .option('--since <date>', '이 날짜 뒤에 갱신된 주문만 (2026-11-01 꼴)')
+    .option('--limit <n>', '보여줄 개수 (기본 30)')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action((o) => conductorResultsListCommand(o));
+  results
+    .command('search <keyword>')
+    .description('주문 제목과 보고 요약, 읽을 수 있는 refs 본문, 저장소 결과 파일에서 찾는다')
+    .option('--repo <owner/name>', '이 레포 주문만')
+    .option('--status <status>', '이 상태 주문만')
+    .option('--since <date>', '이 날짜 뒤에 갱신된 것만 (2026-11-01 꼴)')
+    .option('--limit <n>', '보여줄 결과 수 (기본 20)')
+    .option('--no-body', '제목과 요약만 찾는다')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action((keyword, o) => conductorResultsSearchCommand(keyword, o));
+  results
+    .command('show <id>')
+    .description(
+      '주문 머리와 보고 타임라인, 사람 확인, bypass, refs 본문을 차례로 보여준다. id는 앞부분만 적어도 된다',
+    )
+    .option('--report <n>', '이 번호의 보고 하나와 그 보고가 적은 refs만')
+    .option('--no-body', 'refs 본문을 빼고 목록만')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action((id, o) => conductorResultsShowCommand(id, o));
+
+  conductor
+    .command('browse')
+    .description('결과를 브라우저에서 찾아 읽는 로컬 웹 뷰어를 띄운다 (127.0.0.1, 읽기 전용)')
+    .option('--port <n>', '포트 (기본: 7894부터 빈 곳)')
+    .option('--no-open', '브라우저를 열지 않고 주소만 출력')
+    .addOption(stateDir())
+    .action(async (o) => {
+      await conductorBrowseCommand(o);
+    });
 
   conductor
     .command('tick')

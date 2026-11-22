@@ -4,7 +4,6 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadConfig, WAIT_MAX_SEC_LIMIT } from '../../core/config.js';
 import { writeJsonAtomic } from '../../core/json-file.js';
-import { gestaltPath } from '../../core/home.js';
 import {
   fileDeploySource,
   fileQueue,
@@ -58,13 +57,8 @@ import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
 import { readRecentEvents } from '../../conductor/recent-events.js';
 import { removeOrderRefCopies } from '../../conductor/ref-copy.js';
 import { resolveGate } from '../../conductor/gates.js';
-import {
-  intakeOrder,
-  isControlChar,
-  ISSUE_KEY_RE,
-  KNOWN_SKILLS,
-  oneLine,
-} from '../../conductor/intake.js';
+import { terminalText } from '../../conductor/terminal-text.js';
+import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS, oneLine } from '../../conductor/intake.js';
 import type { DeploySignal } from '../../conductor/jira.js';
 import {
   assertCanSpawn,
@@ -119,6 +113,7 @@ import {
   type WaitTickOutcome,
 } from '../../conductor/wait.js';
 import { ConductorStore } from '../../conductor/store.js';
+import { resolveStateDir } from '../../conductor/state-dir.js';
 import {
   INTAKE_KINDS,
   ISSUE_TYPES,
@@ -151,15 +146,9 @@ interface Ctx {
   config: ConductorConfig;
 }
 
-/** 상태 저장소 위치는 플래그, 환경 변수, 설정, 기본값 순서로 정한다 */
 function open(opts: ConductorCommonOptions): Ctx {
   const config = loadConfig().conductor;
-  const dir =
-    opts.stateDir ??
-    process.env['GESTALT_CONDUCTOR_STATE_DIR'] ??
-    config.stateDir ??
-    gestaltPath('conductor');
-  return { store: ConductorStore.open(resolve(dir)), config };
+  return { store: ConductorStore.open(resolveStateDir(opts.stateDir, config)), config };
 }
 
 function launchersFor(
@@ -356,19 +345,6 @@ export async function conductorOrderRemoveCommand(
   } catch (e) {
     exitWithError(e);
   }
-}
-
-/**
- * 워커 보고처럼 바깥에서 온 값을 터미널에 찍을 꼴로 바꾼다. ESC 같은 제어 문자가 화면을 조작하지 못하게
- * 개행 말고는 공백으로 바꾸고 이어지는 줄은 들여써 다른 항목 줄로 보이지 않게 한다. 전문을 읽는 자리라 자르지 않는다
- */
-function terminalText(text: string): string {
-  let out = '';
-  for (const ch of text) {
-    const c = ch.codePointAt(0)!;
-    out += ch !== '\n' && isControlChar(c) ? ' ' : ch;
-  }
-  return out.replace(/\n/g, '\n    ');
 }
 
 export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptions): void {
