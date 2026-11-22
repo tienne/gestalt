@@ -1,22 +1,28 @@
 import { spawn } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { acquireLock } from '../../../src/conductor/engine.js';
-import { foldEvents } from '../../../src/conductor/fold.js';
+import { foldEvents, type FoldResult } from '../../../src/conductor/fold.js';
+import { readRecentEvents } from '../../../src/conductor/recent-events.js';
+import { loadResults } from '../../../src/conductor/results.js';
 import {
   BASE_FILE,
   ConductorStore,
   EVENTS_FILE,
   SEGMENTS_DIR,
+  emptySnapshot,
+  listSegments,
   readBase,
+  storeStamp,
 } from '../../../src/conductor/store.js';
 import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
 
 afterEach(cleanupStateDirs);
 
 const fast = { settleMs: 5 };
+const TICK = '{"type":"tick","at":"2026-11-01T00:00:00.000Z"}\n';
 
 function seed(dir: string): ConductorStore {
   const s = ConductorStore.open(dir);
@@ -37,8 +43,12 @@ function seed(dir: string): ConductorStore {
   return s;
 }
 
+function segPath(dir: string, name: string): string {
+  return join(dir, SEGMENTS_DIR, name);
+}
+
 describe('foldEvents', () => {
-  it('떼어 내고 반영한 뒤 다시 열어도 같은 상태가 나온다', async () => {
+  it('떼어 내고 반영한 뒤 다시 열어도 같은 상태가 나오고 segment는 다음 반영까지 남는다', async () => {
     const dir = tempStateDir();
     const before = seed(dir).snapshot;
 
@@ -46,14 +56,17 @@ describe('foldEvents', () => {
 
     expect(result.status).toBe('folded');
     expect(existsSync(join(dir, EVENTS_FILE))).toBe(false);
-    expect(readdirSync(join(dir, SEGMENTS_DIR))).toEqual([]);
+    const names = listSegments(dir);
+    expect(names).toHaveLength(1);
+    expect(readBase(dir)?.foldedSegments.map((f) => f.name)).toEqual(names);
     expect(ConductorStore.open(dir).snapshot).toEqual(before);
   });
 
-  it('반영한 뒤 덧붙인 이벤트도 이어서 재생하고 한 번 더 떼어 내도 같다', async () => {
+  it('반영한 뒤 덧붙인 이벤트도 이어서 재생하고 한 번 더 반영하면 앞 segment를 지운다', async () => {
     const dir = tempStateDir();
     seed(dir);
     await foldEvents(dir, fast);
+    const [first] = listSegments(dir);
 
     const s = ConductorStore.open(dir);
     s.updateOrder('ord-2', { status: 'done' });
@@ -62,7 +75,9 @@ describe('foldEvents', () => {
     expect(before.orders['ord-2']?.status).toBe('done');
     expect(before.ticks).toBe(2);
 
-    await foldEvents(dir, fast);
+    const result = await foldEvents(dir, fast);
+    expect(result).toMatchObject({ status: 'folded', removed: [first] });
+    expect(listSegments(dir)).not.toContain(first);
     expect(ConductorStore.open(dir).snapshot).toEqual(before);
     expect(readBase(dir)?.state.eventCount).toBe(before.eventCount);
   });
@@ -91,45 +106,100 @@ describe('foldEvents', () => {
     const dir = tempStateDir();
     const before = seed(dir).snapshot;
     // 이름을 바꾼 직후 죽은 저장소
+    const name = '0000000001-2026-11-01T00-00-00-000Z.jsonl';
     mkdirSync(join(dir, SEGMENTS_DIR));
-    copyFileSync(
-      join(dir, EVENTS_FILE),
-      join(dir, SEGMENTS_DIR, '2026-11-01T00-00-00-000Z-a.jsonl'),
-    );
+    copyFileSync(join(dir, EVENTS_FILE), segPath(dir, name));
     writeFileSync(join(dir, EVENTS_FILE), '');
 
     expect(ConductorStore.open(dir).snapshot).toEqual(before);
-    expect((await foldEvents(dir, fast)).status).toBe('folded');
-    expect(readdirSync(join(dir, SEGMENTS_DIR))).toEqual([]);
+    expect(await foldEvents(dir, fast)).toMatchObject({ status: 'folded', segments: [name] });
     expect(ConductorStore.open(dir).snapshot).toEqual(before);
   });
 
-  it('base.json을 쓴 뒤 지우지 못한 segment는 두 번 재생하지 않는다', async () => {
+  it('반영한 뒤 늦게 붙은 줄은 다시 열 때 한 번 재생하고 다음 반영에서도 한 번만 반영한다', async () => {
     const dir = tempStateDir();
     seed(dir);
-    const name = '2026-11-01T00-00-00-000Z-a.jsonl';
-    mkdirSync(join(dir, SEGMENTS_DIR));
-    copyFileSync(join(dir, EVENTS_FILE), join(dir, SEGMENTS_DIR, name));
     await foldEvents(dir, fast);
-    const before = ConductorStore.open(dir).snapshot;
-    // 반영은 끝났는데 지우기 전에 죽은 저장소
-    const base = readBase(dir)!;
-    expect(base.foldedSegments).toContain(name);
-    writeFileSync(
-      join(dir, SEGMENTS_DIR, name),
-      '{"type":"tick","at":"2026-11-01T00:00:00.000Z"}\n',
-    );
+    const [name] = listSegments(dir);
+    // settle 대기보다 늦게 옛 파일에 쓴 워커
+    appendFileSync(segPath(dir, name!), TICK);
 
-    expect(ConductorStore.open(dir).snapshot).toEqual(before);
-    await foldEvents(dir, fast);
-    expect(existsSync(join(dir, SEGMENTS_DIR, name))).toBe(false);
-    expect(ConductorStore.open(dir).snapshot).toEqual(before);
+    const late = ConductorStore.open(dir).snapshot;
+    expect(late.ticks).toBe(2);
+    expect(await foldEvents(dir, fast)).toMatchObject({ status: 'folded', segments: [name] });
+    expect(existsSync(segPath(dir, name!))).toBe(false);
+    expect(ConductorStore.open(dir).snapshot).toEqual(late);
   });
 
-  it('깨진 base.json은 빈 상태로 넘기지 않고 멈춘다', () => {
+  it('쓰는 중인 반쪽 줄은 반영하지 않고 줄이 끝나면 그때 반영한다', async () => {
     const dir = tempStateDir();
-    writeFileSync(join(dir, BASE_FILE), JSON.stringify({ version: 2 }));
-    expect(() => ConductorStore.open(dir)).toThrow(/깨졌어요/);
+    seed(dir);
+    appendFileSync(join(dir, EVENTS_FILE), TICK.slice(0, 20));
+    await foldEvents(dir, fast);
+    const [name] = listSegments(dir);
+    appendFileSync(segPath(dir, name!), TICK.slice(20));
+
+    expect(ConductorStore.open(dir).snapshot.ticks).toBe(2);
+    await foldEvents(dir, fast);
+    expect(readBase(dir)?.state.ticks).toBe(2);
+  });
+
+  it('시계가 뒤로 가도 segment 이름 순서가 떼어 낸 순서다', async () => {
+    const dir = tempStateDir();
+    seed(dir);
+    await foldEvents(dir, { ...fast, now: () => new Date('2026-11-02T00:00:00.000Z') });
+    const s = ConductorStore.open(dir);
+    s.updateOrder('ord-2', { status: 'done' });
+    await foldEvents(dir, { ...fast, now: () => new Date('2026-11-01T00:00:00.000Z') });
+    const names = readBase(dir)!.foldedSegments.map((f) => f.name);
+    expect(names).toEqual([...names].sort());
+    expect(names.at(-1)!.startsWith('0000000002-')).toBe(true);
+    expect(ConductorStore.open(dir).snapshot.orders['ord-2']?.status).toBe('done');
+  });
+
+  it('깨진 base.json은 빈 상태로 넘기지 않고 경로를 붙여 멈춘다', () => {
+    const cases = [
+      JSON.stringify({ version: 2 }),
+      '{"version":1,',
+      JSON.stringify({ version: 1, foldedSegments: [], state: { orders: [] } }),
+      JSON.stringify({
+        version: 1,
+        foldedSegments: [{ name: '../../x.jsonl', size: 0 }],
+        state: emptySnapshot(),
+      }),
+    ];
+    for (const text of cases) {
+      const dir = tempStateDir();
+      writeFileSync(join(dir, BASE_FILE), text);
+      expect(() => ConductorStore.open(dir)).toThrow(`${join(dir, BASE_FILE)}를 못 읽어요`);
+    }
+  });
+
+  it('이름 꼴이 아닌 segments 파일은 읽지 않는다', async () => {
+    const dir = tempStateDir();
+    const before = seed(dir).snapshot;
+    mkdirSync(join(dir, SEGMENTS_DIR));
+    writeFileSync(segPath(dir, 'notes.jsonl'), TICK);
+    expect(ConductorStore.open(dir).snapshot).toEqual(before);
+    await foldEvents(dir, fast);
+    await foldEvents(dir, fast);
+    expect(existsSync(segPath(dir, 'notes.jsonl'))).toBe(true);
+  });
+
+  it('떼어 낸 뒤에도 결과 보기와 최근 이벤트, 캐시 키가 반영된 주문을 본다', async () => {
+    const dir = tempStateDir();
+    const s = seed(dir);
+    const recent = readRecentEvents(dir, s.snapshot);
+    const orders = Object.keys(loadResults({ stateDir: dir }).snapshot.orders);
+    const stamp = storeStamp(dir);
+    expect(recent.length).toBeGreaterThan(0);
+
+    await foldEvents(dir, fast);
+
+    expect(existsSync(join(dir, EVENTS_FILE))).toBe(false);
+    expect(Object.keys(loadResults({ stateDir: dir }).snapshot.orders)).toEqual(orders);
+    expect(readRecentEvents(dir, ConductorStore.open(dir).snapshot)).toEqual(recent);
+    expect(storeStamp(dir)).not.toBe(stamp);
   });
 
   it('떼어 내는 동안 다른 프로세스가 덧붙여도 이벤트가 빠지지 않는다', async () => {
@@ -158,16 +228,18 @@ describe('foldEvents', () => {
       p.on('error', fail);
       p.on('exit', (c) => (c === 0 ? done() : fail(new Error(`exit ${c}: ${err}`))));
     });
-    const folds: Promise<unknown>[] = [];
+    const folds: Promise<FoldResult>[] = [];
     const timer = setInterval(() => folds.push(foldEvents(dir, { settleMs: 20 })), 15);
     try {
       await child;
     } finally {
       clearInterval(timer);
     }
-    await Promise.all(folds);
+    const results = await Promise.all(folds);
     await foldEvents(dir, fast);
 
+    // 자식이 덧붙이는 동안 실제로 떼어 낸 적이 있어야 이 테스트가 겹침을 본 것이다
+    expect(results.filter((r) => r.status === 'folded').length).toBeGreaterThan(0);
     expect(ConductorStore.open(dir).snapshot.ticks).toBe(total);
   }, 30_000);
 });
