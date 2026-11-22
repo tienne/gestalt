@@ -1,5 +1,13 @@
 import { spawn } from 'node:child_process';
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -15,6 +23,7 @@ import {
   emptySnapshot,
   listSegments,
   readBase,
+  replayStore,
   storeStamp,
 } from '../../../src/conductor/store.js';
 import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
@@ -85,7 +94,7 @@ describe('foldEvents', () => {
   it('로그가 비어 있으면 아무것도 바꾸지 않는다', async () => {
     const dir = tempStateDir();
     ConductorStore.open(dir);
-    expect(await foldEvents(dir, fast)).toEqual({ status: 'empty' });
+    expect(await foldEvents(dir, fast)).toEqual({ status: 'empty', removed: [] });
     expect(existsSync(join(dir, BASE_FILE))).toBe(false);
   });
 
@@ -144,6 +153,63 @@ describe('foldEvents', () => {
     expect(readBase(dir)?.state.ticks).toBe(2);
   });
 
+  it('base.json을 쓰고 지난 segment를 지우기 전에 죽어도 같은 상태가 나온다', async () => {
+    const dir = tempStateDir();
+    seed(dir);
+    await foldEvents(dir, fast);
+    const [first] = listSegments(dir);
+    const kept = readFileSync(segPath(dir, first!));
+    ConductorStore.open(dir).updateOrder('ord-2', { status: 'done' });
+    await foldEvents(dir, fast);
+    const after = ConductorStore.open(dir).snapshot;
+    // 지우기 직전에 죽은 저장소
+    writeFileSync(segPath(dir, first!), kept);
+
+    expect(ConductorStore.open(dir).snapshot).toEqual(after);
+    await foldEvents(dir, fast);
+    expect(existsSync(segPath(dir, first!))).toBe(false);
+    expect(ConductorStore.open(dir).snapshot).toEqual(after);
+  });
+
+  it('떼어 낼 로그가 없어도 지난 반영에서 남겨 둔 segment는 지운다', async () => {
+    const dir = tempStateDir();
+    const before = seed(dir).snapshot;
+    await foldEvents(dir, fast);
+    const [first] = listSegments(dir);
+
+    expect(await foldEvents(dir, fast)).toEqual({ status: 'empty', removed: [first] });
+    expect(listSegments(dir)).toEqual([]);
+    expect(ConductorStore.open(dir).snapshot).toEqual(before);
+  });
+
+  it('반쪽 줄만 있는 로그도 떼어 내면 반영한 것으로 친다', async () => {
+    const dir = tempStateDir();
+    ConductorStore.open(dir);
+    appendFileSync(join(dir, EVENTS_FILE), TICK.slice(0, 20));
+    const result = await foldEvents(dir, fast);
+    expect(result.status).toBe('folded');
+    expect(readBase(dir)?.foldedSegments).toEqual([{ name: listSegments(dir)[0], size: 0 }]);
+  });
+
+  it('읽는 동안 저장소 모양이 계속 바뀌면 어긋난 상태 대신 에러를 낸다', () => {
+    const dir = tempStateDir();
+    seed(dir);
+    mkdirSync(join(dir, SEGMENTS_DIR));
+    let n = 0;
+    const churn = () => {
+      n++;
+      writeFileSync(segPath(dir, `${String(n).padStart(10, '0')}-X.jsonl`), '');
+    };
+    expect(() => replayStore(dir, { afterReplay: churn })).toThrow('계속 바뀌어요');
+    expect(n).toBe(5);
+
+    let once = 0;
+    const settleAfterOne = () => {
+      if (once++ === 0) churn();
+    };
+    expect(replayStore(dir, { afterReplay: settleAfterOne }).ticks).toBe(1);
+  });
+
   it('시계가 뒤로 가도 segment 이름 순서가 떼어 낸 순서다', async () => {
     const dir = tempStateDir();
     seed(dir);
@@ -200,6 +266,22 @@ describe('foldEvents', () => {
     expect(Object.keys(loadResults({ stateDir: dir }).snapshot.orders)).toEqual(orders);
     expect(readRecentEvents(dir, ConductorStore.open(dir).snapshot)).toEqual(recent);
     expect(storeStamp(dir)).not.toBe(stamp);
+
+    // 남겨 둔 segment에 늦게 붙은 줄도 캐시 키가 잡는다
+    const folded = storeStamp(dir);
+    appendFileSync(segPath(dir, listSegments(dir)[0]!), TICK);
+    expect(storeStamp(dir)).not.toBe(folded);
+  });
+
+  it('segment만 남은 저장소도 결과 보기가 연다', () => {
+    const dir = tempStateDir();
+    seed(dir);
+    mkdirSync(join(dir, SEGMENTS_DIR));
+    const name = '0000000001-2026-11-01T00-00-00-000Z.jsonl';
+    copyFileSync(join(dir, EVENTS_FILE), segPath(dir, name));
+    unlinkSync(join(dir, EVENTS_FILE));
+
+    expect(Object.keys(loadResults({ stateDir: dir }).snapshot.orders)).toEqual(['ord-1', 'ord-2']);
   });
 
   it('떼어 내는 동안 다른 프로세스가 덧붙여도 이벤트가 빠지지 않는다', async () => {
