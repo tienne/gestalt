@@ -84,7 +84,7 @@ const SUB_STATE: Record<string, string> = { running: '실행 중', detached: '�
  * 상세의 작업 내용. 고친 파일은 둘 다 보여 주고 겹친 파일에 ⚠를 붙인다.
  * todo 제목과 서브에이전트 이름, 최근 tool 호출은 워커가 쓴 글이라 데스크톱에서만 그리고 웹 페이지에는 개수만 싣는다
  */
-function workBlock(w: WorkView, opts: TerminalMarkupOptions): string {
+function workBlock(orderId: string, w: WorkView, opts: TerminalMarkupOptions): string {
   const overlap = new Set(w.overlapFiles)
   const files = w.changedFiles
   const fileRows =
@@ -130,7 +130,9 @@ function workBlock(w: WorkView, opts: TerminalMarkupOptions): string {
           div('r', span('muted', clock(t.at)), span(t.ok === false ? 'c-err' : 'c-rp', t.tool), span('', t.detail))
         )
       ),
-    w.history === 'partial' && div('muted', '트랜스크립트가 길어 끝부분만 읽었어요.')
+    w.history === 'partial' && div('muted', '트랜스크립트가 길어 끝부분만 읽었어요.'),
+    opts.private &&
+      `<button class="go" data-browse="${esc(orderId)}" data-focus="${esc(`browse:${orderId}`)}">전체 보기</button>`
   )
 }
 
@@ -151,7 +153,7 @@ function detail(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string 
     opts.private && o.worktreePath && dkv('경로', o.worktreePath),
     ...v.gates.filter((g) => g.orderId === o.id).map((g) => dkv(gateLabel(g.type), g.reason)),
     events.length > 0 && div('d-ev', div('muted', '최근 이벤트'), ...events.map((e) => detailEvent(e, opts.private))),
-    o.work && workBlock(o.work, opts),
+    o.work && workBlock(o.id, o.work, opts),
     opts.interactive && div('live', liveBlock(o, opts.live?.[o.id], opts.now))
   )
   const open = opts.open?.has(o.id) ? ' open' : ''

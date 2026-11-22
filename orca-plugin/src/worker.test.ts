@@ -294,6 +294,21 @@ test('order.remove는 CLI가 하나도 못 지우면 stdout에 남긴 주문별 
   })
 })
 
+test('order.browse는 결과 뷰어를 한 번만 띄우고 작업 내용 탭 주소를 준다', async () => {
+  const s = store(STATUS)
+  await run(s, host(s.dir), async (worker) => {
+    const first = await worker.request('order.browse', { orderId: 'ord-a' })
+    assert.deepEqual(first, { ok: true, url: 'http://127.0.0.1:49999/#order/ord-a/work' })
+    const second = await worker.request('order.browse', { orderId: 'ord-b' })
+    assert.deepEqual(second, { ok: true, url: 'http://127.0.0.1:49999/#order/ord-b/work' })
+    const browse = s.calls().filter((c) => c.args[1] === 'browse')
+    assert.equal(browse.length, 1)
+    assert.deepEqual(browse[0]!.args, ['conductor', 'browse', '--no-open', '--port', '0', `--state-dir=${s.dir}`])
+    const bad = await worker.request('order.browse', { orderId: '--all' })
+    assert.equal(bad.ok, false)
+  })
+})
+
 test('CLI 실패 이유가 길면 잘랐다고 알린다', async () => {
   const s = store(STATUS)
   await run(s, host(s.dir), async (worker) => {

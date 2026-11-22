@@ -28,5 +28,11 @@ if (existsSync(join(dir, 'fake-fail'))) {
   process.stderr.write(readFileSync(join(dir, 'fake-fail'), 'utf8'))
   process.exit(1)
 }
+if (args[1] === 'browse') {
+  // 결과 뷰어는 주소를 찍고 멈출 때까지 떠 있다
+  process.stdout.write('컨덕터 결과 뷰어: http://127.0.0.1:49999\nCtrl+C로 멈춰요.\n')
+  setInterval(() => {}, 60_000)
+} else {
 const file = { gate: 'fake-resolve.json', order: 'fake-remove.json' }[args[1]] ?? 'fake-status.json'
 process.stdout.write(readFileSync(join(dir, file), 'utf8'))
+}

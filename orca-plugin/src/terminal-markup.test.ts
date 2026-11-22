@@ -208,6 +208,9 @@ test('웹 페이지는 고친 파일과 지금 파일만 보여 주고 todo와 �
   lacks(html, '코드 조사')
   lacks(html, '.npmrc')
   lacks(html, '최근 tool 호출')
+  lacks(html, 'data-browse')
+  const desk = terminalMarkup(view([order('ord-a', { work: WORK })]), { now: NOW, interactive: true, private: true })
+  has(desk, 'data-browse="ord-a"')
 })
 
 test('파일 없이 tool만 있으면 웹 페이지에는 tool 이름을 안 싣는다', () => {

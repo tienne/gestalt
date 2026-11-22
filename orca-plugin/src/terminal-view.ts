@@ -47,6 +47,27 @@ async function load(): Promise<void> {
   render()
 }
 
+/** 결과 뷰어의 작업 내용 탭을 브라우저로 연다. 브라우저를 못 여는 화면이면 주소를 알려 준다 */
+async function openBrowse(orderId: string): Promise<void> {
+  state.openError = null
+  state.openNote = null
+  try {
+    const out = await orca.plugin.request('order.browse', { orderId })
+    if (!out.ok) state.openNote = out.error
+    else if (!orca.shell) state.openNote = `브라우저에서 열어 주세요: ${out.url}`
+    else {
+      const r = await orca.shell.openExternal(out.url)
+      if (!r.opened) state.openNote = `브라우저를 못 열었어요. 주소: ${out.url}`
+    }
+  } catch (e) {
+    state.openNote = `결과 뷰어를 못 열었어요. ${errorText(e)}`
+  }
+  render()
+  statusRegion.textContent = ''
+  alertRegion.textContent = ''
+  if (state.openNote) alertRegion.textContent = state.openNote
+}
+
 async function openWorker(orderId: string): Promise<void> {
   state.openError = null
   state.openNote = null
@@ -196,6 +217,8 @@ export function mountTerminal(): void {
   root.addEventListener('click', (e) => {
     const go = (e.target as Element | null)?.closest<HTMLElement>('[data-go]')
     if (go?.dataset['go']) void openWorker(go.dataset['go'])
+    const browse = (e.target as Element | null)?.closest<HTMLElement>('[data-browse]')
+    if (browse?.dataset['browse']) void openBrowse(browse.dataset['browse'])
   })
   root.addEventListener('dblclick', (e) => {
     const id = openTarget(e)

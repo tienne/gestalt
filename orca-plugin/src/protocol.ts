@@ -178,6 +178,8 @@ export type WorkerLive = {
   error?: string
 }
 
+export type OrderBrowseResult = { ok: true; url: string } | { ok: false; error: string }
+
 export type WorkerOpenResult = {
   opened: boolean
   /** 워커 에이전트를 못 찾아 워크트리의 첫 터미널로 갔다. 워커 터미널이 아닐 수 있다 */
@@ -203,6 +205,8 @@ declare module 'orca' {
     'worker.open': { input: { orderId: string }; output: WorkerOpenResult }
     /** 주문을 맡은 워커의 에이전트 상태와 터미널 마지막 줄을 읽는다 */
     'worker.detail': { input: { orderId: string }; output: WorkerLive }
+    /** `gestalt conductor browse`를 한 번 띄워 두고 주문의 작업 내용 탭 주소를 준다. 데스크톱 상세의 "전체 보기"가 부른다 */
+    'order.browse': { input: { orderId: string }; output: OrderBrowseResult }
   }
   interface PluginPanelEvents {
     'conductor.changed': ConductorView
