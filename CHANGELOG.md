@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.152.0] - 2026-11-23
+
+### Added
+
+- **컨덕터가 워커 보고를 적용할 때 refs가 가리키는 저장소 밖 텍스트 파일을 `refs/<주문 id>/`로 복사해요(#156).** 워커는 결과 원문을 `/tmp`나 자기 워크트리에 두고 경로만 보내서 워커를 거두거나 재부팅하면 파일이 사라졌어요. 2026-11-20 상태 저장소를 확인해보니 refs가 가리키는 파일의 35%쯤이 이미 없었어요.
+  - 대상은 절대 경로와 `~/` 경로의 md, markdown, txt, log, json, diff, patch 파일이에요. URL과 디렉토리, 없는 파일, 바이너리는 건너뛰어요.
+  - 파일 하나는 256KB까지 담고 넘으면 앞부분만 남겨 `truncated`로 표시해요. 보고 하나는 1MB까지 담고 넘는 파일은 `report-limit`으로 남겨요. 남아 있던 refs 파일 154개가 최대 111KB여서 정상 보고는 통째로 들어가요.
+  - 이벤트의 `refs`는 워커가 보낸 값 그대로 두고 사본 결과를 `refCopies`에 따로 남겨요. 옛 이벤트는 이 칸이 없을 뿐이라 그대로 재생돼요.
+  - 복사가 실패해도 던지지 않고 `skipped: 'error'`로 남겨서 보고 적용과 기록은 그대로 가요.
+- **`order show`가 보고마다 `사본:` 줄을 보여 줘요.** `--json`에는 `reports[].refCopies`와 `stateDir`가 실려요. `order remove`는 같은 잠금 안에서 그 주문의 사본 디렉토리도 지워요.
+- **끝난 주문 보관 설계 제안(`docs/proposals/conductor-archive.md`)을 올렸어요.** 열린 질문 다섯 개는 2026-11-22에 제안 값으로 정했고 구현은 다음 PR에서 해요.
+
+### Changed
+
+- **컨덕터 스킬이 사본이 있으면 원래 경로보다 사본을 먼저 읽어요.** 같은 PR의 리뷰 주문이 같은 경로에 결과를 덮어쓰면 원래 경로가 다른 주문의 본문을 가리키기 때문이에요.
+  - `denied`로 남은 ref와 사본 없는 상대 경로나 `..` 경로, 커밋 SHA나 브랜치로 본문이나 diff를 읽는 일은 사용자가 지시할 때만 해요.
+
+### Security
+
+- **비밀이 있을 법한 자리는 복사하지 않고 `denied`로 남겨요.** 홈 바로 아래 점 디렉토리와 `~/Library`, 이름에 credential이나 secret, token이 들어간 파일, `.env` 꼴 파일이 대상이에요.
+  - 워커가 적은 경로와 심링크를 푼 실제 경로를 둘 다 보고 홈 안 판정은 대소문자를 가리지 않아요.
+  - 마지막 칸이 심링크인 파일과 `..` 경로는 복사하지 않아요. 판정한 실제 경로를 `O_NOFOLLOW`로 열고 dev와 ino가 같은지 본 뒤 그 fd로만 읽어요. 비밀 자리에서 열다 실패한 파일도 `denied`로 남겨요.
+  - 사본 디렉토리는 0700, 사본 파일은 0600이에요.
+
+### 검증 범위
+
+- #156은 로컬 리뷰를 열두 라운드 돌렸어요. 라운드마다 스킬의 읽기 규칙 문장에서 우회로가 하나씩 나와서 상한 5를 넘겼고 마지막 라운드에 high가 0건이 됐어요. 그 라운드의 warning 2건과 정합 판정 1건은 고쳤지만 다시 리뷰하지는 않았어요.
+- main으로 rebase한 뒤 gate(테스트 9290개 통과)와 GitHub CI 네 건(Ubuntu와 macOS의 Node.js 22와 24)을 모두 통과했어요.
+
+### 남긴 것
+
+- credential, secret, token은 부분 일치라 `design-tokens-review.md` 같은 문서도 `denied`가 돼요. 놓치는 쪽보다 덜 복사하는 쪽을 골랐고 사용자가 지시하면 원래 경로로 볼 수 있어요.
+- gate의 사람 확인 자리(`gate.refs`)는 아직 원래 경로를 보여 줘요. 보관 PR에서 함께 봐요.
+- 결과 뷰어는 아직 `refCopies`를 읽지 않아요.
+
 ## [0.151.0] - 2026-11-22
 
 ### Added
