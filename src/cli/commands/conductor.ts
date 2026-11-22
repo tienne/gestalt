@@ -54,7 +54,7 @@ import {
   touchSessionTick,
 } from '../../conductor/session-owner.js';
 import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
-import { readRecentEvents } from '../../conductor/recent-events.js';
+import { readRecentEvents, type RecentEvent } from '../../conductor/recent-events.js';
 import { removeOrderRefCopies } from '../../conductor/ref-copy.js';
 import { resolveGate } from '../../conductor/gates.js';
 import { terminalText } from '../../conductor/terminal-text.js';
@@ -505,7 +505,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
           openedAt: g.openedAt,
         })),
         conductor: conductorSummary({ store, config }),
-        recentEvents: readRecentEvents(store.dir, store.snapshot),
+        ...recentEventsField(store),
       });
     }
     console.log(`마지막 tick: ${store.snapshot.lastTickAt ?? '없음'}`);
@@ -1432,4 +1432,16 @@ function sameTab(previous: SessionTab, launched: LaunchedTab | undefined): boole
     launched?.kind === 'terminal' &&
     launched.handle === previous.handle
   );
+}
+
+/** 최근 이벤트는 보조 칸이라 읽다 실패해도 status 전체를 실패로 만들지 않는다 */
+function recentEventsField(store: ConductorStore): {
+  recentEvents: RecentEvent[];
+  recentEventsError?: string;
+} {
+  try {
+    return { recentEvents: readRecentEvents(store.dir, store.snapshot) };
+  } catch (e) {
+    return { recentEvents: [], recentEventsError: (e as Error).message };
+  }
 }
