@@ -15,7 +15,7 @@ import {
   type Stats,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { RefCopy } from './types.js';
 
 /**
@@ -109,6 +109,7 @@ export interface CopyRefsInput {
 /**
  * 복사한 결과를 돌려준다. 주소, 상대 경로, 디렉토리, 없는 파일, 바이너리처럼 복사 대상이 아닌 ref는
  * 결과에 넣지 않는다. 다만 비밀 값이 있을 만한 자리나 이름이면 대상이 아니어도 `skipped: 'denied'`로 남긴다.
+ * `..`이 들어간 ref는 복사하지 않고 풀어 본 경로로 이 판정만 한다.
  * 실패는 던지지 않고 `skipped: 'error'`로 남긴다.
  */
 export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
@@ -132,8 +133,16 @@ export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
     // 같은 ref가 두 번 오면 사본 이름도 같다. 한 번만 쓰고 예산도 한 번만 깎는다
     if (seen.has(ref)) continue;
     seen.add(ref);
-    const source = localPath(ref, home);
-    if (!source) continue;
+    const local = localPath(ref, home);
+    if (!local) continue;
+    if (local.dotdot) {
+      // `..` 경로는 복사하지 않는다. 그래도 풀어 보면 비밀 자리일 수 있으니 판정은 남긴다
+      const normalized = resolve(local.path);
+      const at: DenyContext = { source: normalized, home, homeReal, stateReal, worktreesReal };
+      if (isDenied(realOrSelf(normalized), at)) out.push({ ref, skipped: 'denied' });
+      continue;
+    }
+    const source = local.path;
     const where: DenyContext = { source, home, homeReal, stateReal, worktreesReal };
     let found: Located | null = null;
     if (REF_COPY_EXTENSIONS.has(extname(source).toLowerCase())) {
@@ -225,14 +234,13 @@ function isDenied(real: string, where: DenyContext): boolean {
 }
 
 /** 절대 경로와 `~/`만 받는다. 상대 경로는 워커 작업 디렉토리 기준이라 컨덕터가 풀 수 없다 */
-function localPath(ref: string, home: string): string | null {
+function localPath(ref: string, home: string): { path: string; dotdot: boolean } | null {
   const raw = ref.trim();
   if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(raw)) return null;
   const path = raw.startsWith('~/') ? join(home, raw.slice(2)) : raw;
   if (!isAbsolute(path)) return null;
-  // `..`로 경로를 돌려 확장자 검사나 저장소 안 판정을 비켜 가지 못하게 아예 받지 않는다
-  if (path.split(/[\\/]/).includes('..')) return null;
-  return path;
+  // `..`로 경로를 돌려 확장자 검사나 저장소 안 판정을 비켜 가지 못하게 복사 대상에서 뺀다
+  return { path, dotdot: path.split(/[\\/]/).includes('..') };
 }
 
 function realOrSelf(path: string): string {

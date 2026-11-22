@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { copyReportRefs, REFS_DIR, removeOrderRefCopies } from '../../../src/conductor/ref-copy.js';
 import { cleanupStateDirs, tempStateDir } from './fixtures.js';
@@ -126,6 +126,26 @@ describe('refs 사본', () => {
     const out = copy([join(work, 'link.md'), `${work}/sub/../sub/x.md`, resolve(inside), dotted]);
 
     expect(out).toEqual([]);
+  });
+
+  it('.. 경로는 복사하지 않고 풀어 본 자리가 비밀이면 거부한 사실만 남긴다', () => {
+    const { work, home, file, homeFile, copy } = setup();
+    homeFile('.ssh/id_rsa', 'x');
+    homeFile('.aws/notes.md', 'x');
+    file('sub/token.md', 'x');
+    file('sub/plain.md', 'x');
+    const toKey = `${work}/sub/../${relative(work, join(home, '.ssh/id_rsa'))}`;
+    const toDot = `~/docs/../.aws/notes.md`;
+    const toName = `${work}/sub/../sub/token.md`;
+    const plain = `${work}/sub/../sub/plain.md`;
+
+    const out = copy([toKey, toDot, toName, plain]);
+
+    expect(out).toEqual([
+      { ref: toKey, skipped: 'denied' },
+      { ref: toDot, skipped: 'denied' },
+      { ref: toName, skipped: 'denied' },
+    ]);
   });
 
   it('홈 바로 아래 점 디렉토리, Library, 비밀 이름 파일은 거부한 사실만 남긴다', () => {
