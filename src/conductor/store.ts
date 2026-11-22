@@ -506,9 +506,13 @@ export function replay(
  * base.json이 바뀌면 이벤트를 빠뜨리거나 두 번 반영할 수 있어서 앞뒤 모양이 같을 때까지
  * 다시 읽는다. MAX_REPLAY_ATTEMPTS번 읽어도 계속 바뀌면 어긋난 상태를 돌려주지 않고 던진다.
  */
-export function replayStore(dir: string): ConductorSnapshot {
+export function replayStore(
+  dir: string,
+  /** 테스트가 재생과 비교 사이에 저장소 모양을 바꿔 보는 자리 */
+  hooks: { afterReplay?: () => void } = {},
+): ConductorSnapshot {
   for (let attempt = 1; ; attempt++) {
-    const before = layoutKey(dir);
+    const before = storeLayout(dir);
     const base = readBase(dir);
     const s = base ? base.state : emptySnapshot();
     const folded = new Map(base?.foldedSegments.map((f) => [f.name, f.size]) ?? []);
@@ -516,7 +520,8 @@ export function replayStore(dir: string): ConductorSnapshot {
       replay(join(dir, SEGMENTS_DIR, name), s, { from: folded.get(name) ?? 0 });
     }
     replay(join(dir, EVENTS_FILE), s);
-    if (layoutKey(dir) === before) return s;
+    hooks.afterReplay?.();
+    if (storeLayout(dir) === before) return s;
     if (attempt >= MAX_REPLAY_ATTEMPTS) {
       throw new Error(`${dir}를 읽는 동안 저장소가 계속 바뀌어요. 잠시 뒤 다시 열어 주세요`);
     }
@@ -590,13 +595,18 @@ function statKey(path: string): string {
   }
 }
 
-function layoutKey(dir: string): string {
+/** base.json과 segment 목록. 떼어 내기가 끼었는지 보는 값이라 덧붙이기로는 안 바뀐다 */
+export function storeLayout(dir: string): string {
   return `${statKey(join(dir, BASE_FILE))}|${listSegments(dir).join(',')}`;
 }
 
-/** 저장소 내용이 바뀌었는지 가늠하는 값. 다시 재생할지 정하는 캐시 키로 쓴다 */
+/**
+ * 저장소 내용이 바뀌었는지 가늠하는 값. 다시 재생할지 정하는 캐시 키로 쓴다.
+ * 반영한 segment에 늦게 붙은 줄도 잡도록 segment마다 크기와 mtime을 넣는다
+ */
 export function storeStamp(dir: string): string {
-  return `${layoutKey(dir)}|${statKey(join(dir, EVENTS_FILE))}`;
+  const segments = listSegments(dir).map((n) => `${n}:${statKey(join(dir, SEGMENTS_DIR, n))}`);
+  return `${statKey(join(dir, BASE_FILE))}|${segments.join(',')}|${statKey(join(dir, EVENTS_FILE))}`;
 }
 
 function nextNonEmpty(lines: string[], from: number): string | undefined {

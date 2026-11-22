@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { log } from '../core/log.js';
 import { acquireLock } from './engine.js';
 import {
   BASE_FILE,
@@ -30,10 +31,10 @@ export interface FoldOptions {
   now?: () => Date;
 }
 
+/** segments는 이번에 떼어 냈거나 새로 반영한 segment, removed는 지난 반영에서 남겨 뒀다 지운 segment */
 export type FoldResult =
-  /** segments는 이번에 떼어 냈거나 새로 반영한 segment, removed는 지난 반영에서 남겨 뒀다 지운 segment */
   | { status: 'folded'; segments: string[]; removed: string[] }
-  | { status: 'empty' }
+  | { status: 'empty'; removed: string[] }
   | { status: 'locked'; holder?: number };
 
 const DEFAULT_SETTLE_MS = 1000;
@@ -58,6 +59,7 @@ export async function foldEvents(dir: string, opts: FoldOptions = {}): Promise<F
     const segDir = join(dir, SEGMENTS_DIR);
 
     const events = join(dir, EVENTS_FILE);
+    const segments: string[] = [];
     if (sizeOf(events) > 0) {
       mkdirSync(segDir, { recursive: true, mode: 0o700 });
       const name = nextSegmentName(dir, base, opts.now?.() ?? new Date());
@@ -66,35 +68,56 @@ export async function foldEvents(dir: string, opts: FoldOptions = {}): Promise<F
       fsyncDir(segDir);
       fsyncDir(dir);
       await settle(path, opts.settleMs ?? DEFAULT_SETTLE_MS);
+      segments.push(name);
     }
 
     const names = listSegments(dir);
+    // 지난 반영 때 이미 있던 segment. 늦게 붙는 줄을 한 주기 동안 받았으니 이번에 지운다
+    const settled = names.filter((n) => before.has(n));
     const state = base?.state ?? emptySnapshot();
     const folded: FoldedSegment[] = [];
-    const segments: string[] = [];
     for (const name of names) {
-      const path = join(segDir, name);
       const from = before.get(name) ?? 0;
-      const end = completeLength(path);
+      const end = completeLength(join(segDir, name));
       if (end > from) {
-        replay(path, state, { from, to: end });
-        segments.push(name);
+        replay(join(segDir, name), state, { from, to: end });
+        if (!segments.includes(name)) segments.push(name);
       }
       folded.push({ name, size: Math.max(end, from) });
     }
-    if (segments.length === 0) return { status: 'empty' };
+    if (segments.length === 0) {
+      return { status: 'empty', removed: removeSettled(segDir, settled, before) };
+    }
 
     const next: BaseFile = { version: 1, foldedSegments: folded, state };
     writeDurable(join(dir, BASE_FILE), JSON.stringify(next));
     fsyncDir(dir);
-
-    // 지난 반영에서 남겨 둔 segment는 한 주기를 기다렸고 방금 꼬리까지 반영했다
-    const removed = names.filter((n) => before.has(n));
-    for (const name of removed) unlinkQuiet(join(segDir, name));
-    return { status: 'folded', segments, removed };
+    const sizes = new Map(folded.map((f) => [f.name, f.size]));
+    return { status: 'folded', segments, removed: removeSettled(segDir, settled, sizes) };
   } finally {
     lock.release();
   }
+}
+
+/**
+ * 반영한 길이를 잰 뒤에 줄이 더 붙었으면
+ * 지우지 않고 다음 반영으로 넘긴다. 한 주기가 지나도 끝나지 않은 반쪽 줄은 쓰다 죽은 흔적이라 버린다
+ */
+function removeSettled(
+  segDir: string,
+  names: string[],
+  absorbed: ReadonlyMap<string, number>,
+): string[] {
+  const removed: string[] = [];
+  for (const name of names) {
+    const size = absorbed.get(name) ?? 0;
+    const path = join(segDir, name);
+    if (completeLength(path) > size) continue;
+    if (sizeOf(path) > size) log(`${path} 끝의 끝나지 않은 줄을 버려요`);
+    unlinkQuiet(path);
+    removed.push(name);
+  }
+  return removed;
 }
 
 /**
