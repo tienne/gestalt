@@ -1,7 +1,13 @@
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { oneLine } from './intake.js';
-import { EVENTS_FILE, SEGMENTS_DIR, listSegments, storeLayout } from './store.js';
+import {
+  EVENTS_FILE,
+  MAX_REPLAY_ATTEMPTS,
+  SEGMENTS_DIR,
+  listSegments,
+  storeLayout,
+} from './store.js';
 import type { ConductorEvent, ConductorSnapshot } from './types.js';
 
 /**
@@ -121,15 +127,21 @@ export function readRecentEvents(
   dir: string,
   snapshot: Readonly<ConductorSnapshot>,
   limit = RECENT_EVENTS_LIMIT,
+  /** 테스트가 읽기와 비교 사이에 저장소 모양을 바꿔 보는 자리 */
+  hooks: { afterRead?: () => void } = {},
 ): RecentEvent[] {
-  // 목록을 뽑고 읽는 사이에 떼어 내기가 끼면 이름이 바뀐 이벤트를 놓친다. 모양이 그대로일 때까지 다시 읽는다
-  let out: RecentEvent[] = [];
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // 목록을 뽑고 읽는 사이에 떼어 내기가 끼면 이름이 바뀐 이벤트를 놓친다. 재생과 같은 횟수만큼 다시 읽는다
+  for (let attempt = 1; ; attempt++) {
     const layout = storeLayout(dir);
-    out = collectRecent(dir, snapshot, limit);
-    if (storeLayout(dir) === layout) break;
+    const out = collectRecent(dir, snapshot, limit);
+    hooks.afterRead?.();
+    if (storeLayout(dir) === layout) return out;
+    if (attempt >= MAX_REPLAY_ATTEMPTS) {
+      throw new Error(
+        `${dir}의 최근 이벤트를 읽는 동안 저장소가 계속 바뀌어요. 잠시 뒤 다시 불러 주세요`,
+      );
+    }
   }
-  return out;
 }
 
 function collectRecent(
