@@ -8,7 +8,11 @@ import {
   type EventView,
   type GateView,
   type OrderView,
-  type WaitingView
+  type WaitingView,
+  type WorkSubagent,
+  type WorkTask,
+  type WorkTool,
+  type WorkView
 } from './protocol'
 
 /** `gestalt conductor status --json`의 주문 한 줄. 옛 CLI에는 뒤쪽 필드가 없다 */
@@ -35,6 +39,7 @@ export type RawOrder = {
   skillChain?: string[]
   checkpoint?: CheckpointView
   waiting?: WaitingView
+  work?: WorkView
   bypasses: Bypass[]
 }
 
@@ -137,6 +142,57 @@ function events(v: unknown): EventView[] | undefined {
   return out
 }
 
+const TASK_STATUS = new Set(['pending', 'in_progress', 'completed'])
+const SUBAGENT_STATE = new Set(['running', 'detached', 'done'])
+
+/** 주문에 changedFiles 키가 없으면 `--with-activity`를 모르는 CLI라 work를 안 만든다 */
+function work(o: Record<string, unknown>): WorkView | undefined {
+  if (!('changedFiles' in o)) return undefined
+  const a = o['activity']
+  const activity =
+    isRecord(a) && str(a['tool']) && str(a['at'])
+      ? { tool: str(a['tool'])!, at: str(a['at'])!, ...(str(a['file']) ? { file: str(a['file'])! } : {}) }
+      : null
+  const t = o['tasks']
+  let tasks: WorkView['tasks'] = null
+  if (isRecord(t) && Array.isArray(t['items'])) {
+    const items: WorkTask[] = t['items']
+      .filter(isRecord)
+      .filter((i) => str(i['title']) && TASK_STATUS.has(str(i['status']) ?? ''))
+      .map((i) => ({ title: str(i['title'])!, status: str(i['status']) as WorkTask['status'] }))
+    tasks = { items, done: items.filter((i) => i.status === 'completed').length, total: items.length }
+  }
+  const subs = o['subagents']
+  const subagents: WorkSubagent[] | null = Array.isArray(subs)
+    ? subs
+        .filter(isRecord)
+        .filter((s) => str(s['name']) !== undefined && SUBAGENT_STATE.has(str(s['state']) ?? ''))
+        .map((s) => ({ name: str(s['name'])!, startedAt: str(s['startedAt']) ?? '', state: str(s['state']) as WorkSubagent['state'] }))
+    : null
+  const tools = o['recentTools']
+  const recentTools: WorkTool[] | null = Array.isArray(tools)
+    ? tools
+        .filter(isRecord)
+        .filter((x) => str(x['at']) && str(x['tool']))
+        .map((x) => ({
+          at: str(x['at'])!,
+          tool: str(x['tool'])!,
+          detail: str(x['detail']) ?? '',
+          ...(typeof x['ok'] === 'boolean' ? { ok: x['ok'] } : {})
+        }))
+    : null
+  const history = o['history'] === 'full' || o['history'] === 'partial' ? o['history'] : null
+  return {
+    activity,
+    changedFiles: Array.isArray(o['changedFiles']) ? strings(o['changedFiles'])! : null,
+    overlapFiles: strings(o['overlapFiles']) ?? [],
+    tasks,
+    subagents,
+    recentTools,
+    history
+  }
+}
+
 function bypasses(v: unknown): Bypass[] {
   if (!Array.isArray(v)) return []
   return v.filter(isRecord).map((b) => ({
@@ -186,6 +242,8 @@ export function parseStatus(value: unknown): RawStatus {
     if (cp) order.checkpoint = cp
     const wait = waiting(o['waiting'])
     if (wait) order.waiting = wait
+    const w = work(o)
+    if (w) order.work = w
     orders.push(order)
   }
   const gates: GateView[] = []
@@ -307,7 +365,8 @@ export function toView(
         ...(o.waiting ? { waiting: o.waiting } : {}),
         ...(o.account ? { account: o.account } : {}),
         ...(o.rateLimitedAt ? { rateLimitedAt: o.rateLimitedAt } : {}),
-        ...(o.rateLimitResetsAt ? { rateLimitResetsAt: o.rateLimitResetsAt } : {})
+        ...(o.rateLimitResetsAt ? { rateLimitResetsAt: o.rateLimitResetsAt } : {}),
+        ...(o.work ? { work: o.work } : {})
       }
     }),
     gates: raw.gates,

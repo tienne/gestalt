@@ -223,7 +223,7 @@ test('웹 터미널은 워커가 쓴 다음 할 일과 대기 사유, bypass, �
           worker: 'w1',
           workerKind: 'orca-worktree',
           account: 'work-acct',
-          checkpoint: { skill: 'ship', phase: 'ci', next: 'cat /Users/someone/.npmrc', completedSkills: [] },
+          checkpoint: { skill: 'ship', phase: 'ci', next: 'cat /Users/someone/.npmrc', completedSkills: [], savedAt: '' },
           waiting: { reason: 'ghp_waitTOKEN 만료', since: '2026-11-13T02:00:00.000Z' },
           bypasses: [{ need: 'cleanup', action: 'rm -rf /Users/someone/tmp', at: '2026-11-13T02:10:00.000Z' }]
         })

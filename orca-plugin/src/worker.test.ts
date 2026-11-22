@@ -108,7 +108,7 @@ test('status JSON을 읽어 워크트리를 잇고 확인 대기를 상태 표�
     assert.equal(view.orders.find((o) => o.id === 'ord-b')?.workspaceId, undefined)
 
     const call = s.calls().at(-1)!
-    assert.deepEqual(call.args, ['conductor', 'status', '--all', '--json', `--state-dir=${s.dir}`])
+    assert.deepEqual(call.args, ['conductor', 'status', '--all', '--json', '--with-activity', `--state-dir=${s.dir}`])
     // 워커 워크트리 안에서 부르면 gate resolve가 거절되므로 저장소 폴더에서 부르는지 본다
     assert.equal(realpathSync(call.cwd), s.dir)
 
@@ -628,4 +628,28 @@ test('tailLines는 끝의 빈 줄을 걷고 24줄만, 줄당 400자까지 남긴
   const many = Array.from({ length: 30 }, (_, i) => `l${i}`)
   assert.deepEqual(main.tailLines(many), many.slice(6))
   assert.equal(main.tailLines(['y'.repeat(401)])[0], `${'y'.repeat(400)}…`)
+})
+
+test('status는 --with-activity로 부르고 옛 CLI가 모르면 플래그 없이 다시 불러 그 뒤로는 안 붙인다', async () => {
+  const s = store(STATUS)
+  writeFileSync(join(s.dir, 'fake-no-activity'), '')
+  await run(s, host(s.dir), async (worker) => {
+    const first = await worker.request('conductor.status', undefined)
+    assert.equal(first.state, 'ok')
+    await worker.request('conductor.refresh', undefined)
+    const calls = s.calls().filter((c) => c.args[1] === 'status')
+    assert.equal(calls[0]!.args.includes('--with-activity'), true)
+    assert.equal(calls.slice(1).every((c) => !c.args.includes('--with-activity')), true)
+  })
+})
+
+test('작업 내용을 아는 CLI면 주문에 work를 싣는다', async () => {
+  const work = { activity: null, changedFiles: ['a.ts'], tasks: null, subagents: null, recentTools: null, history: null }
+  const s = store({ ...STATUS, orders: STATUS.orders.map((o) => ({ ...o, ...work })) })
+  await run(s, host(s.dir), async (worker) => {
+    const view = await worker.request('conductor.status', undefined)
+    assert.deepEqual(view.orders[0]!.work?.changedFiles, ['a.ts'])
+    const calls = s.calls().filter((c) => c.args[1] === 'status')
+    assert.equal(calls[0]!.args.includes('--with-activity'), true)
+  })
 })

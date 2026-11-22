@@ -27,6 +27,11 @@ const DEBOUNCE_MS = 300
 /** 쓰기가 300ms보다 촘촘히 이어져도 이만큼 지나면 한 번은 다시 읽는다 */
 const DEBOUNCE_MAX_MS = 2000
 const RETRY_MS = 5000
+/**
+ * 워커 작업 내용은 트랜스크립트가 바뀌어도 events.jsonl이 안 바뀌어서 감시로 못 잡는다.
+ * 도는 주문이 있을 때만 이 간격으로 다시 읽는다
+ */
+const ACTIVITY_POLL_MS = 10_000
 const STATUS_TIMEOUT_MS = 20_000
 const RESOLVE_TIMEOUT_MS = 100_000
 const MAX_ANSWER = 4000
@@ -125,6 +130,9 @@ class Conductor {
   private debounce: ReturnType<typeof setTimeout> | null = null
   private debounceSince: number | null = null
   private stopped = false
+  /** 옛 CLI가 --with-activity를 몰랐다. 워커가 다시 뜰 때까지 플래그 없이 부른다 */
+  private activityUnsupported = false
+  private activityPoll: ReturnType<typeof setTimeout> | null = null
   private readonly mobile = new MobileServer(() => this.view)
   private mobilePort = 0
 
@@ -216,11 +224,7 @@ class Conductor {
       view = emptyView('missing', cfg.stateDir, now)
     } else {
       try {
-        const out = await runGestalt(
-          cfg.command,
-          ['conductor', 'status', '--all', '--json', ...this.dirArgs(cfg)],
-          { cwd: this.cwd(cfg.stateDir || null), timeoutMs: STATUS_TIMEOUT_MS }
-        )
+        const out = await this.status(cfg)
         const raw = parseStatus(parseJsonOutput(out))
         const dir = cfg.stateDir || raw.stateDir || defaultStateDir()
         if (!existsSync(join(dir, EVENTS_FILE))) {
@@ -241,6 +245,35 @@ class Conductor {
     await this.paintStatusBar(view)
     if (view.state === 'ok') await this.notify(view.gates)
     this.arm(view.stateDir)
+    this.armActivityPoll(view)
+  }
+
+  private async status(cfg: Config): Promise<string> {
+    const run = (withActivity: boolean) =>
+      runGestalt(
+        cfg.command,
+        ['conductor', 'status', '--all', '--json', ...(withActivity ? ['--with-activity'] : []), ...this.dirArgs(cfg)],
+        { cwd: this.cwd(cfg.stateDir || null), timeoutMs: STATUS_TIMEOUT_MS }
+      )
+    if (this.activityUnsupported) return run(false)
+    try {
+      return await run(true)
+    } catch (e) {
+      if (!/unknown option.*--with-activity/.test(message(e))) throw e
+      this.activityUnsupported = true
+      return run(false)
+    }
+  }
+
+  private armActivityPoll(view: ConductorView): void {
+    if (this.activityPoll) clearTimeout(this.activityPoll)
+    this.activityPoll = null
+    if (this.stopped || this.activityUnsupported) return
+    if (!view.orders.some((o) => o.status === 'running' && o.work)) return
+    this.activityPoll = setTimeout(() => {
+      this.activityPoll = null
+      this.schedule()
+    }, ACTIVITY_POLL_MS)
   }
 
   private async workspaces(raw: RawStatus): Promise<Workspace[]> {
@@ -499,6 +532,8 @@ class Conductor {
     this.stopped = true
     this.closeWatcher()
     this.clearRetry()
+    if (this.activityPoll) clearTimeout(this.activityPoll)
+    this.activityPoll = null
     if (this.debounce) clearTimeout(this.debounce)
     this.debounce = null
     this.debounceSince = null

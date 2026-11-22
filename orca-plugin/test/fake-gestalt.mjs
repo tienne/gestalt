@@ -17,6 +17,11 @@ if (existsSync(join(dir, 'fake-no-defer')) && args.includes('--defer-delivery'))
   process.stderr.write("error: unknown option '--defer-delivery'\n")
   process.exit(1)
 }
+if (existsSync(join(dir, 'fake-no-activity')) && args.includes('--with-activity')) {
+  // 작업 내용 플래그가 없는 옛 CLI
+  process.stderr.write("error: unknown option '--with-activity'\n")
+  process.exit(1)
+}
 if (existsSync(join(dir, 'fake-fail'))) {
   // --json 명령은 실패해도 stdout에 결과를 남길 수 있다. 그 경우를 흉내 낸다
   if (existsSync(join(dir, 'fake-fail-stdout.json'))) process.stdout.write(readFileSync(join(dir, 'fake-fail-stdout.json'), 'utf8'))

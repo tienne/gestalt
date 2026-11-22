@@ -3,8 +3,8 @@
 // 주문 제목이나 게이트 사유는 지라나 PR에서 온 바깥 글이라 전부 esc를 거친다.
 import { esc } from './html'
 import { ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
-import type { AgentState, ConductorView, EventView, WorkerLive } from './protocol'
-import { clock, duration, eventText, gateLabel, lookup, orderWaitText, terminalModel, type Card, type TerminalModel } from './terminal-model'
+import type { AgentState, ConductorView, EventView, WorkerLive, WorkView } from './protocol'
+import { clock, duration, eventText, gateLabel, lookup, orderWaitText, terminalModel, waitText, type Card, type TerminalModel } from './terminal-model'
 
 export type TerminalMarkupOptions = {
   now: number
@@ -76,6 +76,64 @@ function liveBlock(o: Card['order'], live: WorkerLive | 'loading' | undefined, n
   )
 }
 
+const MAX_FILES = 15
+const TASK_MARK: Record<string, string> = { completed: '✓', in_progress: '▸', pending: '·' }
+const SUB_STATE: Record<string, string> = { running: '실행 중', detached: '백그라운드', done: '끝남' }
+
+/**
+ * 상세의 작업 내용. 고친 파일은 둘 다 보여 주고 겹친 파일에 ⚠를 붙인다.
+ * todo 제목과 서브에이전트 이름, 최근 tool 호출은 워커가 쓴 글이라 데스크톱에서만 그리고 웹 페이지에는 개수만 싣는다
+ */
+function workBlock(w: WorkView, opts: TerminalMarkupOptions): string {
+  const overlap = new Set(w.overlapFiles)
+  const files = w.changedFiles
+  const fileRows =
+    files === null
+      ? div('muted', '고친 파일을 아직 못 구했어요.')
+      : files.length === 0
+        ? div('muted', '고친 파일 없음')
+        : join(
+            ...files.slice(0, MAX_FILES).map((f) => div(`f${overlap.has(f) ? ' ov' : ''}`, esc(`${overlap.has(f) ? '⚠ ' : ''}${f}`))),
+            files.length > MAX_FILES && div('muted', esc(`외 ${files.length - MAX_FILES}개`))
+          )
+  const tasks = w.tasks
+  const subs = w.subagents
+  return div(
+    'work',
+    div('muted', esc(`고친 파일${files ? ` ${files.length}` : ''}${overlap.size ? ` · 겹침 ${overlap.size}` : ''}`)),
+    fileRows,
+    tasks === null
+      ? dkv('todo', '모름')
+      : opts.private && tasks.total > 0
+        ? join(
+            dkv('todo', `${tasks.done}/${tasks.total}`),
+            ...tasks.items.map((t) => div('task', span('muted', lookup(TASK_MARK, t.status) ?? '·'), span('', t.title)))
+          )
+        : dkv('todo', `${tasks.done}/${tasks.total}`),
+    subs === null
+      ? false
+      : opts.private && subs.length > 0
+        ? join(
+            dkv('서브에이전트', String(subs.length)),
+            ...subs.map((a) =>
+              div('task', span('muted', lookup(SUB_STATE, a.state) ?? a.state), span('', `${a.name} · ${duration(ms(a.startedAt), opts.now)}`))
+            )
+          )
+        : dkv('서브에이전트', String(subs.length)),
+    opts.private &&
+      w.recentTools &&
+      w.recentTools.length > 0 &&
+      div(
+        'd-ev',
+        div('muted', '최근 tool 호출'),
+        ...w.recentTools.map((t) =>
+          div('r', span('muted', clock(t.at)), span(t.ok === false ? 'c-err' : 'c-rp', t.tool), span('', t.detail))
+        )
+      ),
+    w.history === 'partial' && div('muted', '트랜스크립트가 길어 끝부분만 읽었어요.')
+  )
+}
+
 /**
  * 카드 아래 펼치는 상세. 워커 id와 브랜치, 체크포인트의 스킬과 단계는 컨덕터가 정한 값이라 칩과 이벤트 로그에도
  * 이미 나와서 폰에도 싣는다. 워커가 쓴 글(다음 할 일, 대기 사유)과 경로, 워커 터미널은 데스크톱에서만 그린다
@@ -93,10 +151,18 @@ function detail(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string 
     opts.private && o.worktreePath && dkv('경로', o.worktreePath),
     ...v.gates.filter((g) => g.orderId === o.id).map((g) => dkv(gateLabel(g.type), g.reason)),
     events.length > 0 && div('d-ev', div('muted', '최근 이벤트'), ...events.map((e) => detailEvent(e, opts.private))),
+    o.work && workBlock(o.work, opts),
     opts.interactive && div('live', liveBlock(o, opts.live?.[o.id], opts.now))
   )
   const open = opts.open?.has(o.id) ? ' open' : ''
   return `<details class="more" data-key="${esc(`ord:${o.id}`)}"${open}><summary data-focus="${esc(`sum:${o.id}`)}">상세</summary>${div('d', body)}</details>`
+}
+
+/** todo가 없다고 보고된 워커는 빗금 막대와 "모름"을 그린다. 0개 목록과 구분한다 */
+function todoBar(t: NonNullable<Card['todo']>, tone: string): string {
+  if (t === 'unknown') return div('todo', '<div class="prog unknown"></div>', span('muted', 'todo 모름'))
+  const pct = t.total === 0 ? 0 : Math.round((t.done / t.total) * 100)
+  return div('todo', `<div class="prog ${tone}"><b style="width:${pct}%"></b></div>`, span('muted', `todo ${t.done}/${t.total}`))
 }
 
 function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
@@ -113,8 +179,15 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
     div('t', esc(`${o.id} · ${o.title}`)),
     div('muted ell', esc(c.meta.join(' · '))),
     c.chips.length > 0 && div('chain', ...c.chips.map((ch) => span(`chip ${ch.state}`, ch.text))),
-    pct !== null && `<div class="prog ${c.state.tone}"><b style="width:${pct}%"></b></div>`,
-    div('state', span(`st ${c.state.tone}`, c.state.text), span('muted', c.state.aside)),
+    c.todo === undefined
+      ? pct !== null && `<div class="prog ${c.state.tone}"><b style="width:${pct}%"></b></div>`
+      : todoBar(c.todo, c.state.tone),
+    c.now && div('muted ell now', esc(c.now)),
+    div(
+      'state',
+      span(`st ${c.state.tone}`, c.state.text),
+      span('muted', [c.subagents > 0 ? `서브 ${c.subagents}` : '', c.state.aside].filter(Boolean).join(' · '))
+    ),
     c.next && div('muted ell', esc(`next › ${c.next}`)),
     c.bypass && div('muted ell', esc(`bypass › ${c.bypass}`)),
     c.children.length > 0 &&
@@ -269,6 +342,15 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .prog { height: 7px; background: #232833; margin: 4px 0; }
 .prog b { display: block; height: 100%; background: var(--t-blue); }
 .prog.gate b { background: var(--t-yellow); } .prog.limit b { background: var(--t-red); }
+.prog.unknown { background: repeating-linear-gradient(135deg, #232833 0 4px, #2f3542 4px 8px); }
+.todo { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.todo .prog { margin: 4px 0; }
+.work { margin-top: 4px; display: grid; gap: 1px; }
+.work .f { overflow-wrap: anywhere; }
+.work .f.ov { color: var(--t-yellow); }
+.task { display: grid; grid-template-columns: 72px 1fr; gap: 8px; }
+.task > span:last-child { overflow-wrap: anywhere; }
+.c-err { color: var(--t-red); }
 .state { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .st { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .st.run::before { content: '●'; margin-right: 4px; color: var(--t-blue); animation: blink 1.2s infinite; }

@@ -108,7 +108,7 @@ test('웹 페이지의 상세는 컨덕터가 아는 것만 싣고 터미널과 
 test('웹 페이지는 워커가 쓴 다음 할 일과 대기 사유, bypass, 이벤트 요약을 싣지 않는다', () => {
   const o = order('ord-a', {
     account: 'work-acct',
-    checkpoint: { skill: 'ship', phase: 'ci', next: 'cat /Users/someone/.npmrc', completedSkills: [] },
+    checkpoint: { skill: 'ship', phase: 'ci', next: 'cat /Users/someone/.npmrc', completedSkills: [], savedAt: '' },
     waiting: { reason: 'ghp_waitTOKEN 만료', since: '2026-11-12T01:00:00.000Z', until: '2026-11-12T03:00:00.000Z' },
     bypasses: [{ need: 'cleanup', action: 'rm -rf /Users/someone/tmp', at: '2026-11-12T01:10:00.000Z' }]
   })
@@ -158,4 +158,60 @@ test('워커 에이전트 터미널을 못 찾은 상세는 출력 대신 안내
 test('주문은 있는데 새 필드가 하나도 없으면 CLI를 올리라고 알린다', () => {
   has(terminalMarkup(view([order('ord-a')], { terminalFieldsMissing: true }), { now: NOW, interactive: true, private: true }), 'gestalt CLI가 낡아')
   lacks(terminalMarkup(view([order('ord-a')]), { now: NOW, interactive: true, private: true }), 'gestalt CLI가 낡아')
+})
+
+const WORK = {
+  activity: { tool: 'Edit', file: 'src/a.ts', at: '2026-11-12T01:57:00.000Z' },
+  changedFiles: ['src/a.ts', 'src/b.ts'],
+  overlapFiles: ['src/b.ts'],
+  tasks: {
+    items: [
+      { title: '리더 만들기', status: 'completed' as const },
+      { title: '플러그인 표시', status: 'in_progress' as const }
+    ],
+    done: 1,
+    total: 2
+  },
+  subagents: [{ name: '코드 조사', startedAt: '2026-11-12T01:50:00.000Z', state: 'detached' as const }],
+  recentTools: [{ at: '2026-11-12T01:57:00.000Z', tool: 'Bash', detail: 'cat /Users/someone/.npmrc', ok: true }],
+  history: 'partial' as const
+}
+
+test('작업 내용이 있으면 todo 막대와 지금 파일, 실행 중인 서브에이전트 수를 카드에 그린다', () => {
+  const html = terminalMarkup(view([order('ord-a', { work: WORK })]), { now: NOW, interactive: true, private: true })
+  has(html, 'todo 1/2')
+  has(html, '✎ src/a.ts · 3분')
+  has(html, '서브 1')
+  has(html, '⚠ src/b.ts')
+  has(html, '리더 만들기')
+  has(html, '코드 조사')
+  has(html, 'cat /Users/someone/.npmrc')
+  has(html, '끝부분만 읽었어요')
+})
+
+test('todo를 모르면 빗금 막대와 모름을 그린다', () => {
+  const html = terminalMarkup(view([order('ord-a', { work: { ...WORK, tasks: null } })]), {
+    now: NOW,
+    interactive: true,
+    private: true
+  })
+  has(html, 'prog unknown')
+  has(html, 'todo 모름')
+})
+
+test('웹 페이지는 고친 파일과 지금 파일만 보여 주고 todo와 서브에이전트는 개수만, tool 호출은 안 싣는다', () => {
+  const html = terminalMarkup(view([order('ord-a', { work: WORK })]), { now: NOW, interactive: false, private: false })
+  has(html, '✎ src/a.ts')
+  has(html, '⚠ src/b.ts')
+  has(html, 'todo 1/2')
+  lacks(html, '리더 만들기')
+  lacks(html, '코드 조사')
+  lacks(html, '.npmrc')
+  lacks(html, '최근 tool 호출')
+})
+
+test('파일 없이 tool만 있으면 웹 페이지에는 tool 이름을 안 싣는다', () => {
+  const work = { ...WORK, activity: { tool: 'WebFetch', at: '2026-11-12T01:57:00.000Z' } }
+  lacks(terminalMarkup(view([order('ord-a', { work })]), { now: NOW, interactive: false, private: false }), 'WebFetch')
+  has(terminalMarkup(view([order('ord-a', { work })]), { now: NOW, interactive: true, private: true }), '▸ WebFetch')
 })
