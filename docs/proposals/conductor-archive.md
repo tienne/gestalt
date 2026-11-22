@@ -58,7 +58,7 @@ archive/YYYY-MM/
 `ConductorStore.open`은 아래 순서로 상태를 만든다.
 
 1. `base.json`이 있으면 읽어 시작 상태로 쓴다. 없으면 빈 상태다. 지금 저장소는 `base.json`이 없으니 지금과 같게 돈다.
-2. `segments/`에 남은 파일 중 `base.json`의 `foldedSegments`에 없는 것을 이름 순서로 재생한다. base.json에 반영하는 도중에 죽었을 때를 위한 자리다.
+2. `segments/`에 남은 파일을 이름 순서로 재생한다. `base.json`의 `foldedSegments`에 있는 segment는 적힌 길이 뒤에 붙은 줄만 재생한다. 반영한 뒤 늦게 붙은 줄과 base.json에 반영하는 도중에 죽었을 때를 위한 자리다.
 3. `events.jsonl`을 재생한다.
 
 `base.json`은 `eventCount`와 `ticks` 같은 누적 값도 담는다. 재생 결과가 반영 전과 같아야 하고 테스트는 "반영 전 상태 = 반영 뒤 다시 연 상태 + 보관한 주문"으로 확인한다.
@@ -68,11 +68,11 @@ archive/YYYY-MM/
 `gestalt conductor archive [--older-than <일>] [--dry-run]`과 tick 끝의 정리 단계가 같은 함수를 부른다. tick에서는 하루 한 번만 돈다.
 
 1. `tick.lock`을 잡는다. 못 잡으면 이번엔 넘긴다.
-2. `events.jsonl`을 `segments/<시각>.jsonl`로 이름을 바꾼다. 이 순간부터 덧붙는 이벤트는 새 `events.jsonl`로 간다.
+2. `events.jsonl`을 `segments/<순번>-<시각>.jsonl`로 이름을 바꾼다. 이 순간부터 덧붙는 이벤트는 새 `events.jsonl`로 간다.
 3. 이름을 바꾸기 직전에 파일을 연 워커가 옛 파일에 한 줄을 쓸 수 있다. 1초 기다린 뒤 segment 크기가 더 늘지 않는 걸 확인하고 읽는다.
 4. `base.json` + segment를 재생해 상태를 만들고 보관할 주문을 고른다. 고른 주문의 이벤트를 segment에서 골라 `archive/YYYY-MM/<주문 id>/events.jsonl`로 쓰고 `order.json`을 쓴다. `refs/<주문 id>/`는 `archive/YYYY-MM/<주문 id>/refs/`로 옮긴다. `order.json`의 `refCopies[].path`는 옮긴 자리로 바꿔 적고 `events.jsonl`은 원래 값 그대로 둔다.
-5. 상태에서 보관한 주문을 `removeFromSnapshot`과 같은 규칙으로 빼고 `archivedOrders`에 출처를 남긴 뒤 `base.json`을 원자적으로 쓴다. `foldedSegments`에 이 segment를 더한다.
-6. segment를 지운다(또는 압축해 둔다. 열린 질문 3).
+5. 상태에서 보관한 주문을 `removeFromSnapshot`과 같은 규칙으로 빼고 `archivedOrders`에 출처를 남긴 뒤 `base.json`을 원자적으로 쓴다. `foldedSegments`는 디스크에 남은 segment 전부의 이름과 반영한 길이로 다시 쓴다.
+6. 지난 반영에서 남겨 둔 segment를 지운다(또는 압축해 둔다. 열린 질문 3). 이번에 떼어 낸 segment는 늦게 붙는 줄을 받으려고 다음 반영까지 남긴다.
 7. 잠금을 푼다.
 
 어느 단계에서 죽어도 다시 열면 `base.json`과 남은 segment, `events.jsonl`로 같은 상태가 나온다. 4번의 보관 파일은 주문 id로 덮어쓰므로 다시 돌아도 겹치지 않는다.
