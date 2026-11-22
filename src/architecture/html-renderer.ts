@@ -24,9 +24,12 @@ import {
 import {
   flowCountByService,
   INFRA_LEVEL_ID,
+  innerCounts,
   ROOT_LEVEL_ID,
+  type DrillChunk,
   type DrillEdge,
   type DrillLevel,
+  type DrillOutside,
   type Drilldown,
 } from './drilldown.js';
 import {
@@ -37,8 +40,11 @@ import {
   type ErLayout,
   type ErModel,
 } from './er-layout.js';
+import { cspMeta } from './csp.js';
+import { CHUNK_DESC_MAX_UNITS } from './layout-tuning.js';
+import { LIVE_FORM_CSS, renderLiveScript } from './live-client.js';
 import { computeFlowLayout, type FlowLevel } from './flow-layout.js';
-import { renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
+import { markBidi, renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
 import {
   datastoreEngine,
   iconUse,
@@ -54,6 +60,7 @@ import {
   ER_CSS,
   FRAME_LABEL_CSS,
   SEQ_VIEW_CSS,
+  DRILL_CSS,
   INFRA_CSS,
   VIEW_STRIP_CSS,
 } from './html-theme.js';
@@ -76,6 +83,7 @@ import {
   platformName,
 } from './kind-text.js';
 import {
+  cardChipTexts,
   compareEnvironment,
   FLAT_BACKWARD_EDGE_KINDS,
   textUnits,
@@ -202,7 +210,7 @@ const FLOW_TEXT = {
 };
 
 const HINT_DRILL =
-  '카드나 선, 칸 제목을 누르면 설명과 출처가 보여요. 더블클릭하거나 상세보기를 누르면 한 단계 안으로 들어가고 뒤로가기로 돌아와요. 전체 화면에서 Shift나 ⌘를 누른 채 두 항목을 고르면 그 사이 경로를 보여줘요.';
+  '카드나 선, 칸 제목을 누르면 설명과 출처가 보여요. 더블클릭하거나 상세보기를 누르면 한 단계 안으로 들어가고 뒤로가기로 돌아와요. 전체 화면에서 Shift나 ⌘를 누른 채 두 항목을 고르면 그 사이 경로를 보여줘요. /나 ⌘K로 모든 레벨에서 이름을 찾아요.';
 const HINT_FLAT =
   '카드나 선, 칸 제목을 누르면 설명과 출처가 보여요. 끌어서 옮기고 ⌘나 Ctrl을 누른 채 휠을 굴리면 크게 볼 수 있어요.';
 
@@ -214,8 +222,9 @@ function byId<T extends { id: string }>(a: T, b: T): number {
   return compareStr(a.id, b.id);
 }
 
+/** HTML 글자와 속성 값으로 넣을 글자를 이스케이프한다. bidi 제어 문자는 눈에 보이는 표식으로 바꾼다 */
 export function escapeHtml(s: string): string {
-  return s
+  return markBidi(s)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -241,9 +250,11 @@ export function stableStringify(value: unknown): string {
   return `{${parts.join(',')}}`;
 }
 
-// script 블록 안에서 HTML 파서가 끝 태그나 주석 시작으로 읽을 수 있는 조각만 JSON 이스케이프로 바꾼다
-function embedJson(json: string): string {
-  return json.replace(/<\//g, '<\\/').replace(/<!--/g, '\\u003c!--');
+// script 블록 안에서는 HTML 파서가 </script, <!--, <script 같은 조각을 태그로 읽는다. JSON 문자열 안에만 나올 수 있는
+// 글자라 \uXXXX로 바꿔도 JSON.parse 결과는 같다. U+2028과 U+2029는 예전 엔진에서 줄바꿈으로 읽혀 함께 바꾼다
+const JSON_UNSAFE = /[<>&\u2028\u2029]/g;
+export function embedJson(json: string): string {
+  return json.replace(JSON_UNSAFE, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 
 function round2(v: number): number {
@@ -479,7 +490,15 @@ function renderCard(
   focus: boolean,
   facts: ServiceFacts | undefined,
   band: number | undefined,
-  micro: { host: boolean; frame?: string },
+  micro: {
+    host: boolean;
+    frame?: string;
+    outside?: boolean;
+    /** 드릴다운 레벨 카드 꼴. lg는 큰 카드, pill은 바깥 알약이다. 없으면 평면 그림의 작은 카드다 */
+    look?: 'lg' | 'pill';
+    /** 눌러 들어갈 레벨에 선 카드 수. 큰 카드 칩 줄에 찍는다 */
+    inner?: number;
+  },
   flows = 0,
   products: readonly string[] = [],
   productIds: readonly number[] = [],
@@ -495,8 +514,11 @@ function renderCard(
   if (products.length > 1) cls.push('shared');
   if (enterable) cls.push('enterable');
   if (focus) cls.push('is-focus');
+  if (micro.outside === true) cls.push('outside');
+  if (micro.look !== undefined) cls.push(micro.look === 'pill' ? 'out-pill' : micro.look);
   const aria =
     `${name}, ${chipTextOverride(node) ?? NODE_KIND_TEXT[dk]}${guess ? `, ${INFERRED_BADGE} 이름` : ''}` +
+    (micro.outside === true ? ', 이 레벨 밖' : '') +
     (platforms.length > 0 ? `, ${platforms.join(', ')}` : '') +
     (flows > 0 ? `, 사용자 흐름 ${flows}개` : '') +
     (products.length > 1 ? `, 같이 쓰는 제품 ${products.join(', ')}` : '');
@@ -519,6 +541,55 @@ function renderCard(
   const engine = datastoreEngine(node);
   const x = round2(box.x + CANVAS_PAD_X);
   const y = round2(box.y + CANVAS_PAD_TOP);
+  const kindChip = `<span class="kc">${engine !== undefined ? iconUse(`e-${engine}`, `brand b-${engine}`) : iconUse(`i-${dk}`)}${escapeHtml(micro.host ? MICRO_HOST_SHORT : (chipTextOverride(node) ?? NODE_KIND_SHORT[dk]))}</span>`;
+  const head =
+    `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(node.id)}"${band !== undefined ? ` data-band="${band}"` : ''}` +
+    `${productIds.length > 1 ? ` data-products="${productIds.join(' ')}"` : ''}` +
+    `${node.environment !== undefined ? ` data-env="${escapeHtml(node.environment)}"` : ''}` +
+    `${micro.frame !== undefined ? ` data-frame="${escapeHtml(micro.frame)}"` : ''} role="button" tabindex="0" ` +
+    `aria-label="${escapeHtml(aria)}" title="${escapeHtml(tooltip)}" ` +
+    `style="left:${x}px;top:${y}px;width:${box.width}px;height:${box.height}px">`;
+  const flowBadge =
+    flows > 0
+      ? `<span class="flow-badge" title="사용자 흐름 보기">${iconUse('u-flow')}${escapeHtml(flowBadgeText(flows))}</span>`
+      : '';
+  const guessBadge = guess ? `<span class="guess">${INFERRED_BADGE}</span>` : '';
+  if (micro.look === 'pill') {
+    // 바깥 알약은 이름 한 줄만 둔다. 누르면 그 카드가 선 레벨로 가므로 ↗로 밖으로 나간다는 걸 알린다
+    return (
+      head +
+      kindChip +
+      `<span class="nm"><span class="t">${escapeHtml(name)}</span>${guessBadge}</span>` +
+      '<span class="ext" aria-hidden="true">↗</span></div>'
+    );
+  }
+  if (micro.look === 'lg') {
+    const texts = cardChipTexts(node.displayName, node.displayNameInferred, {
+      ...(micro.inner !== undefined ? { inner: micro.inner } : {}),
+      flows,
+    });
+    const row =
+      texts.length > 0
+        ? '<span class="chips-row">' +
+          (micro.inner !== undefined && micro.inner > 0
+            ? `<span class="cr-n">${escapeHtml(texts[0]!)}</span>`
+            : '') +
+          guessBadge +
+          flowBadge +
+          '</span>'
+        : '';
+    return (
+      head +
+      kindChip +
+      `<span class="nm"><span class="t">${escapeHtml(name)}</span>${docBadges(node)}${docCoverBadge(cover)}</span>` +
+      second +
+      (desc ? `<span class="ds">${escapeHtml(node.description!)}</span>` : '') +
+      row +
+      (enterable ? '<span class="go" aria-hidden="true">›</span>' : '') +
+      (products.length > 1 ? renderProductBricks(products, productIds, box.width) : '') +
+      `</div>`
+    );
+  }
   return (
     `<div class="${cls.join(' ')}" data-node-id="${escapeHtml(node.id)}"${band !== undefined ? ` data-band="${band}"` : ''}` +
     `${productIds.length > 1 ? ` data-products="${productIds.join(' ')}"` : ''}` +
@@ -649,6 +720,37 @@ interface CanvasSpec {
   viewStrip?: ViewCard[];
   /** 같은 줄 맨 앞에 놓는 인프라 레벨 입구. 인프라 레벨이 있을 때만 있다 */
   infraCard?: InfraCard;
+  /** service와 server 레벨의 바깥 맥락. 바깥 카드는 점선 테두리로 긋고 넘친 장수를 레인 제목에 적는다 */
+  outside?: DrillOutside;
+  /** 드릴다운 레벨이면 큰 카드와 바깥 알약으로 그린다. 평면 그림은 작은 카드 그대로다 */
+  big?: boolean;
+  /** 카드 id → 눌러 들어갈 레벨의 카드 수. 큰 카드 칩 줄에 찍는다 */
+  inner?: Record<string, number>;
+  /** 접힌 root의 덩어리 카드. 있으면 nodes 대신 이걸 그린다 */
+  chunks?: ChunkCard[];
+}
+
+/** 렌더러가 글자를 채운 덩어리 카드. 공유본이면 제목과 설명이 가린 글자다 */
+interface ChunkCard {
+  chunk: DrillChunk;
+  title: string;
+  /** 대표 카드 이름 줄. "A, B, C 외 N개" 꼴이다 */
+  desc: string;
+}
+
+/** 덩어리 카드. 누르면 해시로 그 레인 레벨에 들어간다. 노드가 아니라서 data-node-id를 안 단다 */
+function renderChunkCard(c: ChunkCard, box: LayoutResult['nodes'][number]): string {
+  const n = c.chunk.memberIds.length;
+  const aria = `${c.chunk.order}번 레인 ${c.title}, 카드 ${n}개. ${c.desc}`;
+  return (
+    `<a class="chunk" href="#/level/${escapeHtml(c.chunk.level)}" data-chunk-id="${escapeHtml(c.chunk.id)}" ` +
+    `data-level="${escapeHtml(c.chunk.level)}" aria-label="${escapeHtml(aria)}" ` +
+    `style="left:${round2(box.x + CANVAS_PAD_X)}px;top:${round2(box.y + CANVAS_PAD_TOP)}px;width:${box.width}px;height:${box.height}px">` +
+    `<span class="ch-head"><span class="ord">${c.chunk.order}</span><span class="t">${escapeHtml(c.title)}</span></span>` +
+    `<span class="ds">${escapeHtml(c.desc)}</span>` +
+    `<span class="chips-row"><span class="cr-n">항목 ${n}</span></span>` +
+    '<span class="go" aria-hidden="true">›</span></a>'
+  );
 }
 
 interface InfraCard {
@@ -780,11 +882,14 @@ function frameLabelText(label: string, frameWidth: number): string {
   );
 }
 
+const OUTSIDE_LANES: ReadonlySet<string> = new Set(['outside_from', 'outside_to']);
+
 /** 레벨 하나. 레인 띠와 선은 SVG, 카드는 그 위에 겹친 HTML이다. 좌표는 전부 서버가 박는다 */
 function renderLevelSection(spec: CanvasSpec): string {
   const open = `<section class="level" data-level-id="${escapeHtml(spec.levelId)}" aria-label="${escapeHtml(spec.title)}"`;
   const hidden = spec.hidden ? ' hidden' : '';
-  if (spec.nodes.length === 0) {
+  const chunkById = new Map((spec.chunks ?? []).map((c) => [c.chunk.id, c]));
+  if (spec.nodes.length === 0 && chunkById.size === 0) {
     const { width, height } = EMPTY_LEVEL_SIZE;
     return (
       `${open} data-w="${width}" data-h="${height}" style="width:${width}px;height:${height}px"${hidden}>` +
@@ -794,7 +899,7 @@ function renderLevelSection(spec: CanvasSpec): string {
   const nodeById = new Map(spec.nodes.map((n) => [n.id, n]));
   const labelOf = (id: string): string => {
     const node = nodeById.get(id);
-    return node ? nodeName(node) : id;
+    return node ? nodeName(node) : (chunkById.get(id)?.title ?? id);
   };
   const layout: LayoutResult = {
     ...spec.layout,
@@ -826,20 +931,34 @@ function renderLevelSection(spec: CanvasSpec): string {
     )
     .join('');
   const { width, height } = canvas;
+  const outsideIds = new Set([...(spec.outside?.from ?? []), ...(spec.outside?.to ?? [])]);
   const laneRects = layout.lanes
     .map(
       (l) =>
-        `<rect class="lane" x="${round2(l.x + CANVAS_PAD_X)}" y="${LANE_INSET_Y}" width="${l.width}" ` +
+        `<rect class="${OUTSIDE_LANES.has(l.id) && outsideIds.size > 0 ? 'lane outside' : 'lane'}" x="${round2(l.x + CANVAS_PAD_X)}" y="${LANE_INSET_Y}" width="${l.width}" ` +
         `height="${round2(height - LANE_INSET_Y * 2)}" rx="14"/>`,
     )
     .join('');
+  const hiddenOf = (laneId: string): number =>
+    laneId === 'outside_from'
+      ? (spec.outside?.hiddenFrom ?? 0)
+      : laneId === 'outside_to'
+        ? (spec.outside?.hiddenTo ?? 0)
+        : 0;
   const laneTitles = layout.lanes
-    .map(
-      (l) =>
-        `<div class="lane-title" data-lane-id="${escapeHtml(l.id)}" role="button" tabindex="0" aria-label="${escapeHtml(laneAria(l.title, l.count))}" ` +
+    .map((l) => {
+      const more = hiddenOf(l.id);
+      const aria = laneAria(l.title, l.count) + (more > 0 ? `, 밖에 ${more}개 더` : '');
+      return (
+        `<div class="lane-title" data-lane-id="${escapeHtml(l.id)}" role="button" tabindex="0" aria-label="${escapeHtml(aria)}" ` +
         `style="left:${round2(l.x + CANVAS_PAD_X)}px;top:${LANE_INSET_Y + 10}px;width:${l.width}px">` +
-        `${escapeHtml(l.title)}<span class="n">${l.count}</span></div>`,
-    )
+        `${escapeHtml(l.title)}<span class="n">${l.count}</span>` +
+        (more > 0
+          ? `<span class="more" data-n="${more}" title="연결이 적은 바깥 카드 ${more}개는 접어 뒀어요">+${more}</span>`
+          : '') +
+        `</div>`
+      );
+    })
     .join('');
   const { regionRects, regionTitles } = renderBands(layout, width);
   const links = edges
@@ -863,6 +982,11 @@ function renderLevelSection(spec: CanvasSpec): string {
         layout.regions?.bandOf[n.id],
         {
           host: n.kind === 'micro_app' && spec.microHosts.has(n.id),
+          ...(outsideIds.has(n.id) ? { outside: true } : {}),
+          ...(spec.big === true ? { look: outsideIds.has(n.id) ? 'pill' : 'lg' } : {}),
+          ...(spec.big === true && spec.inner?.[n.id] !== undefined
+            ? { inner: spec.inner[n.id]! }
+            : {}),
           ...(frameOf.has(n.id) || frameOf.has(n.parent ?? '')
             ? { frame: frameOf.get(n.id) ?? frameOf.get(n.parent!)! }
             : {}),
@@ -872,6 +996,12 @@ function renderLevelSection(spec: CanvasSpec): string {
         layout.regions?.productsOf[n.id] ?? [],
         spec.docCover?.[n.id],
       );
+    })
+    .join('');
+  const chunkCards = [...chunkById.values()]
+    .map((c) => {
+      const box = boxes.get(c.chunk.id);
+      return box ? renderChunkCard(c, box) : '';
     })
     .join('');
   // 포커스 화면이 띠 이름을 다시 달 때, +N 드롭다운이 제품 이름을 띄울 때 읽는다
@@ -892,7 +1022,7 @@ function renderLevelSection(spec: CanvasSpec): string {
     `viewBox="0 0 ${width} ${height}" role="group" aria-label="${escapeHtml(`${spec.title} 연결`)}">` +
     `<g class="lanes">${laneRects}</g><g class="regions">${regionRects}</g>` +
     `${frameRects !== '' ? `<g class="frames">${frameRects}</g>` : ''}<g class="edges">${links}</g></svg>` +
-    `${laneTitles}${regionTitles}${cards}${strip?.html ?? ''}</section>`
+    `${laneTitles}${regionTitles}${cards}${chunkCards}${strip?.html ?? ''}</section>`
   );
 }
 
@@ -2547,7 +2677,15 @@ function renderBar(
         `title="질문 하나에 답하는 그림 보기">${iconUse('u-flow')}<span class="label">질문별 그림</span></button>`
       : '') +
     renderEnvPicker(envs) +
-    `<label class="search">${iconUse('u-search')}<input id="search" type="search" placeholder="이름으로 찾기" aria-label="이름으로 찾기" autocomplete="off" spellcheck="false"><span id="search-count" class="count" aria-live="polite"></span></label>` +
+    `<label class="search">${iconUse('u-search')}<input id="search" type="search" placeholder="이름으로 찾기" aria-label="이름으로 찾기" autocomplete="off" spellcheck="false"` +
+    (drill
+      ? ` title="이름으로 찾기 (/ 또는 ⌘K)" role="combobox" aria-expanded="false" aria-controls="search-list" aria-autocomplete="list"`
+      : '') +
+    `><span id="search-count" class="count" aria-live="polite"></span></label>` +
+    // 드릴다운은 모든 레벨에서 찾는다. 목록은 툴바 아래에 띄우고 자리는 스크립트가 검색창에 맞춘다
+    (drill
+      ? '<ul id="search-list" class="search-list" role="listbox" aria-label="모든 레벨에서 찾은 카드" hidden></ul>'
+      : '') +
     `<div class="seg" role="group" aria-label="크기">` +
     `<button type="button" class="btn icon" id="zoom-out" aria-label="작게 보기" title="작게 보기 (-)">${iconUse('u-minus')}</button>` +
     `<span id="zoom-level" class="zoom-level" aria-live="polite">100%</span>` +
@@ -2595,7 +2733,11 @@ function clientScriptFor(
       ...pick(EDGE_KIND_ABOUT, [...Object.keys(vocab.edgeKinds), 'contains']),
     },
     evidenceText: EVIDENCE_TYPE_TEXT,
-    laneTitles: pick(LANE_TITLES, Object.keys(vocab.lanes)) as typeof LANE_TITLES,
+    // 바깥 맥락 레인은 팩과 무관하게 service와 server 레벨에 선다. 포커스 화면이 제목을 찾을 수 있게 늘 싣는다
+    laneTitles: pick(
+      LANE_TITLES,
+      new Set([...Object.keys(vocab.lanes), ...OUTSIDE_LANES]),
+    ) as typeof LANE_TITLES,
     laneAbout: pick(LANE_ABOUT, Object.keys(vocab.lanes)),
     stageLaneAbout: STAGE_LANE_ABOUT,
     inferredBadge: INFERRED_BADGE,
@@ -2655,9 +2797,12 @@ interface PageSpec {
   frameLabels?: boolean;
   /** 인프라 레벨이 있을 때 그 아이콘 수. 있을 때만 인프라 스타일과 코드를 싣는다 */
   infra?: { official: number; fallback: number };
+  /** CSP 정책을 고른다. 공유본은 통신을 막는다 */
+  audience: ArchitectureAudience;
 }
 
 function renderPage({
+  audience,
   ir,
   payload,
   sections,
@@ -2695,6 +2840,19 @@ function renderPage({
     );
   const soloActor = drawnFlows.some((f) => f.actors.length === 1);
   const hasCaptures = ir.nodes.some((n) => n.capture !== undefined);
+  const styleBody = `${renderCss(vocab)}${drill ? `\n${DRILL_CSS}` : ''}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}${ers ? `\n${ER_CSS}` : ''}${frameLabels ? `\n${FRAME_LABEL_CSS}` : ''}${infra !== undefined ? `${hasViews ? '' : `\n${VIEW_STRIP_CSS}`}\n${INFRA_CSS}` : ''}${audience === 'private' ? `\n${LIVE_FORM_CSS}` : ''}`;
+  // 라이브 Ask 스크립트는 본인용에만 싣는다. 공유본에는 글자 하나 들어가지 않고 CSP도 connect-src 'none' 그대로다
+  const liveScript = audience === 'private' ? renderLiveScript() : null;
+  const clientScript = clientScriptFor(
+    vocab,
+    hasFlows && flows.flows.some((f) => f.service === undefined),
+    hasViews,
+    mixedBundles,
+    hasSequences,
+    flowBranches,
+    hasCaptures,
+    infra !== undefined,
+  );
   return [
     '<!doctype html>',
     infra !== undefined
@@ -2702,10 +2860,14 @@ function renderPage({
       : '<html lang="ko">',
     '<head>',
     '<meta charset="utf-8">',
+    cspMeta(audience, {
+      scripts: [THEME_BOOT_SCRIPT, clientScript, ...(liveScript ? [liveScript] : [])],
+      styles: [styleBody],
+    }),
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(title)}</title>`,
     `<script>${THEME_BOOT_SCRIPT}</script>`,
-    `<style>${renderCss(vocab)}${hasViews ? `\n${VIEW_CSS}` : ''}${hasSequences ? `\n${SEQ_VIEW_CSS}` : ''}${vocab.packIds.includes('knowledge') ? `\n${DOC_CSS}` : ''}${hasCaptures ? `\n${CAPTURE_CSS}` : ''}${flowBranches || soloActor ? `\n${FLOW_BRANCH_CSS}` : ''}${lifecycles ? `\n${LIFECYCLE_CSS}` : ''}${blueprints ? `\n${BLUEPRINT_CSS}` : ''}${ers ? `\n${ER_CSS}` : ''}${frameLabels ? `\n${FRAME_LABEL_CSS}` : ''}${infra !== undefined ? `${hasViews ? '' : `\n${VIEW_STRIP_CSS}`}\n${INFRA_CSS}` : ''}</style>`,
+    `<style>${styleBody}</style>`,
     '</head>',
     '<body>',
     renderIconSprite(vocab, infra !== undefined ? { infra: true } : {}),
@@ -2722,6 +2884,12 @@ function renderPage({
       docCoverageOf(payload.nodes, payload.docOverlay),
     ),
     '<div class="main">',
+    // 그림 칸. 개요를 열면 옆 칸만큼 좁아진다. 드릴다운이면 위에 단계 머리를 두고 스크립트가 글자를 채운다
+    '<div class="canvas-col">',
+    drill
+      ? '<header id="level-head" class="level-head">' +
+        '<span class="lh-kind"></span><h2 class="lh-title" aria-live="polite"></h2><p class="lh-sum" hidden></p></header>'
+      : '',
     '<div id="stage" class="stage" aria-label="구조도">',
     '<div id="viewport" class="viewport">',
     sections,
@@ -2729,10 +2897,13 @@ function renderPage({
     '<section id="focus" class="level focus-view" aria-live="polite" hidden></section>',
     '</div>',
     '</div>',
+    '</div>',
     `<p id="hint" class="hint"><span>${drill ? HINT_DRILL : HINT_FLAT}</span>` +
       `<button type="button" id="hint-close" aria-label="안내 닫기">${iconUse('u-close')}</button></p>` +
       (hasSequences ? `\n${renderSequenceUi(sequences)}` : ''),
     '<details id="sheet" class="sheet" hidden><summary id="sheet-title">세부 연결</summary><div id="sheet-body" class="scroll"></div></details>',
+    // 개요는 스크립트가 레벨마다 채운다. 넓은 화면에서는 그림 옆 칸, 좁은 화면에서는 접어 둔 아래 시트다
+    '<details id="overview" class="overview"><summary>개요</summary><div id="overview-body" class="ov-body"></div></details>',
     '<aside id="drawer" class="drawer" role="dialog" aria-modal="false" aria-labelledby="drawer-title" aria-hidden="true" inert>' +
       `<button type="button" id="drawer-close" class="btn icon dr-close" aria-label="닫기">${iconUse('u-close')}</button>` +
       '<div id="panel" class="panel" aria-live="polite"></div></aside>',
@@ -2759,7 +2930,8 @@ function renderPage({
       ? '<div id="flow-pop" class="pop" role="dialog" aria-label="흐름 고르기" tabindex="-1" hidden><h3>흐름</h3><ul class="flow-list"></ul></div>'
       : '') + (hasViews ? `\n${renderViewsPop(views)}` : ''),
     `<script id="ir" type="application/json">${embedJson(stableStringify(payload))}</script>`,
-    `<script>${clientScriptFor(vocab, hasFlows && flows.flows.some((f) => f.service === undefined), hasViews, mixedBundles, hasSequences, flowBranches, hasCaptures, infra !== undefined)}</script>`,
+    `<script>${clientScript}</script>`,
+    ...(liveScript ? [`<script>${liveScript}</script>`] : []),
     '</body>',
     '</html>',
     '',
@@ -2791,7 +2963,49 @@ export function renderArchitectureHtml(
     microHosts: new Set(payload.microHosts ?? []),
     ...docCoverSpec(payload.nodes, payload.docOverlay),
   });
-  return renderPage({ ir, payload, sections: section, drill: false });
+  return renderPage({ audience: opts.audience, ir, payload, sections: section, drill: false });
+}
+
+/**
+ * 전체 검색 색인. 노드 id → 그 카드가 놓인 레벨 id 목록이다. 카드가 안에 선 레벨을 먼저 두고
+ * 바깥 맥락으로만 선 레벨은 뒤에 둔다. 검색 결과를 고르면 클라이언트가 첫 레벨로 간다
+ */
+function nodeLevelIndex(
+  levels: readonly DrillLevel[],
+  nodeById: ReadonlyMap<string, ArchitectureNode>,
+): Record<string, string[]> {
+  const inside = new Map<string, string[]>();
+  const outside = new Map<string, string[]>();
+  for (const l of levels) {
+    const out = new Set([...(l.outside?.from ?? []), ...(l.outside?.to ?? [])]);
+    for (const id of l.nodeIds) {
+      if (!nodeById.has(id)) continue;
+      const into = out.has(id) ? outside : inside;
+      const list = into.get(id);
+      if (list === undefined) into.set(id, [l.id]);
+      else list.push(l.id);
+    }
+  }
+  const index: Record<string, string[]> = {};
+  for (const id of [...new Set([...inside.keys(), ...outside.keys()])].sort(compareStr)) {
+    index[id] = [...(inside.get(id) ?? []), ...(outside.get(id) ?? [])];
+  }
+  return index;
+}
+
+/** 덩어리 대표 카드 이름 줄. 글자 폭을 넘기 전까지 이름을 잇고 남은 장수는 "외 N개"로 적는다 */
+function chunkDesc(chunk: DrillChunk, nodeById: ReadonlyMap<string, ArchitectureNode>): string {
+  const picked: string[] = [];
+  for (const id of chunk.topIds) {
+    const node = nodeById.get(id);
+    if (node === undefined) continue;
+    const next = [...picked, nodeName(node)].join(', ');
+    if (picked.length > 0 && textUnits(next) > CHUNK_DESC_MAX_UNITS) break;
+    picked.push(nodeName(node));
+  }
+  const rest = chunk.memberIds.length - picked.length;
+  if (picked.length === 0) return `카드 ${chunk.memberIds.length}개`;
+  return rest > 0 ? `${picked.join(', ')} 외 ${rest}개` : picked.join(', ');
 }
 
 /**
@@ -2835,9 +3049,31 @@ export function renderDrilldownHtml(
   const docCover = docCoverSpec(base.nodes, base.docOverlay);
   const nodeById = new Map(base.nodes.map((n) => [n.id, n]));
   // 레벨 제목은 원본 이름으로 지었으므로 공유본에서는 노드 이름과 같이 가린다
-  const levels = drilldown.levels.map((l) =>
-    shared ? { ...l, title: maskSharedText(l.title), layout: maskLayoutText(l.layout) } : l,
+  const masked = drilldown.levels.map((l) =>
+    shared
+      ? {
+          ...l,
+          title: maskSharedText(l.title),
+          ...(l.summary !== undefined ? { summary: maskSharedText(l.summary) } : {}),
+          ...(l.chunks !== undefined
+            ? { chunks: l.chunks.map((c) => ({ ...c, title: maskSharedText(c.title) })) }
+            : {}),
+          layout: maskLayoutText(l.layout),
+        }
+      : l,
   );
+  // 레인 레벨 요약은 덩어리 카드 설명과 같은 대표 이름 줄이다. 이름은 이미 가린 노드에서 꺼낸다
+  const chunkCards: ChunkCard[] = (masked.find((l) => l.id === ROOT_LEVEL_ID)?.chunks ?? []).map(
+    (chunk) => ({ chunk, title: chunk.title, desc: chunkDesc(chunk, nodeById) }),
+  );
+  const descOfLane = new Map(chunkCards.map((c) => [c.chunk.level, c.desc]));
+  const levels = masked.map((l) => {
+    const desc = descOfLane.get(l.id);
+    return l.kind === 'lane' && l.summary === undefined && desc !== undefined
+      ? { ...l, summary: desc }
+      : l;
+  });
+  const inner = innerCounts(drilldown.levels, drilldown.enter);
   const payload = {
     ...base,
     levels: levels.map((l) => ({
@@ -2845,10 +3081,26 @@ export function renderDrilldownHtml(
       kind: l.kind,
       ...(l.focusId !== undefined ? { focusId: l.focusId } : {}),
       title: l.title,
+      ...(l.summary !== undefined ? { summary: l.summary } : {}),
       trail: l.trail,
       edges: l.edges,
+      ...(l.chunks !== undefined
+        ? {
+            chunks: l.chunks.map((c) => ({
+              id: c.id,
+              level: c.level,
+              title: c.title,
+              order: c.order,
+              count: c.memberIds.length,
+            })),
+          }
+        : {}),
+      ...(l.flatEdges !== undefined ? { flatEdges: l.flatEdges } : {}),
     })),
     enter: drilldown.enter,
+    nodeLevels: nodeLevelIndex(levels, nodeById),
+    // 공유본이면 ir이 가린 사본이라 일러두기도 가린 글자로 실린다
+    ...(ir.note !== undefined && ir.note.trim() !== '' ? { note: ir.note } : {}),
   };
   // 좌표는 원본으로 냈고 글자만 공유본에서 가린다. 단계 id는 가리지 않아 그대로 맞물린다
   const flowById = new Map((ir.flows ?? []).map((f) => [f.id, f]));
@@ -2956,13 +3208,20 @@ export function renderDrilldownHtml(
             edges: l.edges,
             layout: l.layout,
             enter: drilldown.enter,
+            big: true,
+            inner,
+            ...(l.id === ROOT_LEVEL_ID && chunkCards.length > 0 ? { chunks: chunkCards } : {}),
+            ...(l.outside !== undefined ? { outside: l.outside } : {}),
             ...(l.focusId !== undefined ? { focusId: l.focusId } : {}),
             hidden: l.id !== ROOT_LEVEL_ID,
             services: base.services,
             microHosts: new Set(base.microHosts ?? []),
             ...docCover,
             flows: flowCount,
-            ...(l.id === ROOT_LEVEL_ID && l.nodeIds.length === 0 && rootFlowLinks.length > 0
+            ...(l.id === ROOT_LEVEL_ID &&
+            l.nodeIds.length === 0 &&
+            chunkCards.length === 0 &&
+            rootFlowLinks.length > 0
               ? { emptyLinks: rootFlowLinks }
               : {}),
             ...(l.id === ROOT_LEVEL_ID && infraLevel !== undefined
@@ -3070,6 +3329,7 @@ export function renderDrilldownHtml(
     )
     .join('\n');
   return renderPage({
+    audience: opts.audience,
     ir,
     payload,
     sections,

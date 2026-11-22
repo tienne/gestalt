@@ -67,6 +67,7 @@ const COUNT_TEXT: Record<keyof DeltaCounts, string> = {
 
 type NodeAttr =
   | 'kind'
+  | 'label'
   | 'displayName'
   | 'description'
   | 'displayKind'
@@ -80,9 +81,10 @@ type NodeAttr =
   | 'exposure'
   | 'platforms';
 
-// label은 병합 키라 바뀌면 다른 노드다. 여기 없는 필드는 그림의 구조를 바꾸지 않는다
+// 병합이 label만 바뀐 노드에도 지난 id를 물려주므로 label도 같은 노드의 속성 변경으로 센다. 여기 없는 필드는 그림의 구조를 바꾸지 않는다
 const CHANGED_ATTRS: ReadonlyArray<[NodeAttr, string]> = [
   ['kind', '종류'],
+  ['label', '이름'],
   ['displayName', '표시 이름'],
   ['description', '설명'],
   ['displayKind', '종류 표시'],
@@ -173,7 +175,8 @@ function drawnEdges(s: DeltaSnapshot): Map<string, ArchitectureEdge> {
 
 /**
  * 이전 그림과 이번 그림을 id로 맞춰 바뀐 것을 뽑는다.
- * render가 병합으로 이전 id를 물려준 뒤라 같은 것은 같은 id다. label이 병합 키라 이름을 바꾸면 빠짐과 생김 두 건이 된다.
+ * render가 병합으로 이전 id를 물려준 뒤라 같은 것은 같은 id다. 병합이 같은 id나 code 근거 파일로 label 바뀐 노드를 이어 주면
+ * 이름 변경은 CHANGED 한 건이다. 병합이 짝을 못 찾은 이름 변경만 빠짐과 생김 두 건이 된다.
  */
 export function computeArchitectureDelta(
   before: DeltaSnapshot,

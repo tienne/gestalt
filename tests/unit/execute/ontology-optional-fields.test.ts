@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { buildClosurePrompt } from '../../../src/execute/prompts.js';
 import { buildLateralPrompt } from '../../../src/resilience/prompts.js';
@@ -11,6 +11,9 @@ import type {
   Spec,
   TaskExecutionResult,
 } from '../../../src/core/types.js';
+import { EMBEDDING_WARMUP_TIMEOUT, warmDriftEmbedding } from '../../helpers/warm-embedding.js';
+
+beforeAll(warmDriftEmbedding, EMBEDDING_WARMUP_TIMEOUT);
 
 // MCP 입력 스키마는 엔티티의 description과 attributes를 optional로 받는다.
 // 그렇게 저장된 스펙으로도 프롬프트와 drift 계산이 돌아야 한다.

@@ -16,8 +16,10 @@ import type {
   ArchitectureIr,
   ArchitectureNode,
 } from '../../../src/architecture/types.js';
+import { mergeWithPrevious } from '../../../src/architecture/store.js';
 import { redactForSharing, validateArchitectureIr } from '../../../src/architecture/validator.js';
 import { renderBoth } from '../../fixtures/architecture-legacy/render.js';
+import { cspCoversInline, cspOf, directive } from './csp-check.js';
 
 const EV = [{ type: 'code' as const, location: 'web:src/a.ts:1', visibility: 'public' as const }];
 
@@ -120,6 +122,35 @@ describe('computeArchitectureDelta', () => {
     ]);
   });
 
+  it('같은 id로 label만 바뀌면 빠짐과 생김이 아니라 CHANGED 한 줄이다', () => {
+    const next = beforeIr();
+    next.nodes.find((n) => n.id === 's-list')!.label = 'Order List';
+    const delta = computeArchitectureDelta(snap(beforeIr()), snap(next));
+    expect(delta.ledger.map((e) => `${e.change} ${e.target}`)).toEqual(['CHANGED s-list']);
+    expect(delta.ledger[0]!.text).toContain('이름 "List" → "Order List"');
+  });
+
+  it('병합이 label과 id를 함께 바꾼 노드를 근거 파일로 이으면 delta에서 CHANGED다', () => {
+    // 다른 노드와 같이 쓰는 근거 파일은 짝짓기에서 빠지므로 이 노드만 쓰는 파일을 단다
+    const ownEvidence = [
+      { type: 'code' as const, location: 'web:src/orders.ts:1', visibility: 'public' as const },
+    ];
+    const withOwn = (value: ArchitectureIr): ArchitectureIr => ({
+      ...value,
+      nodes: value.nodes.map((n) => (n.id === 'ep-orders' ? { ...n, evidence: ownEvidence } : n)),
+    });
+    const prev = withOwn(beforeIr());
+    const next = withOwn(beforeIr());
+    next.nodes = next.nodes.map((n) =>
+      n.id === 'ep-orders' ? { ...n, id: 'ep-orders-v2', label: 'GET /orders/v2' } : n,
+    );
+    next.edges = next.edges.map((e) => (e.to === 'ep-orders' ? { ...e, to: 'ep-orders-v2' } : e));
+    const merged = mergeWithPrevious(prev, next);
+    const delta = computeArchitectureDelta(snap(prev), snap(merged));
+    expect(delta.ledger.map((e) => `${e.change} ${e.target}`)).toEqual(['CHANGED ep-orders']);
+    expect(delta.ledger[0]!.text).toContain('이름 "GET /orders" → "GET /orders/v2"');
+  });
+
   it('끝점 짝이 여럿이라 모호하면 다시 이음 대신 빠짐과 생김으로 둔다', () => {
     const next = beforeIr();
     next.edges = [edge('c2', 's-cart', 'ep-cart'), edge('x1', 's-list', 'ep-cart')];
@@ -217,6 +248,18 @@ describe('renderDeltaHtml', () => {
 
   it('같은 입력이면 같은 바이트를 낸다', async () => {
     expect(await page()).toBe(await page());
+  });
+
+  it('CSP meta가 인라인 본문을 해시로 덮고 공유본은 통신을 막는다', async () => {
+    const delta = computeArchitectureDelta(snap(beforeIr()), snap(afterIr()));
+    const scope = deltaScope(delta);
+    const laid = await computeDeltaLayout(delta, scope);
+    const priv = renderDeltaHtml(delta, scope, laid, { audience: 'private' });
+    const shared = renderDeltaHtml(delta, scope, laid, { audience: 'shared' });
+    expect(cspCoversInline(priv)).toBe(true);
+    expect(cspCoversInline(shared)).toBe(true);
+    expect(directive(cspOf(shared)!, 'connect-src')).toBe("'none'");
+    expect(cspOf(priv)).not.toBe(cspOf(shared));
   });
 });
 

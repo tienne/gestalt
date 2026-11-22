@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll } from 'vitest';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
 import { EventStore } from '../../../src/events/store.js';
 import { validateSpecPatch } from '../../../src/execute/spec-patch-validator.js';
@@ -30,6 +30,9 @@ import { asRequested } from '../../helpers/structural.js';
 import { handleEvaluate } from '../../../src/mcp/tools/execute/evaluate.js';
 import type { IHostAdapter } from '../../../src/mcp/host-adapter.js';
 import type { ExecuteInput } from '../../../src/mcp/schemas.js';
+import { EMBEDDING_WARMUP_TIMEOUT, warmDriftEmbedding } from '../../helpers/warm-embedding.js';
+
+beforeAll(warmDriftEmbedding, EMBEDDING_WARMUP_TIMEOUT);
 
 // ─── Test Helpers ─────────────────────────────────────────────
 

@@ -856,6 +856,8 @@ describe('ges_architecture er 경고', () => {
     return (await handleArchitecturePassthrough(input, process.cwd(), {
       homeDir,
       projectsRoot: join(homeDir, '.claude', 'projects'),
+      // gh와 네트워크를 타지 않게 비공개로 고정한다
+      resolveVisibility: () => ({ verdict: 'private', source: 'gh', visibility: 'PRIVATE' }),
     })) as Record<string, unknown>;
   }
 

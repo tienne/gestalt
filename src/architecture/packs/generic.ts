@@ -28,11 +28,11 @@ export const GENERIC_PACK = {
     component: { title: '구성 요소', about: '구성 요소가 서는 칸이에요.' },
     // tree 드릴다운의 그룹 레벨에서 그 묶음 밖에 있는 상대 카드가 선다. 보내는 쪽은 왼쪽, 받는 쪽은 오른쪽이다
     outside_from: {
-      title: '밖에서 들어옴',
+      title: '부르는 쪽',
       about: '이 묶음 밖에서 안으로 연결을 보내는 카드가 서는 칸이에요.',
     },
     outside_to: {
-      title: '밖으로 나감',
+      title: '부르는 대상',
       about: '이 묶음 안에서 나간 연결을 받는 바깥 카드가 서는 칸이에요.',
     },
   },

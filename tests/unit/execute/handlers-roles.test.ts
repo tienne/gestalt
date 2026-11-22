@@ -2,6 +2,9 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import { resolve } from 'node:path';
 import { RoleAgentRegistry } from '../../../src/agent/role-agent-registry.js';
 import { createExecuteFixture, type ExecuteFixture } from '../../helpers/execute-fixture.js';
+import { EMBEDDING_WARMUP_TIMEOUT, warmDriftEmbedding } from '../../helpers/warm-embedding.js';
+
+beforeAll(warmDriftEmbedding, EMBEDDING_WARMUP_TIMEOUT);
 
 interface RoleMatchResponse {
   error?: string;

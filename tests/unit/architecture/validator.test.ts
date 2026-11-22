@@ -1,8 +1,12 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  ARCHITECTURE_VALIDATION_ERROR_CODES,
+  SECRET_MASK,
+  isPathlikeTitle,
+  maskIrSecrets,
   redactForSharing,
   stripPrivateExcerpts,
   validateArchitectureIr,
@@ -11,6 +15,14 @@ import {
   type ArchitectureNode,
   type Evidence,
 } from '../../../src/architecture/index.js';
+import { FAKE_PASSWORD, FAKE_TOKEN } from './fake-secrets.js';
+import {
+  deployIr,
+  flowIr,
+  harnessIr,
+  partnerIr,
+  webIr,
+} from '../../fixtures/architecture-legacy/irs.js';
 
 const tmpRoot = resolve('.gestalt-test', `architecture-validator-${randomUUID()}`);
 const repoRoot = join(tmpRoot, 'acme-web');
@@ -105,6 +117,17 @@ describe('code 근거 excerpt 대조 (이슈 #57)', () => {
   it('근처에서도 못 찾으면 후보 없는 경고가 나온다', () => {
     const warnings = warningsOf(makeIr([node('a', [excerptEv(1, 'nowhere()')])]));
     expect(warnings).toMatchObject([{ candidates: [] }]);
+  });
+
+  it('저장 IR에서 다시 들어온 가린 excerpt는 가린 자리 앞까지만 맞춘다', () => {
+    expect(warningsOf(makeIr([node('a', [excerptEv(3, 'export function [비밀값]')])]))).toEqual([]);
+    const moved = warningsOf(makeIr([node('a', [excerptEv(1, 'export function [비밀값]')])]));
+    expect(moved).toMatchObject([{ candidates: [3] }]);
+  });
+
+  it('맨 앞이 가려진 excerpt는 줄 범위만 본다', () => {
+    expect(warningsOf(makeIr([node('a', [excerptEv(1, '[비밀값] = x')])]))).toEqual([]);
+    expect(errorCodes(makeIr([node('a', [excerptEv(99, '[비밀값]')])]))).not.toEqual([]);
   });
 
   it('줄이 excerpt로 시작하면 경고가 없다', () => {
@@ -300,6 +323,124 @@ describe('redactForSharing', () => {
     expect(JSON.stringify(redacted)).not.toContain('notes/internal.md');
     expect(ir).toEqual(snapshot);
   });
+
+  it('계정 ID 가림 뒤에 글자 칸의 비밀값도 가린다', () => {
+    const pub: Evidence = { ...codeEv(), excerpt: `const token = "${FAKE_TOKEN}";` };
+    const n: ArchitectureNode = {
+      ...node('a', [pub]),
+      description: `계정 123456789012 에서 postgres://app:${FAKE_PASSWORD}@db:5432/app 로 붙는다`,
+    };
+    const ir = makeIr([n]);
+    ir.unresolved = [{ id: 'q1', subject: { nodeId: 'a' }, question: `키 ${FAKE_TOKEN} 맞나요?` }];
+    const snapshot = structuredClone(ir);
+
+    const text = JSON.stringify(redactForSharing(ir));
+    expect(text).not.toContain(FAKE_TOKEN);
+    expect(text).not.toContain(FAKE_PASSWORD);
+    expect(text).toContain(SECRET_MASK);
+    expect(text).toContain('[계정 ID]');
+    expect(ir).toEqual(snapshot);
+  });
+
+  it('노드 summary와 IR summary, note도 description처럼 가린다', () => {
+    const n: ArchitectureNode = {
+      ...node('a'),
+      summary: `계정 123456789012 의 키 ${FAKE_TOKEN}`,
+    };
+    const ir = makeIr([n]);
+    ir.summary = `계정 210987654321 전체 요약 ${FAKE_TOKEN}`;
+    ir.note = `배포 E2ABCDEFGHIJKL 일러두기 postgres://app:${FAKE_PASSWORD}@db:5432/app`;
+    const snapshot = structuredClone(ir);
+
+    const redacted = redactForSharing(ir);
+    expect(JSON.stringify(redacted)).not.toContain(FAKE_TOKEN);
+    expect(JSON.stringify(redacted)).not.toContain(FAKE_PASSWORD);
+    expect(redacted.nodes[0]!.summary).toContain('[계정 ID]');
+    expect(redacted.nodes[0]!.summary).toContain(SECRET_MASK);
+    expect(redacted.summary).toContain('[계정 ID]');
+    expect(redacted.summary).toContain(SECRET_MASK);
+    expect(redacted.note).not.toContain('E2ABCDEFGHIJKL');
+    expect(redacted.note).toContain(SECRET_MASK);
+    expect(ir).toEqual(snapshot);
+  });
+
+  it('summary와 note가 없으면 공유본에도 키가 안 생긴다', () => {
+    const ir = makeIr([node('a')]);
+    const redacted = redactForSharing(ir);
+    expect('summary' in redacted).toBe(false);
+    expect('note' in redacted).toBe(false);
+    expect('summary' in redacted.nodes[0]!).toBe(false);
+  });
+});
+
+describe('maskIrSecrets', () => {
+  it('글자 칸마다 가리고 hits에는 위치만 담는다', () => {
+    const n: ArchitectureNode = {
+      ...node('a', [{ ...codeEv(), excerpt: `token: "${FAKE_TOKEN}"` }]),
+      displayName: FAKE_TOKEN,
+      columns: [{ name: 'id', type: `varchar ${FAKE_TOKEN}` }],
+    };
+    const ir = makeIr([n], [edge('e1', 'a', 'a', [{ ...codeEv(), excerpt: FAKE_TOKEN }])]);
+    ir.flows = [
+      {
+        id: 'f1',
+        title: '결제',
+        actors: [{ id: 'u', label: '고객', kind: 'person' }],
+        steps: [{ id: 's1', actor: 'u', label: FAKE_TOKEN, evidence: [] }],
+        transitions: [],
+      },
+    ];
+    ir.projections = [
+      {
+        id: 'p1',
+        shape: 'sequence',
+        title: '흐름',
+        question: FAKE_TOKEN,
+        messages: [
+          {
+            id: 'm1',
+            from: 'a',
+            to: 'a',
+            label: FAKE_TOKEN,
+            evidence: [],
+            lineStyle: 'solid',
+          },
+        ],
+      },
+    ];
+    ir.unresolved = [{ id: 'q1', subject: { nodeId: 'a' }, question: '?', answer: FAKE_TOKEN }];
+    ir.stages = [{ id: 'st', label: FAKE_TOKEN }];
+    ir.groups = [{ id: 'g', name: FAKE_TOKEN, members: ['a'] }];
+    const snapshot = structuredClone(ir);
+
+    const { ir: masked, hits } = maskIrSecrets(ir);
+    expect(JSON.stringify(masked)).not.toContain(FAKE_TOKEN);
+    expect(JSON.stringify(hits)).not.toContain(FAKE_TOKEN);
+    expect(JSON.stringify(hits)).not.toContain(FAKE_TOKEN.slice(4, 12));
+    expect(hits).toEqual(
+      expect.arrayContaining([
+        { nodeId: 'a', field: 'displayName' },
+        { nodeId: 'a', field: 'evidence[0].excerpt' },
+        { nodeId: 'a', field: 'columns[0].type' },
+        { edgeId: 'e1', field: 'evidence[0].excerpt' },
+        { flowId: 'f1', field: 'steps[s1].label' },
+        { projectionId: 'p1', field: 'question' },
+        { projectionId: 'p1', field: 'messages[m1].label' },
+        { questionId: 'q1', field: 'answer' },
+        { stageId: 'st', field: 'label' },
+        { groupId: 'g', field: 'name' },
+      ]),
+    );
+    expect(hits).toHaveLength(10);
+    expect(ir).toEqual(snapshot);
+  });
+
+  it('비밀값이 없으면 같은 객체를 돌려준다', () => {
+    const ir = makeIr([node('a', [{ ...codeEv(), excerpt: 'export default Home' }])]);
+    const r = maskIrSecrets(ir);
+    expect(r.ir).toBe(ir);
+    expect(r.hits).toEqual([]);
+  });
 });
 
 describe('stripPrivateExcerpts', () => {
@@ -443,5 +584,256 @@ describe('validateArchitectureIr description 경고', () => {
     if (!result.ok) return;
     expect(result.value.autoUnresolved).toEqual([]);
     expect(JSON.stringify(result.value.ir)).not.toContain('NODE_DESCRIPTION_MISSING');
+  });
+});
+
+describe('없는 id에 붙는 제안 하나', () => {
+  function errorsOf(ir: ArchitectureIr) {
+    const result = validateArchitectureIr(ir);
+    return result.ok ? [] : result.errors;
+  }
+
+  it('DANGLING_EDGE는 가장 가까운 노드 id 하나를 제안한다', () => {
+    const ir = makeIr(
+      [node('svc-orders'), node('svc-users')],
+      [edge('e1', 'svc-users', 'svc-order', [codeEv()])],
+    );
+    const [error] = errorsOf(ir);
+    expect(error).toMatchObject({ code: 'DANGLING_EDGE', suggestion: 'svc-orders' });
+    expect(error!.message).toContain('"svc-orders"');
+  });
+
+  it('가까운 id가 없으면 제안을 비운다', () => {
+    const ir = makeIr([node('a')], [edge('e1', 'a', 'completely-different', [codeEv()])]);
+    const [error] = errorsOf(ir);
+    expect(error?.code).toBe('DANGLING_EDGE');
+    expect(error?.suggestion).toBeUndefined();
+  });
+
+  it('PARENT_NOT_FOUND도 제안 하나를 붙인다', () => {
+    const child: ArchitectureNode = { ...node('s1'), parent: 'feat-cart' };
+    const parent: ArchitectureNode = { ...node('feat-carts'), kind: 'feature' };
+    const errors = errorsOf(makeIr([child, parent]));
+    expect(errors).toContainEqual(
+      expect.objectContaining({ code: 'PARENT_NOT_FOUND', suggestion: 'feat-carts' }),
+    );
+  });
+});
+
+describe('에러 코드 배열', () => {
+  it('겹치는 코드가 없다', () => {
+    expect(new Set(ARCHITECTURE_VALIDATION_ERROR_CODES).size).toBe(
+      ARCHITECTURE_VALIDATION_ERROR_CODES.length,
+    );
+  });
+});
+
+describe('옮겨진 근거 파일의 movedTo 후보', () => {
+  const movedEv: Evidence = {
+    type: 'code',
+    location: 'web:src/old-home.tsx:2',
+    visibility: 'public',
+  };
+
+  function notFound(opts: Parameters<typeof validateArchitectureIr>[1]) {
+    const result = validateArchitectureIr(makeIr([node('a', [movedEv])]), opts);
+    expect(result.ok).toBe(false);
+    return result.ok ? undefined : result.errors.find((e) => e.code === 'CODE_EVIDENCE_NOT_FOUND');
+  }
+
+  it('findMoved가 지금 있는 파일을 돌려주면 위치 후보를 싣는다', () => {
+    const calls: string[] = [];
+    const error = notFound({
+      findMoved: (repoId, _root, relPath) => {
+        calls.push(`${repoId}:${relPath}`);
+        return ['src/home.tsx'];
+      },
+    });
+    expect(calls).toEqual(['web:src/old-home.tsx']);
+    expect(error?.movedTo).toEqual(['web:src/home.tsx:2']);
+    expect(error?.message).toContain('web:src/home.tsx:2');
+  });
+
+  it('후보 파일이 지금도 없으면 버린다', () => {
+    const error = notFound({ findMoved: () => ['src/also-gone.tsx'] });
+    expect(error?.movedTo).toBeUndefined();
+  });
+
+  it('findMoved가 없거나 던지면 예전처럼 에러만 낸다', () => {
+    expect(notFound({})?.movedTo).toBeUndefined();
+    const error = notFound({
+      findMoved: () => {
+        throw new Error('git 없음');
+      },
+    });
+    expect(error?.code).toBe('CODE_EVIDENCE_NOT_FOUND');
+    expect(error?.movedTo).toBeUndefined();
+  });
+});
+
+describe('문서의 에러 코드 표', () => {
+  it('docs/architecture-view.md 검증 규칙 표가 validator 에러 코드와 같다', () => {
+    const doc = readFileSync(resolve('docs/architecture-view.md'), 'utf-8');
+    const start = doc.indexOf('## 검증 규칙');
+    const end = doc.indexOf('`checkFiles: false`', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const section = doc.slice(start, end);
+    const documented = [...section.matchAll(/^\| `([A-Z_]+)` +\|/gm)].map((m) => m[1]!);
+    expect([...documented].sort()).toEqual([...ARCHITECTURE_VALIDATION_ERROR_CODES].sort());
+    expect(documented).toHaveLength(54);
+    expect(section).toContain('아래 쉰넷은 IR 전체를 거부한다');
+  });
+});
+
+describe('작성 품질 경고 (카드 제목, 표시 이름 언어, 레벨 요약, 단계 설명)', () => {
+  function warningOf(ir: ArchitectureIr, code: string) {
+    const result = validateArchitectureIr(ir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return undefined;
+    return result.value.warnings.find((w) => w.code === code) as
+      | {
+          code: string;
+          nodeIds?: string[];
+          levelIds?: string[];
+          flowId?: string;
+          stepIds?: string[];
+        }
+      | undefined;
+  }
+  const titled = (
+    id: string,
+    label: string,
+    extra: Partial<ArchitectureNode> = {},
+  ): ArchitectureNode => ({ ...node(id), label, description: '하는 일이에요.', ...extra });
+
+  it('isPathlikeTitle은 경로와 파일 이름, scheme:경로를 잡고 사람 이름과 프레임워크 이름은 거른다', () => {
+    for (const t of [
+      'src/interview/engine.ts',
+      'memory.json',
+      'sqlite:.gestalt/events.db',
+      'SKILL.md',
+      'C:\\dir\\a.ts',
+      'sqlite:events.db',
+      'classpath:application.yml',
+      'app.sh',
+    ]) {
+      expect(isPathlikeTitle(t), t).toBe(true);
+    }
+    for (const t of [
+      '주문 서버',
+      'OrderService',
+      'Next.js',
+      'Node.js',
+      'v1.2',
+      '로그인/회원가입',
+      '',
+      'kafka:orders',
+      'redis:cache',
+      'queue:emails',
+    ]) {
+      expect(isPathlikeTitle(t), t).toBe(false);
+    }
+  });
+
+  it('displayName이 없고 label이 경로인 노드를 잡고 엔드포인트와 표시 이름을 단 노드는 뺀다', () => {
+    const ir = makeIr([
+      titled('b-file', 'src/b.ts'),
+      titled('a-file', 'memory.json'),
+      titled('named', 'src/c.ts', { displayName: '기억 저장' }),
+      titled('ep', 'GET /items', { kind: 'endpoint' }),
+      titled('plain', 'OrderService'),
+    ]);
+    const w = warningOf(ir, 'NODE_TITLE_PATHLIKE');
+    expect(w?.nodeIds).toEqual(['a-file', 'b-file']);
+  });
+
+  it('displayName 자체가 경로면 그것도 잡는다', () => {
+    const w = warningOf(
+      makeIr([titled('x', 'x', { displayName: 'lib/x.ts' })]),
+      'NODE_TITLE_PATHLIKE',
+    );
+    expect(w?.nodeIds).toEqual(['x']);
+  });
+
+  it('설명 글이 대부분 한글이면 한글 없는 displayName을 잡는다', () => {
+    const ir = makeIr([
+      titled('en', 'svc', { displayName: 'Order Service' }),
+      titled('ko', 'svc2', { displayName: '주문 서버' }),
+      titled('none', 'svc3'),
+    ]);
+    expect(warningOf(ir, 'DISPLAY_NAME_LANGUAGE')?.nodeIds).toEqual(['en']);
+  });
+
+  it('설명 글이 대부분 영어면 표시 이름 언어를 묻지 않는다', () => {
+    const ir = makeIr([
+      titled('en', 'svc', { displayName: 'Order Service', description: 'Handles orders.' }),
+      titled('en2', 'svc2', { displayName: 'Cart', description: 'Keeps the cart.' }),
+    ]);
+    expect(warningOf(ir, 'DISPLAY_NAME_LANGUAGE')).toBeUndefined();
+  });
+
+  it('그려지는 흐름의 설명 없는 단계를 흐름마다 한 건씩 낸다', () => {
+    const ir = makeIr([titled('a', 'a')]);
+    ir.flows = [
+      {
+        id: 'f1',
+        title: '결제',
+        actors: [{ id: 'u', label: '고객', kind: 'person' }],
+        steps: [
+          { id: 's1', actor: 'u', label: '담기', evidence: [codeEv()] },
+          {
+            id: 's2',
+            actor: 'u',
+            label: '결제',
+            evidence: [codeEv()],
+            description: '카드로 낸다.',
+          },
+          { id: 's3', actor: 'u', label: '근거 없음', evidence: [] },
+        ],
+        transitions: [],
+      },
+    ];
+    const w = warningOf(ir, 'FLOW_STEP_DESCRIPTION_MISSING');
+    expect(w?.flowId).toBe('f1');
+    // 근거 없어 안 그려지는 단계는 묻지 않는다
+    expect(w?.stepIds).toEqual(['s1']);
+  });
+
+  it('드릴다운 그림에서 요약 없는 레벨과 그 레벨을 여는 노드를 알린다', () => {
+    const svc: ArchitectureNode = {
+      ...titled('svc', 'shop'),
+      kind: 'service',
+      displayName: '가게',
+    };
+    const child = { ...titled('home', 'home'), parent: 'svc' };
+    const ir = makeIr([svc, child]);
+    const w = warningOf(ir, 'LEVEL_SUMMARY_MISSING');
+    expect(w?.levelIds).toEqual(expect.arrayContaining(['root']));
+    expect(w?.nodeIds).toContain('svc');
+
+    const filled = makeIr([{ ...svc, summary: '가게 서비스예요.' }, child]);
+    filled.summary = '가게 하나를 그린 그림이에요.';
+    expect(warningOf(filled, 'LEVEL_SUMMARY_MISSING')).toBeUndefined();
+  });
+
+  it('summary와 note가 없는 예전 픽스처는 경고만 받고 막히지 않는다', () => {
+    for (const ir of [webIr(), flowIr(), harnessIr(), deployIr(), partnerIr()]) {
+      const result = validateArchitectureIr(ir, { checkFiles: false });
+      expect(result.ok, ir.view).toBe(true);
+      if (!result.ok) continue;
+      // 경고는 코드마다 한 건이다. 흐름 단계 경고만 흐름마다 한 건이다
+      const codes = result.value.warnings
+        .map((w) => w.code)
+        .filter((c) => c !== 'FLOW_STEP_DESCRIPTION_MISSING');
+      expect(new Set(codes).size).toBe(codes.length);
+    }
+  });
+
+  it('드릴다운이 없는 평면 그림은 레벨 요약을 묻지 않고 예전 IR도 ok다', () => {
+    const result = validateArchitectureIr(makeIr([titled('a', 'a')]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.warnings.map((w) => w.code)).not.toContain('LEVEL_SUMMARY_MISSING');
   });
 });

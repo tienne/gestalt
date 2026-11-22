@@ -2,6 +2,25 @@
 import ELK from 'elkjs/lib/elk.bundled.js';
 import type { ElkExtendedEdge, ElkNode, LayoutOptions } from 'elkjs/lib/elk.bundled.js';
 import { flowBadgeText, LANE_TITLES, NODE_KIND_SHORT, platformChipText } from './kind-text.js';
+import {
+  CARD_CHIP_ROW,
+  CARD_DESC_CHAR_W,
+  CARD_DESC_LINE,
+  CARD_DESC_MAX_INNER,
+  CARD_DESC_MAX_LINES,
+  CARD_MAX_W,
+  CARD_MIN_H,
+  CARD_MIN_W,
+  CARD_PAD_Y,
+  CARD_SECOND_ROW,
+  CARD_TEXT_LEFT,
+  CARD_TEXT_RIGHT,
+  CARD_TITLE_CHAR_W,
+  CARD_TITLE_ROW,
+  PILL_H,
+  PILL_MAX_W,
+  PILL_MIN_W,
+} from './layout-tuning.js';
 import type {
   ArchitectureIr,
   ArchitectureNode,
@@ -193,6 +212,14 @@ export interface GraphLayoutNode {
   flows?: number;
   /** 이름 아래 설명 줄. 비거나 공백뿐이면 줄을 안 만든다 */
   description?: string;
+  /** 카드 크기를 직접 정한다. 있으면 measureNode를 건너뛴다. 드릴다운 큰 카드와 덩어리 카드, 바깥 알약이 쓴다 */
+  size?: { width: number; height: number };
+}
+
+/** elk 간격. 드릴다운 레벨만 넘기고 평면 그림은 GRAPH_OPTIONS 기본값을 쓴다 */
+export interface GraphSpacing {
+  betweenLayers: number;
+  node: number;
 }
 
 export interface GraphLayoutEdge {
@@ -206,11 +233,12 @@ export interface GraphLayoutEdge {
 const NODE_HEIGHT = 48;
 // 표시 이름과 기술 이름을 두 줄로 쌓는 카드. 글자 수와 무관하게 고정해야 좌표가 입력에만 묶인다
 export const NODE_HEIGHT_TWO_LINES = 60;
-/** 이름 아래 설명 줄이 더하는 높이. 11px 글꼴의 16px 줄에 행 간격 2px다 */
-export const NODE_DESC_LINE = 18;
-// 설명 줄은 11px 글꼴 기준으로 잰다. 긴 설명이 카드를 끝없이 넓히지 않게 안쪽 폭은 상한까지만 늘리고 나머지는 말줄임으로 자른다
-const DESC_CHAR_WIDTH = 5.5;
-const DESC_MAX_INNER = 200;
+/** 이름 아래 설명 줄이 더하는 높이. 12px 글꼴의 17px 줄에 행 간격 2px다 */
+export const NODE_DESC_LINE = 19;
+// 설명 줄은 12px 글꼴 기준으로 잰다. 헤드리스 크롬 measureText로 한글과 영문 설명을 재 보니 칸당 최대 5.6px이라 7% 여유를 둔다.
+// 긴 설명이 카드를 끝없이 넓히지 않게 안쪽 폭은 상한(한글 열여덟 자)까지만 늘리고 나머지는 말줄임으로 자른다
+export const DESC_CHAR_WIDTH = 6;
+export const DESC_MAX_INNER = 216;
 /** "추정" 배지가 첫 줄에서 차지하는 폭. 앞 여백과 알약 테두리, 한글 두 자 */
 export const INFERRED_BADGE_UNITS = 5;
 /** 카드 왼쪽 색 띠와 안쪽 여백. 종류 칩은 이 뒤에서 시작한다 */
@@ -315,6 +343,84 @@ export function measureNode(
   };
 }
 
+export interface CardExtras extends MeasureExtras {
+  /** 이 카드를 눌러 들어갈 레벨에 선 카드 수. 0이거나 없으면 칩 줄에 안 찍는다 */
+  inner?: number;
+}
+
+/** 칩 줄 알약 하나의 폭. 좌우 안쪽 여백과 뒤 틈에 11px 글자 폭이다 */
+function rowChipWidth(text: string): number {
+  return 8 + 6 + textUnits(text) * 6;
+}
+
+/** 큰 카드 아래 칩 줄 글자. 렌더러도 같은 함수로 찍어 잰 폭과 그린 글자가 어긋나지 않는다 */
+export function cardChipTexts(
+  displayName: string | undefined,
+  displayNameInferred: boolean | undefined,
+  extras: CardExtras,
+): string[] {
+  return [
+    ...(extras.inner !== undefined && extras.inner > 0 ? [`항목 ${extras.inner}`] : []),
+    ...(displayName !== undefined && displayNameInferred ? ['추정'] : []),
+    ...(extras.flows !== undefined && extras.flows > 0 ? [flowBadgeText(extras.flows)] : []),
+  ];
+}
+
+/**
+ * 드릴다운 레벨의 큰 카드. 첫 줄은 종류 칩과 제목(15px), 둘째 줄은 기술 이름이나 도메인과 플랫폼 칩,
+ * 그 아래 설명은 최대 CARD_DESC_MAX_LINES줄, 맨 아래 칩 줄에 안쪽 항목 수와 추정, 흐름 수가 선다.
+ * 설명 줄 수는 제 폭으로 센다. 열 폭을 맞추며 넓어지면 줄이 줄어 남는 높이는 CSS가 가운데로 모은다
+ */
+export function measureCard(
+  label: string,
+  displayName?: string,
+  displayNameInferred?: boolean,
+  kind?: DisplayKind,
+  extras: CardExtras = {},
+): { width: number; height: number } {
+  const name = displayName ?? label;
+  const first = chipWidth(kind, extras.chip) + textUnits(name) * CARD_TITLE_CHAR_W;
+  const second = extras.secondLine ?? (displayName !== undefined ? label : undefined);
+  const platforms = platformChipsWidth(extras.platforms, extras.webHosting);
+  const twoLines = second !== undefined || platforms > 0;
+  const secondW = twoLines ? textUnits(second ?? '') * CARD_DESC_CHAR_W + platforms : 0;
+  const desc = hasCardDescription(extras.description);
+  const descW = desc ? textUnits(extras.description!) * CARD_DESC_CHAR_W : 0;
+  const chips = cardChipTexts(displayName, displayNameInferred, extras);
+  const chipsW = chips.reduce((w, t) => w + rowChipWidth(t), 0);
+  const raw = Math.ceil(
+    CARD_TEXT_LEFT +
+      CARD_TEXT_RIGHT +
+      Math.max(first, secondW, Math.min(CARD_DESC_MAX_INNER, descW), chipsW),
+  );
+  const width = Math.min(CARD_MAX_W, Math.max(CARD_MIN_W, raw));
+  const inner = width - CARD_TEXT_LEFT - CARD_TEXT_RIGHT;
+  const lines = desc ? Math.min(CARD_DESC_MAX_LINES, Math.max(1, Math.ceil(descW / inner))) : 0;
+  const height =
+    CARD_PAD_Y * 2 +
+    CARD_TITLE_ROW +
+    (twoLines ? CARD_SECOND_ROW : 0) +
+    (lines > 0 ? lines * CARD_DESC_LINE + 2 : 0) +
+    (chips.length > 0 ? CARD_CHIP_ROW : 0);
+  return { width, height: Math.max(CARD_MIN_H, height) };
+}
+
+/** 바깥 맥락 알약. 종류 칩과 이름 한 줄에 ↗ 자리를 더한다 */
+export function measurePill(
+  label: string,
+  displayName?: string,
+  kind?: DisplayKind,
+  chip?: string,
+): { width: number; height: number } {
+  const raw = Math.ceil(
+    CARD_TEXT_LEFT +
+      CARD_TEXT_RIGHT +
+      chipWidth(kind, chip) +
+      textUnits(displayName ?? label) * NARROW_CHAR_WIDTH,
+  );
+  return { width: Math.min(PILL_MAX_W, Math.max(PILL_MIN_W, raw)), height: PILL_H };
+}
+
 function round2(v: number): number {
   return Math.round(v * 100) / 100;
 }
@@ -405,6 +511,7 @@ export async function computeGraphLayout(
   nodeList: readonly GraphLayoutNode[],
   edgeList: readonly GraphLayoutEdge[],
   stageLabels?: readonly string[],
+  spacing?: GraphSpacing,
 ): Promise<LayoutResult> {
   const nodes = [...nodeList].sort(byId);
   const rankOf = (n: GraphLayoutNode): number =>
@@ -423,17 +530,26 @@ export async function computeGraphLayout(
   const ordered = nodes.some((n) => n.order !== undefined);
   const graph: ElkNode = {
     id: 'root',
-    layoutOptions: ordered ? ORDERED_GRAPH_OPTIONS : GRAPH_OPTIONS,
+    layoutOptions: {
+      ...(ordered ? ORDERED_GRAPH_OPTIONS : GRAPH_OPTIONS),
+      ...(spacing !== undefined
+        ? {
+            'elk.layered.spacing.nodeNodeBetweenLayers': String(spacing.betweenLayers),
+            'elk.spacing.nodeNode': String(spacing.node),
+          }
+        : {}),
+    },
     children: nodes.map((n) => ({
       id: n.id,
-      ...measureNode(n.label, n.displayName, n.displayNameInferred, n.kind, {
-        ...(n.chip !== undefined ? { chip: n.chip } : {}),
-        ...(n.platforms !== undefined ? { platforms: n.platforms } : {}),
-        ...(n.webHosting !== undefined ? { webHosting: n.webHosting } : {}),
-        ...(n.secondLine !== undefined ? { secondLine: n.secondLine } : {}),
-        ...(n.flows !== undefined ? { flows: n.flows } : {}),
-        ...(n.description !== undefined ? { description: n.description } : {}),
-      }),
+      ...(n.size ??
+        measureNode(n.label, n.displayName, n.displayNameInferred, n.kind, {
+          ...(n.chip !== undefined ? { chip: n.chip } : {}),
+          ...(n.platforms !== undefined ? { platforms: n.platforms } : {}),
+          ...(n.webHosting !== undefined ? { webHosting: n.webHosting } : {}),
+          ...(n.secondLine !== undefined ? { secondLine: n.secondLine } : {}),
+          ...(n.flows !== undefined ? { flows: n.flows } : {}),
+          ...(n.description !== undefined ? { description: n.description } : {}),
+        })),
       // 레이어 안 카드를 왼쪽에 맞춰야 레인이 들쭉날쭉한 열이 아니라 한 줄로 읽힌다
       layoutOptions: {
         'elk.partitioning.partition': String(rankOf(n)),
