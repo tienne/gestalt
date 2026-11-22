@@ -2,7 +2,7 @@
 // 읽기만 하므로 GET과 HEAD 말고는 받지 않고, 컨덕터 상태를 바꾸는 길은 두지 않는다.
 import { createHash } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { mobileFragment, mobilePage, SCRIPT } from './mobile'
+import { mobileFragment, mobilePage, screenOf, SCRIPT, terminalFragment, terminalPage } from './mobile'
 import type { ConductorView } from './protocol'
 
 export const FRAGMENT_HEADER = 'x-conductor-fragment'
@@ -80,8 +80,9 @@ export class MobileServer {
     if (!allowedHost(typeof host === 'string' ? host : undefined, this.port)) return send(403, 'forbidden')
     if ((req.url ?? '/').split('?')[0]!.endsWith('/favicon.ico')) return send(404, 'not found')
 
-    const fragment = mobileFragment(this.view())
+    const terminal = screenOf(req.url) === 'terminal'
+    const fragment = terminal ? terminalFragment(this.view()) : mobileFragment(this.view())
     if (req.headers[FRAGMENT_HEADER] === '1') return send(200, fragment, 'text/html; charset=utf-8')
-    send(200, mobilePage(fragment), 'text/html; charset=utf-8')
+    send(200, terminal ? terminalPage(fragment) : mobilePage(fragment), 'text/html; charset=utf-8')
   }
 }

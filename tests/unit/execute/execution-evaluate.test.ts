@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, beforeAll } from 'vitest';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
 import { EventStore } from '../../../src/events/store.js';
 import { isOk, isErr } from '../../../src/core/result.js';
@@ -21,6 +21,9 @@ import type { IHostAdapter } from '../../../src/mcp/host-adapter.js';
 import { createFakeRepo, cleanupFakeRepos } from '../../helpers/fake-repo.js';
 import { codeGraphEngine } from '../../../src/code-graph/index.js';
 import type { BlastRadiusResult } from '../../../src/code-graph/types.js';
+import { EMBEDDING_WARMUP_TIMEOUT, warmDriftEmbedding } from '../../helpers/warm-embedding.js';
+
+beforeAll(warmDriftEmbedding, EMBEDDING_WARMUP_TIMEOUT);
 
 function createTestSpec(): Spec {
   return {

@@ -2,9 +2,13 @@
 import {
   TERMINAL_ORDER_STATUSES,
   type Bypass,
+  type CheckpointView,
+  type ConductorInfo,
   type ConductorView,
+  type EventView,
   type GateView,
-  type OrderView
+  type OrderView,
+  type WaitingView
 } from './protocol'
 
 /** `gestalt conductor status --json`의 주문 한 줄. 옛 CLI에는 뒤쪽 필드가 없다 */
@@ -25,6 +29,12 @@ export type RawOrder = {
   parentOrderId?: string
   parentWorktree?: string
   baseBranch?: string
+  account?: string
+  rateLimitedAt?: string
+  rateLimitResetsAt?: string
+  skillChain?: string[]
+  checkpoint?: CheckpointView
+  waiting?: WaitingView
   bypasses: Bypass[]
 }
 
@@ -34,6 +44,8 @@ export type RawStatus = {
   orders: RawOrder[]
   unassignedBypasses: Bypass[]
   gates: GateView[]
+  conductor?: ConductorInfo
+  recentEvents?: EventView[]
 }
 
 export type Workspace = {
@@ -61,6 +73,69 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
+
+const num = (v: unknown): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v) ? v : undefined
+
+const strings = (v: unknown): string[] | undefined =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined
+
+function checkpoint(v: unknown): CheckpointView | undefined {
+  if (!isRecord(v) || !str(v['skill'])) return undefined
+  const phase = str(v['phase'])
+  const round = num(v['round'])
+  return {
+    skill: str(v['skill'])!,
+    ...(phase ? { phase } : {}),
+    ...(round !== undefined ? { round } : {}),
+    next: str(v['next']) ?? '',
+    completedSkills: strings(v['completedSkills']) ?? [],
+    savedAt: str(v['savedAt']) ?? ''
+  }
+}
+
+function waiting(v: unknown): WaitingView | undefined {
+  if (!isRecord(v) || !str(v['reason'])) return undefined
+  const until = str(v['until'])
+  return { reason: str(v['reason'])!, since: str(v['since']) ?? '', ...(until ? { until } : {}) }
+}
+
+function conductorInfo(v: unknown): ConductorInfo | undefined {
+  if (!isRecord(v)) return undefined
+  const out: ConductorInfo = {}
+  for (const key of [
+    'pollIntervalSec',
+    'maxWorkers',
+    'activeWorkers',
+    'queuedOrders',
+    'disconnectedWorkers',
+    'compactions'
+  ] as const) {
+    const n = num(v[key])
+    if (n !== undefined) out[key] = n
+  }
+  const repos = strings(v['prWatchRepos'])
+  if (repos) out.prWatchRepos = repos
+  return out
+}
+
+function events(v: unknown): EventView[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const out: EventView[] = []
+  for (const e of v) {
+    if (!isRecord(e) || !str(e['at']) || !str(e['type'])) continue
+    const orderId = str(e['orderId'])
+    const until = str(e['until'])
+    out.push({
+      at: str(e['at'])!,
+      type: str(e['type'])!,
+      ...(orderId ? { orderId } : {}),
+      summary: str(e['summary']) ?? '',
+      ...(until ? { until } : {})
+    })
+  }
+  return out
+}
 
 function bypasses(v: unknown): Bypass[] {
   if (!Array.isArray(v)) return []
@@ -97,11 +172,20 @@ export function parseStatus(value: unknown): RawStatus {
       'issue',
       'parentOrderId',
       'parentWorktree',
-      'baseBranch'
+      'baseBranch',
+      'account',
+      'rateLimitedAt',
+      'rateLimitResetsAt'
     ] as const) {
       const v = str(o[key])
       if (v !== undefined) order[key] = v
     }
+    const chain = strings(o['skillChain'])
+    if (chain) order.skillChain = chain
+    const cp = checkpoint(o['checkpoint'])
+    if (cp) order.checkpoint = cp
+    const wait = waiting(o['waiting'])
+    if (wait) order.waiting = wait
     orders.push(order)
   }
   const gates: GateView[] = []
@@ -118,12 +202,16 @@ export function parseStatus(value: unknown): RawStatus {
     gates.push(gate)
   }
   const stateDir = str(value['stateDir'])
+  const info = conductorInfo(value['conductor'])
+  const recent = events(value['recentEvents'])
   return {
     ...(stateDir ? { stateDir } : {}),
     lastTickAt: str(value['lastTickAt']) ?? null,
     orders,
     unassignedBypasses: bypasses(value['unassignedBypasses']),
-    gates
+    gates,
+    ...(info ? { conductor: info } : {}),
+    ...(recent ? { recentEvents: recent } : {})
   }
 }
 
@@ -205,6 +293,7 @@ export function toView(
         ...(o.updatedAt ? { updatedAt: o.updatedAt } : {}),
         ...(o.worker ? { worker: o.worker } : {}),
         ...(o.workerKind ? { workerKind: o.workerKind } : {}),
+        ...(o.workerStatus ? { workerStatus: o.workerStatus } : {}),
         ...(o.pr ? { pr: o.pr } : {}),
         ...(o.issue ? { issue: o.issue } : {}),
         ...(o.parentOrderId ? { parentOrderId: o.parentOrderId } : {}),
@@ -212,13 +301,22 @@ export function toView(
         ...(parent?.branch ? { parentBranch: parent.branch } : {}),
         ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}),
         ...(ws ? { workspaceId: ws.id, worktreePath: ws.path } : {}),
-        ...(ws?.branch ? { branch: ws.branch } : {})
+        ...(ws?.branch ? { branch: ws.branch } : {}),
+        ...(o.skillChain ? { skillChain: o.skillChain } : {}),
+        ...(o.checkpoint ? { checkpoint: o.checkpoint } : {}),
+        ...(o.waiting ? { waiting: o.waiting } : {}),
+        ...(o.account ? { account: o.account } : {}),
+        ...(o.rateLimitedAt ? { rateLimitedAt: o.rateLimitedAt } : {}),
+        ...(o.rateLimitResetsAt ? { rateLimitResetsAt: o.rateLimitResetsAt } : {})
       }
     }),
     gates: raw.gates,
     unassignedBypasses: raw.unassignedBypasses,
+    ...(raw.conductor ? { conductor: raw.conductor } : {}),
+    ...(raw.recentEvents ? { recentEvents: raw.recentEvents } : {}),
     projects: projectsOf(raw.orders, workspaces),
     ...(raw.orders.some((o) => o.worker && !o.workerKind) ? { outdatedCli: true } : {}),
+    ...(raw.orders.length > 0 && !raw.conductor && !raw.recentEvents ? { terminalFieldsMissing: true } : {}),
     refreshedAt: now
   }
 }

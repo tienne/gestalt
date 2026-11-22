@@ -1,5 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
@@ -8,7 +9,18 @@ import type {
   ArchitectureNode,
 } from '../../../src/architecture/types.js';
 import { architectureInputSchema } from '../../../src/mcp/schemas.js';
-import { handleArchitecturePassthrough } from '../../../src/mcp/tools/architecture-passthrough.js';
+import type { MergeReport } from '../../../src/architecture/merge.js';
+import { FAKE_PASSWORD, FAKE_TOKEN } from '../architecture/fake-secrets.js';
+import {
+  handleArchitecturePassthrough,
+  stopArchitectureLiveServers,
+  type ArchitectureHandlerOptions,
+} from '../../../src/mcp/tools/architecture-passthrough.js';
+import type { LiveSessionBridge } from '../../../src/architecture/live-session.js';
+import {
+  resolveRepoVisibility,
+  type RepoVisibility,
+} from '../../../src/architecture/repo-visibility.js';
 
 let tmpRoot: string;
 let repoRoot: string;
@@ -97,11 +109,23 @@ function makeIr(prefix = 'n'): ArchitectureIr {
   };
 }
 
-async function call(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+// 기본은 비공개로 판정해 gh와 네트워크를 타지 않는다. 공개 여부를 보는 테스트만 바꿔 넣는다
+const PRIVATE_REPO = (): RepoVisibility => ({
+  verdict: 'private',
+  source: 'gh',
+  visibility: 'PRIVATE',
+});
+
+async function call(
+  args: Record<string, unknown>,
+  opts: ArchitectureHandlerOptions = {},
+): Promise<Record<string, unknown>> {
   const input = architectureInputSchema.parse({ repoRoot, ...args });
   return (await handleArchitecturePassthrough(input, process.cwd(), {
     homeDir,
     projectsRoot: join(homeDir, '.claude', 'projects'),
+    resolveVisibility: PRIVATE_REPO,
+    ...opts,
   })) as Record<string, unknown>;
 }
 
@@ -133,6 +157,49 @@ describe('ges_architecture validate', () => {
     expect((result['autoUnresolved'] as unknown[]).length).toBe(1);
   });
 
+  it('통과하면 render와 같은 stats를 싣고 문턱 안이면 signals를 안 싣는다', async () => {
+    const result = await call({ action: 'validate', ir: makeIr() });
+    expect(result['ok']).toBe(true);
+    expect(result['stats']).toMatchObject({
+      nodes: 3,
+      edges: 2,
+      drawnEdges: 2,
+      screenToEndpointRatio: 1,
+      endpointMatchRatio: 1,
+    });
+    expect(result).not.toHaveProperty('signals');
+  });
+
+  it('엔드포인트를 부르는 화면이 60%가 안 되면 SCREEN_ENDPOINT_RATIO_LOW를 싣는다', async () => {
+    const ir = makeIr();
+    ir.nodes.push(node('n-about', 'screen', 'About', 1), node('n-faq', 'screen', 'Faq', 1));
+    const result = await call({ action: 'validate', ir });
+    expect(result['ok']).toBe(true);
+    const signals = result['signals'] as Array<Record<string, unknown>>;
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toMatchObject({ code: 'SCREEN_ENDPOINT_RATIO_LOW', threshold: 0.6 });
+    expect(signals[0]!['value']).toBeCloseTo(1 / 3);
+    expect(typeof signals[0]!['hint']).toBe('string');
+  });
+
+  it('screen-chain이 아니면 화면 비율 신호를 안 싣는다', async () => {
+    const ir = makeIr();
+    ir.nodes.push(node('n-about', 'screen', 'About', 1), node('n-faq', 'screen', 'Faq', 1));
+    const result = await call({ action: 'validate', ir: { ...ir, view: 'deploy-path' } });
+    expect(result['ok']).toBe(true);
+    expect(result).not.toHaveProperty('signals');
+  });
+
+  it('작성 품질 경고를 warnings로 돌려주고 막지 않는다', async () => {
+    const ir = makeIr();
+    ir.nodes[2]!.label = 'src/orders/orders.module.ts';
+    const result = await call({ action: 'validate', ir });
+    expect(result['ok']).toBe(true);
+    const warnings = result['warnings'] as Array<{ code: string; nodeIds?: string[] }>;
+    const pathlike = warnings.find((w) => w.code === 'NODE_TITLE_PATHLIKE');
+    expect(pathlike?.nodeIds).toEqual(['n-orders-module']);
+  });
+
   it('형식이 깨진 IR은 IR_PARSE_ERROR', async () => {
     const result = await call({ action: 'validate', ir: { view: 'screen-chain' } });
     expect(result['ok']).toBe(false);
@@ -142,6 +209,51 @@ describe('ges_architecture validate', () => {
   it('view와 ir.view가 다르면 거부한다', async () => {
     const result = await call({ action: 'validate', view: 'deploy-path', ir: makeIr() });
     expect((result['errors'] as Array<{ code: string }>)[0]!.code).toBe('VIEW_MISMATCH');
+  });
+});
+
+describe('입력 IR의 오타 칸', () => {
+  function typoIr(): Record<string, unknown> {
+    const ir = makeIr() as unknown as { nodes: Array<Record<string, unknown>> };
+    ir.nodes[0]!['discription'] = '오타 난 설명';
+    return ir as unknown as Record<string, unknown>;
+  }
+
+  type ToolError = { code: string; path?: string; suggestion?: string };
+
+  it.each(['validate', 'render'] as const)(
+    '%s는 UNKNOWN_FIELD와 제안 하나로 거부한다',
+    async (action) => {
+      const result = await call({ action, ir: typoIr() });
+      expect(result['ok']).toBe(false);
+      const errors = result['errors'] as ToolError[];
+      const unknown = errors.filter((e) => e.code === 'UNKNOWN_FIELD');
+      expect(unknown).toHaveLength(1);
+      expect(unknown[0]).toMatchObject({
+        path: 'nodes[0].discription',
+        suggestion: 'description',
+      });
+      expect(typeof unknown[0]!.suggestion).toBe('string');
+    },
+  );
+
+  it('render가 거부하면 산출 파일을 쓰지 않는다', async () => {
+    await call({ action: 'render', ir: typoIr() });
+    expect(existsSync(join(repoRoot, '.gestalt', 'architecture', 'screen-chain.json'))).toBe(false);
+  });
+
+  it('비슷한 칸이 없으면 제안 없이 거부한다', async () => {
+    const ir = makeIr() as unknown as Record<string, unknown>;
+    ir['zzzzzzzz'] = 1;
+    const result = await call({ action: 'validate', ir });
+    const unknown = (result['errors'] as ToolError[]).find((e) => e.code === 'UNKNOWN_FIELD');
+    expect(unknown?.path).toBe('zzzzzzzz');
+    expect(unknown?.suggestion).toBeUndefined();
+  });
+
+  it('오타 칸이 없는 IR은 그대로 통과한다', async () => {
+    const result = await call({ action: 'validate', ir: makeIr() });
+    expect(result['ok']).toBe(true);
   });
 });
 
@@ -391,6 +503,34 @@ describe('ges_architecture filter_tools / match_endpoints', () => {
     });
     expect(result['matches']).toEqual([{ feCallId: 'fe1', beRouteId: 'be1', viaPrefix: null }]);
     expect(result['unmatched']).toEqual([]);
+    expect(result['learnedPrefixes']).toEqual([]);
+    expect(result).not.toHaveProperty('suggestedNote');
+  });
+
+  it('match_endpoints는 beRoutes의 mountPrefix를 붙여 잇고 못 맞춘 호출에는 후보만 단다', async () => {
+    const result = await call({
+      action: 'match_endpoints',
+      feCalls: [
+        { id: 'fe1', method: 'GET', path: '/api/orders/${id}' },
+        { id: 'fe2', method: 'GET', path: '/shop/orders/${id}/items' },
+      ],
+      beRoutes: [
+        { id: 'be1', method: 'GET', path: '/orders/{orderId}', repo: 'api', mountPrefix: '/api' },
+        { id: 'be2', method: 'GET', path: '/v2/orders/{orderId}/items', repo: 'api' },
+      ],
+    });
+    expect(result['matches']).toEqual([
+      { feCallId: 'fe1', beRouteId: 'be1', viaPrefix: '/api', matchedBy: 'mount_prefix' },
+    ]);
+    expect(result['unmatched']).toEqual([
+      {
+        feCallId: 'fe2',
+        reason: 'no_route',
+        candidates: [],
+        suggested: [{ beRouteId: 'be2', score: 6, fePrefix: '/shop', routePrefix: '/v2' }],
+      },
+    ]);
+    expect(result['suggestedNote']).toContain('1개');
   });
 
   it('match_endpoints는 nameRefs를 팩 matcher 규칙으로 잇는다', async () => {
@@ -450,6 +590,33 @@ describe('ges_architecture merge', () => {
     const result = await call({ action: 'merge', irs: [product('a', 'acme-shop'), makeIr('b')] });
     expect(result['ok']).toBe(true);
     expect((result['ir'] as ArchitectureIr).nodes.length).toBe(7);
+  });
+
+  it('받는 핸들러를 못 찾은 FE 엔드포인트는 알림으로 싣고 mountPrefixes를 주면 잇는다', async () => {
+    const fe = product('a', 'acme-shop');
+    fe.nodes = fe.nodes.filter((n) => n.id !== 'a-orders-module');
+    fe.edges = fe.edges.filter((e) => e.id !== 'a-e2');
+    fe.nodes.find((n) => n.id === 'a-orders-api')!.label = 'GET /api/orders';
+    const be = product('b', 'acme-api');
+
+    const loose = await call({ action: 'merge', irs: [fe, be] });
+    expect(loose['ok']).toBe(true);
+    const report = loose['report'] as MergeReport;
+    expect(report.crossRepoEdges).toEqual([]);
+    expect(report.unlinkedEndpoints).toEqual([
+      { nodeId: 'a-orders-api', label: 'GET /api/orders', repo: 'acme-shop' },
+    ]);
+    expect(loose['nextAction']).toContain('unlinkedEndpoints의 1개');
+
+    const mounted = await call({
+      action: 'merge',
+      irs: [fe, be],
+      mountPrefixes: { 'acme-api': '/api' },
+    });
+    const linked = mounted['report'] as MergeReport;
+    expect(linked.crossRepoEdges).toHaveLength(1);
+    expect(linked).not.toHaveProperty('unlinkedEndpoints');
+    expect(mounted['nextAction']).not.toContain('unlinkedEndpoints');
   });
 
   it('입력 하나가 깨졌으면 몇 번째인지 알려준다', async () => {
@@ -634,5 +801,456 @@ describe('ges_architecture render의 구조 변경 그림', () => {
     const [b1, b2] = await run();
     expect(a1.equals(b1)).toBe(true);
     expect(a2.equals(b2)).toBe(true);
+  });
+});
+
+describe('ges_architecture render의 비밀값 가림', () => {
+  function filesUnder(dir: string): string[] {
+    return readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile())
+      .map((d) => join(d.parentPath, d.name));
+  }
+
+  function secretIr(prefix = 'n'): ArchitectureIr {
+    const ir = makeIr(prefix);
+    // 코드 근거 excerpt는 실제 줄과 같아야 검증을 통과한다. 가림이 검증 뒤에 와야 이 대조가 안 깨진다
+    ir.nodes[0]!.evidence[0] = {
+      type: 'code',
+      location: 'web:src/config.ts:1',
+      visibility: 'public',
+      excerpt: `const token = "${FAKE_TOKEN}";`,
+    };
+    ir.nodes[1]!.description = `postgres://app:${FAKE_PASSWORD}@db.local/app 로 붙는다`;
+    return ir;
+  }
+
+  it('본인용, 저장 IR, views, 공유본, delta 두 벌과 응답 어디에도 원래 값이 없고 경고는 위치만 싣는다', async () => {
+    writeFileSync(join(repoRoot, 'src/config.ts'), `const token = "${FAKE_TOKEN}";\n`);
+    const first = await call({ action: 'render', ir: secretIr() });
+    expect(first['ok']).toBe(true);
+    // 예전 실행이 가림 없이 남긴 IR이 디스크에 있다고 치고 delta의 이전 쪽도 가려지는지 본다
+    writeFileSync(first['irPath'] as string, JSON.stringify(secretIr(), null, 2));
+
+    const next = secretIr();
+    next.nodes.push(node('n-pay', 'endpoint', 'POST /pay', 2));
+    next.edges.push(edge('n-e3', 'n-home', 'n-pay', 'calls'));
+    const second = await call({ action: 'render', ir: next });
+    expect(second['ok']).toBe(true);
+    expect((second['delta'] as { status: string }).status).toBe('created');
+
+    const files = filesUnder(join(repoRoot, '.gestalt', 'architecture'));
+    const names = files.map((f) => f.slice(f.lastIndexOf('/') + 1));
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'screen-chain.html',
+        'screen-chain.shared.html',
+        'screen-chain.delta.html',
+        'screen-chain.delta.shared.html',
+      ]),
+    );
+    for (const f of files) {
+      const text = readFileSync(f, 'utf8');
+      expect(text, f).not.toContain(FAKE_TOKEN);
+      expect(text, f).not.toContain(FAKE_PASSWORD);
+    }
+    const response = JSON.stringify(second);
+    expect(response).not.toContain(FAKE_TOKEN);
+    expect(response).not.toContain(FAKE_PASSWORD);
+
+    const masked = (second['warnings'] as Array<Record<string, unknown>>).filter(
+      (w) => w['code'] === 'SECRET_MASKED',
+    );
+    expect(masked).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ nodeId: 'n-home', field: 'evidence[0].excerpt' }),
+        expect.objectContaining({ nodeId: 'n-orders-api', field: 'description' }),
+      ]),
+    );
+    // 같은 자리는 한 번만 싣는다
+    const keys = masked.map((w) => `${String(w['nodeId'])}/${String(w['field'])}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe('ges_architecture render의 커밋 정책', () => {
+  const VIEW = 'screen-chain';
+  const rel = (name: string) => join('.gestalt', 'architecture', name);
+
+  function git(...args: string[]): string {
+    return execFileSync('git', ['-C', repoRoot, ...args], { encoding: 'utf8' });
+  }
+
+  function isIgnored(path: string): boolean {
+    try {
+      git('check-ignore', '-q', '--no-index', '--', path);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const fixed = (r: RepoVisibility) => (): RepoVisibility => r;
+
+  beforeEach(() => {
+    git('init', '-q');
+    git('config', 'user.email', 'test@example.com');
+    git('config', 'user.name', 'test');
+    git('config', 'commit.gpgsign', 'false');
+  });
+
+  it('공개 레포면 본인용 HTML과 IR은 무시하고 공유본은 커밋할 수 있게 둔다', async () => {
+    const out = await call(
+      { action: 'render', ir: makeIr() },
+      { resolveVisibility: fixed({ verdict: 'public', source: 'gh', visibility: 'PUBLIC' }) },
+    );
+    expect(out['ok']).toBe(true);
+    expect(out['visibility']).toEqual({ verdict: 'public', source: 'gh' });
+    expect(out['ignoreFilePath']).toBe(join(repoRoot, rel('.gitignore')));
+    expect(existsSync(out['ignoreFilePath'] as string)).toBe(true);
+    expect(isIgnored(rel(`${VIEW}.html`))).toBe(true);
+    expect(isIgnored(rel(`${VIEW}.json`))).toBe(true);
+    expect(isIgnored(rel(`${VIEW}.shared.html`))).toBe(false);
+  });
+
+  it('비공개 레포면 아무것도 막지 않는다', async () => {
+    const out = await call({ action: 'render', ir: makeIr() });
+    expect(out['ok']).toBe(true);
+    expect(out['visibility']).toEqual({ verdict: 'private', source: 'gh' });
+    expect(out['ignoreFilePath']).toBeUndefined();
+    expect(existsSync(join(repoRoot, rel('.gitignore')))).toBe(false);
+    for (const f of [`${VIEW}.html`, `${VIEW}.json`, `${VIEW}.shared.html`]) {
+      expect(isIgnored(rel(f)), f).toBe(false);
+    }
+  });
+
+  it.each([
+    [
+      'gh 실패',
+      'gh_failed',
+      {
+        readRemoteUrl: () => 'git@github.com:acme/web.git',
+        ghRepoView: () => {
+          throw new Error('gh: command not found');
+        },
+      },
+    ],
+    ['원격 없음', 'no_remote', { readRemoteUrl: () => null, ghRepoView: () => '' }],
+    [
+      'GitHub 밖 원격',
+      'non_github_remote',
+      { readRemoteUrl: () => 'https://gitlab.com/acme/web.git', ghRepoView: () => '' },
+    ],
+  ])('%s 이면 공개로 보고 같은 .gitignore를 쓴다', async (_name, reason, deps) => {
+    const out = await call(
+      { action: 'render', ir: makeIr() },
+      { resolveVisibility: (root) => resolveRepoVisibility(root, deps) },
+    );
+    expect(out['ok']).toBe(true);
+    expect(out['visibility']).toEqual({
+      verdict: 'public',
+      source: 'fallback',
+      fallbackReason: reason,
+    });
+    expect(isIgnored(rel(`${VIEW}.html`))).toBe(true);
+    expect(isIgnored(rel(`${VIEW}.shared.html`))).toBe(false);
+  });
+
+  it('이미 추적 중인 본인용 산출물이 있으면 경고 한 건만 내고 render는 끝까지 간다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    git('add', '-A');
+    git('commit', '-q', '-m', 'private repo commit');
+
+    const out = await call(
+      { action: 'render', ir: makeIr() },
+      { resolveVisibility: fixed({ verdict: 'public', source: 'gh', visibility: 'PUBLIC' }) },
+    );
+    expect(out['ok']).toBe(true);
+    const tracked = ((out['warnings'] ?? []) as { code: string; paths?: string[] }[]).filter(
+      (w) => w.code === 'IGNORED_FILE_TRACKED',
+    );
+    expect(tracked).toHaveLength(1);
+    expect(tracked[0]!.paths).toContain(rel(`${VIEW}.html`));
+    expect(tracked[0]!.paths).not.toContain(rel(`${VIEW}.shared.html`));
+    expect(existsSync(out['htmlPath'] as string)).toBe(true);
+    // 서버는 추적을 풀지 않는다
+    expect(git('ls-files', '--', rel(`${VIEW}.html`)).trim()).toBe(rel(`${VIEW}.html`));
+  });
+
+  it('공개 여부 판정이 던져도 render는 성공한다', async () => {
+    const out = await call(
+      { action: 'render', ir: makeIr() },
+      {
+        resolveVisibility: () => {
+          throw new Error('boom');
+        },
+      },
+    );
+    expect(out['ok']).toBe(true);
+    expect(out['visibility']).toBeUndefined();
+    expect(existsSync(out['htmlPath'] as string)).toBe(true);
+  });
+});
+
+describe('ges_architecture render의 커밋 해시와 승계 보고', () => {
+  function git(...args: string[]): string {
+    return execFileSync('git', ['-C', repoRoot, '-c', 'core.hooksPath=/dev/null', ...args], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  }
+
+  beforeEach(() => {
+    git('init', '-q');
+    git('config', 'user.email', 'test@example.com');
+    git('config', 'user.name', 'test');
+    git('config', 'commit.gpgsign', 'false');
+    git('add', 'src');
+    git('commit', '-q', '-m', 'init');
+  });
+
+  function savedIr(result: Record<string, unknown>): ArchitectureIr {
+    return JSON.parse(readFileSync(result['irPath'] as string, 'utf-8')) as ArchitectureIr;
+  }
+
+  it('저장 IR에만 지금 HEAD를 적고 HTML에는 넣지 않는다', async () => {
+    const head = git('rev-parse', 'HEAD');
+    const result = await call({ action: 'render', ir: makeIr() });
+    expect(savedIr(result).repos[0]!.head).toBe(head);
+    expect(readFileSync(result['htmlPath'] as string, 'utf-8')).not.toContain(head);
+    expect(readFileSync(result['sharedHtmlPath'] as string, 'utf-8')).not.toContain(head);
+  });
+
+  it('입력에 적힌 옛 head는 지금 HEAD로 덮어쓴다', async () => {
+    const ir = makeIr();
+    ir.repos[0]!.head = 'abcdef0';
+    const result = await call({ action: 'render', ir });
+    expect(savedIr(result).repos[0]!.head).toBe(git('rev-parse', 'HEAD'));
+  });
+
+  it('description을 빼고 다시 그리면 이어받고 응답에 그 수를 싣는다', async () => {
+    const first = makeIr();
+    first.nodes[0]!.description = '첫 화면';
+    const firstResult = await call({ action: 'render', ir: first });
+    expect(firstResult['merge']).toBeUndefined();
+
+    const second = await call({ action: 'render', ir: makeIr() });
+    expect(second['merge']).toMatchObject({ descriptionCarried: 1 });
+    expect(savedIr(second).nodes.find((n) => n.id === 'n-home')?.description).toBe('첫 화면');
+  });
+
+  it('summary와 note를 빼고 다시 그리면 이어받고 응답에 승계 수를 싣는다', async () => {
+    const first = makeIr();
+    first.summary = '주문 화면에서 서버까지 그린 그림이에요.';
+    first.note = '결제 쪽은 빠져 있어요.';
+    first.nodes[2]!.summary = '주문 요청을 받는 서버 모듈이에요.';
+    await call({ action: 'render', ir: first });
+
+    const second = await call({ action: 'render', ir: makeIr() });
+    expect(second['merge']).toMatchObject({
+      summaryCarried: 1,
+      topLevelCarried: ['summary', 'note'],
+    });
+    const saved = savedIr(second);
+    expect(saved.summary).toBe(first.summary);
+    expect(saved.note).toBe(first.note);
+    expect(saved.nodes.find((n) => n.id === 'n-orders-module')?.summary).toBe(
+      '주문 요청을 받는 서버 모듈이에요.',
+    );
+  });
+
+  it('summary를 안 쓰는 예전 IR을 다시 그리면 승계 키가 응답에 안 생긴다', async () => {
+    const first = makeIr();
+    first.nodes[0]!.description = '첫 화면';
+    await call({ action: 'render', ir: first });
+    const second = await call({ action: 'render', ir: makeIr() });
+    expect(second['ok']).toBe(true);
+    expect(second['merge']).not.toHaveProperty('summaryCarried');
+    expect(second['merge']).not.toHaveProperty('topLevelCarried');
+  });
+
+  it('status는 저장 head와 지금 HEAD를 비교해 바뀐 근거 파일을 알려 준다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    const fresh = (await call({ action: 'status' }))['views'] as Record<
+      string,
+      { freshness: { status: string; staleEvidenceFiles: string[] } } | null
+    >;
+    expect(fresh['screen-chain']!.freshness).toMatchObject({
+      status: 'fresh',
+      staleEvidenceFiles: [],
+    });
+
+    writeFileSync(join(repoRoot, 'src/orders.ts'), 'a\nB\nc\n');
+    git('commit', '-q', '-am', 'edit orders');
+    const stale = (await call({ action: 'status' }))['views'] as typeof fresh;
+    expect(stale['screen-chain']!.freshness).toMatchObject({
+      status: 'stale',
+      staleEvidenceFiles: ['web:src/orders.ts'],
+    });
+  });
+
+  it('근거 파일이 git에서 옮겨졌으면 movedTo 후보를 붙인다', async () => {
+    await call({ action: 'render', ir: makeIr() });
+    git('mv', 'src/orders.ts', 'src/order-service.ts');
+    git('commit', '-q', '-m', 'move orders');
+    for (const action of ['validate', 'render'] as const) {
+      const result = await call({ action, ir: makeIr() });
+      expect(result['ok']).toBe(false);
+      const errors = result['errors'] as Array<{ code: string; movedTo?: string[] }>;
+      const notFound = errors.filter((e) => e.code === 'CODE_EVIDENCE_NOT_FOUND');
+      expect(notFound.length).toBeGreaterThan(0);
+      for (const e of notFound) expect(e.movedTo).toEqual(['web:src/order-service.ts:2']);
+    }
+  });
+
+  it('지난 흐름의 근거 파일이 지워졌으면 render를 막지 않고 evidence_stale로 흐름만 버린다', async () => {
+    writeFileSync(join(repoRoot, 'src/checkout.ts'), 'a\nb\nc\n');
+    const first: ArchitectureIr = {
+      ...makeIr(),
+      flows: [
+        {
+          id: 'checkout',
+          title: '결제',
+          actors: [{ id: 'user', label: '사용자', kind: 'person' }],
+          steps: [
+            {
+              id: 'checkout-s1',
+              actor: 'user',
+              label: '결제 시작',
+              refs: ['n-home'],
+              evidence: [{ type: 'code', location: 'web:src/checkout.ts:3', visibility: 'public' }],
+            },
+          ],
+          transitions: [],
+        },
+      ],
+      projections: [
+        {
+          id: 'p-checkout',
+          title: '홈에서 주문 조회',
+          question: '홈에서 주문을 어떻게 불러오나요?',
+          shape: 'sequence',
+          messages: [
+            {
+              id: 'p-checkout-m1',
+              from: 'n-home',
+              to: 'n-orders-api',
+              label: '주문 조회',
+              edge: 'n-e1',
+              evidence: [{ type: 'code', location: 'web:src/checkout.ts:3', visibility: 'public' }],
+              lineStyle: 'solid',
+            },
+          ],
+        },
+      ],
+    };
+    expect((await call({ action: 'render', ir: first }))['ok']).toBe(true);
+    rmSync(join(repoRoot, 'src/checkout.ts'));
+
+    const result = await call({ action: 'render', ir: makeIr() });
+    expect(result['ok']).toBe(true);
+    expect(result['warnings']).toContainEqual(
+      expect.objectContaining({
+        code: 'FLOW_DROPPED',
+        flowId: 'checkout',
+        reason: 'evidence_stale',
+      }),
+    );
+    expect(result['warnings']).toContainEqual(
+      expect.objectContaining({
+        code: 'PROJECTION_DROPPED',
+        projectionId: 'p-checkout',
+        reason: 'evidence_stale',
+      }),
+    );
+    expect(result['merge']).toEqual(
+      expect.objectContaining({ flowsDropped: ['checkout'], projectionsDropped: ['p-checkout'] }),
+    );
+    expect(savedIr(result).flows ?? []).toEqual([]);
+    expect(savedIr(result).projections ?? []).toEqual([]);
+
+    // 파일 검사를 끈 render는 근거로 흐름을 버리지 않는다. 버리면 저장 IR에서 흐름을 영영 잃는다
+    expect((await call({ action: 'render', ir: first, checkFiles: false }))['ok']).toBe(true);
+    const unchecked = await call({ action: 'render', ir: makeIr(), checkFiles: false });
+    expect(savedIr(unchecked).flows?.map((f) => f.id)).toEqual(['checkout']);
+  });
+
+  it('label과 id가 함께 바뀐 노드를 근거 파일로 잇고 relabeled로 알린다', async () => {
+    const first = makeIr();
+    first.nodes[2]!.description = '주문 모듈';
+    await call({ action: 'render', ir: first });
+
+    const next = makeIr();
+    const mod = next.nodes[2]!;
+    mod.id = 'n-order-domain';
+    mod.label = 'OrderDomainModule';
+    next.edges[1]!.to = 'n-order-domain';
+    const result = await call({ action: 'render', ir: next });
+    expect(result['ok']).toBe(true);
+    const merge = result['merge'] as { relabeled?: Array<{ id: string; label: string }> };
+    expect(merge.relabeled).toEqual([
+      expect.objectContaining({ id: 'n-orders-module', label: 'OrderDomainModule' }),
+    ]);
+    const saved = savedIr(result).nodes.find((n) => n.id === 'n-orders-module');
+    expect(saved?.label).toBe('OrderDomainModule');
+    expect(saved?.description).toBe('주문 모듈');
+  });
+});
+
+describe('ges_architecture serve', () => {
+  // 실제 세션을 찾지 않고 소켓도 안 연다
+  const sessionOn: LiveSessionBridge = {
+    alive: () => true,
+    send: () => Promise.resolve({ ok: true as const }),
+  };
+  const sessionOff: LiveSessionBridge = { ...sessionOn, alive: () => false };
+  const live = (session: LiveSessionBridge): ArchitectureHandlerOptions => ({
+    live: { port: 0, attempts: 1, deps: { session } },
+  });
+
+  afterEach(async () => {
+    await stopArchitectureLiveServers();
+  });
+
+  it('render 전에는 liveUrl을 싣지 않고 serve 뒤 render는 liveUrl을 싣는다', async () => {
+    const before = await call({ action: 'render', ir: makeIr() });
+    expect(before).not.toHaveProperty('liveUrl');
+
+    const served = await call({ action: 'serve', view: 'screen-chain' }, live(sessionOn));
+    expect(served['ok']).toBe(true);
+    const port = served['port'] as number;
+    expect(served['url']).toBe(`http://127.0.0.1:${port}`);
+    const liveUrl = served['liveUrl'] as string;
+    expect(liveUrl).toMatch(
+      new RegExp(`^http://127\\.0\\.0\\.1:${port}/screen-chain\\.html\\?k=[A-Za-z0-9_-]{43}$`),
+    );
+    expect(served['liveUrls']).toEqual({ 'screen-chain': liveUrl });
+    expect(served['session']).toBe(true);
+    expect(served).not.toHaveProperty('warning');
+
+    const after = await call({ action: 'render', ir: makeIr() });
+    // 서버가 떠 있는 동안 키가 그대로라 render도 같은 주소를 돌려준다
+    expect(after['liveUrl']).toBe(liveUrl);
+  });
+
+  it('다시 serve하면 같은 포트를 돌려준다', async () => {
+    const first = await call({ action: 'serve' }, live(sessionOn));
+    const second = await call({ action: 'serve' }, live(sessionOn));
+    expect(second['port']).toBe(first['port']);
+    expect(first['liveUrls']).toEqual({});
+  });
+
+  it('아직 안 그린 그림이면 안내를 싣고 세션이 없으면 경고를 싣는다', async () => {
+    const served = await call({ action: 'serve', view: 'deploy-path' }, live(sessionOff));
+    expect(served['ok']).toBe(true);
+    expect(served['session']).toBe(false);
+    expect(String(served['message'])).toContain('render');
+    expect(String(served['warning'])).toContain('숨겨진다');
+  });
+
+  it('서버를 내리면 render가 liveUrl을 싣지 않는다', async () => {
+    await call({ action: 'serve' }, live(sessionOn));
+    await stopArchitectureLiveServers();
+    const result = await call({ action: 'render', ir: makeIr() });
+    expect(result).not.toHaveProperty('liveUrl');
   });
 });

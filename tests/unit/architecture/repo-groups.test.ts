@@ -64,6 +64,8 @@ function fixture(
     withGroups && label !== undefined
       ? { group: label === 'repo-a' && opts.label !== undefined ? opts.label : label }
       : {};
+  // 콘솔 카드 셋을 더해도 root가 접히지 않게(ROOT_COLLAPSE_MIN_CARDS장 이하) 묶음 없는 모듈 하나를 뺀다
+  const modules = opts.console ? MODULES.filter(([m]) => m !== 'm-c') : MODULES;
   const consoleNodes = opts.console
     ? [
         node('svc-console', 'service', { repo: 'console' }),
@@ -85,14 +87,14 @@ function fixture(
       node('s-web', 'screen', { parent: 'f-web' }),
       node('gw-a', 'gateway', g('repo-a')),
       node('gw-b', 'gateway', g('repo-b')),
-      ...MODULES.flatMap(([m, label]) => [
+      ...modules.flatMap(([m, label]) => [
         node(`ep-${m}`, 'endpoint'),
         node(m, 'app_module', g(label)),
       ]),
       ...consoleNodes,
     ],
     edges: [
-      ...MODULES.flatMap(([m, , gw]) => [
+      ...modules.flatMap(([m, , gw]) => [
         edge(`c-${m}`, 's-web', `ep-${m}`, 'calls'),
         edge(`r-${m}`, gw, `ep-${m}`, 'routes'),
         edge(`h-${m}`, `ep-${m}`, m, 'handles'),
@@ -210,6 +212,7 @@ describe('묶음 테두리 — 전체 보기', () => {
 
   it('앱 테두리와 묶음 테두리가 같이 있어도 서로 안 겹치고 앱 카드는 묶음에서 빠진다', async () => {
     const root = await rootOf(fixture({ console: true }));
+    expect(root.chunks).toBeUndefined();
     const frames = root.layout.frames ?? [];
     const appFrame = frames.find((f) => f.id === 'svc-console');
     expect(appFrame).toBeDefined();

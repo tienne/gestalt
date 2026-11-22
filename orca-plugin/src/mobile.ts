@@ -3,17 +3,12 @@
 import { buildHierarchy, pruneHierarchy, type HierarchyNode } from './hierarchy'
 import { ago, isTerminal, ms, splitRepo, STATUS_LABEL, STATUS_TONE, summarize, type RepoSummary } from './model'
 import type { ConductorView, GateView, OrderView } from './protocol'
+import { esc } from './html'
+import { TERMINAL_STYLE, terminalMarkup } from './terminal-markup'
 
 const MAX_FINISHED = 30
 
-export function esc(text: unknown): string {
-  return String(text ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
+export { esc }
 
 const pill = (text: string, tone = 'neutral') => `<span class="pill tone-${tone}">${esc(text)}</span>`
 
@@ -174,6 +169,7 @@ body { margin: 0; background: var(--canvas); color: var(--ink);
   font: 400 15px/1.5 "SF Pro Text", -apple-system, system-ui, "Inter", sans-serif; letter-spacing: -0.05px;
   padding: max(16px, env(safe-area-inset-top)) 16px max(32px, env(safe-area-inset-bottom)); -webkit-text-size-adjust: 100%; }
 header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.view-link { font-size: 13px; color: var(--ink-subtle); text-decoration: none; border: 1px solid var(--line); border-radius: 9999px; padding: 2px 10px; }
 h1 { font: 600 24px/1.2 "SF Pro Display", -apple-system, system-ui, sans-serif; letter-spacing: -0.5px; margin: 0; flex: 1; }
 .muted { color: var(--ink-subtle); }
 .small { font-size: 13px; }
@@ -301,8 +297,52 @@ export function mobilePage(fragment: string): string {
 <style>${STYLE}</style>
 </head>
 <body>
-<header><h1>컨덕터</h1><span id="offline" class="pill tone-danger">연결 끊김</span></header>
+<header><h1>컨덕터</h1><span id="offline" class="pill tone-danger">연결 끊김</span><a class="view-link" href="?view=terminal">터미널</a></header>
 <main id="main">${fragment}</main>
+<script>${SCRIPT}</script>
+</body>
+</html>`
+}
+
+/** 같은 서버가 쿼리로 가르는 화면. 테일스케일이 떼는 경로 접두사와 끝 슬래시 유무를 몰라도 되게 경로 대신 쿼리를 쓴다 */
+export type MobileScreen = 'home' | 'terminal'
+
+export function screenOf(url: string | undefined): MobileScreen {
+  const query = (url ?? '/').split('?')[1] ?? ''
+  return new URLSearchParams(query).get('view') === 'terminal' ? 'terminal' : 'home'
+}
+
+/** 터미널 화면의 폴링 본문. 에디터와 같은 마크업을 보기 전용으로 그리고 저장소 경로와 CLI 오류 원문은 뺀다 */
+export function terminalFragment(v: ConductorView | null, now = Date.now()): string {
+  return terminalMarkup(v, { now, interactive: false, private: false })
+}
+
+const TERMINAL_PAGE_STYLE = `${TERMINAL_STYLE}
+.webnav { display: flex; align-items: center; gap: 10px; padding: max(6px, env(safe-area-inset-top)) 10px 6px; border-bottom: 1px solid var(--t-line); font: 11px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+.webnav a { color: var(--t-dim); text-decoration: none; }
+#offline { display: none; color: var(--t-red); }
+body.offline #offline { display: inline; }
+.webnav + .term { min-height: calc(100vh - 31px); min-height: calc(100dvh - 31px); }
+/* 폴링이 본문을 갈아 끼우면 스크롤이 맨 위로 돌아가서 웹에서는 스크롤 칸 없이 최근 12줄만 보인다 */
+.log-rows { max-height: none; overflow: visible; }
+.log .r:nth-last-child(n + 13) { display: none; }
+`
+
+export function terminalPage(fragment: string): string {
+  return `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#14161c">
+<title>컨덕터 터미널</title>
+<style>${TERMINAL_PAGE_STYLE}</style>
+</head>
+<body>
+<nav class="webnav"><a href="?">← 기본 보기</a><span id="offline">연결 끊김</span></nav>
+<main id="main" class="term">${fragment}</main>
 <script>${SCRIPT}</script>
 </body>
 </html>`

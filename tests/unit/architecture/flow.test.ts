@@ -980,7 +980,7 @@ describe('흐름 레벨 렌더', () => {
     expect(html).not.toContain('123456789012');
   });
 
-  it('전체보기 서비스 카드에 흐름 배지를 달고 그 폭만큼 카드를 넓힌다', async () => {
+  it('전체보기 서비스 카드 칩 줄에 흐름 배지를 달고 카드를 줄이지 않는다', async () => {
     const { html, drill } = await render(fixture());
     const root = drill.levels.find((l) => l.id === 'root')!;
     expect(html).toMatch(/data-node-id="svc-shop"[^>]*aria-label="[^"]*사용자 흐름 1개"/);
@@ -989,9 +989,13 @@ describe('흐름 레벨 렌더', () => {
     const ir = fixture();
     delete ir.flows;
     const plain = await render(ir);
-    const width = (d: typeof drill, id: string) =>
-      d.levels.find((l) => l.id === 'root')!.layout.nodes.find((n) => n.id === id)!.width;
-    expect(width(drill, 'svc-shop')).toBeGreaterThan(width(plain.drill, 'svc-shop'));
+    const box = (d: typeof drill, id: string) =>
+      d.levels.find((l) => l.id === 'root')!.layout.nodes.find((n) => n.id === id)!;
+    const grown = box(drill, 'svc-shop');
+    const base = box(plain.drill, 'svc-shop');
+    // 안쪽 항목 수가 이미 칩 줄을 열어 둔 카드는 배지가 같은 줄에 붙어 크기가 줄지 않는 것까지만 본다
+    expect(grown.width).toBeGreaterThanOrEqual(base.width);
+    expect(grown.height).toBeGreaterThanOrEqual(base.height);
     expect(plain.html).not.toContain('class="flow-badge"');
     expect(root.nodeIds).toContain('svc-shop');
   });

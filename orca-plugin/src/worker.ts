@@ -6,7 +6,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CliError, runGestalt } from './cli'
 import { MobileServer } from './mobile-server'
-import type { ConductorView, GateResolveInput, GateResolveResult, GateView, OrderRemoveResult } from './protocol'
+import type { AgentState, ConductorView, GateResolveInput, GateResolveResult, GateView, OrderRemoveResult, WorkerLive, WorkerOpenResult } from './protocol'
 import {
   diffGates,
   emptyView,
@@ -35,6 +35,76 @@ const MAX_REMOVE = 200
 type Config = { command: string; stateDir: string; mobilePort: number }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+type AgentRow = {
+  terminalId: string | null
+  title: string | null
+  agent: string | null
+  state: AgentState
+  stateStartedAt: number
+  task?: { title: string } | null
+}
+
+const AGENT_RANK: Record<string, number> = { working: 0, blocked: 0, waiting: 1, done: 2 }
+
+/** 터미널이 있는 에이전트 중 작업을 받은 것, 아직 도는 것, 최근에 바뀐 것 순으로 고른다 */
+export function pickAgent(agents: readonly AgentRow[]): AgentRow | undefined {
+  return agents
+    .filter((a) => a.terminalId)
+    .sort(
+      (a, b) =>
+        Number(!a.task) - Number(!b.task) ||
+        (AGENT_RANK[a.state] ?? 3) - (AGENT_RANK[b.state] ?? 3) ||
+        b.stateStartedAt - a.stateStartedAt
+    )[0]
+}
+
+/** 터미널에서 읽는 줄 수. 끝의 빈 줄을 걷고 나면 TAIL_SHOW줄만 보여 준다 */
+const TAIL_READ = 80
+const TAIL_SHOW = 24
+const LINE_MAX = 400
+
+export function tailLines(lines: readonly string[]): string[] {
+  let end = lines.length
+  while (end > 0 && !lines[end - 1]!.trim()) end--
+  return lines.slice(Math.max(0, end - TAIL_SHOW), end).map((l) => (l.length > LINE_MAX ? `${l.slice(0, LINE_MAX)}…` : l))
+}
+
+/**
+ * 워크트리에서 워커 에이전트가 도는 터미널을 고른다. firstTerminal을 켜면 에이전트 터미널을 못 찾았을 때
+ * 워크트리의 첫 터미널을 고르고 fallback을 켠다. 첫 터미널도 못 고르면 fallback은 꺼진 채 이유를 errors에 남긴다
+ */
+export async function workerTerminal(
+  host: Pick<OrcaWorkerApi['host'], 'has' | 'call'>,
+  workspaceId: string,
+  opts: { firstTerminal?: boolean } = {}
+): Promise<{ agent?: AgentRow; terminalId?: string; fallback: boolean; errors: string[] }> {
+  const errors: string[] = []
+  let agent: AgentRow | undefined
+  if (!host.has('agents.list')) errors.push('이 오르카는 에이전트 상태를 읽는 기능을 지원하지 않아요.')
+  else {
+    try {
+      agent = pickAgent((await host.call('agents.list', { workspaceId })).agents)
+    } catch (e) {
+      errors.push(`에이전트 상태를 못 읽었어요(${message(e)}).`)
+    }
+  }
+  const agentTerminal = agent?.terminalId ?? undefined
+  const found = agent ? { agent } : {}
+  if (agentTerminal) return { ...found, terminalId: agentTerminal, fallback: false, errors }
+  if (!opts.firstTerminal) return { ...found, fallback: false, errors }
+  let terminalId: string | undefined
+  if (!host.has('terminal.list')) errors.push('이 오르카는 터미널 목록을 읽는 기능을 지원하지 않아요.')
+  else {
+    try {
+      terminalId = (await host.call('terminal.list', { workspaceId })).terminals[0]?.id
+      if (!terminalId) errors.push('워크트리에 열린 터미널이 없어요.')
+    } catch (e) {
+      errors.push(`터미널 목록을 못 읽었어요(${message(e)}).`)
+    }
+  }
+  return terminalId ? { ...found, terminalId, fallback: true, errors } : { ...found, fallback: false, errors }
+}
 
 /** CLI가 stateDir을 안 알려 주는 옛 버전일 때만 쓴다. 설정 파일의 stateDir은 못 읽는다 */
 function defaultStateDir(): string {
@@ -349,23 +419,69 @@ class Conductor {
     }
   }
 
-  async openWorker(orderId: string): Promise<{ opened: boolean; error?: string }> {
+  private async workspaceOf(orderId: string): Promise<{ workspaceId: string } | { error: string }> {
     const order = this.raw?.orders.find((o) => o.id === orderId)
-    if (!order) return { opened: false, error: '모르는 주문이에요' }
+    if (!order) return { error: '모르는 주문이에요' }
+    // 상세를 펼쳐 두면 4초마다 불려서 지난 상태 갱신 때 찾아 둔 워크스페이스를 먼저 쓴다
+    const known = this.view?.orders.find((o) => o.id === orderId)?.workspaceId
+    if (known) return { workspaceId: known }
     let workspaces: Workspace[]
     try {
       workspaces = (await this.orca.host.call('workspace.list')).workspaces
     } catch (e) {
-      return { opened: false, error: message(e) }
+      return { error: message(e) }
     }
     const workspaceId = findWorkspace(order, workspaces)?.id
-    if (!workspaceId) return { opened: false, error: '이 주문의 워크트리를 오르카에서 못 찾았어요' }
+    return workspaceId ? { workspaceId } : { error: '이 주문의 워크트리를 오르카에서 못 찾았어요' }
+  }
+
+  async openWorker(orderId: string): Promise<WorkerOpenResult> {
+    const ws = await this.workspaceOf(orderId)
+    if ('error' in ws) return { opened: false, error: ws.error }
+    let missed = '이 오르카는 터미널로 옮기는 기능을 지원하지 않아요.'
+    if (this.orca.host.has('terminal.focus')) {
+      const { terminalId, fallback, errors } = await workerTerminal(this.orca.host, ws.workspaceId, { firstTerminal: true })
+      missed = errors.join(' ')
+      try {
+        if (terminalId && (await this.orca.host.call('terminal.focus', { terminalId })).focused) {
+          if (!fallback) return { opened: true }
+          return { opened: true, fallbackTerminal: true, ...(errors.length > 0 ? { fallbackReason: errors.join(' ') } : {}) }
+        }
+        if (terminalId) missed = [...errors, '터미널로 못 옮겨 갔어요.'].join(' ')
+      } catch (e) {
+        missed = [...errors, `터미널로 못 옮겨 갔어요(${message(e)}).`].join(' ')
+      }
+    }
     try {
-      await this.orca.host.call('workspace.open', { workspaceId })
-      return { opened: true }
+      await this.orca.host.call('workspace.open', { workspaceId: ws.workspaceId })
+      return { opened: true, worktreeOnly: true, error: `${missed} 워크트리만 열었어요.` }
     } catch (e) {
       return { opened: false, error: message(e) }
     }
+  }
+
+  async workerDetail(orderId: string): Promise<WorkerLive> {
+    const ws = await this.workspaceOf(orderId)
+    if ('error' in ws) return { found: false, error: ws.error }
+    // 첫 터미널로 물러나지 않는다. 다른 일을 하는 터미널의 출력을 워커 출력처럼 보여 주게 된다
+    const { agent, terminalId, errors } = await workerTerminal(this.orca.host, ws.workspaceId)
+    const out: WorkerLive = { found: true }
+    if (agent)
+      out.agent = { kind: agent.agent, title: agent.title, state: agent.state, since: agent.stateStartedAt, task: agent.task?.title ?? null }
+    if (!terminalId) out.noWorkerTerminal = true
+    else {
+      out.terminalId = terminalId
+      if (!this.orca.host.has('terminal.read')) errors.push('이 오르카는 터미널 출력을 읽는 기능을 지원하지 않아요.')
+      else {
+        try {
+          out.lines = tailLines((await this.orca.host.call('terminal.read', { terminalId, maxLines: TAIL_READ })).lines)
+        } catch (e) {
+          errors.push(`터미널을 못 읽었어요(${message(e)}).`)
+        }
+      }
+    }
+    if (errors.length > 0) out.error = errors.join(' ')
+    return out
   }
 
   private closeWatcher(): void {
@@ -403,6 +519,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   })
   orca.panels.handle('gate.resolve', (input) => conductor.resolveGate(input))
   orca.panels.handle('worker.open', (input) => conductor.openWorker(input.orderId))
+  orca.panels.handle('worker.detail', (input) => conductor.workerDetail(input.orderId))
   orca.panels.handle('order.remove', (input) => conductor.removeOrders(input.orderIds))
   orca.commands.register('conductor.refresh', async () => {
     await conductor.refresh()

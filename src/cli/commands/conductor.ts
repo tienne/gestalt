@@ -38,6 +38,7 @@ import {
   isSessionId,
   resolveHandoffModel,
   launchHandoff,
+  readCompactions,
   readHandoffRecord,
   readSessionRegisteredAt,
   recordHandoff,
@@ -53,6 +54,8 @@ import {
   touchSessionTick,
 } from '../../conductor/session-owner.js';
 import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
+import { readRecentEvents } from '../../conductor/recent-events.js';
+import { removeOrderRefCopies } from '../../conductor/ref-copy.js';
 import { resolveGate } from '../../conductor/gates.js';
 import { terminalText } from '../../conductor/terminal-text.js';
 import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS, oneLine } from '../../conductor/intake.js';
@@ -309,6 +312,7 @@ export async function conductorOrderRemoveCommand(
       );
     const removed: string[] = [];
     const skipped: { id: string; reason: string }[] = [];
+    const warnings: string[] = [];
     try {
       ctx.store.reload();
       await ctx.store.deferSnapshot(async () => {
@@ -321,13 +325,19 @@ export async function conductorOrderRemoveCommand(
           }
         }
       });
+      // 사본을 못 지워도 주문 삭제는 되돌리지 않는다. 남은 사본은 경고로만 알린다
+      for (const id of removed) {
+        const warning = removeOrderRefCopies(ctx.store.dir, id);
+        if (warning) warnings.push(warning);
+      }
     } finally {
       lock.release();
     }
-    if (opts.json) print({ removed, skipped });
+    if (opts.json) print({ removed, skipped, ...(warnings.length > 0 ? { warnings } : {}) });
     else if (removed.length > 0) {
       console.log(`주문 ${removed.length}개를 지웠어요: ${removed.join(', ')}`);
       for (const s of skipped) console.log(`못 지웠어요: ${s.reason}`);
+      for (const w of warnings) console.log(`경고: ${w}`);
     }
     // 하나도 못 지우면 이유를 stderr로 한 번만 낸다. 플러그인처럼 실패하면 stderr만 보는 호출자도 받는다
     if (removed.length === 0 && skipped.length > 0)
@@ -347,7 +357,8 @@ export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptio
     const gates = Object.values(store.snapshot.gates).filter((g) => g.orderId === id);
     const bypasses = store.snapshot.bypasses.filter((b) => b.orderId === id);
     const refs = [...new Set(reports.flatMap((r) => r.refs))];
-    if (opts.json) return print({ order, workers, reports, refs, gates, bypasses });
+    if (opts.json)
+      return print({ order, workers, reports, refs, gates, bypasses, stateDir: store.dir });
     console.log(`${order.id}  ${terminalText(order.title)}`);
     console.log(`레포: ${order.repo}  범위: ${order.scope}  상태: ${order.status}`);
     console.log(`설명: ${order.description ? terminalText(order.description) : '없음'}`);
@@ -369,6 +380,10 @@ export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptio
       if (r.merged !== undefined) console.log(`    머지: ${r.merged}`);
       if (r.stopReason) console.log(`    중단: ${r.stopReason}`);
       if (r.need) console.log(`    요청: ${r.need.kind}  ${terminalText(r.need.detail)}`);
+      for (const c of r.refCopies ?? [])
+        console.log(
+          `    사본: ${terminalText(c.ref)} → ${c.path ? `${c.path}${c.truncated ? ' (앞부분만)' : ''}` : `건너뜀(${c.skipped})`}`,
+        );
     }
     console.log(`refs: ${refs.map(terminalText).join(', ') || '없음'}`);
     console.log('gate:');
@@ -468,6 +483,13 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
             ...(o.issueKey ? { issue: o.issueKey } : {}),
             ...(o.humanOwnedAt ? { humanOwnedAt: o.humanOwnedAt } : {}),
             ...(limited.has(o.id) ? { rateLimit: limited.get(o.id) } : {}),
+            // 오르카 터미널 화면이 워커가 어느 스킬의 어느 단계에 있는지 그릴 때 쓴다
+            skillChain: o.skillChain,
+            ...checkpointOf(store, o.id),
+            ...(w?.waiting ? { waiting: w.waiting } : {}),
+            ...(w?.account ? { account: w.account } : {}),
+            ...(w?.rateLimitedAt ? { rateLimitedAt: w.rateLimitedAt } : {}),
+            ...(w?.rateLimitResetsAt ? { rateLimitResetsAt: w.rateLimitResetsAt } : {}),
             ...(opts.all && TERMINAL_ORDER_STATUSES.has(o.status)
               ? { lastSummary: store.snapshot.reports[o.id]?.at(-1)?.summary ?? null }
               : {}),
@@ -482,6 +504,8 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
           reason: g.reason,
           openedAt: g.openedAt,
         })),
+        conductor: conductorSummary({ store, config }),
+        recentEvents: readRecentEvents(store.dir, store.snapshot),
       });
     }
     console.log(`마지막 tick: ${store.snapshot.lastTickAt ?? '없음'}`);
@@ -511,6 +535,49 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
     for (const b of bypassesOf.get('') ?? []) console.log(`bypass ${b.at}  ${b.need}  ${b.action}`);
     for (const g of gates) console.log(`게이트 ${g.id}  ${g.type}  ${g.reason}`);
   });
+}
+
+/** 주문의 마지막 체크포인트. 재개에만 쓰는 refs와 shipDir는 싣지 않는다 */
+function checkpointOf(store: ConductorStore, orderId: string): { checkpoint?: object } {
+  const c = store.snapshot.checkpoints[orderId];
+  if (!c) return {};
+  return {
+    checkpoint: {
+      skill: c.skill,
+      ...(c.phase ? { phase: c.phase } : {}),
+      ...(c.round !== undefined && c.round !== null ? { round: c.round } : {}),
+      next: c.next,
+      completedSkills: c.completedSkills,
+      savedAt: c.savedAt,
+    },
+  };
+}
+
+/**
+ * 컨덕터 자체의 값. 저장소와 설정에서 이미 아는 것만 싣는다.
+ * 컴팩트 횟수는 살아 있는 컨덕터 세션을 찾았을 때만 싣는다
+ */
+function conductorSummary(ctx: Ctx): Record<string, unknown> {
+  const { store, config } = ctx;
+  const disconnected = store
+    .workers()
+    .filter(
+      (w) =>
+        w.status === 'stopped' &&
+        w.stopReason === 'disconnected' &&
+        store.order(w.orderId)?.workerId === w.id &&
+        !TERMINAL_ORDER_STATUSES.has(store.order(w.orderId)!.status),
+    ).length;
+  const session = findActiveConductor(store.dir, '', Date.now(), activeConductorWindowMs(config));
+  return {
+    pollIntervalSec: config.pollIntervalSec,
+    maxWorkers: config.maxConcurrentWorkers,
+    activeWorkers: store.activeWorkers().length,
+    queuedOrders: store.queuedOrders().length,
+    prWatchRepos: config.prWatchRepos,
+    disconnectedWorkers: disconnected,
+    ...(session ? { compactions: readCompactions(store.dir, session.sessionId).count } : {}),
+  };
 }
 
 function rateLimitLine(e: RateLimitedEntry): string {

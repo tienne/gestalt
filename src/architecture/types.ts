@@ -303,6 +303,8 @@ export interface ArchitectureNode {
   /** 포함 관계. 허용하는 parent kind는 PARENT_KINDS에 있다 */
   parent?: string;
   description?: string;
+  /** 이 노드가 여는 드릴다운 레벨의 요약. 레벨 안에 무엇이 있고 어디서 읽기 시작하는지 1~2문장으로 쓴다 */
+  summary?: string;
   evidence: Evidence[];
   /** 인프라 노드와 deploy_target, datastore만. prod, stage, qa, dev 같은 환경 이름 */
   environment?: string;
@@ -387,6 +389,8 @@ export interface ArchitectureRepo {
    */
   root?: string;
   remote?: string;
+  /** render가 저장할 때 적는 그 시점 커밋. 다음 status가 지금 HEAD와 비교해 낡은 근거를 찾는다 */
+  head?: string;
 }
 
 /**
@@ -573,6 +577,10 @@ export interface ArchitectureIr {
   unresolved: UnresolvedQuestion[];
   sourcesUsed: ContextSource[];
   generatedAt: string;
+  /** 전체 레벨의 요약. 그림이 무엇을 보여 주는지 1~3문장으로 쓴다 */
+  summary?: string;
+  /** 일러두기. 그림이 다루는 범위와 읽는 법처럼 요약에 안 맞는 안내를 쓴다 */
+  note?: string;
   /** merge가 남기는 제품 그룹. 둘 이상이면 렌더러가 제품끼리 겹치는 띠를 그린다 */
   groups?: ArchitectureGroup[];
   /** 도메인 흐름. 없으면 기술 그림만 그린다 */

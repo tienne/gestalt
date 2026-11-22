@@ -19,6 +19,33 @@ export const TERMINAL_ORDER_STATUSES: readonly string[] = ['done', 'failed', 'ca
 
 export type Bypass = { need: string; action: string; at: string }
 
+/** 주문의 마지막 체크포인트. 워커가 어느 스킬의 어느 단계에 있는지 */
+export type CheckpointView = {
+  skill: string
+  phase?: string
+  round?: number
+  next: string
+  completedSkills: string[]
+  savedAt: string
+}
+
+/** 워커가 status waiting으로 알린 대기 */
+export type WaitingView = { reason: string; since: string; until?: string }
+
+/** 컨덕터 칸에 쓰는 값. 컨덕터가 안 주는 칸은 비어 있고 화면도 그 칸을 뺀다 */
+export type ConductorInfo = {
+  pollIntervalSec?: number
+  maxWorkers?: number
+  activeWorkers?: number
+  queuedOrders?: number
+  prWatchRepos?: string[]
+  disconnectedWorkers?: number
+  compactions?: number
+}
+
+/** CLI가 이벤트 로그에서 고른 한 줄. summary에 바깥에서 온 글이 섞여 있으니 텍스트로만 그린다 */
+export type EventView = { at: string; type: string; orderId?: string; summary: string; until?: string }
+
 export type OrderView = {
   id: string
   status: string
@@ -28,6 +55,7 @@ export type OrderView = {
   updatedAt?: string
   worker?: string
   workerKind?: string
+  workerStatus?: string
   pr?: string
   issue?: string
   bypasses: Bypass[]
@@ -42,6 +70,13 @@ export type OrderView = {
   workspaceId?: string
   worktreePath?: string
   branch?: string
+  /** 아래는 컨덕터 터미널 화면이 쓴다. 옛 CLI에는 없다 */
+  skillChain?: string[]
+  checkpoint?: CheckpointView
+  waiting?: WaitingView
+  account?: string
+  rateLimitedAt?: string
+  rateLimitResetsAt?: string
 }
 
 export type GateView = {
@@ -65,6 +100,11 @@ export type ConductorView = {
   projects?: Record<string, string>
   /** 워커가 붙은 주문에 workerKind가 없다. 워크트리를 못 이어 주문을 눌러도 워커로 못 가는 옛 CLI다 */
   outdatedCli?: boolean
+  /** 주문은 있는데 conductor와 recentEvents가 둘 다 없다. 터미널 화면을 그리기엔 낡은 CLI다 */
+  terminalFieldsMissing?: boolean
+  /** 옛 CLI에는 없다 */
+  conductor?: ConductorInfo
+  recentEvents?: EventView[]
   refreshedAt: number
 }
 
@@ -92,6 +132,36 @@ export type OrderRemoveResult = {
   error?: string
 }
 
+export type AgentState = 'working' | 'blocked' | 'waiting' | 'done'
+
+/**
+ * 데스크톱 터미널 화면에서 카드를 펼치면 워커가 오르카에서 읽어 오는 것.
+ * 터미널 출력에는 토큰이나 경로가 섞일 수 있어서 인증 없는 폰 페이지에는 싣지 않는다
+ */
+export type WorkerLive = {
+  /** 주문의 워크트리를 오르카에서 찾았는지 */
+  found: boolean
+  agent?: { kind: string | null; title: string | null; state: AgentState; since: number; task: string | null }
+  terminalId?: string
+  /** 워커 에이전트의 터미널을 못 찾았다. 다른 터미널을 워커 것처럼 보여 주지 않으려고 출력은 안 읽는다 */
+  noWorkerTerminal?: true
+  /** 워커 터미널의 마지막 줄들. 오래된 줄부터 */
+  lines?: string[]
+  /** 일부를 못 읽었으면 그 이유 */
+  error?: string
+}
+
+export type WorkerOpenResult = {
+  opened: boolean
+  /** 워커 에이전트를 못 찾아 워크트리의 첫 터미널로 갔다. 워커 터미널이 아닐 수 있다 */
+  fallbackTerminal?: true
+  /** 첫 터미널로 간 원인. 에이전트 상태를 못 읽은 것처럼 사람이 풀 수 있는 이유일 때만 싣는다 */
+  fallbackReason?: string
+  /** 터미널로는 못 가고 워크트리만 열었다. error에 이유까지 담은 문장이 있다 */
+  worktreeOnly?: true
+  error?: string
+}
+
 declare module 'orca' {
   interface PluginRequests {
     /** 워커가 마지막으로 읽은 상태. 아직 없으면 지금 읽는다 */
@@ -102,8 +172,10 @@ declare module 'orca' {
     'gate.resolve': { input: GateResolveInput; output: GateResolveResult }
     /** `gestalt conductor order remove`로 끝난 주문을 지운다. 패널이 확인 단계를 거친 뒤에만 보낸다 */
     'order.remove': { input: { orderIds: string[] }; output: OrderRemoveResult }
-    /** 주문을 맡은 워커의 오르카 워크트리를 연다 */
-    'worker.open': { input: { orderId: string }; output: { opened: boolean; error?: string } }
+    /** 주문을 맡은 워커의 터미널로 간다. 터미널을 못 찾으면 워크트리만 연다 */
+    'worker.open': { input: { orderId: string }; output: WorkerOpenResult }
+    /** 주문을 맡은 워커의 에이전트 상태와 터미널 마지막 줄을 읽는다 */
+    'worker.detail': { input: { orderId: string }; output: WorkerLive }
   }
   interface PluginPanelEvents {
     'conductor.changed': ConductorView

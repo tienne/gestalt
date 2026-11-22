@@ -10,6 +10,8 @@ import { deriveEr, erCounts, erOverBudget, isUnconfirmedFk } from './er-layout.j
 import { deriveLifecycle, lifecycleCounts, lifecycleOverBudget } from './lifecycle-layout.js';
 import { resolveInfraPlacement } from './infra-placement.js';
 import { indexMicroApps } from './micro-app.js';
+import { SECRET_MASK, maskIrSecrets } from './secret-mask.js';
+import type { IGNORED_FILE_TRACKED } from './commit-policy.js';
 import { ALL_PACKS_VOCABULARY, irVocabulary, packById } from './packs/index.js';
 import { KNOWLEDGE_DOC_KINDS } from './packs/knowledge.js';
 import {
@@ -31,62 +33,70 @@ import {
   type Platform,
   type UnresolvedQuestion,
 } from './types.js';
+import { suggestOne } from './did-you-mean.js';
+import { drillLevelOwners, shouldDrillDown } from './drilldown.js';
 
-export type ArchitectureValidationErrorCode =
-  | 'SOLID_EDGE_WITHOUT_EVIDENCE'
-  | 'CODE_EVIDENCE_NOT_FOUND'
-  | 'PRIVATE_EXCERPT_PRESENT'
-  | 'DANGLING_EDGE'
-  | 'PARENT_NOT_FOUND'
-  | 'PARENT_CYCLE'
-  | 'INVALID_PARENT_KIND'
-  | 'LIVE_COMMAND_NOT_READ_ONLY'
-  | 'ACCOUNT_NOT_FOUND'
-  | 'INVALID_ACCOUNT_KIND'
-  | 'PLACED_IN_NOT_FOUND'
-  | 'INVALID_PLACED_IN_KIND'
-  | 'CLOUD_ID_IN_ID'
-  | 'GROUP_MEMBER_NOT_FOUND'
-  | 'DUPLICATE_GROUP_ID'
-  | 'SERVES_SERVICE_WITH_APPS'
-  | 'INVALID_LOADS_ENDS'
-  | 'INVALID_HARNESS_EDGE_ENDS'
-  | 'INVALID_CALL_ACTIONS'
-  | 'UNKNOWN_MCP_ACTION'
-  | 'MD_CODE_EVIDENCE'
-  | 'FLOW_SERVICE_NOT_FOUND'
-  | 'DUPLICATE_FLOW_ID'
-  | 'FLOW_ACTOR_NOT_FOUND'
-  | 'FLOW_STEP_NOT_FOUND'
-  | 'FLOW_REF_NOT_FOUND'
-  | 'INVALID_FLOW_REF_KIND'
-  | 'SOLID_TRANSITION_WITHOUT_EVIDENCE'
-  | 'DUPLICATE_STAGE_ID'
-  | 'STAGE_NODE_NOT_FOUND'
-  | 'STAGE_NODE_TWICE'
-  | 'UNKNOWN_PACK'
-  | 'KIND_NOT_IN_PACKS'
-  | 'CODE_EVIDENCE_IN_DOC_REPO'
-  | 'DUPLICATE_PROJECTION_ID'
-  | 'DUPLICATE_MESSAGE_ID'
-  | 'PROJECTION_NODE_NOT_FOUND'
-  | 'PROJECTION_EDGE_NOT_FOUND'
-  | 'PROJECTION_EDGE_MISMATCH'
-  | 'PROJECTION_BLOCK_NOT_FOUND'
-  | 'PROJECTION_BLOCK_SPLIT'
-  | 'SOLID_MESSAGE_WITHOUT_EVIDENCE'
-  | 'PROJECTION_EMPTY'
-  | 'PROJECTION_SHAPE_FIELD'
-  | 'PROJECTION_FLOW_NOT_FOUND'
-  | 'DUPLICATE_PHASE_ID'
-  | 'PROJECTION_PHASE_MESSAGE_NOT_FOUND'
-  | 'PROJECTION_PHASE_REVERSED'
-  | 'PROJECTION_PHASE_OVERLAP'
-  | 'PROJECTION_PHASE_GAP'
-  | 'INVALID_DESCRIBES_FROM'
-  | 'SOLID_DESCRIBES'
-  | 'COLUMN_REFERENCE_NOT_FOUND'
-  | 'INVALID_COLUMN_REFERENCE_KIND';
+/**
+ * IR 전체를 거부하는 에러 코드. 문서(docs/architecture-view.md) 표가 이 배열과 같은지 테스트가 본다
+ */
+export const ARCHITECTURE_VALIDATION_ERROR_CODES = [
+  'SOLID_EDGE_WITHOUT_EVIDENCE',
+  'CODE_EVIDENCE_NOT_FOUND',
+  'PRIVATE_EXCERPT_PRESENT',
+  'DANGLING_EDGE',
+  'PARENT_NOT_FOUND',
+  'PARENT_CYCLE',
+  'INVALID_PARENT_KIND',
+  'LIVE_COMMAND_NOT_READ_ONLY',
+  'ACCOUNT_NOT_FOUND',
+  'INVALID_ACCOUNT_KIND',
+  'PLACED_IN_NOT_FOUND',
+  'INVALID_PLACED_IN_KIND',
+  'CLOUD_ID_IN_ID',
+  'GROUP_MEMBER_NOT_FOUND',
+  'DUPLICATE_GROUP_ID',
+  'SERVES_SERVICE_WITH_APPS',
+  'INVALID_LOADS_ENDS',
+  'INVALID_HARNESS_EDGE_ENDS',
+  'INVALID_CALL_ACTIONS',
+  'UNKNOWN_MCP_ACTION',
+  'MD_CODE_EVIDENCE',
+  'FLOW_SERVICE_NOT_FOUND',
+  'DUPLICATE_FLOW_ID',
+  'FLOW_ACTOR_NOT_FOUND',
+  'FLOW_STEP_NOT_FOUND',
+  'FLOW_REF_NOT_FOUND',
+  'INVALID_FLOW_REF_KIND',
+  'SOLID_TRANSITION_WITHOUT_EVIDENCE',
+  'DUPLICATE_STAGE_ID',
+  'STAGE_NODE_NOT_FOUND',
+  'STAGE_NODE_TWICE',
+  'UNKNOWN_PACK',
+  'KIND_NOT_IN_PACKS',
+  'CODE_EVIDENCE_IN_DOC_REPO',
+  'DUPLICATE_PROJECTION_ID',
+  'DUPLICATE_MESSAGE_ID',
+  'PROJECTION_NODE_NOT_FOUND',
+  'PROJECTION_EDGE_NOT_FOUND',
+  'PROJECTION_EDGE_MISMATCH',
+  'PROJECTION_BLOCK_NOT_FOUND',
+  'PROJECTION_BLOCK_SPLIT',
+  'SOLID_MESSAGE_WITHOUT_EVIDENCE',
+  'PROJECTION_EMPTY',
+  'PROJECTION_SHAPE_FIELD',
+  'PROJECTION_FLOW_NOT_FOUND',
+  'DUPLICATE_PHASE_ID',
+  'PROJECTION_PHASE_MESSAGE_NOT_FOUND',
+  'PROJECTION_PHASE_REVERSED',
+  'PROJECTION_PHASE_OVERLAP',
+  'PROJECTION_PHASE_GAP',
+  'INVALID_DESCRIBES_FROM',
+  'SOLID_DESCRIBES',
+  'COLUMN_REFERENCE_NOT_FOUND',
+  'INVALID_COLUMN_REFERENCE_KIND',
+] as const;
+
+export type ArchitectureValidationErrorCode = (typeof ARCHITECTURE_VALIDATION_ERROR_CODES)[number];
 
 export interface ArchitectureValidationError {
   code: ArchitectureValidationErrorCode;
@@ -102,6 +112,31 @@ export interface ArchitectureValidationError {
   /** 노드 컬럼의 근거나 외래 키에서 난 오류. nodeId와 함께 온다 */
   column?: string;
   evidenceIndex?: number;
+  /** 못 찾은 id나 경로 대신 쓰려던 것으로 보이는 값 하나. 가까운 후보가 없으면 비운다 */
+  suggestion?: string;
+  /** CODE_EVIDENCE_NOT_FOUND에서 파일이 git으로 옮겨졌을 때 고쳐 쓸 위치 후보 */
+  movedTo?: string[];
+}
+
+/**
+ * 못 찾은 id 가운데 첫 번째로 가까운 후보가 있는 것에 제안 하나를 붙인다.
+ * 여러 개를 한꺼번에 못 찾아도 제안은 하나만 싣는다(고치는 쪽이 하나씩 확인하게).
+ */
+function withNodeIdSuggestion(
+  error: ArchitectureValidationError,
+  missingIds: readonly string[],
+  known: { keys(): Iterable<string> },
+): ArchitectureValidationError {
+  for (const id of missingIds) {
+    const suggestion = suggestOne(id, known.keys());
+    if (suggestion === undefined) continue;
+    return {
+      ...error,
+      message: `${error.message} "${suggestion}"를 가리키려던 건지 확인한다.`,
+      suggestion,
+    };
+  }
+  return error;
 }
 
 /** 렌더를 막지 않는 알림. 저장하지 않고 validate와 render 응답에만 싣는다 */
@@ -109,7 +144,67 @@ export type ArchitectureValidationWarning =
   | DescriptionWarning
   | BudgetWarning
   | ExcerptMismatchWarning
-  | InfraPlacementWarning;
+  | InfraPlacementWarning
+  | SecretMaskedWarning
+  | IgnoredFileTrackedWarning
+  | NodeTitlePathlikeWarning
+  | DisplayNameLanguageWarning
+  | LevelSummaryMissingWarning
+  | FlowStepDescriptionMissingWarning;
+
+/** 카드 제목(displayName이 없으면 label)이 경로나 파일 이름 꼴이다. 엔드포인트는 뺀다 */
+export interface NodeTitlePathlikeWarning {
+  code: 'NODE_TITLE_PATHLIKE';
+  message: string;
+  nodeIds: string[];
+}
+
+/** 설명 글 대부분이 한글인데 displayName에 한글이 없다 */
+export interface DisplayNameLanguageWarning {
+  code: 'DISPLAY_NAME_LANGUAGE';
+  message: string;
+  nodeIds: string[];
+}
+
+/** 드릴다운 레벨에 요약이 없다. root는 IR 최상위 summary, 나머지는 그 레벨을 여는 노드의 summary로 채운다 */
+export interface LevelSummaryMissingWarning {
+  code: 'LEVEL_SUMMARY_MISSING';
+  message: string;
+  levelIds: string[];
+  /** 요약이 빠진 레벨을 여는 노드. root는 여는 노드가 없어 들지 않는다 */
+  nodeIds: string[];
+}
+
+/** 흐름 단계에 description이 없다. 흐름마다 한 건씩 낸다 */
+export interface FlowStepDescriptionMissingWarning {
+  code: 'FLOW_STEP_DESCRIPTION_MISSING';
+  message: string;
+  flowId: string;
+  stepIds: string[];
+}
+
+/** 공개 레포에서 .gitignore에 넣은 산출물을 git이 이미 추적하고 있다. 파일이 몇 개든 한 건으로 낸다 */
+export interface IgnoredFileTrackedWarning {
+  code: typeof IGNORED_FILE_TRACKED;
+  message: string;
+  /** 레포 루트 기준 경로 */
+  paths: string[];
+}
+
+/** 산출물에 싣기 전에 비밀값을 가린 자리. 위치만 담고 값이나 값의 일부는 담지 않는다 */
+export interface SecretMaskedWarning {
+  code: 'SECRET_MASKED';
+  message: string;
+  nodeId?: string;
+  edgeId?: string;
+  flowId?: string;
+  projectionId?: string;
+  questionId?: string;
+  stageId?: string;
+  groupId?: string;
+  repoId?: string;
+  field: string;
+}
 
 /** 노드에 적은 provider나 region이 placedIn, parent, account에서 물려받을 값과 다르다. 그림은 노드에 적은 값을 따른다 */
 export interface InfraPlacementWarning {
@@ -178,13 +273,20 @@ export interface ValidateArchitectureIrOptions {
   repoRoots?: Record<string, string>;
   /** 기본 true. false면 code 근거의 파일 존재와 줄 범위를 확인하지 않는다 */
   checkFiles?: boolean;
+  /**
+   * 근거 파일이 없을 때 git에서 옮겨 간 경로를 찾는다. 레포 루트 기준 상대 경로 목록을 돌려준다.
+   * validator는 git을 직접 부르지 않는다. 호출하는 쪽(MCP 도구)이 git 기반 구현을 넣는다
+   */
+  findMoved?: FindMovedFile;
 }
+
+export type FindMovedFile = (repoId: string, root: string, relPath: string) => readonly string[];
 
 export type ValidateArchitectureIrResult =
   | { ok: true; value: ValidatedIr }
   | { ok: false; errors: ArchitectureValidationError[] };
 
-const CODE_LOCATION_RE = /^([^:]+):(.+):(\d+)$/;
+export const CODE_LOCATION_RE = /^([^:]+):(.+):(\d+)$/;
 /** AWS 계정 ID 꼴(숫자 12자리). 앞뒤가 숫자면 더 긴 수의 일부라 계정 ID로 보지 않는다 */
 export const ACCOUNT_ID_RE = /(?<!\d)\d{12}(?!\d)/g;
 // CloudFront 배포 ID 꼴. 대문자 id나 이름과 헷갈릴 수 있어 이름은 cdn 노드에서만, 질문 글자는 통째로 가린다
@@ -199,6 +301,8 @@ export function deriveLineStyle(evidence: Evidence[]): LineStyle {
 interface CodeLocationVerdict {
   /** 파일이나 줄 범위가 틀렸다. 오류로 낸다 */
   problem?: string;
+  /** 파일이 없을 때 옮겨 간 자리로 고쳐 쓴 위치 후보(<repo>:<새 경로>:<줄>) */
+  movedTo?: string[];
   /** excerpt가 그 줄과 다르다. 경고로 낸다 */
   mismatch?: { message: string; candidates: number[] };
 }
@@ -209,6 +313,7 @@ function checkCodeLocation(
   excerpt: string | undefined,
   repoRoots: Record<string, string>,
   cache: SourceFileCache,
+  findMoved?: FindMovedFile,
 ): CodeLocationVerdict {
   const match = CODE_LOCATION_RE.exec(location);
   if (!match) {
@@ -230,10 +335,18 @@ function checkCodeLocation(
           : `code 근거 위치 "${location}"의 경로가 레포 루트 밖을 가리킨다.`,
     };
   }
-  const check = checkLineExcerpt(readSourceLines(resolved.abs, cache), line, excerpt);
+  // 저장 IR에서 다시 들어온 가린 excerpt는 코드 줄과 같을 수 없다. 가린 자리 앞까지만 맞춘다
+  // 맨 앞이 가려졌으면 줄 범위만 보고 여러 줄 excerpt면 가린 자리 뒤 줄도 대조에서 빠진다
+  const maskAt = excerpt?.indexOf(SECRET_MASK) ?? -1;
+  const comparable = maskAt === -1 ? excerpt : excerpt!.slice(0, maskAt);
+  const check = checkLineExcerpt(readSourceLines(resolved.abs, cache), line, comparable);
   switch (check.status) {
-    case 'missing_file':
-      return { problem: `code 근거 위치 "${location}"의 파일이 레포 "${repoId}"에 없다.` };
+    case 'missing_file': {
+      const problem = `code 근거 위치 "${location}"의 파일이 레포 "${repoId}"에 없다.`;
+      const movedTo = movedLocations(repoId, root, relPath, line, cache, findMoved);
+      if (movedTo.length === 0) return { problem };
+      return { problem: `${problem} git에서 ${movedTo.join(', ')}(으)로 옮겨진 것 같다.`, movedTo };
+    }
     case 'out_of_range':
       return {
         problem: `code 근거 위치 "${location}"의 줄 번호 ${line}이 파일 범위(1~${check.lineCount}) 밖이다.`,
@@ -257,6 +370,50 @@ function checkCodeLocation(
   }
 }
 
+/**
+ * code 근거가 모두 지금 있는 파일의 범위 안 줄을 가리키는지 보는 함수를 만든다.
+ * validate가 CODE_EVIDENCE_NOT_FOUND로 막는 경우만 false다. excerpt 불일치는 경고라 따지지 않는다.
+ * 병합이 지난 흐름과 투영을 이어 싣기 전에 거르는 데 쓴다. 만든 함수끼리 파일 캐시를 함께 쓴다
+ */
+export function createCodeEvidenceCheck(
+  repoRoots: Record<string, string>,
+): (evidence: readonly Evidence[]) => boolean {
+  const cache: SourceFileCache = new Map();
+  return (evidence) =>
+    evidence.every(
+      (ev) =>
+        ev.type !== 'code' ||
+        checkCodeLocation(ev.location, undefined, repoRoots, cache).problem === undefined,
+    );
+}
+
+/** 옮겨 간 후보 중 지금 실제로 있는 파일만 남긴다. 줄 번호는 그대로 두고 세션이 excerpt로 다시 맞춘다 */
+function movedLocations(
+  repoId: string,
+  root: string,
+  relPath: string,
+  line: number,
+  cache: SourceFileCache,
+  findMoved: FindMovedFile | undefined,
+): string[] {
+  if (!findMoved) return [];
+  let candidates: readonly string[];
+  try {
+    candidates = findMoved(repoId, root, relPath);
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const candidate of candidates) {
+    if (candidate === relPath) continue;
+    const resolved = resolveInsideRoot(root, candidate);
+    if (!resolved.ok || readSourceLines(resolved.abs, cache) === null) continue;
+    const location = `${repoId}:${candidate}:${line}`;
+    if (!out.includes(location)) out.push(location);
+  }
+  return out;
+}
+
 function checkEvidenceList(
   evidence: Evidence[],
   owner:
@@ -271,6 +428,7 @@ function checkEvidenceList(
     repoRoots: Record<string, string>;
     cache: SourceFileCache;
     warnings: ExcerptMismatchWarning[];
+    findMoved?: FindMovedFile;
   },
   errors: ArchitectureValidationError[],
 ): void {
@@ -303,6 +461,7 @@ function checkEvidenceList(
         ev.visibility === 'public' ? ev.excerpt : undefined,
         ctx.repoRoots,
         ctx.cache,
+        ctx.findMoved,
       );
       if (verdict.problem) {
         errors.push({
@@ -310,6 +469,7 @@ function checkEvidenceList(
           message: verdict.problem,
           ...owner,
           evidenceIndex,
+          ...(verdict.movedTo ? { movedTo: verdict.movedTo } : {}),
         });
       } else if (verdict.mismatch) {
         ctx.warnings.push({
@@ -428,11 +588,17 @@ function checkAccounts(ir: ArchitectureIr, errors: ArchitectureValidationError[]
     if (node.account === undefined) continue;
     const account = byId.get(node.account);
     if (!account) {
-      errors.push({
-        code: 'ACCOUNT_NOT_FOUND',
-        message: `노드 "${node.id}"의 account "${node.account}"가 nodes에 없다.`,
-        nodeId: node.id,
-      });
+      errors.push(
+        withNodeIdSuggestion(
+          {
+            code: 'ACCOUNT_NOT_FOUND',
+            message: `노드 "${node.id}"의 account "${node.account}"가 nodes에 없다.`,
+            nodeId: node.id,
+          },
+          [node.account],
+          byId,
+        ),
+      );
     } else if (account.kind !== 'cloud_account') {
       errors.push({
         code: 'INVALID_ACCOUNT_KIND',
@@ -449,11 +615,17 @@ function checkPlacedIn(ir: ArchitectureIr, errors: ArchitectureValidationError[]
     if (node.placedIn === undefined) continue;
     const target = byId.get(node.placedIn);
     if (!target) {
-      errors.push({
-        code: 'PLACED_IN_NOT_FOUND',
-        message: `노드 "${node.id}"의 placedIn "${node.placedIn}"가 nodes에 없다.`,
-        nodeId: node.id,
-      });
+      errors.push(
+        withNodeIdSuggestion(
+          {
+            code: 'PLACED_IN_NOT_FOUND',
+            message: `노드 "${node.id}"의 placedIn "${node.placedIn}"가 nodes에 없다.`,
+            nodeId: node.id,
+          },
+          [node.placedIn],
+          byId,
+        ),
+      );
     } else if (!PLACED_IN_TARGET_KINDS.includes(target.kind)) {
       errors.push({
         code: 'INVALID_PLACED_IN_KIND',
@@ -520,11 +692,17 @@ function checkParents(ir: ArchitectureIr, errors: ArchitectureValidationError[])
     if (node.parent === undefined) continue;
     const parent = byId.get(node.parent);
     if (!parent) {
-      errors.push({
-        code: 'PARENT_NOT_FOUND',
-        message: `노드 "${node.id}"의 parent "${node.parent}"가 nodes에 없다.`,
-        nodeId: node.id,
-      });
+      errors.push(
+        withNodeIdSuggestion(
+          {
+            code: 'PARENT_NOT_FOUND',
+            message: `노드 "${node.id}"의 parent "${node.parent}"가 nodes에 없다.`,
+            nodeId: node.id,
+          },
+          [node.parent],
+          byId,
+        ),
+      );
       continue;
     }
     // 고리에 걸린 노드마다 한 번씩만 알린다. 고리 밖에서 고리로 들어가는 노드는 고리 쪽 에러로 충분하다
@@ -1603,6 +1781,7 @@ export function validateArchitectureIr(
     repoRoots,
     cache: new Map<string, string[] | null>(),
     warnings: excerptWarnings,
+    ...(opts.findMoved ? { findMoved: opts.findMoved } : {}),
   };
   const errors: ArchitectureValidationError[] = [];
   const nodeIds = new Set(ir.nodes.map((n) => n.id));
@@ -1635,11 +1814,17 @@ export function validateArchitectureIr(
   for (const edge of ir.edges) {
     const missing = [edge.from, edge.to].filter((id) => !nodeIds.has(id));
     if (missing.length > 0) {
-      errors.push({
-        code: 'DANGLING_EDGE',
-        message: `엣지 "${edge.id}"가 nodes에 없는 노드 ${missing.map((id) => `"${id}"`).join(', ')}를 가리킨다.`,
-        edgeId: edge.id,
-      });
+      errors.push(
+        withNodeIdSuggestion(
+          {
+            code: 'DANGLING_EDGE',
+            message: `엣지 "${edge.id}"가 nodes에 없는 노드 ${missing.map((id) => `"${id}"`).join(', ')}를 가리킨다.`,
+            edgeId: edge.id,
+          },
+          missing,
+          nodeIds,
+        ),
+      );
     }
     // 실선은 "코드나 스펙으로 확인했다"는 주장이라 근거 없이 내면 그림 전체를 믿을 수 없게 된다.
     // 그래서 미해결로 조용히 돌리지 않고 거부한다. 근거 없는 점선 엣지만 (e)에서 미해결로 간다.
@@ -1788,36 +1973,38 @@ export function validateArchitectureIr(
           drawnFlows,
         )
       : undefined;
-  return {
-    ok: true,
-    value: {
-      ir: {
-        ...ir,
-        edges,
-        ...(ir.flows !== undefined ? { flows: flowResult.flows } : {}),
-        ...(projectionResult !== undefined ? { projections: projectionResult.projections } : {}),
-      },
-      drawableNodeIds,
-      drawableEdgeIds,
-      drawableStepIds: flowResult.steps,
-      drawableTransitionIds: flowResult.transitions,
-      ...(projectionResult !== undefined
-        ? {
-            drawableMessageIds: projectionResult.messages,
-            drawableProjectionIds: projectionResult.drawable,
-          }
-        : {}),
-      autoUnresolved,
-      warnings: [
-        ...excerptWarnings,
-        ...descriptionWarnings(ir.nodes, drawableNodeIds),
-        ...infraPlacementWarnings(ir.nodes),
-        ...(projectionResult !== undefined
-          ? budgetWarnings(projectionResult.projections, projectionResult.drawable, drawnFlows)
-          : []),
-      ],
+  const value: ValidatedIr = {
+    ir: {
+      ...ir,
+      edges,
+      ...(ir.flows !== undefined ? { flows: flowResult.flows } : {}),
+      ...(projectionResult !== undefined ? { projections: projectionResult.projections } : {}),
     },
+    drawableNodeIds,
+    drawableEdgeIds,
+    drawableStepIds: flowResult.steps,
+    drawableTransitionIds: flowResult.transitions,
+    ...(projectionResult !== undefined
+      ? {
+          drawableMessageIds: projectionResult.messages,
+          drawableProjectionIds: projectionResult.drawable,
+        }
+      : {}),
+    autoUnresolved,
+    warnings: [
+      ...excerptWarnings,
+      ...descriptionWarnings(ir.nodes, drawableNodeIds),
+      ...infraPlacementWarnings(ir.nodes),
+      ...(projectionResult !== undefined
+        ? budgetWarnings(projectionResult.projections, projectionResult.drawable, drawnFlows)
+        : []),
+      ...nodeTitleWarnings(ir.nodes, drawableNodeIds),
+      ...flowStepDescriptionWarnings(flowResult.flows, drawnFlows.drawn, flowResult.steps),
+    ],
   };
+  // 레벨 판정은 그릴 노드가 정해진 뒤라야 해서 마지막에 붙인다
+  value.warnings.push(...levelSummaryWarnings(value));
+  return { ok: true, value };
 }
 
 // 노드마다 한 건씩 내면 큰 그림에서 응답이 그만큼 불어나 코드 하나에 묶는다
@@ -1835,6 +2022,159 @@ function descriptionWarnings(
       code: 'NODE_DESCRIPTION_MISSING',
       message: `description이 빈 노드 ${missing.length}개는 카드에 설명 줄이 없고 서랍에도 무엇인지가 안 나온다. 한 줄씩 채운다.`,
       nodeIds: missing,
+    },
+  ];
+}
+
+const HANGUL_RE = /[\uac00-\ud7a3]/;
+const PATH_EXTENSIONS = new Set([
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'json',
+  'jsonl',
+  'md',
+  'mdx',
+  'yml',
+  'yaml',
+  'toml',
+  'py',
+  'go',
+  'rs',
+  'java',
+  'kt',
+  'swift',
+  'rb',
+  'php',
+  'sh',
+  'sql',
+  'db',
+  'html',
+  'css',
+  'scss',
+  'vue',
+  'svelte',
+  'txt',
+  'env',
+  'lock',
+  'xml',
+  'proto',
+]);
+
+// 콜론 뒤에 슬래시 없이 경로가 바로 붙는 scheme. kafka:orders나 redis:cache 같은 카드 이름과 가르려고 아는 것만 둔다
+const BARE_PATH_SCHEME_RE = /^(?:sqlite|file|classpath|jdbc|s3|gs):\S+$/i;
+
+/** 공백과 한글이 없고 슬래시가 있거나 파일 확장자로 끝나거나 아는 scheme:경로 꼴이면 경로로 본다 */
+export function isPathlikeTitle(title: string): boolean {
+  const t = title.trim();
+  if (t === '' || /\s/.test(t) || HANGUL_RE.test(t)) return false;
+  if (/[\\/]/.test(t)) return true;
+  if (BARE_PATH_SCHEME_RE.test(t)) return true;
+  const ext = /\.([A-Za-z0-9]+)$/.exec(t);
+  if (ext === null || !PATH_EXTENSIONS.has(ext[1]!.toLowerCase())) return false;
+  // Next.js, Node.js처럼 대문자로 시작하는 프레임워크 이름은 파일이 아니다
+  return !/^[A-Z][A-Za-z]*\.js$/.test(t);
+}
+
+function sortedIds(ids: string[]): string[] {
+  return ids.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+// 노드마다 한 건씩 내면 응답이 불어나 코드마다 한 건으로 묶는다
+function nodeTitleWarnings(
+  nodes: readonly ArchitectureNode[],
+  drawableNodeIds: ReadonlySet<string>,
+): Array<NodeTitlePathlikeWarning | DisplayNameLanguageWarning> {
+  const drawn = nodes.filter((n) => drawableNodeIds.has(n.id));
+  const out: Array<NodeTitlePathlikeWarning | DisplayNameLanguageWarning> = [];
+  const pathlike = sortedIds(
+    drawn
+      .filter((n) => n.kind !== 'endpoint' && isPathlikeTitle(n.displayName ?? n.label))
+      .map((n) => n.id),
+  );
+  if (pathlike.length > 0) {
+    out.push({
+      code: 'NODE_TITLE_PATHLIKE',
+      message: `카드 제목이 경로나 파일 이름인 노드 ${pathlike.length}개는 무엇인지 안 읽힌다. 하는 일을 담은 displayName을 단다.`,
+      nodeIds: pathlike,
+    });
+  }
+  const described = drawn.filter((n) => hasCardDescription(n.description));
+  const korean = described.filter((n) => HANGUL_RE.test(n.description!)).length;
+  // 설명 글이 한글 쪽으로 기울어야 사용자 언어를 한국어로 본다
+  if (described.length > 0 && korean * 2 > described.length) {
+    const foreign = sortedIds(
+      drawn
+        .filter(
+          (n) =>
+            n.displayName !== undefined &&
+            n.displayName.trim() !== '' &&
+            !HANGUL_RE.test(n.displayName),
+        )
+        .map((n) => n.id),
+    );
+    if (foreign.length > 0) {
+      out.push({
+        code: 'DISPLAY_NAME_LANGUAGE',
+        message: `설명 글은 한글인데 displayName에 한글이 없는 노드 ${foreign.length}개가 있다. 사용자 언어로 옮겨 쓰고 옮기면 안 되는 고유명사면 그대로 둔다.`,
+        nodeIds: foreign,
+      });
+    }
+  }
+  return out;
+}
+
+function flowStepDescriptionWarnings(
+  flows: readonly ArchitectureFlow[],
+  drawnFlowIds: ReadonlySet<string>,
+  drawableStepIds: ReadonlySet<string>,
+): FlowStepDescriptionMissingWarning[] {
+  const out: FlowStepDescriptionMissingWarning[] = [];
+  for (const flow of [...flows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    if (!drawnFlowIds.has(flow.id)) continue;
+    const missing = flow.steps
+      .filter((st) => drawableStepIds.has(st.id) && !hasCardDescription(st.description))
+      .map((st) => st.id);
+    if (missing.length === 0) continue;
+    out.push({
+      code: 'FLOW_STEP_DESCRIPTION_MISSING',
+      message: `"${flow.title}" 흐름의 단계 ${missing.length}개에 description이 없어 단계 서랍에 거기서 하는 일이 안 나온다. 단계마다 한 문장을 단다.`,
+      flowId: flow.id,
+      stepIds: missing,
+    });
+  }
+  return out;
+}
+
+function levelSummaryWarnings(validated: ValidatedIr): LevelSummaryMissingWarning[] {
+  if (!shouldDrillDown(validated)) return [];
+  const nodeById = new Map(validated.ir.nodes.map((n) => [n.id, n]));
+  const levelIds: string[] = [];
+  const nodeIds: string[] = [];
+  for (const level of drillLevelOwners(validated)) {
+    let text: string | undefined;
+    if (level.kind === 'root') {
+      text = validated.ir.summary;
+    } else {
+      const owner = level.ownerId !== undefined ? nodeById.get(level.ownerId) : undefined;
+      // 여는 노드가 IR에 없는 레벨(질문별 그림 같은)은 채울 자리가 없어 묻지 않는다
+      if (owner === undefined) continue;
+      text = owner.summary;
+    }
+    if (hasCardDescription(text)) continue;
+    levelIds.push(level.levelId);
+    if (level.ownerId !== undefined) nodeIds.push(level.ownerId);
+  }
+  if (levelIds.length === 0) return [];
+  return [
+    {
+      code: 'LEVEL_SUMMARY_MISSING',
+      message: `요약이 없는 레벨 ${levelIds.length}개는 들어갔을 때 무엇을 보는 화면인지 안 나온다. root는 IR 최상위 summary, 나머지는 nodeIds 노드의 summary를 1~2문장으로 채운다.`,
+      levelIds,
+      nodeIds: [...new Set(nodeIds)],
     },
   ];
 }
@@ -2021,6 +2361,7 @@ function maskNodeText(node: ArchitectureNode): ArchitectureNode {
     label: mask(node.label),
     ...(node.displayName !== undefined ? { displayName: mask(node.displayName) } : {}),
     ...(node.description !== undefined ? { description: mask(node.description) } : {}),
+    ...(node.summary !== undefined ? { summary: mask(node.summary) } : {}),
     ...(node.region !== undefined ? { region: mask(node.region) } : {}),
     ...(doc !== undefined ? { doc: maskDocInfo(doc) } : {}),
     ...(node.columns !== undefined
@@ -2050,7 +2391,7 @@ function maskNodeText(node: ArchitectureNode): ArchitectureNode {
 
 /**
  * 공유용 사본. 입력은 바꾸지 않는다.
- * private 근거는 type과 visibility만 남긴다. live 근거는 public이어도 명령과 리소스 식별자에 계정 ID나
+ * private 근거는 type과 visibility만 남긴다. 계정 ID를 가린 뒤 남은 글자 칸의 비밀값도 가린다. live 근거는 public이어도 명령과 리소스 식별자에 계정 ID나
  * 리소스 ID가 담기므로 조회 시각만 남긴다. 노드 이름과 질문 글자의 계정 ID 꼴 숫자도 가린다
  */
 export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
@@ -2066,7 +2407,7 @@ export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
       ? ({ type: ev.type, visibility: ev.visibility } as Evidence)
       : { ...ev };
   });
-  return {
+  return maskIrSecrets({
     ...redacted,
     nodes: redacted.nodes.map(maskNodeText),
     edges: redacted.edges.map(maskDocLink),
@@ -2081,7 +2422,9 @@ export function redactForSharing(ir: ArchitectureIr): ArchitectureIr {
       ? { groups: redacted.groups.map((g) => ({ ...g, name: maskSharedText(g.name) })) }
       : {}),
     unresolved: redacted.unresolved.map(maskSharedQuestion),
-  };
+    ...(redacted.summary !== undefined ? { summary: maskSharedText(redacted.summary) } : {}),
+    ...(redacted.note !== undefined ? { note: maskSharedText(redacted.note) } : {}),
+  }).ir;
 }
 
 /** 공유본의 질문. 저장된 질문과 그릴 때 만든 자동 질문이 같은 규칙으로 가려지게 한 곳에 둔다 */

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from 'vitest';
 import { existsSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
@@ -15,6 +15,9 @@ import type {
   ProximityResult,
   ContinuityResult,
 } from '../../../src/core/types.js';
+import { EMBEDDING_WARMUP_TIMEOUT, warmDriftEmbedding } from '../../helpers/warm-embedding.js';
+
+beforeAll(warmDriftEmbedding, EMBEDDING_WARMUP_TIMEOUT);
 
 /**
  * ready set(nextTaskIds)이 MCP 응답으로 실제 노출되는지 검증한다.

@@ -1,6 +1,7 @@
 import { BAND_LINE_X, BAND_LINE_Y, BAND_TITLE_HALF, BAND_TITLE_X } from './canvas-geometry.js';
 import { FOCUS_SOURCE } from './focus.js';
 import { PRODUCT_COLORS } from './html-theme.js';
+import { CHUNK_FIT_MIN_K, SIDE_PANEL_SHEET_MAX } from './layout-tuning.js';
 import { FRAME_PAD, NODE_DESC_LINE, type LaneId } from './layout.js';
 
 export interface ClientConstants {
@@ -57,7 +58,7 @@ const CAPTURE_CODE = `  var CAPTURE_SOURCE = { browser: '실행 화면', figma: 
     var fig = el('figure', 'capture');
     var img = el('img');
     img.src = cp.image;
-    img.alt = nameOf(n) + ' 화면 캡처';
+    img.alt = mark(nameOf(n)) + ' 화면 캡처';
     fig.appendChild(img);
     var note = (withCaption ? nameOf(n) + ': ' : '') + (CAPTURE_SOURCE[cp.source] || cp.source) + ', ' + cp.env + ', ' + cp.capturedAt;
     fig.appendChild(el('figcaption', 'desc', note));
@@ -159,7 +160,7 @@ const DOC_FUNCS = `  var GAP_TEXT = { gap: '빈 곳', unverified: '확인 안 �
     if (sc && sc.thumbnail) {
       var img = el('img', 'doc-thumb');
       img.src = sc.thumbnail;
-      img.alt = nameOf(n) + ' 화면';
+      img.alt = mark(nameOf(n)) + ' 화면';
       body.appendChild(img);
     }
     var mix = d.evidenceMix ? Object.keys(d.evidenceMix).sort() : [];
@@ -171,7 +172,7 @@ const DOC_FUNCS = `  var GAP_TEXT = { gap: '빈 곳', unverified: '확인 안 �
       mix.forEach(function (k, i) {
         var seg = el('span', 'mix-' + (i % 6));
         seg.style.width = (d.evidenceMix[k] / total * 100).toFixed(1) + '%';
-        seg.title = k + ' ' + d.evidenceMix[k];
+        seg.title = mark(k) + ' ' + d.evidenceMix[k];
         bar.appendChild(seg);
         factRow(legend, k, String(d.evidenceMix[k]));
       });
@@ -461,7 +462,8 @@ const SEQ_FUNCS = `  var seqBar = byId('seq-bar');
     showStep(Number(b.getAttribute('data-n')));
   });
   // 다른 탭에 가 있는 동안 단계가 혼자 넘어가 있지 않게 멈춘다
-  doc.addEventListener('visibilitychange', function () { if (doc.hidden) seqStop(); });
+  onGlobal(doc, 'visibilitychange', function () { if (doc.hidden) seqStop(); });
+  cleanups.push(function () { if (seqTimer) clearInterval(seqTimer); seqTimer = 0; });
 `;
 const SEQ_FIT = `
     var sq = seqInset();
@@ -478,6 +480,19 @@ export const SEQ_KEYS = `    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight
     }
 `;
 
+// 글자 순서를 뒤집어 보이게 하는 제어 문자(RLO, LRI 같은 것). 화면에 넣을 때는 눈에 보이는 고정 표식으로 바꿔
+// 파일 이름이나 확장자가 거꾸로 읽히는 속임수를 막는다. 서버 렌더와 클라이언트가 이 문자 집합을 같이 쓴다
+export const BIDI_CONTROL_CLASS = '\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069';
+const BIDI_CONTROL = new RegExp(`[${BIDI_CONTROL_CLASS}]`, 'g');
+
+/** bidi 제어 문자를 `[U+202E]` 같은 표식으로 바꾼다. 표식에는 제어 문자가 없어서 여러 번 불러도 결과가 같다 */
+export function markBidi(s: string): string {
+  return s.replace(
+    BIDI_CONTROL,
+    (c) => `[U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}]`,
+  );
+}
+
 export const THEME_STORAGE_KEY = 'gestalt-architecture-theme';
 const HINT_STORAGE_KEY = 'gestalt-architecture-hint';
 
@@ -490,6 +505,13 @@ export const THEME_BOOT_SCRIPT = `(function () {
 })();`;
 
 /**
+ * client 스크립트가 window에 등록하는 이름. 라이브 스크립트가 이 이름으로 dispose와 state, restore를 찾는다.
+ * dispose는 window와 document 리스너, 순서도 타이머를 떼고 state는 지금 레벨과 선택 노드, 검색어, 배율과 위치, 개요 여닫음을 돌려준다.
+ * restore는 state가 돌려준 값을 받아 새 그림에서 고른 카드와 검색어, 배율과 위치, 개요 여닫음을 되살린다
+ */
+export const CLIENT_HANDLE = '__gestaltArch';
+
+/**
  * 페이지 동작 전부. 화면 이동, 확대와 이동, 서랍, 검색, 팝오버, 두 항목 화면을 맡는다.
  * 문자열은 전부 textContent로만 넣는다. 근거 문자열은 외부 출처에서 온 값이라 HTML로 해석하면 스크립트가 실행될 수 있다.
  * 템플릿 문자열 안이라 정규식과 문자열의 백슬래시는 두 번 적어야 브라우저에 한 번 남는다.
@@ -499,6 +521,15 @@ export function renderClientScript(c: ClientConstants): string {
 (function () {
   var doc = document;
   var root = doc.documentElement;
+  // window와 document에 붙인 리스너와 타이머는 cleanups에 모아 dispose 한 번으로 뗀다.
+  // 라이브 갱신이 body를 바꾼 뒤 이 스크립트를 다시 돌릴 때 앞 실행의 리스너가 겹치지 않게 하려는 것이다
+  var CLIENT_HANDLE = '${CLIENT_HANDLE}';
+  if (window[CLIENT_HANDLE]) window[CLIENT_HANDLE].dispose();
+  var cleanups = [];
+  function onGlobal(target, type, fn) {
+    target.addEventListener(type, fn);
+    cleanups.push(function () { target.removeEventListener(type, fn); });
+  }
   var data = JSON.parse(doc.getElementById('ir').textContent);
   var KIND_SHORT = ${JSON.stringify(c.kindShort)};
   var HOST_SHORT = ${JSON.stringify(c.hostShort)};
@@ -542,6 +573,9 @@ export function renderClientScript(c: ClientConstants): string {
     l.edges.forEach(function (e) { l.edgeById[e.id] = e; });
     levels[l.id] = l;
   });
+  // 접힌 root의 덩어리 이름. 덩어리 사이 묶음 선의 양 끝 이름을 여기서 꺼낸다
+  var chunkTitle = {};
+  ((levels.root && levels.root.chunks) || []).forEach(function (ch) { chunkTitle[ch.id] = ch.title; });
   var enterMap = data.enter || {};
   // 흐름 단계는 노드가 아니지만 nodes에 같이 넣는다. 강조와 검색, 질문 이동이 nodes와 카드 id만 보고 돌아서다
   var flows = data.flows || [];
@@ -596,10 +630,16 @@ ${FOCUS_SOURCE}
   // MCP 도구는 IR에선 endpoint지만 칩과 색은 따로 단다. types.ts의 displayKindOf와 같은 규칙이다
   function dkind(n) { return !n ? '' : ${c.components ? COMPONENT_DKIND : ''}n.kind === 'endpoint' && n.protocol === 'mcp' ? 'mcp_tool' : n.kind; }
   function evidenceText(t) { return EVIDENCE_TEXT[t] || t; }
+  function mark(s) {
+    return String(s).replace(/[${BIDI_CONTROL_CLASS}]/g, function (ch) {
+      return '[U+' + ('000' + ch.charCodeAt(0).toString(16).toUpperCase()).slice(-4) + ']';
+    });
+  }
+  function textNode(s) { return doc.createTextNode(mark(s)); }
   function el(tag, cls, text) {
     var e = doc.createElement(tag);
     if (cls) e.className = cls;
-    if (text !== undefined) e.textContent = text;
+    if (text !== undefined) e.textContent = mark(text);
     return e;
   }
   function svgEl(tag, attrs) {
@@ -614,6 +654,7 @@ ${FOCUS_SOURCE}
   }
   function nameOf(n) { return n.displayName || n.label; }
   function label(id) { return nodes[id] ? nameOf(nodes[id]) : id; }
+  function endName(id) { return chunkTitle[id] || label(id); }
   function store(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
   function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
 
@@ -635,7 +676,7 @@ ${FOCUS_SOURCE}
   });
   if (window.matchMedia) {
     var mq = window.matchMedia('(prefers-color-scheme: dark)');
-    if (mq.addEventListener) mq.addEventListener('change', syncTheme);
+    if (mq.addEventListener) onGlobal(mq, 'change', syncTheme);
   }
   syncTheme();
 
@@ -712,7 +753,7 @@ ${c.infra ? INFRA_FACTS : ''}    if (n.mcpServer) factRow(basics, 'MCP 서버', 
     var chips = el('div', 'chips');
     var chip = el('span', 'chip ' + chipKind);
     chip.appendChild(icon(chipIcon));
-    chip.appendChild(doc.createTextNode(chipText));
+    chip.appendChild(textNode(chipText));
     chips.appendChild(chip);
     if (sub) chips.appendChild(el('span', 'repo', sub));
     head.appendChild(chips);
@@ -754,7 +795,7 @@ ${c.infra ? INFRA_FACTS : ''}    if (n.mcpServer) factRow(basics, 'MCP 서버', 
       var b = el('button');
       b.type = 'button';
       b.appendChild(icon(iconOf(id)));
-      b.appendChild(doc.createTextNode(textOf(id)));
+      b.appendChild(textNode(textOf(id)));
       b.addEventListener('click', function () { onClick(id); });
       li.appendChild(b);
       ul.appendChild(li);
@@ -900,7 +941,7 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     var chips = el('div', 'chips');
     var chip = el('span', 'chip k-' + dkind(n));
     chip.appendChild(icon('i-' + dkind(n)));
-    chip.appendChild(doc.createTextNode(${c.components ? COMPONENT_CHIP : ''}kindText(dkind(n))));
+    chip.appendChild(textNode(${c.components ? COMPONENT_CHIP : ''}kindText(dkind(n))));
     chips.appendChild(chip);
     chips.appendChild(el('span', 'repo', n.repo));
     head.appendChild(chips);
@@ -923,7 +964,7 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
       if (canEnter) {
         var b = el('button', 'enter');
         b.type = 'button';
-        b.appendChild(doc.createTextNode('상세보기'));
+        b.appendChild(textNode('상세보기'));
         b.addEventListener('click', function () { showLevel(target); });
         actions.appendChild(b);
       }
@@ -932,7 +973,7 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
         f.type = 'button';
         f.title = '이 항목과 이어진 것만 보기 (F)';
         f.appendChild(icon('u-focus'));
-        f.appendChild(doc.createTextNode('포커스'));
+        f.appendChild(textNode('포커스'));
         f.addEventListener('click', function () { showFocus(id); });
         actions.appendChild(f);
       }
@@ -1019,7 +1060,9 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     var top = false;
     // 큰 레벨을 한 화면에 다 넣으면 카드 설명 글자가 안 읽힌다. 그때는 읽히는 배율로 열고 왼쪽 위부터 보여준다
     // 폭은 맞는데 세로만 긴 레벨은 폭에 맞춘다. 전체를 보고 싶으면 맞춤 버튼이 한 화면에 다 넣는다
-    if (mode === 'smart' && k < READABLE_K) { k = Math.max(Math.min(kw, 1), READABLE_K); top = true; }
+    // 접힌 root는 덩어리 몇 장이 전부라 한 화면에 다 넣는 게 낫다. 덩어리 글자가 커서 더 낮은 배율까지 읽힌다
+    var floor = active.querySelector('.chunk') ? ${CHUNK_FIT_MIN_K} : READABLE_K;
+    if (mode === 'smart' && k < floor) { k = Math.max(Math.min(kw, 1), floor); top = true; }
     k = clampK(k);
     view.k = k;
     view.x = Math.max(M, (W - s.w * k) / 2);
@@ -1242,7 +1285,7 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     if (c) c.classList.add('anchor');
   }
   function activateNode(id, ev, viaKeyboard) {
-    var pairable = drill && current === 'root' && pair.hidden;
+    var pairable = drill && (current === 'root' || (levels[current] && levels[current].kind === 'lane')) && pair.hidden;
     if (pairable && (ev.shiftKey || ev.metaKey) && anchor && anchor !== id) {
       showPair(anchor, id);
       return;
@@ -1259,7 +1302,7 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     var level = levels[levelId];
     var bundle = level && level.edgeById[g.getAttribute('data-bundle-id')];
     if (!bundle) return;
-    if (levelId === 'root') { showPair(bundle.from, bundle.to); return; }
+    if (levelId === 'root' && !chunkTitle[bundle.from]) { showPair(bundle.from, bundle.to); return; }
     go('#/bundle/' + enc(levelId) + '/' + enc(bundle.id));
   }
   function activateTransition(g) {
@@ -1270,7 +1313,29 @@ ${c.captures ? CAPTURE_CODE : ''}  function renderPanel(id) {
     returnFocus = g;
     renderTransitionPanel(t);
   }
-${c.views ? viewFuncs(!!c.sequences) : ''}${c.sequences ? SEQ_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  stage.addEventListener('click', function (e) {
+${c.views ? viewFuncs(!!c.sequences) : ''}${c.sequences ? SEQ_FUNCS : ''}${c.docs ? DOC_FUNCS : ''}  // 바깥 알약은 그 카드가 안에 선 단계로 간다. 갈 단계가 없으면 지금 단계에서 고른다
+  function leaveTo(id) {
+    var lv = (nodeLevels && nodeLevels[id]) || [];
+    var to = lv.filter(function (x) { return x !== current && !!levels[x]; })[0];
+    if (!to) return false;
+    pendingSelect = id;
+    showLevel(to);
+    return true;
+  }
+  function pillJump(card, e) {
+    return card.classList.contains('out-pill') && !e.shiftKey && !e.metaKey && leaveTo(card.getAttribute('data-node-id'));
+  }
+  stage.addEventListener('click', function (e) {
+    // 덩어리 카드는 링크다. 해시를 직접 바꾸면 환경 쿼리가 빠져서 go로 보낸다
+    var chunk = e.target.closest('.chunk');
+    if (chunk) {
+      if (suppressClick) { e.preventDefault(); suppressClick = false; return; }
+      // 수식 키나 가운데 버튼은 새 탭이나 새 창으로 여는 브라우저 기본 동작에 맡긴다
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      e.preventDefault();
+      showLevel(chunk.getAttribute('data-level'));
+      return;
+    }
     if (suppressClick) { suppressClick = false; return; }
     var more = e.target.closest('.pb.more');
     if (more) { toggleProducts(more); return; }
@@ -1281,7 +1346,7 @@ ${c.views ? viewFuncs(!!c.sequences) : ''}${c.sequences ? SEQ_FUNCS : ''}${c.doc
       if (fl.length === 1) { showLevel(fl[0].level); return; }
     }
     ${c.views ? VIEW_CLICK : ''}var card = e.target.closest('.node');
-    if (card) { activateNode(card.getAttribute('data-node-id'), e, false); return; }
+    if (card) { if (!pillJump(card, e)) activateNode(card.getAttribute('data-node-id'), e, false); return; }
 ${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
     if (link) { activateBundle(link); return; }
     var ft = e.target.closest('.link.flow-t');
@@ -1293,7 +1358,7 @@ ${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
     if (drawerOpen()) closeDrawer(false);
   });
   stage.addEventListener('dblclick', function (e) {
-    if (e.target.closest('.flow-badge, .pb.more')) return;
+    if (e.target.closest('.flow-badge, .pb.more, .chunk')) return;
     var card = e.target.closest('.node');
     if (card) { enter(card.getAttribute('data-node-id')); return; }
     // 빈 곳을 두 번 누르면 그 자리를 크게 본다. 폰에서는 브라우저 확대를 막아 둬서 이게 두 번 탭 확대다
@@ -1307,7 +1372,7 @@ ${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
     // +N 버튼은 브라우저가 Enter와 스페이스를 클릭으로 바꿔 준다. 카드 선택으로 새면 안 된다
     if (e.target.closest('.pb.more')) return;
     ${c.views ? VIEW_KEY : ''}var card = e.target.closest('.node');
-    if (card) { e.preventDefault(); activateNode(card.getAttribute('data-node-id'), e, true); return; }
+    if (card) { e.preventDefault(); if (!pillJump(card, e)) activateNode(card.getAttribute('data-node-id'), e, true); return; }
     var link = e.target.closest('.link.bundle');
     if (link) { e.preventDefault(); activateBundle(link); return; }
     var ft = e.target.closest('.link.flow-t');
@@ -1384,7 +1449,7 @@ ${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
     ids.forEach(function (i) {
       var li = el('li', '');
       li.appendChild(el('span', 'pb p-' + (i % PRODUCT_COLORS), names[i] || ''));
-      li.appendChild(doc.createTextNode(names[i] || ''));
+      li.appendChild(textNode(names[i] || ''));
       li.appendChild(el('small', '', '전용 카드 ' + sec.querySelectorAll('.node[data-band="' + (i + 1) + '"]').length + '개'));
       list.appendChild(li);
     });
@@ -1420,9 +1485,11 @@ ${c.captures ? THUMB_CLICK : ''}    var link = e.target.closest('.link.bundle');
     active = sectionOf(id);
     if (active) active.querySelectorAll('.node.anchor').forEach(function (x) { x.classList.remove('anchor'); });
     renderCrumbs(trailItems(id));
+    renderHead(id);
     syncFlowBtn();
 ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
     runSearch(false);
+    renderOverview();
   }
 
   // 두 항목 화면. 쌍마다 미리 그리면 노드 수의 제곱만큼 늘어서 브라우저에서 그린다.
@@ -1432,7 +1499,8 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
   function pathMembers(a, b) {
     var rootLevel = levels.root;
     var out = {};
-    rootLevel.edges.forEach(function (e) { (out[e.from] = out[e.from] || []).push(e); });
+    // 접힌 root는 덩어리 사이 묶음 선만 그린다. 길 찾기는 접기 전 선으로 한다
+    (rootLevel.flatEdges || rootLevel.edges).forEach(function (e) { (out[e.from] = out[e.from] || []).push(e); });
     function collect(s, t) {
       var picked = {};
       var maxModules = isKind(s, 'app_module') ? 0 : 1;
@@ -1534,9 +1602,9 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
       var chip = el('span', 'pf pf-' + p);
       chip.setAttribute('role', 'img');
       chip.setAttribute('aria-label', platName(p, f));
-      chip.title = platName(p, f);
+      chip.title = mark(platName(p, f));
       chip.appendChild(icon('p-' + p));
-      chip.appendChild(doc.createTextNode(chipText(p, f)));
+      chip.appendChild(textNode(chipText(p, f)));
       parent.appendChild(chip);
     });
   }
@@ -1553,7 +1621,7 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
     d.style.height = h + 'px';
     var kc = el('span', 'kc');
     kc.appendChild(icon('i-' + kind));
-    kc.appendChild(doc.createTextNode(MICRO_HOSTS[id] ? HOST_SHORT : ${c.components ? COMPONENT_CHIP : ''}KIND_SHORT[kind] || kind));
+    kc.appendChild(textNode(MICRO_HOSTS[id] ? HOST_SHORT : ${c.components ? COMPONENT_CHIP : ''}KIND_SHORT[kind] || kind));
     d.appendChild(kc);
     var nm = el('span', 'nm');
     nm.appendChild(el('span', 't', label(id)));
@@ -1571,7 +1639,7 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
       d.appendChild(l2);
     } else if (sub) d.appendChild(sub);
     if (hasDesc(n)) d.appendChild(el('span', 'ds', n.description));
-    d.title = (n && n.displayName ? n.displayName + (guess ? ' (' + GUESS + ')' : '') + '\\n' + n.label : label(id)) + (hasDesc(n) ? '\\n' + n.description : '');
+    d.title = mark((n && n.displayName ? n.displayName + (guess ? ' (' + GUESS + ')' : '') + '\\n' + n.label : label(id)) + (hasDesc(n) ? '\\n' + n.description : ''));
     d.setAttribute('aria-label', label(id) + ', ' + kindText(kind));
     if (enterMap[id]) {
       var more = el('span', 'go', '›');
@@ -1685,7 +1753,7 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
       g.setAttribute('role', 'button');
       g.setAttribute('aria-label', name);
       var t = svgEl('title', {});
-      t.textContent = name;
+      t.textContent = mark(name);
       g.appendChild(t);
       g.appendChild(svgEl('path', { 'class': 'hit', d: p.d, 'stroke-width': Math.max(12, p.w + 8) }));
       var line = svgEl('path', { 'class': 'edge', d: p.d, 'stroke-width': p.w });
@@ -1699,7 +1767,7 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
         var pill = svgEl('g', { 'class': 'pill', transform: 'translate(' + p.mid.x + ',' + p.mid.y + ')' });
         pill.appendChild(svgEl('rect', { x: -pw / 2, y: -9, width: pw, height: 18, rx: 9 }));${c.mixedBundles ? MIXED_PILL : ''}
         var pt = svgEl('text', {});
-        pt.textContent = text;
+        pt.textContent = mark(text);
         pill.appendChild(pt);
         g.appendChild(pill);
       }
@@ -1727,7 +1795,7 @@ ${c.sequences ? '    syncSeqBar(id);\n' : ''}    fit('smart');
       var bt = el('div', 'band-title', b.band === 0 ? '같이 쓰는 카드' : '');
       if (b.band > 0) {
         bt.appendChild(el('i', 'sw p-' + ((b.band - 1) % PRODUCT_COLORS)));
-        bt.appendChild(doc.createTextNode((o.groups[b.band - 1] || '') + ' 전용'));
+        bt.appendChild(textNode((o.groups[b.band - 1] || '') + ' 전용'));
       }
       bt.setAttribute('data-band', b.band);
       bt.style.left = BAND_TITLE_X + 'px';
@@ -1963,7 +2031,7 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     focusSec.hidden = false;
     active = focusSec;
     focusId = nodeId;
-    focusName.textContent = label(nodeId);
+    focusName.textContent = mark(label(nodeId));
     focusChip.hidden = false;
     syncFocusBtn();
     fit('smart');
@@ -1991,7 +2059,7 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     var bundle = level && level.edgeById[bundleId];
     if (!bundle) return false;
     renderLevel(levelId);
-    drawPair(bundle.memberEdgeIds, label(bundle.from) + ' → ' + label(bundle.to)${c.mixedBundles ? MIXED_PANEL_NOTE : ''});
+    drawPair(bundle.memberEdgeIds, endName(bundle.from) + ' → ' + endName(bundle.to)${c.mixedBundles ? MIXED_PANEL_NOTE : ''});
     return true;
   }
   function route() {
@@ -2023,11 +2091,24 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
       pendingSelect = null;
       focusCard(id);
     }
+    // 짝이나 묶음 주소로 바로 들어오면 renderLevel을 안 거친다. 개요는 그때도 채운다
+    if (!overviewBody.firstChild) renderOverview();
   }
 
-  // 검색. 지금 보이는 화면의 카드만 찾는다
+  // 검색. 지금 보이는 화면의 카드는 캔버스에서 강조한다. 드릴다운이면 모든 레벨의 카드를 목록으로도 띄운다
   var hits = [];
   var hitAt = -1;
+  // 검색 글자는 노드마다 처음 한 번만 만든다. 키마다 모든 노드의 문자열을 잇고 소문자로 바꾸면 카드가 많을 때 타이핑이 끊긴다
+  var nameHay = {};
+  var cardHay = {};
+  function nameHayOf(id, n) {
+    if (!(id in nameHay)) nameHay[id] = ((n.displayName || '') + ' ' + n.label).toLowerCase();
+    return nameHay[id];
+  }
+  function cardHayOf(id, n) {
+    if (!(id in cardHay)) cardHay[id] = ((n.displayName || '') + ' ' + n.label${c.docs ? DOC_HAY : ''}).toLowerCase();
+    return cardHay[id];
+  }
   function runSearch(move) {
     if (active) {
       active.classList.remove('searching');
@@ -2036,17 +2117,19 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     hits = [];
     hitAt = -1;
     var q = search.value.trim().toLowerCase();
+    renderResults(q);
     if (!q || !active) { searchCount.textContent = ''; return; }
     active.querySelectorAll('.node').forEach(function (c) {
-      var n = nodes[c.getAttribute('data-node-id')];
+      var id = c.getAttribute('data-node-id');
+      var n = nodes[id];
       if (!n || c.classList.contains('env-off')) return;
-      var hay = ((n.displayName || '') + ' ' + n.label${c.docs ? DOC_HAY : ''}).toLowerCase();
-      if (hay.indexOf(q) >= 0) hits.push(c);
+      if (cardHayOf(id, n).indexOf(q) >= 0) hits.push(c);
     });
     hits.sort(function (a, b) { return a.offsetLeft - b.offsetLeft || a.offsetTop - b.offsetTop; });
     active.classList.add('searching');
     hits.forEach(function (c) { c.classList.add('hit'); });
-    if (!hits.length) { searchCount.textContent = '없음'; return; }
+    // 이 화면에 없어도 다른 레벨 목록에 걸렸으면 그 수를 같은 live 칸으로 알린다. 칸을 따로 두면 같은 수가 두 번 읽힌다
+    if (!hits.length) { searchCount.textContent = results.length ? '모든 레벨 ' + results.length + '개' : '없음'; return; }
     if (move) stepSearch(1);
     else searchCount.textContent = hits.length + '개';
   }
@@ -2059,11 +2142,245 @@ ${c.sequences ? '    seqLeave();\n' : ''}    focusSec.textContent = '';
     centerOn(c, 0.8);
     searchCount.textContent = (hitAt + 1) + '/' + hits.length;
   }
-  search.addEventListener('input', function () { runSearch(true); });
-  search.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') { e.preventDefault(); stepSearch(e.shiftKey ? -1 : 1); }
-    else if (e.key === 'Escape') { e.stopPropagation(); search.value = ''; runSearch(false); search.blur(); }
+
+  // 개요 패널. 루트는 그림 요약과 일러두기, 레인과 종류별 카드 수, 열린 질문과 설명 없는 카드 수를 보인다.
+  // 안쪽 레벨은 그 레벨 요약이나 레벨을 연 카드의 설명과 레인별 카드 수를 보인다
+  var overview = byId('overview');
+  var overviewBody = byId('overview-body');
+  // 넓은 화면은 옆 칸으로 열어 두고 좁은 화면은 아래 시트라 닫아 둔다
+  if (overview && window.innerWidth > ${SIDE_PANEL_SHEET_MAX}) overview.open = true;
+  // 열고 닫으면 그림 칸 폭이 바뀌어서 남은 칸에 다시 맞춘다. 처음 열어 둔 toggle은 건너뛴다
+  var overviewOpen = !!(overview && overview.open);
+  // 사람이 직접 여닫은 뒤로는 창 폭이 넓어져도 다시 열지 않는다
+  var overviewTouched = false;
+  // 라이브 질문 단추가 개요 시트 위로 비켜 서는 기준이다
+  function markOverview() { doc.body.classList.toggle('overview-open', !!(overview && overview.open)); }
+  markOverview();
+  if (overview) overview.addEventListener('toggle', function () {
+    markOverview();
+    if (overview.open === overviewOpen) return;
+    overviewOpen = overview.open;
+    overviewTouched = true;
+    fit('smart');
   });
+  function setOverview(open) {
+    if (overview.open === open) return;
+    overviewOpen = open;
+    overview.open = open;
+    markOverview();
+    fit('smart');
+  }
+  // 좁아지면 아래 시트가 그림을 덮으니 닫는다
+  if (overview && window.matchMedia) {
+    var sheetMq = window.matchMedia('(max-width: ${SIDE_PANEL_SHEET_MAX}px)');
+    if (sheetMq.addEventListener) onGlobal(sheetMq, 'change', function () {
+      if (sheetMq.matches) setOverview(false);
+      else if (!overviewTouched) setOverview(true);
+    });
+  }
+  // 단계 머리. 종류는 작은 글자, 제목은 크게, 요약은 있을 때만 세 줄까지 보인다
+  var levelHead = byId('level-head');
+  var LEVEL_KIND_TEXT = { root: '전체 그림', lane: '레인', service: '서비스', app: '앱', server: '서버 모듈', feature: '기능 영역', group: '묶음', infra: '인프라', flow: '흐름', view: '질문별 그림' };
+  function levelSummaryText(id) {
+    var l = levels[id];
+    if (!l) return '';
+    if (l.summary) return l.summary;
+    var cut = id.indexOf(':');
+    var owner = l.focusId || (cut > 0 ? id.slice(cut + 1) : '');
+    return id !== 'root' && hasDesc(nodes[owner]) ? nodes[owner].description : '';
+  }
+  function renderHead(id) {
+    if (!levelHead) return;
+    var l = levels[id];
+    if (!l) return;
+    var h1 = doc.querySelector('.bar h1');
+    levelHead.querySelector('.lh-kind').textContent = LEVEL_KIND_TEXT[l.kind] || '단계';
+    levelHead.querySelector('.lh-title').textContent = id === 'root' && h1 && h1.textContent ? h1.textContent : l.title;
+    var sum = levelSummaryText(id);
+    var p = levelHead.querySelector('.lh-sum');
+    p.textContent = sum;
+    p.hidden = !sum;
+  }
+  // 개요 숫자 타일. 접힌 root는 덩어리마다 레인 단계에 선 카드를 모아 센다. 바깥 맥락 카드는 빼고 센다.
+  // 엔드포인트는 root에 카드로 안 서는 일이 많아 root에서는 그림 전체를 센다
+  function levelCards(id) {
+    var sec = sectionOf(id);
+    if (!sec) return [];
+    return Array.prototype.slice.call(sec.querySelectorAll('.node[data-node-id]:not(.outside)')).map(function (x) { return x.getAttribute('data-node-id'); });
+  }
+  function levelTally(id) {
+    var l = levels[id] || {};
+    var ids = l.chunks ? l.chunks.reduce(function (acc, ch) { return acc.concat(levelCards(ch.level)); }, []) : levelCards(id);
+    var links = (l.flatEdges || l.edges || []).reduce(function (n, e) { return n + (e.count || 1); }, 0);
+    var pool = id === 'root' ? data.nodes.map(function (n) { return n.id; }) : ids;
+    return { items: ids.length, links: links, endpoints: pool.filter(function (x) { return isKind(x, 'endpoint'); }).length };
+  }
+  function tile(n, name) {
+    var d = el('div', 'ov-tile');
+    d.appendChild(el('b', null, String(n)));
+    d.appendChild(el('span', null, name));
+    return d;
+  }
+  function statList(rows) {
+    var dl = el('dl', 'ov-stats');
+    rows.forEach(function (r) {
+      dl.appendChild(el('dt', null, r[0]));
+      dl.appendChild(el('dd', null, String(r[1])));
+    });
+    return dl;
+  }
+  function renderOverview() {
+    if (!overview) return;
+    overviewBody.textContent = '';
+    var l = levels[current];
+    if (drill && l) {
+      var t = levelTally(current);
+      var tiles = el('div', 'ov-tiles');
+      tiles.appendChild(tile(t.items, '항목'));
+      tiles.appendChild(tile(t.links, '연결'));
+      tiles.appendChild(tile(t.endpoints, '엔드포인트'));
+      overviewBody.appendChild(tiles);
+    }
+    // 단계 머리에 요약이 서는 드릴다운에서는 개요에 같은 글을 되풀이하지 않는다
+    var sum = levelHead ? '' : levelSummaryText(current);
+    if (sum) overviewBody.appendChild(el('p', 'ov-sum', sum));
+    if (current === 'root' && data.note) overviewBody.appendChild(el('p', 'ov-note', data.note));
+    if (l && l.chunks && l.chunks.length) {
+      overviewBody.appendChild(el('p', 'ov-h', '레인별 항목'));
+      var ul = el('ul', 'ov-lanes');
+      l.chunks.forEach(function (ch) {
+        var li = el('li');
+        var a = el('a');
+        a.href = '#/level/' + enc(ch.level);
+        a.appendChild(el('span', null, ch.order + '. ' + ch.title));
+        a.appendChild(el('b', null, String(ch.count)));
+        a.addEventListener('click', function (e) { e.preventDefault(); showLevel(ch.level); });
+        li.appendChild(a);
+        ul.appendChild(li);
+      });
+      overviewBody.appendChild(ul);
+    }
+    var lanes = [];
+    if (active) active.querySelectorAll('.lane-title[data-lane-id]').forEach(function (t) {
+      var n = t.querySelector('.n');
+      if (n && t.firstChild) lanes.push([t.firstChild.textContent, n.textContent]);
+    });
+    if (lanes.length) {
+      overviewBody.appendChild(el('p', 'ov-h', '레인별 카드'));
+      overviewBody.appendChild(statList(lanes));
+    }
+    if (current !== 'root') return;
+    var kinds = {};
+    var missing = 0;
+    data.nodes.forEach(function (n) {
+      var k = kindText(n.kind);
+      kinds[k] = (kinds[k] || 0) + 1;
+      if (!hasDesc(n)) missing++;
+    });
+    var kindRows = Object.keys(kinds).sort(function (a, b) { return kinds[b] - kinds[a] || (a < b ? -1 : 1); }).map(function (k) { return [k, kinds[k]]; });
+    overviewBody.appendChild(el('p', 'ov-h', '종류별 카드'));
+    overviewBody.appendChild(statList(kindRows));
+    overviewBody.appendChild(el('p', 'ov-h', '살펴볼 것'));
+    overviewBody.appendChild(statList([['열린 질문', (data.unresolved || []).length], ['설명 없는 카드', missing]]));
+  }
+
+  // 모든 레벨 검색 목록. 지금 레벨에 선 카드를 먼저 두고 나머지는 카드가 안에 선 첫 레벨로 보낸다
+  var nodeLevels = data.nodeLevels || null;
+  var searchList = byId('search-list');
+  var SEARCH_MAX = 50;
+  var results = [];
+  var resultAt = -1;
+  function resultsOpen() { return !!searchList && !searchList.hidden; }
+  function placeResults() {
+    var r = search.parentNode.getBoundingClientRect();
+    searchList.style.top = Math.round(r.bottom + 6) + 'px';
+    var w = Math.max(r.width, Math.min(360, window.innerWidth - 16));
+    searchList.style.width = Math.round(w) + 'px';
+    searchList.style.left = Math.round(Math.max(8, Math.min(r.left, window.innerWidth - w - 8))) + 'px';
+  }
+  function closeResults() {
+    if (!resultsOpen()) return;
+    searchList.hidden = true;
+    search.setAttribute('aria-expanded', 'false');
+    search.removeAttribute('aria-activedescendant');
+    resultAt = -1;
+  }
+  function renderResults(q) {
+    if (!searchList || !nodeLevels) return;
+    searchList.textContent = '';
+    results = [];
+    resultAt = -1;
+    search.removeAttribute('aria-activedescendant');
+    if (!q) { closeResults(); return; }
+    var here = [];
+    var there = [];
+    Object.keys(nodeLevels).forEach(function (id) {
+      var n = nodes[id];
+      if (!n || envHidden(id)) return;
+      if (nameHayOf(id, n).indexOf(q) < 0) return;
+      var at = nodeLevels[id];
+      if (at.indexOf(current) >= 0) here.push({ id: id, level: current });
+      else if (at.length) there.push({ id: id, level: at[0] });
+    });
+    function byName(a, b) {
+      var x = label(a.id).toLowerCase();
+      var y = label(b.id).toLowerCase();
+      return x < y ? -1 : x > y ? 1 : a.id < b.id ? -1 : 1;
+    }
+    results = here.sort(byName).concat(there.sort(byName)).slice(0, SEARCH_MAX);
+    if (!results.length) {
+      var none = el('li', 'empty', '모든 레벨에서 못 찾았어요');
+      none.setAttribute('role', 'option');
+      none.setAttribute('aria-disabled', 'true');
+      searchList.appendChild(none);
+    }
+    results.forEach(function (r, i) {
+      var li = el('li');
+      li.id = 'search-opt-' + i;
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-selected', 'false');
+      li.appendChild(el('span', 'nm', label(r.id)));
+      li.appendChild(el('span', 'lv', r.level === current ? '이 화면' : levels[r.level] ? levels[r.level].title : r.level));
+      li.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      li.addEventListener('click', function () { chooseResult(i); });
+      searchList.appendChild(li);
+    });
+    searchList.hidden = false;
+    search.setAttribute('aria-expanded', 'true');
+    placeResults();
+  }
+  function moveResult(dir) {
+    if (!results.length) return;
+    var prev = byId('search-opt-' + resultAt);
+    if (prev) prev.setAttribute('aria-selected', 'false');
+    resultAt = resultAt < 0 ? (dir > 0 ? 0 : results.length - 1) : (resultAt + dir + results.length) % results.length;
+    var li = byId('search-opt-' + resultAt);
+    li.setAttribute('aria-selected', 'true');
+    search.setAttribute('aria-activedescendant', li.id);
+    li.scrollIntoView({ block: 'nearest' });
+  }
+  function chooseResult(i) {
+    var r = results[i];
+    if (!r) return;
+    search.value = '';
+    runSearch(false);
+    if (r.level === current && active && cardMap(active)[r.id]) { focusCard(r.id); return; }
+    pendingSelect = r.id;
+    showLevel(r.level);
+  }
+
+  search.addEventListener('input', function () { runSearch(true); });
+  search.addEventListener('focus', function () { if (search.value.trim()) renderResults(search.value.trim().toLowerCase()); });
+  search.addEventListener('blur', closeResults);
+  search.addEventListener('keydown', function (e) {
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && resultsOpen()) { e.preventDefault(); moveResult(e.key === 'ArrowDown' ? 1 : -1); }
+    else if (e.key === 'Enter' && resultAt >= 0) { e.preventDefault(); chooseResult(resultAt); }
+    else if (e.key === 'Enter') { e.preventDefault(); stepSearch(e.shiftKey ? -1 : 1); }
+    else if (e.key === 'Escape' && resultsOpen()) { e.stopPropagation(); closeResults(); }
+    else if (e.key === 'Escape') { e.stopPropagation(); search.value = ''; runSearch(false); search.blur(); }
+    else if (e.key === 'Tab') closeResults();
+  });
+  onGlobal(window, 'resize', function () { if (resultsOpen()) placeResults(); });
 
   // 범례와 질문 팝오버
   var pops = [];
@@ -2134,13 +2451,13 @@ ${c.views ? VIEW_POP : ''}  // 흐름 단추는 서비스 아래 레벨에서만
       flowPop.focus();
     });
   }
-  doc.addEventListener('pointerdown', function (e) {
+  onGlobal(doc, 'pointerdown', function (e) {
     if (!productMenu.hidden && !(e.target.closest && e.target.closest('.pmenu, .pb.more'))) closeProducts(false);
     if (!anyPop()) return;
     if (e.target.closest && (e.target.closest('.pop') || e.target.closest('[aria-controls]'))) return;
     closePops(false);
   });
-  window.addEventListener('resize', function () {
+  onGlobal(window, 'resize', function () {
     pops.forEach(function (p) { if (!p.pop.hidden) placePop(p.btn, p.pop); });
 ${c.sequences ? '    seqPlaceSteps();\n' : ''}  });
   function goToNode(id) {
@@ -2170,7 +2487,7 @@ ${c.sequences ? '    seqPlaceSteps();\n' : ''}  });
   stage.addEventListener('pointerdown', hideHint, { once: true });
   stage.addEventListener('wheel', hideHint, { once: true, passive: true });
 
-  doc.addEventListener('keydown', function (e) {
+  onGlobal(doc, 'keydown', function (e) {
     if (e.key === 'Escape') {
 ${c.sequences ? '      seqStop();\n' : ''}      if (!productMenu.hidden) { closeProducts(true); return; }
       if (anyPop()) { closePops(true); return; }
@@ -2178,6 +2495,8 @@ ${c.sequences ? '      seqStop();\n' : ''}      if (!productMenu.hidden) { close
       releaseFocus();
       return;
     }
+    // ⌘K와 Ctrl+K는 입력칸 안에서도 검색으로 간다. 브라우저 주소창 검색보다 먼저 받는다
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); search.focus(); search.select(); return; }
     var t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -2220,7 +2539,9 @@ ${c.sequences ? SEQ_KEYS : ''}    if (e.key === '/') { e.preventDefault(); searc
       t.classList.toggle('env-off', n === 0);
       var count = t.querySelector('.n');
       if (count) count.textContent = n;
-      if (t.hasAttribute('data-lane-id')) t.setAttribute('aria-label', laneAria(t.firstChild.textContent, n));
+      // 바깥 맥락 레인은 접어 둔 장수(+N)를 aria에도 이어 붙인다
+      var more = t.querySelector('.more');
+      if (t.hasAttribute('data-lane-id')) t.setAttribute('aria-label', laneAria(t.firstChild.textContent, n) + (more ? ', 밖에 ' + more.getAttribute('data-n') + '개 더' : ''));
     });
   }
   // 고른 환경은 주소 해시 뒤 ?env=prod,dev로 싣는다. 주소를 보내면 받은 사람도 같은 환경으로 본다.
@@ -2282,9 +2603,51 @@ ${c.sequences ? SEQ_KEYS : ''}    if (e.key === '/') { e.preventDefault(); searc
     });
   }
 
-  window.addEventListener('hashchange', route);
+  onGlobal(window, 'hashchange', route);
   route();
   ready = true;
+  var handle = {
+    dispose: function () {
+      while (cleanups.length) cleanups.pop()();
+      if (window[CLIENT_HANDLE] === handle) delete window[CLIENT_HANDLE];
+    },
+    state: function () {
+      return {
+        level: current, node: selectedId, focus: focusId, search: search.value, searchFocused: doc.activeElement === search, drawer: drawerOpen(),
+        view: { x: view.x, y: view.y, k: view.k }, overviewOpen: overviewOpen, overviewTouched: overviewTouched
+      };
+    },
+    // 라이브 갱신이 body를 바꾼 뒤 앞 화면의 state를 넘긴다. 새 그림에 없는 카드는 고르지 않는다
+    restore: function (s) {
+      if (!s) return;
+      // 개요를 여닫으면 toggle 핸들러와 setOverview가 fit을 다시 부르므로 배율보다 먼저 되돌린다.
+      // 변수를 먼저 맞춰 두면 toggle 핸들러가 사람이 여닫은 것으로 보지 않는다
+      if (overview && typeof s.overviewOpen === 'boolean' && overview.open !== s.overviewOpen) {
+        overviewOpen = s.overviewOpen;
+        overview.open = s.overviewOpen;
+        markOverview();
+      }
+      if (s.overviewTouched === true) overviewTouched = true;
+      if (typeof s.search === 'string' && s.search) {
+        search.value = s.search;
+        runSearch(false);
+        if (s.searchFocused) search.focus({ preventScroll: true });
+        else closeResults();
+      }
+      var sameLevel = s.level === current;
+      if (s.drawer && typeof s.node === 'string' && sameLevel && active && cardMap(active)[s.node]) select(s.node, false);
+      // 레벨이 바뀐 화면에 앞 레벨 좌표를 걸지 않는다. 고른 카드로 옮겨 간 자리도 앞 화면 좌표로 덮는다
+      var v = s.view;
+      if (sameLevel && v && isFinite(v.x) && isFinite(v.y) && isFinite(v.k)) {
+        stopGlide();
+        view.x = v.x;
+        view.y = v.y;
+        view.k = clampK(v.k);
+        applyView();
+      }
+    }
+  };
+  window[CLIENT_HANDLE] = handle;
 })();
 `;
 }
