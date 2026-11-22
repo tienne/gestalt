@@ -150,6 +150,25 @@ describe('refs 사본', () => {
     ]);
   });
 
+  it.skipIf(process.getuid?.() === 0)(
+    '비밀 자리 파일을 열다 실패하면 error가 아니라 denied로 남긴다',
+    () => {
+      const { home, file, homeFile, copy } = setup();
+      homeFile('.aws/locked/notes.md', 'x');
+      const plain = file('locked/notes.md', 'x');
+      const dirs = [join(home, '.aws', 'locked'), join(plain, '..')];
+      for (const d of dirs) chmodSync(d, 0o000);
+      try {
+        const out = copy(['~/.aws/locked/notes.md', plain]);
+
+        expect(out[0]).toEqual({ ref: '~/.aws/locked/notes.md', skipped: 'denied' });
+        expect(out[1]).toMatchObject({ ref: plain, skipped: 'error' });
+      } finally {
+        for (const d of dirs) chmodSync(d, 0o700);
+      }
+    },
+  );
+
   it('홈 바로 아래 점 디렉토리, Library, 비밀 이름 파일은 거부한 사실만 남긴다', () => {
     const { work, file, homeFile, copy } = setup();
     const config = homeFile('.config/x.json', '{}');

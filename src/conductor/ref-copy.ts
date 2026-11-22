@@ -149,7 +149,9 @@ export function copyReportRefs(input: CopyRefsInput): RefCopy[] {
       try {
         found = locate(source);
       } catch (err) {
-        out.push({ ref, skipped: 'error', reason: message(err) });
+        // `error`면 컨덕터 스킬이 원래 경로를 읽으니 비밀 자리인지부터 본다
+        if (isDenied(realOrSelf(source), where)) out.push({ ref, skipped: 'denied' });
+        else out.push({ ref, skipped: 'error', reason: message(err) });
         continue;
       }
     }
