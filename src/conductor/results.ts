@@ -881,7 +881,7 @@ export function searchResults(
     for (const f of relatedFiles(results, o.id)) fileHits(sink, results, f, re, head);
   }
 
-  // 주문 없음 파일에는 레포나 상태가 없다. 그 필터를 걸었으면 뺀다
+  // 주문 없는 파일에는 레포나 상태, 지라 키가 없다. 그중 하나라도 필터를 걸었으면 뺀다
   if (body && !opts.repo && !opts.status && !opts.issueKey) {
     const since = opts.since ? parseSince(opts.since) : undefined;
     for (const f of results.files) {
