@@ -411,10 +411,10 @@ export function readRefBody(
   if (entry !== undefined) {
     if (fresh.kind !== 'dir' || !fresh.path) return null;
     const e = fresh.entries?.[entry];
-    return e ? cachedBody(results, e.path, [fresh.path]) : null;
+    return e ? cachedBody(results, e.path, [fresh.path], { store: true }) : null;
   }
   if (fresh.kind !== 'file' || !fresh.path) return null;
-  return cachedBody(results, fresh.path, [dirOf(fresh.path)]);
+  return cachedBody(results, fresh.path, [dirOf(fresh.path)], { store: true });
 }
 
 /**
@@ -449,18 +449,18 @@ function dirOf(path: string): string {
   return i <= 0 ? sep : path.slice(0, i);
 }
 
+const NO_STORE = { store: false } as const;
+
 /**
  * 못 읽은 결과는 캐시하지 않는다. 잠깐 난 권한 오류가 파일이 바뀔 때까지 남지 않게 한다.
  * 검색은 파일을 한 번씩 훑기만 해서 `store`를 끈다. 켜 두면 검색 한 번이 상세 화면에서 연 본문을 밀어낸다.
  * 심링크는 캐시 키가 같아 보여도 가리키는 대상이 바뀔 수 있어서 캐시를 보기 전에 막는다
  */
-const NO_STORE = { store: false } as const;
-
 function cachedBody(
   results: LoadedResults,
   path: string,
   roots: string[],
-  { store }: { store: boolean } = { store: true },
+  { store }: { store: boolean },
 ): FileBody | null {
   let st;
   try {
