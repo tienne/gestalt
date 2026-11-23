@@ -217,3 +217,45 @@ test('주문은 있는데 conductor와 recentEvents가 둘 다 없을 때만 터
     '빈 recentEvents라도 실렸으면 새 CLI다'
   )
 })
+
+test('parseStatus는 changedFiles 키가 있을 때만 작업 내용을 읽고 꼴이 틀린 항목은 버린다', () => {
+  const base = { id: 'o1', status: 'running', scope: 'pr', repo: 'r', title: 't', bypasses: [] }
+  const raw = parseStatus({
+    lastTickAt: null,
+    orders: [
+      base,
+      {
+        ...base,
+        id: 'o2',
+        activity: { tool: 'Edit', file: 'a.ts', at: 'x' },
+        changedFiles: ['a.ts', 3],
+        overlapFiles: ['a.ts'],
+        tasks: { items: [{ title: '하나', status: 'completed' }, { title: '둘', status: 'weird' }], done: 9, total: 9 },
+        subagents: [{ name: '조사', startedAt: 'y', state: 'running' }, { name: 'x', state: 'zombie' }],
+        recentTools: [{ at: 'z', tool: 'Bash', detail: 'ls', ok: false }],
+        history: 'partial'
+      },
+      { ...base, id: 'o3', activity: null, changedFiles: null, tasks: null, subagents: null, recentTools: null, history: null }
+    ],
+    gates: []
+  })
+  assert.equal(raw.orders[0]!.work, undefined)
+  assert.deepEqual(raw.orders[1]!.work, {
+    activity: { tool: 'Edit', at: 'x', file: 'a.ts' },
+    changedFiles: ['a.ts'],
+    overlapFiles: ['a.ts'],
+    tasks: { items: [{ title: '하나', status: 'completed' }], done: 1, total: 1 },
+    subagents: [{ name: '조사', startedAt: 'y', state: 'running' }],
+    recentTools: [{ at: 'z', tool: 'Bash', detail: 'ls', ok: false }],
+    history: 'partial'
+  })
+  assert.deepEqual(raw.orders[2]!.work, {
+    activity: null,
+    changedFiles: null,
+    overlapFiles: [],
+    tasks: null,
+    subagents: null,
+    recentTools: null,
+    history: null
+  })
+})

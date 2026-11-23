@@ -147,6 +147,8 @@ export interface Worker {
    * 않고 비워 둔다. 다음 재개는 앞 워크트리의 실제 체크아웃을 다시 읽는다
    */
   branch?: string;
+  /** 워커 세션의 Claude Code 세션 id. 런처가 띄울 때 응답에서 받았을 때만 있다. 트랜스크립트를 바로 찾는 데 쓴다 */
+  sessionId?: string;
   account?: string;
   startedAt: string;
   lastSeenAt: string;
@@ -196,8 +198,9 @@ export const GATE_TYPES = [
   'interview',
   'review-manual-switch',
   'no-procedure',
+  'file-overlap',
 ] as const;
-/** 사람 확인이 필요한 자리. no-procedure는 컨덕터가 처리 절차를 못 세운 경우다 */
+/** 사람 확인이 필요한 자리. no-procedure는 컨덕터가 처리 절차를 못 세운 경우고 file-overlap은 같은 레포 두 주문이 같은 파일을 많이 고친 경우다 */
 export type GateType = (typeof GATE_TYPES)[number];
 
 /** taken-over는 사람이 PR을 넘겨받거나 주문을 취소하면서 같이 종료한 게이트다 */

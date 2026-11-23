@@ -29,6 +29,31 @@ export type CheckpointView = {
   savedAt: string
 }
 
+/** todo 한 줄. 제목은 워커가 쓴 글이라 데스크톱에서만 그린다 */
+export type WorkTask = { title: string; status: 'pending' | 'in_progress' | 'completed' }
+
+/** 서브에이전트 한 줄. detached는 백그라운드로 띄우고 완료 알림을 아직 못 받은 것이다 */
+export type WorkSubagent = { name: string; startedAt: string; state: 'running' | 'detached' | 'done' }
+
+/** tool 호출 한 줄. detail은 명령이나 경로 앞부분이라 데스크톱에서만 그린다 */
+export type WorkTool = { at: string; tool: string; detail: string; ok?: boolean }
+
+/**
+ * `status --with-activity`가 주문마다 싣는 작업 내용. 이 플래그를 모르는 옛 CLI면 주문에 없다.
+ * null은 컨덕터가 못 구했다는 뜻이다(Codex 워커, 트랜스크립트를 못 찾음)
+ */
+export type WorkView = {
+  activity: { tool: string; file?: string; at: string } | null
+  changedFiles: string[] | null
+  /** 같은 레포 다른 주문도 고친 파일 */
+  overlapFiles: string[]
+  tasks: { items: WorkTask[]; done: number; total: number } | null
+  subagents: WorkSubagent[] | null
+  recentTools: WorkTool[] | null
+  /** 트랜스크립트 앞부분을 건너뛰고 읽었으면 partial */
+  history: 'full' | 'partial' | null
+}
+
 /** 워커가 status waiting으로 알린 대기 */
 export type WaitingView = { reason: string; since: string; until?: string }
 
@@ -77,6 +102,8 @@ export type OrderView = {
   account?: string
   rateLimitedAt?: string
   rateLimitResetsAt?: string
+  /** 작업 내용. `--with-activity`를 아는 CLI에서만 있다 */
+  work?: WorkView
 }
 
 export type GateView = {
@@ -151,6 +178,8 @@ export type WorkerLive = {
   error?: string
 }
 
+export type OrderBrowseResult = { ok: true; url: string } | { ok: false; error: string }
+
 export type WorkerOpenResult = {
   opened: boolean
   /** 워커 에이전트를 못 찾아 워크트리의 첫 터미널로 갔다. 워커 터미널이 아닐 수 있다 */
@@ -176,6 +205,8 @@ declare module 'orca' {
     'worker.open': { input: { orderId: string }; output: WorkerOpenResult }
     /** 주문을 맡은 워커의 에이전트 상태와 터미널 마지막 줄을 읽는다 */
     'worker.detail': { input: { orderId: string }; output: WorkerLive }
+    /** `gestalt conductor browse`를 한 번 띄워 두고 주문의 작업 내용 탭 주소를 준다. 데스크톱 상세의 "전체 보기"가 부른다 */
+    'order.browse': { input: { orderId: string }; output: OrderBrowseResult }
   }
   interface PluginPanelEvents {
     'conductor.changed': ConductorView

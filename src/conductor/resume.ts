@@ -23,6 +23,8 @@ export const defaultShipReader: ShipReader = (dir) => checkCheckpoint(dir, defau
 
 /** 재개를 사람에게 올린 게이트임을 payload로 표시한다. 승인되면 시도 수를 다시 센다 */
 const RESUME_GATE_KIND = 'resume';
+/** 워커 시계가 이만큼 넘게 앞서 있으면 트랜스크립트 시각을 생존 근거로 안 쓴다 */
+const CLOCK_SKEW_MS = 60_000;
 
 export interface CheckpointInput {
   workerId: string;
@@ -122,6 +124,11 @@ export interface StaleOptions {
   rateLimitEscalateAfterMs?: number;
   /** 대기를 보고한 워커가 이 시간을 넘겨 기다리면 사람에게 올린다. 없으면 대기 보고를 안 따지고 지금처럼 끊김으로 본다 */
   waitingEscalateAfterMs?: number;
+  /**
+   * 트랜스크립트 리더로 본 워커의 마지막 활동 시각. 못 읽었으면 undefined라 지금 판단 그대로 간다.
+   * 보고 없이 오래 일하는 워커를 터미널 probe 없이 살아 있다고 본다
+   */
+  activityAt?: (worker: Worker) => string | undefined;
 }
 
 export interface StaleResult {
@@ -173,6 +180,18 @@ export async function detectStale(store: ConductorStore, opts: StaleOptions): Pr
     }
     const seen = Date.parse(w.lastSeenAt);
     if (Number.isNaN(seen) || opts.now.getTime() - seen < opts.staleAfterMs) continue;
+
+    // 판단 순서는 리더, (오르카면) 터미널 probe, 끊김이다
+    const active = opts.activityAt?.(w);
+    // 트랜스크립트 시각은 워커 쪽 시계다. 1분 넘게 앞서 있으면 믿지 않고 probe로 넘긴다. 받아 주면 그 시각까지 끊김 판단이 꺼진다
+    const parsed = active ? Date.parse(active) : NaN;
+    const activeMs =
+      parsed > opts.now.getTime() + CLOCK_SKEW_MS ? NaN : Math.min(parsed, opts.now.getTime());
+    if (!Number.isNaN(activeMs) && opts.now.getTime() - activeMs < opts.staleAfterMs) {
+      if (activeMs > seen)
+        store.updateWorker(w.id, { lastSeenAt: new Date(activeMs).toISOString() });
+      continue;
+    }
 
     const probed = canProbe(w) && opts.probe ? await probeOrWarn(w, opts.probe, result) : undefined;
     if (probed?.state === 'working') {

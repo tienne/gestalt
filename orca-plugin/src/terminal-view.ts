@@ -47,7 +47,58 @@ async function load(): Promise<void> {
   render()
 }
 
-async function openWorker(orderId: string): Promise<void> {
+// 여는 요청이 끝나기 전에 또 누르면 브라우저 탭이나 터미널 이동이 겹친다
+let opening = false
+
+async function once(label: string, run: () => Promise<void>): Promise<void> {
+  if (opening) {
+    // 같은 틱에 비우고 실으면 스크린리더가 바뀐 걸 못 알아채서 다음 틱에 싣는다
+    statusRegion.textContent = ''
+    setTimeout(() => {
+      if (opening) statusRegion.textContent = '아직 여는 중이에요'
+    }, 100)
+    return
+  }
+  opening = true
+  statusRegion.textContent = label
+  try {
+    await run()
+  } finally {
+    opening = false
+  }
+}
+
+/** 결과 뷰어의 작업 내용 탭을 브라우저로 연다. 브라우저를 못 여는 화면이면 주소를 알려 준다 */
+function openBrowse(orderId: string): Promise<void> {
+  return once('작업 내용을 여는 중이에요', () => openBrowseNow(orderId))
+}
+
+async function openBrowseNow(orderId: string): Promise<void> {
+  state.openError = null
+  state.openNote = null
+  try {
+    const out = await orca.plugin.request('order.browse', { orderId })
+    if (!out.ok) state.openNote = out.error
+    else if (!orca.shell) state.openNote = `브라우저에서 열어 주세요: ${out.url}`
+    else {
+      const r = await orca.shell.openExternal(out.url)
+      if (!r.opened) state.openNote = `브라우저를 못 열었어요. 주소: ${out.url}`
+    }
+  } catch (e) {
+    state.openNote = `결과 뷰어를 못 열었어요. ${errorText(e)}`
+  }
+  render()
+  statusRegion.textContent = ''
+  alertRegion.textContent = ''
+  if (state.openNote) alertRegion.textContent = state.openNote
+  else statusRegion.textContent = '작업 내용을 브라우저에서 열었어요'
+}
+
+function openWorker(orderId: string): Promise<void> {
+  return once('워크트리로 옮기는 중이에요', () => openWorkerNow(orderId))
+}
+
+async function openWorkerNow(orderId: string): Promise<void> {
   state.openError = null
   state.openNote = null
   try {
@@ -66,7 +117,7 @@ async function openWorker(orderId: string): Promise<void> {
   statusRegion.textContent = ''
   alertRegion.textContent = ''
   if (state.openError) alertRegion.textContent = `워크트리를 못 열었어요. ${state.openError}`
-  else if (state.openNote) statusRegion.textContent = state.openNote
+  else statusRegion.textContent = state.openNote ?? '워커 워크트리로 옮겼어요'
 }
 
 const hasWorkspace = (orderId: string) => Boolean(state.view?.orders.find((o) => o.id === orderId)?.workspaceId)
@@ -196,6 +247,8 @@ export function mountTerminal(): void {
   root.addEventListener('click', (e) => {
     const go = (e.target as Element | null)?.closest<HTMLElement>('[data-go]')
     if (go?.dataset['go']) void openWorker(go.dataset['go'])
+    const browse = (e.target as Element | null)?.closest<HTMLElement>('[data-browse]')
+    if (browse?.dataset['browse']) void openBrowse(browse.dataset['browse'])
   })
   root.addEventListener('dblclick', (e) => {
     const id = openTarget(e)

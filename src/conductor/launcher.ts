@@ -115,6 +115,8 @@ export interface LaunchResult {
   hostAction?: HostAction;
   /** 띄우긴 했지만 주문대로 다 못 맞춘 자리. tick 보고에 경고로 싣는다 */
   warnings?: string[];
+  /** 띄운 응답이 알려 준 Claude Code 세션 id. 트랜스크립트를 바로 찾는 데 쓴다 */
+  sessionId?: string;
 }
 
 export interface Launcher {
@@ -128,6 +130,8 @@ export interface Launcher {
   probe?(worker: Worker): Promise<WorkerProbe>;
   /** 터미널이 살아 있는지와 출력 중인지만 본다. 출력을 넘겨 읽지 않아 probe보다 싸다 */
   peek?(worker: Worker): Promise<WorkerPeek>;
+  /** 워커 워크트리 경로. 작업 내용(고친 파일, 트랜스크립트)을 찾는 데 쓴다 */
+  worktreePath?(worker: Worker): Promise<string | undefined>;
 }
 
 /** 오르카가 아직 살아 있는 워커를 거두지 못했을 때 재시도할 수 있다 */
@@ -766,6 +770,8 @@ export class OrcaLauncher implements Launcher {
   private readonly repoDirs = new Map<string, string>();
   /** 오르카 워크트리 이름별 경로. 못 찾은 답도 담는다 */
   private readonly worktreePaths = new Map<string, string | undefined>();
+  /** dispatch id별로 worker-start 응답이 알려 준 세션 id */
+  private readonly sessionIds = new Map<string, string>();
   constructor(private readonly opts: OrcaLauncherOptions) {
     this.runner = opts.runner ?? execRunner;
   }
@@ -787,7 +793,7 @@ export class OrcaLauncher implements Launcher {
     // 지라 키가 없는 PR 감시 주문이 여기로 온다
     if (!spec.order.parentWorktree && !planned && refs.length === 0) {
       const handle = await this.startTopLevel(spec.order, file, name, displayName, agent);
-      return { handle, ...(warnings.length ? { warnings } : {}) };
+      return { handle, ...this.sessionOf(handle), ...(warnings.length ? { warnings } : {}) };
     }
     const branch = planned ? await this.planBranch(spec, planned, warnings) : undefined;
     const created = await this.createWorktree(spec.order, name, displayName, branch);
@@ -820,9 +826,38 @@ export class OrcaLauncher implements Launcher {
     );
     return {
       handle,
+      ...this.sessionOf(handle),
       ...(used ? { branch: used } : {}),
       ...(warnings.length ? { warnings } : {}),
     };
+  }
+
+  private sessionOf(handle: string): { sessionId?: string } {
+    const id = this.sessionIds.get(handle);
+    return id ? { sessionId: id } : {};
+  }
+
+  private recordSession(stdout: string, handle: string): string {
+    const id = parseSessionId(stdout);
+    if (id) this.sessionIds.set(handle, id);
+    return handle;
+  }
+
+  /**
+   * 워커 워크트리 경로. worker-show의 workspace(`<레포 id>::<경로>`)에서 읽는다.
+   * 못 읽으면 undefined라 작업 내용 필드가 빌 뿐이다
+   */
+  async worktreePath(worker: Worker): Promise<string | undefined> {
+    if (!worker.handle) return undefined;
+    const r = await this.runner(
+      this.opts.orcaCommand,
+      ['orchestration', 'worker-show', `--dispatch=${worker.handle}`, '--json'],
+      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+    ).catch(() => undefined);
+    if (r?.code !== 0) return undefined;
+    const workspace = workspaceField(r.stdout);
+    const at = workspace?.indexOf('::') ?? -1;
+    return workspace && at > 0 ? workspace.slice(at + 2) : undefined;
   }
 
   private async startTopLevel(
@@ -856,7 +891,7 @@ export class OrcaLauncher implements Launcher {
       ],
       { timeoutMs: ORCA_TIMEOUT_MS },
     );
-    return parseDispatchId(out);
+    return this.recordSession(out, parseDispatchId(out));
   }
 
   private repoSelector(order: Order): string {
@@ -985,7 +1020,7 @@ export class OrcaLauncher implements Launcher {
     );
     if (r.code === 0) {
       try {
-        return parseDispatchId(r.stdout);
+        return this.recordSession(r.stdout, parseDispatchId(r.stdout));
       } catch (err) {
         throw new Error(
           `${(err as Error).message}. 워커가 떴을 수 있어 워크트리를 그대로 뒀어요. ${leftover}`,
@@ -1621,6 +1656,23 @@ export function stopCommandFor(worker: Pick<Worker, 'id' | 'handle'>): string {
   return worker.handle && SAFE_HANDLE.test(worker.handle)
     ? `\`orca orchestration worker-stop --dispatch=${worker.handle}\`로 앞 워커를 멈춘 뒤`
     : `오르카에서 워커 ${worker.id}의 터미널을 멈춘 뒤`;
+}
+
+/**
+ * worker-start --json 응답에서 Claude Code 세션 id를 꺼낸다. 지금 오르카는 싣지 않아(2026-11 확인) 대개 undefined고
+ * 그때 리더는 워크트리 경로와 시각으로 세션을 고른다. 실린다면 받을 자리만 열어 둔다
+ */
+export function parseSessionId(stdout: string): string | undefined {
+  let data: unknown;
+  try {
+    data = JSON.parse(stdout);
+  } catch {
+    return undefined;
+  }
+  const d = (data ?? {}) as Record<string, unknown>;
+  const nested = (d['dispatch'] ?? d['result']) as Record<string, unknown> | undefined;
+  const id = d['sessionId'] ?? nested?.['sessionId'] ?? nested?.['claudeSessionId'];
+  return typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id) ? id : undefined;
 }
 
 /** worker-start --json 응답에서 dispatch id를 꺼낸다. 버전마다 자리가 달라 몇 곳을 본다 */
