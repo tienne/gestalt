@@ -155,6 +155,24 @@ test('워커 에이전트 터미널을 못 찾은 상세는 출력 대신 안내
   lacks(html, '워크트리를 못 열었어요')
 })
 
+test('해제된 워커의 상세는 터미널 안내와 이동 버튼 없이 워커 종료만 싣는다', () => {
+  for (const workerStatus of ['released', 'finished']) {
+    const o = order('ord-a', { status: 'merged', workspaceId: 'ws-1', worker: 'wrk-1', workerKind: 'orca-worktree', workerStatus })
+    const html = terminalMarkup(view([o]), {
+      now: NOW,
+      interactive: true,
+      private: true,
+      open: new Set(['ord-a']),
+      live: { 'ord-a': { found: true, noWorkerTerminal: true, error: '에이전트 상태를 못 읽었어요(no workspace has this id).' } }
+    })
+    has(html, '워커 종료')
+    lacks(html, '터미널을 못 찾아')
+    lacks(html, '못 읽었어요')
+    lacks(html, '터미널로 이동')
+    lacks(html, 'data-open')
+  }
+})
+
 test('주문은 있는데 새 필드가 하나도 없으면 CLI를 올리라고 알린다', () => {
   has(terminalMarkup(view([order('ord-a')], { terminalFieldsMissing: true }), { now: NOW, interactive: true, private: true }), 'gestalt CLI가 낡아')
   lacks(terminalMarkup(view([order('ord-a')]), { now: NOW, interactive: true, private: true }), 'gestalt CLI가 낡아')

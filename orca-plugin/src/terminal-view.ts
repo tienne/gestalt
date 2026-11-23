@@ -2,7 +2,7 @@
 // 폭에 따른 차이는 TERMINAL_STYLE의 미디어 쿼리에만 있다.
 import type { ConductorView, WorkerLive } from './protocol'
 import { TERMINAL_STYLE, terminalMarkup } from './terminal-markup'
-import { terminalModel } from './terminal-model'
+import { terminalModel, workerEnded } from './terminal-model'
 
 /** 상세를 펼쳐 둔 동안 워커 터미널을 다시 읽는 간격 */
 const LIVE_POLL_MS = 4000
@@ -193,11 +193,15 @@ async function openWorkerNow(orderId: string): Promise<void> {
   else statusRegion.textContent = state.openNote ?? '워커 워크트리로 옮겼어요'
 }
 
-const hasWorkspace = (orderId: string) => Boolean(state.view?.orders.find((o) => o.id === orderId)?.workspaceId)
+/** 해제된 워커의 워크트리는 이미 없을 수 있어서 워커가 안 끝났을 때만 터미널을 읽는다 */
+const hasLiveWorker = (orderId: string) => {
+  const o = state.view?.orders.find((x) => x.id === orderId)
+  return o !== undefined && Boolean(o.workspaceId) && !workerEnded(o)
+}
 
 /** 워커 터미널을 다시 읽는다. 그리기는 부른 쪽이 한 번에 한다 */
 async function readLive(orderId: string): Promise<void> {
-  if (inflight.has(orderId) || !hasWorkspace(orderId)) return
+  if (inflight.has(orderId) || !hasLiveWorker(orderId)) return
   inflight.add(orderId)
   // 읽는 사이 접었으면 결과를 버린다. 남겨 두면 다시 펼칠 때 지난 출력이 잠깐 보인다
   try {
