@@ -58,7 +58,14 @@ import {
 import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
 import { readRecentEvents, type RecentEvent } from '../../conductor/recent-events.js';
 import { removeOrderRefCopies } from '../../conductor/ref-copy.js';
-import { archiveOrders, DEFAULT_ARCHIVE_DAYS } from '../../conductor/archive.js';
+import {
+  archiveOrders,
+  compressArchive,
+  DEFAULT_ARCHIVE_DAYS,
+  PROMPTS_DIR,
+  pruneArchive,
+  runDailyArchive,
+} from '../../conductor/archive.js';
 import { resolveGate } from '../../conductor/gates.js';
 import { terminalText } from '../../conductor/terminal-text.js';
 import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS, oneLine } from '../../conductor/intake.js';
@@ -158,7 +165,7 @@ function launchersFor(
   ctx: Ctx,
   env: NodeJS.ProcessEnv,
 ): { launchers: LauncherSet; orcaAvailable: boolean } {
-  const promptDir = join(ctx.store.dir, 'prompts');
+  const promptDir = join(ctx.store.dir, PROMPTS_DIR);
   const orca = detectOrca(env);
   const launchers: LauncherSet = {
     subagent: new SubagentLauncher({ promptDir }),
@@ -358,6 +365,7 @@ export async function conductorOrderRemoveCommand(
 
 export interface ConductorArchiveOptions extends ConductorCommonOptions {
   olderThan?: string;
+  before?: string;
   dryRun?: boolean;
 }
 
@@ -369,6 +377,7 @@ export async function conductorArchiveCommand(opts: ConductorArchiveOptions): Pr
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'archive');
+    if (opts.before !== undefined) throw new Error('--before는 archive prune에서만 받아요');
     // Number('')가 0이라 빈 값이 끝난 주문을 전부 옮기지 않게 숫자만 받는다
     if (opts.olderThan !== undefined && !/^\d+$/.test(opts.olderThan))
       throw new Error(`--older-than은 0 이상의 정수(일)로 주세요: ${opts.olderThan}`);
@@ -376,11 +385,19 @@ export async function conductorArchiveCommand(opts: ConductorArchiveOptions): Pr
     if (!Number.isSafeInteger(days))
       throw new Error(`--older-than은 0 이상의 정수(일)로 주세요: ${opts.olderThan}`);
     const result = await archiveOrders(ctx.store.dir, { days, dryRun: opts.dryRun === true });
-    if (result.status === 'locked')
-      throw new Error(
-        `다른 프로세스(${result.holder ?? '알 수 없음'})가 저장소를 쓰는 중이에요. 잠시 뒤 다시 불러 주세요`,
+    if (result.status === 'locked') throw lockedError(result.holder);
+    // 묶기도 잠금을 따로 잡는다. 그사이 tick이 잡았으면 다음 보관 때 묶는다
+    const compressed =
+      result.status === 'archived' ? compressArchive(ctx.store.dir, new Date()) : undefined;
+    const months = compressed?.status === 'compressed' ? compressed.months : [];
+    const warnings = [
+      ...(result.status === 'archived' ? result.warnings : []),
+      ...(compressed?.status === 'compressed' ? compressed.warnings : []),
+    ];
+    if (opts.json)
+      return print(
+        result.status === 'archived' ? { ...result, compressed: months, warnings } : result,
       );
-    if (opts.json) return print(result);
     const verb = result.status === 'dry-run' ? '옮길' : '옮긴';
     console.log(
       `${verb} 주문 ${result.orders.length}개, 지운 주문의 이벤트 ${result.removed.length}개, 버린 컨덕터 게이트 ${result.gates.length}개 (${days}일 기준)`,
@@ -389,10 +406,41 @@ export async function conductorArchiveCommand(opts: ConductorArchiveOptions): Pr
       console.log(`  ${o.id}  ${o.status}  archive/${o.month}/${o.id}`);
     for (const r of result.removed) console.log(`  ${r.id}  removed  archive/${r.month}/${r.id}`);
     for (const b of result.blocked) console.log(`못 옮겨요: ${b.reason}`);
-    if (result.status === 'archived') for (const w of result.warnings) console.log(`경고: ${w}`);
+    if (result.status === 'archived') {
+      const { prompts, activity, handoffs } = result.swept;
+      if (prompts + activity + handoffs > 0)
+        console.log(
+          `지운 운영 파일: prompts ${prompts}개, activity ${activity}개, handoffs ${handoffs}개`,
+        );
+    }
+    for (const m of months) console.log(`묶었어요: archive/${m}.tar.gz`);
+    for (const w of warnings) console.log(`경고: ${w}`);
   } catch (e) {
     exitWithError(e);
   }
+}
+
+function lockedError(holder: number | undefined): Error {
+  return new Error(
+    `다른 프로세스(${holder ?? '알 수 없음'})가 저장소를 쓰는 중이에요. 잠시 뒤 다시 불러 주세요`,
+  );
+}
+
+/** `before`보다 앞선 달의 보관소를 지운다. 자동으로는 안 돌고 사람이 부른다 */
+export function conductorArchivePruneCommand(opts: ConductorArchiveOptions): void {
+  run(() => {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'archive prune');
+    if (opts.before === undefined) throw new Error('archive prune은 --before <YYYY-MM>이 필요해요');
+    if (opts.olderThan !== undefined) throw new Error('--older-than은 archive prune에서 안 받아요');
+    const before = opts.before;
+    const result = pruneArchive(ctx.store.dir, before, { dryRun: opts.dryRun === true });
+    if (result.status === 'locked') throw lockedError(result.holder);
+    if (opts.json) return print(result);
+    const verb = result.status === 'dry-run' ? '지울' : '지운';
+    console.log(`${verb} 달 ${result.months.length}개 (${before} 앞)`);
+    for (const p of result.paths) console.log(`  ${p}`);
+  });
 }
 
 export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptions): void {
@@ -796,6 +844,9 @@ async function runConductorTick(
     ...(Object.keys(ctx.config.accounts).length > 0
       ? { accounts: new GhAccountSwitcher({ accounts: gh }) }
       : {}),
+    ...(ctx.config.archive?.enabled === false
+      ? {}
+      : { archive: (now: Date) => runDailyArchive(ctx.store.dir, { now }) }),
   };
   const report = await tick(ctx.store, deps, { force: opts.force === true });
   report.hostActions.push(...deferred);
