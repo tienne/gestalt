@@ -451,17 +451,22 @@ test('설정이 바뀐 뒤의 기록이 실제 결과 뷰어면 그 뷰어를 �
   }
 })
 
-test('저장소 설정이 비면 CLI가 알려 준 저장소로 가른 기록의 뷰어를 이어받는다', async () => {
+test('저장소 설정이 비고 CLI도 저장소를 못 알려 주면 뷰어를 띄우지도 기록을 건드리지도 않는다', async () => {
   const s = store(STATUS)
   const orphan = await orphanOf([FAKE, 'conductor', 'browse', '--no-open', `--state-dir=${s.dir}`])
   try {
     // 가짜 CLI는 --state-dir 없이는 status에 실패해 저장소를 알려 주지 않는다
     const before = browseCalls(s).length
-    const h = host('', { resultsViewer: { pid: orphan.child.pid!, url: orphan.url, key: JSON.stringify([FAKE, null]) } })
+    const rec = { pid: orphan.child.pid!, url: orphan.url, key: JSON.stringify([FAKE, s.dir]) }
+    const h = host('', { resultsViewer: rec })
     await run(s, h, async (worker) => {
-      assert.deepEqual(await worker.request('viewer.open'), { ok: true, url: orphan.url })
+      const out = await worker.request('viewer.open')
+      assert.equal(out.ok, false)
+      assert.match(out.ok ? '' : out.error, /저장소를 아직 몰라요/)
       assert.equal(browseCalls(s).length, before)
+      assert.deepEqual(h.data().storage['resultsViewer'], rec)
     })
+    assert.equal(pidAlive(orphan.child.pid!), true, '저장소를 모를 때는 남은 뷰어를 끄지 않는다')
   } finally {
     orphan.child.kill()
   }
