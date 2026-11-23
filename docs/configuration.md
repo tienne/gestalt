@@ -294,7 +294,7 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 }
 ```
 
-머지 승인 범위와 워커 에이전트, 상태 저장소, 계정, 레포 경로, PR 감시 대상, 오르카 워크트리 삭제 여부, 인계 세션의 모델과 추론 수준, 이전 지휘자 탭을 닫는 시간, 배포 신호 대기와 오르카 release 재시도 상한은 사용자 전역 `~/.gestalt/conductor.json`에만 적는다. `GESTALT_HOME`을 바꿨으면 그 아래 `.gestalt/conductor.json`이다. 이 파일은 `conductor` 블록 없이 칸을 바로 적고 조율 값도 함께 둘 수 있다. 같은 칸이 두 파일에 다 있으면 이 파일이 앞선다.
+머지 승인 범위와 워커 에이전트, 상태 저장소, 계정, 레포 경로, PR 감시 대상, 오르카 워크트리 삭제 여부, 인계 세션의 모델과 추론 수준, 이전 지휘자 탭을 닫는 시간, 배포 신호 대기와 오르카 release 재시도 상한, tick의 자동 보관(`archive.enabled`)은 사용자 전역 `~/.gestalt/conductor.json`에만 적는다. `GESTALT_HOME`을 바꿨으면 그 아래 `.gestalt/conductor.json`이다. 이 파일은 `conductor` 블록 없이 칸을 바로 적고 조율 값도 함께 둘 수 있다. 같은 칸이 두 파일에 다 있으면 이 파일이 앞선다.
 
 ```json
 {
