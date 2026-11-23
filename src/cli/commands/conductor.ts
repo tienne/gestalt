@@ -63,7 +63,7 @@ import {
   DEFAULT_ARCHIVE_DAYS,
   PROMPTS_DIR,
   pruneArchive,
-  runDailyArchive,
+  dailyArchiveFor,
 } from '../../conductor/archive.js';
 import { resolveGate } from '../../conductor/gates.js';
 import { terminalText } from '../../conductor/terminal-text.js';
@@ -837,6 +837,7 @@ async function runConductorTick(
       ? new GhPrWatchSource({ repoPaths: watch.repoPaths, accounts: gh })
       : undefined;
   const queue = opts.queue !== false ? fileQueue(queueDirOf(ctx)) : undefined;
+  const archive = dailyArchiveFor(ctx.config, ctx.store.dir);
   const deps: EngineDeps = {
     config: ctx.config,
     ...launchersFor(ctx, process.env),
@@ -849,9 +850,7 @@ async function runConductorTick(
     ...(Object.keys(ctx.config.accounts).length > 0
       ? { accounts: new GhAccountSwitcher({ accounts: gh }) }
       : {}),
-    ...(ctx.config.archive?.enabled === false
-      ? {}
-      : { archive: (now: Date) => runDailyArchive(ctx.store.dir, { now }) }),
+    ...(archive ? { archive } : {}),
   };
   const report = await tick(ctx.store, deps, { force: opts.force === true });
   report.hostActions.push(...deferred);
