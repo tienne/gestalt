@@ -77,6 +77,7 @@ function liveBlock(o: Card['order'], live: WorkerLive | 'loading' | undefined, n
 }
 
 const MAX_FILES = 15
+const MAX_ITEMS = 20
 const TASK_MARK: Record<string, string> = { completed: '✓', in_progress: '▸', pending: '·' }
 const SUB_STATE: Record<string, string> = { running: '실행 중', detached: '백그라운드', done: '끝남' }
 
@@ -107,7 +108,8 @@ function workBlock(orderId: string, w: WorkView, opts: TerminalMarkupOptions): s
       : opts.private && tasks.total > 0
         ? join(
             dkv('todo', `${tasks.done}/${tasks.total}`),
-            ...tasks.items.map((t) => div('task', span('muted', lookup(TASK_MARK, t.status) ?? '·'), span('', t.title)))
+            ...tasks.items.slice(0, MAX_ITEMS).map((t) => div('task', span('muted', lookup(TASK_MARK, t.status) ?? '·'), span('', t.title))),
+            tasks.items.length > MAX_ITEMS && div('muted', esc(`외 ${tasks.items.length - MAX_ITEMS}개`))
           )
         : dkv('todo', `${tasks.done}/${tasks.total}`),
     subs === null
@@ -115,9 +117,10 @@ function workBlock(orderId: string, w: WorkView, opts: TerminalMarkupOptions): s
       : opts.private && subs.length > 0
         ? join(
             dkv('서브에이전트', String(subs.length)),
-            ...subs.map((a) =>
+            ...subs.slice(0, MAX_ITEMS).map((a) =>
               div('task', span('muted', lookup(SUB_STATE, a.state) ?? a.state), span('', `${a.name} · ${duration(ms(a.startedAt), opts.now)}`))
-            )
+            ),
+            subs.length > MAX_ITEMS && div('muted', esc(`외 ${subs.length - MAX_ITEMS}개`))
           )
         : dkv('서브에이전트', String(subs.length)),
     opts.private &&
@@ -132,7 +135,7 @@ function workBlock(orderId: string, w: WorkView, opts: TerminalMarkupOptions): s
       ),
     w.history === 'partial' && div('muted', '트랜스크립트가 길어 끝부분만 읽었어요.'),
     opts.private &&
-      `<button class="go" data-browse="${esc(orderId)}" data-focus="${esc(`browse:${orderId}`)}">전체 보기</button>`
+      `<button class="go" data-browse="${esc(orderId)}" data-focus="${esc(`browse:${orderId}`)}" aria-label="${esc(`${orderId} 작업 내용 전체 보기, 브라우저에서 열려요`)}">전체 보기</button>`
   )
 }
 

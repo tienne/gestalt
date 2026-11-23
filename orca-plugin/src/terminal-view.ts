@@ -47,8 +47,26 @@ async function load(): Promise<void> {
   render()
 }
 
+// 여는 요청이 끝나기 전에 또 누르면 브라우저 탭이나 터미널 이동이 겹친다
+let opening = false
+
+async function once(label: string, run: () => Promise<void>): Promise<void> {
+  if (opening) return
+  opening = true
+  statusRegion.textContent = label
+  try {
+    await run()
+  } finally {
+    opening = false
+  }
+}
+
 /** 결과 뷰어의 작업 내용 탭을 브라우저로 연다. 브라우저를 못 여는 화면이면 주소를 알려 준다 */
-async function openBrowse(orderId: string): Promise<void> {
+function openBrowse(orderId: string): Promise<void> {
+  return once('작업 내용을 여는 중이에요', () => openBrowseNow(orderId))
+}
+
+async function openBrowseNow(orderId: string): Promise<void> {
   state.openError = null
   state.openNote = null
   try {
@@ -68,7 +86,11 @@ async function openBrowse(orderId: string): Promise<void> {
   if (state.openNote) alertRegion.textContent = state.openNote
 }
 
-async function openWorker(orderId: string): Promise<void> {
+function openWorker(orderId: string): Promise<void> {
+  return once('워크트리로 옮기는 중이에요', () => openWorkerNow(orderId))
+}
+
+async function openWorkerNow(orderId: string): Promise<void> {
   state.openError = null
   state.openNote = null
   try {
