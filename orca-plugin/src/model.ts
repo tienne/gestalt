@@ -22,10 +22,29 @@ export function ago(at: number | null, now = Date.now()): string {
   return `${Math.round(s / 86400)}일 전`
 }
 
+/**
+ * 화면에만 있는 상태. CLI의 주문 상태는 merged 그대로이고 awaitingDeploy가 붙은 주문만 이 값으로 그린다.
+ * 끝난 느낌의 머지됨과 섞이면 배포를 기다리는 주문이 왜 떠 있는지 안 읽혀서 따로 둔다
+ */
+export const AWAITING_DEPLOY = 'awaiting-deploy'
+
+/** 화면에 그릴 상태. 옛 CLI처럼 awaitingDeploy가 없으면 status 그대로다 */
+export const displayStatus = (o: Pick<OrderView, 'status' | 'awaitingDeploy'>): string =>
+  o.status === 'merged' && o.awaitingDeploy === true ? AWAITING_DEPLOY : o.status
+
+export const statusLabel = (o: Pick<OrderView, 'status' | 'awaitingDeploy'>): string => {
+  const s = displayStatus(o)
+  return STATUS_LABEL[s] ?? s
+}
+
+export const statusTone = (o: Pick<OrderView, 'status' | 'awaitingDeploy'>): Tone =>
+  STATUS_TONE[displayStatus(o)] ?? 'neutral'
+
 export const STATUS_LABEL: Record<string, string> = {
   queued: '대기',
   running: '진행',
   'waiting-gate': '확인 대기',
+  [AWAITING_DEPLOY]: '배포 대기',
   merged: '머지됨',
   done: '끝남',
   failed: '실패',
@@ -41,6 +60,7 @@ export const STATUS_TONE: Record<string, Tone> = {
   queued: 'neutral',
   running: 'accent',
   'waiting-gate': 'warning',
+  [AWAITING_DEPLOY]: 'accent',
   merged: 'success',
   done: 'neutral',
   failed: 'danger',
@@ -52,10 +72,18 @@ export const STATUS_TONE: Record<string, Tone> = {
 
 export const isTerminal = (status: string) => TERMINAL_ORDER_STATUSES.includes(status)
 
+/** 묶는 순서. 배포 대기는 아직 진행 중인 주문이라 머지됨보다 앞에 둔다 */
+export const GROUP_ORDER: readonly string[] = ORDER_STATUSES.flatMap((s): string[] =>
+  s === 'merged' ? [AWAITING_DEPLOY, s] : [s]
+)
+
 export function groupOrders(orders: readonly OrderView[]): [string, OrderView[]][] {
-  const known: readonly string[] = ORDER_STATUSES
+  const known = GROUP_ORDER
   const groups = new Map<string, OrderView[]>()
-  for (const o of orders) groups.set(o.status, [...(groups.get(o.status) ?? []), o])
+  for (const o of orders) {
+    const s = displayStatus(o)
+    groups.set(s, [...(groups.get(s) ?? []), o])
+  }
   // 모르는 status도 버리지 않고 뒤에 붙인다. CLI가 앞서 나가도 주문이 사라져 보이지 않게
   const order = [...known, ...[...groups.keys()].filter((s) => !known.includes(s))]
   return order.filter((s) => groups.has(s)).map((s) => [s, groups.get(s)!])

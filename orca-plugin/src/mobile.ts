@@ -1,7 +1,7 @@
 // 폰에서 보는 보기 전용 페이지. 워커가 들고 있는 상태를 HTML 문자열로 그리기만 하고 버튼은 두지 않는다.
 // 주문 제목과 게이트 사유는 지라나 PR에서 온 바깥 텍스트라 전부 이스케이프한다.
 import { buildHierarchy, pruneHierarchy, type HierarchyNode } from './hierarchy'
-import { ago, isTerminal, ms, splitRepo, STATUS_LABEL, STATUS_TONE, summarize, type RepoSummary } from './model'
+import { ago, isTerminal, ms, splitRepo, statusLabel, statusTone, summarize, type RepoSummary } from './model'
 import type { ConductorView, GateView, OrderView } from './protocol'
 import { esc } from './html'
 import { TERMINAL_STYLE, terminalMarkup } from './terminal-markup'
@@ -19,8 +19,8 @@ export function shortPr(pr: string): string {
 }
 
 function orderLine(o: OrderView, gates: number, now: number, depth: number): string {
-  const tone = gates > 0 ? 'warning' : (STATUS_TONE[o.status] ?? 'neutral')
-  const status = gates > 0 ? `확인 대기 ${gates}` : (STATUS_LABEL[o.status] ?? o.status)
+  const tone = gates > 0 ? 'warning' : statusTone(o)
+  const status = gates > 0 ? `확인 대기 ${gates}` : statusLabel(o)
   const meta = [
     `<span class="mono">${esc(o.id)}</span>`,
     o.pr ? esc(shortPr(o.pr)) : '',

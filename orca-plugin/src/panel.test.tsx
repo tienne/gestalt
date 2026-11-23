@@ -371,3 +371,27 @@ test('끝난 주문은 두 번째 누름에서만 지우고 남긴 주문은 이
   assert.deepEqual(view.errors, [])
   await view.unmount()
 })
+
+test('배포를 기다리는 merged 주문은 배포 대기로 따로 묶고 옛 CLI 주문은 머지됨으로 둔다', async () => {
+  const merged = (id: string, title: string, awaitingDeploy?: boolean) => ({
+    id,
+    status: 'merged',
+    scope: 'merge',
+    repo: 'web',
+    title,
+    bypasses: [],
+    ...(awaitingDeploy === undefined ? {} : { awaitingDeploy })
+  })
+  const { host } = setup({
+    ...base,
+    orders: [merged('ord-d', '배포 기다리는 버그', true), merged('ord-e', '스토리 머지', false), merged('ord-f', '옛 CLI 주문')],
+    gates: []
+  })
+  const view = await mount(panel, { host })
+  assert.ok(view.find({ text: '배포 대기 1' }), '지도 배지에 배포 대기 수가 따로 뜬다')
+  assert.ok(view.find({ text: '머지됨 2' }), 'awaitingDeploy가 false이거나 없으면 머지됨이다')
+  await view.press({ testId: 'tile:web' })
+  assert.ok(view.find({ text: /배포 대기 1/ }))
+  assert.ok(view.find({ text: /머지됨 2/ }))
+  await view.unmount()
+})

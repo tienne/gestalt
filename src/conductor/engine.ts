@@ -34,7 +34,13 @@ import {
   type ExternalQueue,
   type JiraIntakeSource,
 } from './intake.js';
-import { QA_TYPES, syncJira, type DeploySource, type JiraClient, type OrderStage } from './jira.js';
+import {
+  syncJira,
+  waitsForDeploy,
+  type DeploySource,
+  type JiraClient,
+  type OrderStage,
+} from './jira.js';
 import {
   assertCanSpawn,
   buildWorkerPrompt,
@@ -1225,9 +1231,7 @@ async function settleOne(
   report: TickReport,
   order: Order,
 ): Promise<void> {
-  const waitsDeploy =
-    order.issueKey !== undefined && order.issueType !== undefined && QA_TYPES.has(order.issueType);
-  if (!waitsDeploy) {
+  if (!waitsForDeploy(order)) {
     store.updateOrder(order.id, { status: 'done' });
     return;
   }

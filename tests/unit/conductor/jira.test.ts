@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   decideJiraTransition,
   defaultJiraTarget,
+  isAwaitingDeploy,
   syncJira,
+  waitsForDeploy,
   type JiraClient,
 } from '../../../src/conductor/jira.js';
 import type { JiraStatus } from '../../../src/conductor/types.js';
@@ -35,6 +37,18 @@ describe('지라 기본 규칙', () => {
       expect(defaultJiraTarget('deployed', t, { status: 'failed' })).toBeNull();
       expect(defaultJiraTarget('deployed', t, { status: 'success' })).toBe('In-QA');
     }
+  });
+
+  it('지라 키와 QA 대상 유형이 다 있어야 배포를 기다리고 배포 대기는 merged에서 deployedAt 전까지다', () => {
+    expect(waitsForDeploy(order({ issueKey: 'APP-1', issueType: 'bug' }))).toBe(true);
+    expect(waitsForDeploy(order({ issueKey: 'APP-1', issueType: 'story' }))).toBe(false);
+    expect(waitsForDeploy(order({ issueType: 'bug' }))).toBe(false);
+    expect(waitsForDeploy(order({ issueKey: 'APP-1' }))).toBe(false);
+
+    const merged = order({ status: 'merged', issueKey: 'APP-1', issueType: 'task' });
+    expect(isAwaitingDeploy(merged)).toBe(true);
+    expect(isAwaitingDeploy({ ...merged, deployedAt: '2026-01-01T00:00:00.000Z' })).toBe(false);
+    expect(isAwaitingDeploy({ ...merged, status: 'done' })).toBe(false);
   });
 
   it('사용자가 정한 상태가 기본 규칙보다 먼저다', () => {

@@ -60,7 +60,7 @@ import { removeOrderRefCopies } from '../../conductor/ref-copy.js';
 import { resolveGate } from '../../conductor/gates.js';
 import { terminalText } from '../../conductor/terminal-text.js';
 import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS, oneLine } from '../../conductor/intake.js';
-import type { DeploySignal } from '../../conductor/jira.js';
+import { isAwaitingDeploy, type DeploySignal } from '../../conductor/jira.js';
 import {
   assertCanSpawn,
   detectOrca,
@@ -484,6 +484,8 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
             ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}),
             ...(o.prRef ? { pr: o.prRef } : {}),
             ...(o.issueKey ? { issue: o.issueKey } : {}),
+            // 상태는 merged 그대로라 바깥 화면이 끝난 주문과 배포 대기를 이 값으로 가른다
+            awaitingDeploy: isAwaitingDeploy(o),
             ...(o.humanOwnedAt ? { humanOwnedAt: o.humanOwnedAt } : {}),
             ...(limited.has(o.id) ? { rateLimit: limited.get(o.id) } : {}),
             // 오르카 터미널 화면이 워커가 어느 스킬의 어느 단계에 있는지 그릴 때 쓴다

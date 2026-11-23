@@ -45,6 +45,12 @@ test('stateLine은 한도, 게이트, 대기, 그 밖 순으로 고른다', () =
     text: 'running',
     aside: '3분 전'
   })
+  assert.deepEqual(stateLine({ ...base, status: 'merged', awaitingDeploy: true }, [], now), {
+    tone: 'deploy',
+    text: 'awaiting-deploy',
+    aside: ''
+  })
+  assert.deepEqual(stateLine({ ...base, status: 'merged' }, [], now), { tone: 'idle', text: 'merged', aside: '' }, '옛 CLI 주문은 그대로다')
   assert.equal(duration(null, now), '')
 })
 
@@ -118,4 +124,23 @@ test('같은 대기면 카드 상태줄과 이벤트 로그가 같은 로컬 시
   assert.equal(row, `o1 CI 대기 · ~${at}`)
   // 기한을 문장에 굳혀 보내던 옛 CLI 줄은 손대지 않는다
   assert.equal(eventText({ at: 't', type: 'waiting', summary: 'CI 대기 · ~11:10' }), 'CI 대기 · ~11:10')
+})
+
+test('terminalModel은 배포 대기 카드를 머지됨 카드보다 앞에 둔다', () => {
+  const view: ConductorView = {
+    state: 'ok',
+    stateDir: null,
+    lastTickAt: null,
+    orders: [
+      { ...base, id: 'm', status: 'merged', updatedAt: '2026-11-12T00:59:00.000Z' },
+      { ...base, id: 'd', status: 'merged', awaitingDeploy: true, updatedAt: '2026-11-12T00:00:00.000Z' }
+    ],
+    gates: [],
+    unassignedBypasses: [],
+    refreshedAt: 0
+  }
+  assert.deepEqual(
+    terminalModel(view, 0).cards.map((c) => c.order.id),
+    ['d', 'm']
+  )
 })

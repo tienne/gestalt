@@ -83,6 +83,8 @@ export type OrderView = {
   workerStatus?: string
   pr?: string
   issue?: string
+  /** merged인데 지라 QA 대상이라 배포 신호를 기다리는 주문. 옛 CLI에는 없고 없으면 머지됨으로 그린다 */
+  awaitingDeploy?: boolean
   bypasses: Bypass[]
   /** 워커가 만든 하위 주문이면 그 워커의 주문 */
   parentOrderId?: string

@@ -39,6 +39,7 @@ import {
   splitRepo,
   STATUS_LABEL,
   STATUS_TONE,
+  statusLabel,
   summarize,
   type RepoSummary,
   type Tone
@@ -538,7 +539,7 @@ function treeItems(nodes: readonly HierarchyNode[]): TreeItem[] {
     return {
       key: n.key,
       label: o.title || o.id,
-      description: `${STATUS_LABEL[o.status] ?? o.status}, ${o.id}${o.branch ? `, ${o.branch}` : ''}`,
+      description: `${statusLabel(o)}, ${o.id}${o.branch ? `, ${o.branch}` : ''}`,
       icon: o.workspaceId ? 'branch' : 'layers',
       ...children
     }

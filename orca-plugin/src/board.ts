@@ -13,8 +13,8 @@ import {
   OUTDATED_CLI_TEXT,
   OUTDATED_CLI_TITLE,
   splitRepo,
-  STATUS_LABEL,
-  STATUS_TONE,
+  statusLabel,
+  statusTone,
   summarize,
   type RepoSummary
 } from './model'
@@ -207,7 +207,7 @@ function renderHeader(v: ConductorView | null): void {
 }
 
 function orderButton(o: OrderView, gates: number): HTMLElement {
-  const tone = STATUS_TONE[o.status] ?? 'neutral'
+  const tone = statusTone(o)
   const key = orderKey(o.id)
   return el(
     'button',
@@ -229,7 +229,7 @@ function orderButton(o: OrderView, gates: number): HTMLElement {
     el(
       'span',
       { class: 'node-meta' },
-      `${STATUS_LABEL[o.status] ?? o.status} · ${o.id}`,
+      `${statusLabel(o)} · ${o.id}`,
       o.branch ? ` · ${o.branch}` : '',
       o.pr ? ` · PR ${o.pr}` : ''
     )
@@ -502,7 +502,7 @@ function orderDetail(o: OrderView, v: ConductorView): HTMLElement {
   return el(
     'div',
     { class: 'detail' },
-    el('div', { class: 'pills' }, pill(STATUS_LABEL[o.status] ?? o.status, STATUS_TONE[o.status] ?? 'neutral'), pill(o.scope)),
+    el('div', { class: 'pills' }, pill(statusLabel(o), statusTone(o)), pill(o.scope)),
     el('h2', null, o.title || '(제목 없음)'),
     el(
       'dl',
@@ -542,7 +542,7 @@ function orderDetail(o: OrderView, v: ConductorView): HTMLElement {
           'div',
           null,
           el('h3', null, `하위 주문 ${children.length}`),
-          el('ul', { class: 'plain' }, ...children.map((c) => el('li', null, el('button', { class: 'link', onClick: () => select(orderKey(c.id)) }, `${c.title || c.id}`), el('span', { class: 'muted small' }, ` ${STATUS_LABEL[c.status] ?? c.status}`))))
+          el('ul', { class: 'plain' }, ...children.map((c) => el('li', null, el('button', { class: 'link', onClick: () => select(orderKey(c.id)) }, `${c.title || c.id}`), el('span', { class: 'muted small' }, ` ${statusLabel(c)}`))))
         )
       : null,
     gates.length > 0 ? el('div', null, el('h3', null, `확인 대기 ${gates.length}`), ...gates.map(gateCard)) : null,

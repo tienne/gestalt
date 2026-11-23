@@ -31,6 +31,8 @@ status JSON에 `stateDir`과 `workerKind`, `worktreeName`을 안 싣는 CLI는 �
 
 위계는 status JSON의 `parentOrderId`, `parentWorktree`, `baseBranch`로 그린다. 이 필드를 안 싣는 CLI에서는 위계 트리 없이 상태별 목록만 나온다.
 
+머지된 주문 중 지라 키가 있고 유형이 bug, task, sub-bug인 주문은 배포 신호가 올 때까지 `merged`로 남는다. status JSON은 이런 주문에 `awaitingDeploy: true`를 싣고 패널과 보드, 터미널 화면, 폰 페이지는 이 주문을 "머지됨" 대신 "배포 대기"로 그린다. 상태별 목록에서도 머지됨과 따로 묶어 앞에 둔다. status JSON은 `src/conductor/jira.ts`의 `isAwaitingDeploy`로 가르고, 그 안에서 엔진의 머지 뒤 정산과 같은 `waitsForDeploy`를 쓴다. 이 필드를 안 싣는 CLI에서는 전처럼 머지됨으로 나온다.
+
 ## 폰에서 보기
 
 `mobilePort`를 8792로 정했다면 테일스케일로 테일넷 안에만 잇는다.

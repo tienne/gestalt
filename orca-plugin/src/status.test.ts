@@ -92,6 +92,23 @@ test('diffGates는 처음 보는 게이트만 고르고 알린 목록을 열린 
   assert.deepEqual(out.keep, ['g1', 'g2'])
 })
 
+test('awaitingDeploy는 true일 때만 싣고 꼴이 틀리면 버린다', () => {
+  const raw = parseStatus({
+    lastTickAt: null,
+    orders: [
+      { id: 'a', status: 'merged', awaitingDeploy: true },
+      { id: 'b', status: 'merged', awaitingDeploy: false },
+      { id: 'c', status: 'merged', awaitingDeploy: 'yes' },
+      { id: 'd', status: 'merged' }
+    ],
+    gates: []
+  })
+  assert.deepEqual(
+    toView(raw, '/s', [], 0).orders.map((o) => o.awaitingDeploy),
+    [true, undefined, undefined, undefined]
+  )
+})
+
 test('isSafeId는 옵션처럼 읽히는 값을 막는다', () => {
   assert.equal(isSafeId('gate-1a2b3c4d'), true)
   assert.equal(isSafeId('--approve'), false)

@@ -30,6 +30,7 @@ export type RawOrder = {
   worktreeName?: string
   pr?: string
   issue?: string
+  awaitingDeploy?: boolean
   parentOrderId?: string
   parentWorktree?: string
   baseBranch?: string
@@ -236,6 +237,7 @@ export function parseStatus(value: unknown): RawStatus {
       const v = str(o[key])
       if (v !== undefined) order[key] = v
     }
+    if (o['awaitingDeploy'] === true) order.awaitingDeploy = true
     const chain = strings(o['skillChain'])
     if (chain) order.skillChain = chain
     const cp = checkpoint(o['checkpoint'])
@@ -354,6 +356,7 @@ export function toView(
         ...(o.workerStatus ? { workerStatus: o.workerStatus } : {}),
         ...(o.pr ? { pr: o.pr } : {}),
         ...(o.issue ? { issue: o.issue } : {}),
+        ...(o.awaitingDeploy ? { awaitingDeploy: true } : {}),
         ...(o.parentOrderId ? { parentOrderId: o.parentOrderId } : {}),
         ...(o.parentWorktree ? { parentWorktree: o.parentWorktree } : {}),
         ...(parent?.branch ? { parentBranch: parent.branch } : {}),
