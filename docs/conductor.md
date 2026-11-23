@@ -301,7 +301,7 @@ orca plugin dev load ./orca-plugin --json
 
 처음 부르면 `approval_required`와 함께 받을 권한 목록과 `--approve <fingerprint>`를 붙인 명령이 나온다. 권한을 읽어 보고 그 명령을 직접 다시 부르면 켜진다. 승인은 사람이 한다.
 
-설정의 `gestaltPath`는 오르카가 셸 PATH를 못 물려받을 때 gestalt 절대 경로를 적는 자리다. `stateDir`은 status JSON에 `stateDir`을 안 싣는 옛 CLI를 쓰면서 저장소를 기본 위치 밖에 뒀을 때만 적는다. 둘 다 비워 두면 PATH의 gestalt와 status JSON이 알려 준 저장소를 쓴다.
+설정의 `gestaltPath`는 오르카가 셸 PATH를 못 물려받을 때 gestalt 절대 경로를 적는 자리다. `stateDir`은 status JSON에 `stateDir`을 안 싣는 옛 CLI를 쓰면서 저장소를 기본 위치 밖에 뒀을 때만 적는다. 둘 다 비워 두면 PATH의 gestalt와 status JSON이 알려 준 저장소를 쓴다. 워커는 `gestalt conductor exec-path --json`으로 실제 bin 경로를 한 번 받아 두고 이후엔 런처를 거치지 않고 node로 바로 부른다. 다시 받는 조건은 [`orca-plugin/README.md`](../orca-plugin/README.md#설정)에 있다.
 
 오르카 모바일은 플러그인 패널을 못 그린다. 폰에서 보려면 설정의 `mobilePort`에 포트를 적는다. 그러면 워커가 그 포트로 이 맥의 루프백에만 보기 전용 페이지를 연다. `tailscale serve`로 그 포트를 테일넷에 이어 폰에서 연다. 게이트와 주문 위계를 보여 주기만 하고 승인과 거절, 지우기는 데스크톱에서 한다. 같은 주소에 `?view=terminal`을 붙이면 컨덕터 터미널 화면을 보기 전용으로 본다. 에디터와 같은 마크업을 쓰고 폭이 좁으면 사이드바처럼 세로로 쌓는다. 상세는 펼칠 수 있지만 워커 터미널 출력은 싣지 않는다. 워커가 직접 쓴 다음 할 일과 대기 사유, bypass 내용, 보고 요약과 계정 이름도 뺀다. 이벤트 로그의 그런 줄은 시각과 유형, 주문 id만 남긴다. 명령과 보안 경계는 [`orca-plugin/README.md`](../orca-plugin/README.md#폰에서-보기)에 있다.
 

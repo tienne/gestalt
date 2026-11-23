@@ -9,7 +9,7 @@ import * as main from './worker'
 
 const FAKE = decodeURIComponent(new URL('../test/fake-gestalt.mjs', import.meta.url).pathname)
 
-type Call = { args: string[]; cwd: string }
+type Call = { args: string[]; cwd: string; via: string }
 
 function store(status?: unknown) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'conductor-plugin-')))
@@ -666,5 +666,108 @@ test('작업 내용을 아는 CLI면 주문에 work를 싣는다', async () => {
     assert.deepEqual(view.orders[0]!.work?.changedFiles, ['a.ts'])
     const calls = s.calls().filter((c) => c.args[1] === 'status')
     assert.equal(calls[0]!.args.includes('--with-activity'), true)
+  })
+})
+
+/** 경로 찾기가 돌려줄 bin. 지울 수 있게 가짜를 저장소 폴더에 복사해 둔다 */
+function directBin(s: ReturnType<typeof store>, name: string): string {
+  const bin = join(s.dir, name)
+  writeFileSync(bin, readFileSync(FAKE, 'utf8'))
+  writeFileSync(
+    join(s.dir, 'fake-exec-path.json'),
+    JSON.stringify({ node: process.execPath, args: [bin], env: {}, version: '0.0.0' })
+  )
+  return bin
+}
+
+const statusCalls = (s: ReturnType<typeof store>) => s.calls().filter((c) => c.args[1] === 'status')
+const lookups = (s: ReturnType<typeof store>) => s.calls().filter((c) => c.args[1] === 'exec-path')
+
+test('gestalt 경로는 처음 한 번만 찾고 그 뒤로는 찾은 bin을 node로 바로 부른다', async () => {
+  const s = store(STATUS)
+  const bin = directBin(s, 'bin-a.mjs')
+  await run(s, host(s.dir), async (worker) => {
+    await worker.request('conductor.refresh')
+    await worker.request('conductor.refresh')
+    await worker.request('order.remove', { orderIds: ['ord-a'] })
+    assert.equal(lookups(s).length, 1)
+    assert.equal(realpathSync(lookups(s)[0]!.cwd), s.dir, '경로 찾기도 워커 워크트리 밖에서 부른다')
+    const others = s.calls().filter((c) => c.args[1] !== 'exec-path')
+    assert.equal(others.length >= 3, true)
+    assert.deepEqual(new Set(others.map((c) => c.via)), new Set([bin]), '설정한 명령(런처)을 다시 타지 않는다')
+    assert.deepEqual(statusCalls(s).at(-1)!.args, ['conductor', 'status', '--all', '--json', '--with-activity', `--state-dir=${s.dir}`])
+  })
+})
+
+test('찾아 둔 bin이 사라지면 다시 찾는다', async () => {
+  const s = store(STATUS)
+  const first = directBin(s, 'bin-a.mjs')
+  await run(s, host(s.dir), async (worker) => {
+    await worker.request('conductor.refresh')
+    assert.equal(statusCalls(s).at(-1)!.via, first)
+    const second = directBin(s, 'bin-b.mjs')
+    rmSync(first)
+    const view = await worker.request('conductor.refresh')
+    assert.equal(view.state, 'ok')
+    assert.equal(lookups(s).length, 2)
+    assert.equal(statusCalls(s).at(-1)!.via, second)
+  })
+})
+
+test('경로를 못 찾으면 설정한 명령을 그대로 부르고 매번 다시 찾지 않는다', async () => {
+  const s = store(STATUS)
+  await run(s, host(s.dir), async (worker) => {
+    const view = await worker.request('conductor.refresh')
+    assert.equal(view.state, 'ok')
+    await worker.request('conductor.refresh')
+    assert.equal(lookups(s).length, 1)
+    assert.equal(statusCalls(s).every((c) => c.via === FAKE), true)
+  })
+})
+
+test('경로 찾기가 엉뚱한 답을 주면 설정한 명령으로 돌아간다', async () => {
+  const s = store(STATUS)
+  writeFileSync(
+    join(s.dir, 'fake-exec-path.json'),
+    JSON.stringify({ node: process.execPath, args: [join(s.dir, 'nope.mjs')], env: {}, version: '0.0.0' })
+  )
+  await run(s, host(s.dir), async (worker) => {
+    const view = await worker.request('conductor.refresh')
+    assert.equal(view.state, 'ok')
+    assert.equal(statusCalls(s).at(-1)!.via, FAKE)
+  })
+})
+
+test('결과 뷰어도 찾아 둔 bin으로 띄운다', async () => {
+  const s = store(STATUS)
+  const bin = directBin(s, 'bin-a.mjs')
+  await run(s, host(s.dir), async (worker) => {
+    const out = await worker.request('order.browse', { orderId: 'ord-a' })
+    assert.equal(out.ok, true)
+    assert.equal(s.calls().find((c) => c.args[1] === 'browse')!.via, bin)
+  })
+})
+
+test('gate resolve도 찾아 둔 bin으로 부른다', async () => {
+  const s = store(STATUS)
+  const bin = directBin(s, 'bin-a.mjs')
+  writeFileSync(join(s.dir, 'fake-resolve.json'), JSON.stringify({ gate: { id: 'gate-1' }, hostActions: [], errors: [] }))
+  await run(s, host(s.dir), async (worker) => {
+    const out = await worker.request('gate.resolve', { gateId: 'gate-1', decision: 'approve' })
+    assert.equal(out.ok, true)
+    assert.equal(s.calls().find((c) => c.args[1] === 'gate')!.via, bin)
+  })
+})
+
+test('결과 뷰어를 동시에 두 번 열어도 하나만 띄운다', async () => {
+  const s = store(STATUS)
+  directBin(s, 'bin-a.mjs')
+  await run(s, host(s.dir), async (worker) => {
+    const [a, b] = await Promise.all([
+      worker.request('order.browse', { orderId: 'ord-a' }),
+      worker.request('order.browse', { orderId: 'ord-a' })
+    ])
+    assert.equal(a.ok && b.ok, true)
+    assert.equal(s.calls().filter((c) => c.args[1] === 'browse').length, 1)
   })
 })

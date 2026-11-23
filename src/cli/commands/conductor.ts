@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadConfig, WAIT_MAX_SEC_LIMIT } from '../../core/config.js';
+import { getVersion } from '../../core/version.js';
 import { writeJsonAtomic } from '../../core/json-file.js';
 import {
   fileDeploySource,
@@ -483,6 +484,41 @@ export function conductorContextPathCommand(opts: ConductorContextPathOptions): 
         exists: existingRepoContext(ctx.store.dir, opts.repo) !== undefined,
       });
     console.log(path);
+  });
+}
+
+export interface ConductorExecPathOutput {
+  node: string;
+  args: string[];
+  env: Record<string, string>;
+  version: string;
+}
+
+/**
+ * 지금 도는 CLI를 런처 없이 다시 부를 명령을 알려 준다. 오르카 플러그인이 한 번 받아 두고
+ * 이후 호출은 `node <args> ...`로 바로 부른다. 셸 런처와 npm exec를 매번 타면 호출마다 2~3초가 더 든다.
+ * 런처가 다른 버전으로 넘겼어도 이 명령은 넘겨받은 마지막 프로세스에서 돌아서 그 경로가 나온다
+ */
+export function execPathOf(
+  proc: Pick<NodeJS.Process, 'execPath' | 'execArgv' | 'argv' | 'env'> = process,
+): ConductorExecPathOutput {
+  const entry = proc.argv[1];
+  if (!entry) throw new Error('실행 중인 CLI 경로를 못 찾았어요');
+  // 개발 체크아웃은 tsx 로더로 돈다. 로더가 대상 프로젝트 tsconfig를 안 읽게 런처가 건 값을 그대로 넘긴다
+  const tsconfig = proc.env['TSX_TSCONFIG_PATH'];
+  return {
+    node: proc.execPath,
+    args: [...proc.execArgv, realpathSync(entry)],
+    env: tsconfig ? { TSX_TSCONFIG_PATH: tsconfig } : {},
+    version: getVersion(),
+  };
+}
+
+export function conductorExecPathCommand(opts: { json?: boolean }): void {
+  run(() => {
+    const out = execPathOf();
+    if (opts.json) return print(out);
+    console.log([out.node, ...out.args].join(' '));
   });
 }
 

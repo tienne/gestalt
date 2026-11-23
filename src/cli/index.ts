@@ -31,6 +31,7 @@ import {
 import {
   conductorCheckpointSaveCommand,
   conductorContextPathCommand,
+  conductorExecPathCommand,
   conductorDeployReportCommand,
   conductorGateListCommand,
   conductorGateResolveCommand,
@@ -1158,6 +1159,14 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorContextPathCommand(o));
+
+  conductor
+    .command('exec-path')
+    .description(
+      '런처 없이 이 CLI를 바로 부를 node 경로와 인자를 알려 준다. 오르카 플러그인이 쓴다',
+    )
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action((o) => conductorExecPathCommand(o));
 
   conductor
     .command('archive')
