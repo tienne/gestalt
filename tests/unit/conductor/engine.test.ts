@@ -2333,6 +2333,32 @@ describe('배포 주문의 대상 주문 배포 기록', () => {
     expect(store.order('ord-deploy')!.deploysRecordedAt).toBe(second.at);
   });
 
+  it('대상의 배포 신호를 못 읽으면 성공을 안 남기고 다음 tick에 다시 시도한다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(
+      order({ id: 'ord-a', issueKey: 'APP-1', issueType: 'sub-bug', status: 'merged' }),
+    );
+    store.addOrder(
+      order({ id: 'ord-deploy', status: 'done', deploys: ['ord-a'], deployResult: { at: 'x' } }),
+    );
+    const recorded: string[] = [];
+    const source = {
+      status: async (): Promise<never> => {
+        throw new Error('EACCES');
+      },
+      record: (id: string) => {
+        recorded.push(id);
+      },
+    };
+    const { deps: d } = deps({ deploy: source });
+    const r = await tick(store, d, { force: true });
+    expect(r.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining('ord-a의 배포 신호를 못 읽었어요')]),
+    );
+    expect(recorded).toEqual([]);
+    expect(store.order('ord-deploy')!.deploysRecordedAt).toBeUndefined();
+  });
+
   it('신호를 남길 자리가 없으면 오류로 알리고 다음 tick에 다시 시도한다', async () => {
     const { store } = clockedStore();
     store.addOrder(

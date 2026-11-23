@@ -1224,7 +1224,7 @@ export async function afterHumanMerge(
 /**
  * 워커가 done으로 끝낸 배포 주문의 대상 주문마다 `deploy report`와 같은 성공 신호를 남긴다. 지라 이동과
  * done 전환은 뒤이은 정산(settleOne)이 맡는다. 대상마다 한 번만 보고 배포 주문에 남긴 시각으로 다시 안 돈다.
- * 머지 전 대상은 이 배포에 안 들어갔으니 기록하지 않고 경고만 남긴다. 신호를 남길 자리가 없거나 쓰다 실패하면
+ * 머지되지 않은 대상은 이 배포에 안 들어갔으니 기록하지 않고 경고만 남긴다. 신호를 남길 자리가 없거나 쓰다 실패하면
  * 다음 tick에 다시 시도하게 시각을 안 남긴다
  */
 async function recordDeployTargets(
@@ -1236,8 +1236,8 @@ async function recordDeployTargets(
     .orders()
     .filter((o) => o.deploys?.length && o.deployResult && !o.deploysRecordedAt);
   for (const d of pending) {
-    const record = deps.deploy?.record;
-    if (!record) {
+    const deploy = deps.deploy;
+    if (!deploy?.record) {
       report.errors.push(
         `${d.id}: 배포 신호를 남길 자리가 없어 대상 주문에 배포 성공을 못 남겼어요`,
       );
@@ -1269,12 +1269,18 @@ async function recordDeployTargets(
         continue;
       }
       try {
-        // 호스트가 남긴 실패를 덮으면 실패한 배포가 In-QA로 넘어간다
-        if ((await deps.deploy!.status(target)).status === 'failed') {
+        // 호스트가 남긴 실패를 덮으면 실패한 배포의 지라가 In-QA로 옮겨진다
+        if ((await deploy.status(target)).status === 'failed') {
           skip('이미 배포 실패 신호가 있어요');
           continue;
         }
-        await record(id, { status: 'success', ref });
+      } catch (err) {
+        failed = true;
+        report.errors.push(`${d.id}: 배포 대상 ${id}의 배포 신호를 못 읽었어요: ${message(err)}`);
+        continue;
+      }
+      try {
+        await deploy.record(id, { status: 'success', ref });
         report.deployTargets.push({ deployOrderId: d.id, orderId: id, outcome: 'recorded' });
       } catch (err) {
         failed = true;
