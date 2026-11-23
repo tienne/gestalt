@@ -498,9 +498,21 @@ function loadWork(id, box) {
     }).catch(function (e) {
       if (gen !== state.workGen) return;
       failures += 1;
-      var note = box.querySelector('.work-error') || box.insertBefore(el('p', 'muted small work-error'), box.firstChild);
-      note.textContent = '못 읽었어요: ' + e.message + (failures < WORK_POLL_RETRIES ? ' (다시 읽는 중)' : '');
-      if (failures < WORK_POLL_RETRIES) next();
+      var note = box.querySelector('.work-error');
+      if (!note) {
+        note = box.insertBefore(el('p', 'muted small work-error'), box.firstChild);
+        note.setAttribute('role', 'status');
+      }
+      var giveUp = failures >= WORK_POLL_RETRIES;
+      note.textContent = '못 읽었어요: ' + e.message + (giveUp ? ' 자동으로 다시 읽기를 멈췄어요' : ' (다시 읽는 중)');
+      if (!giveUp) return next();
+      // 문구 안에 두면 다음 실패 때 textContent로 덮여 사라져서 형제로 둔다
+      if (!box.querySelector('.work-retry')) {
+        var retry = el('button', 'work-retry', '다시 읽기');
+        retry.type = 'button';
+        retry.addEventListener('click', function () { loadWork(id, box); });
+        note.after(retry);
+      }
     });
   }
   once();
