@@ -74,6 +74,7 @@ import { publishApprovedSlack, type SlackClient } from './slack.js';
 import { newId, type ConductorStore } from './store.js';
 import type {
   Gate,
+  GateDeliveryOutcome,
   JiraStatus,
   Order,
   OrderScope,
@@ -289,7 +290,7 @@ function formatGap(ms: number): string {
 export async function tick(
   store: ConductorStore,
   deps: EngineDeps,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; admit?: () => void } = {},
 ): Promise<TickReport> {
   assertCanSpawn(deps.env);
   const report = emptyReport(store.timestamp());
@@ -308,6 +309,7 @@ export async function tick(
   }
   try {
     // 잠금을 잡은 뒤에 읽어야 앞 tick이 띄운 주문을 queued로 보고 또 띄우지 않는다
+    opts.admit?.();
     store.reload();
     const last = store.snapshot.lastTickAt;
     const interval = deps.config.pollIntervalSec * 1000;
@@ -874,7 +876,13 @@ export async function deliverGateDecision(
   gate: Gate,
   deps: Pick<EngineDeps, 'launchers'>,
   opts: { defer?: boolean } = {},
-): Promise<{ hostActions: HostAction[]; errors: string[]; deferred: boolean; retry: boolean }> {
+): Promise<{
+  hostActions: HostAction[];
+  errors: string[];
+  deferred: boolean;
+  retry: boolean;
+  outcome?: GateDeliveryOutcome;
+}> {
   const out = {
     hostActions: [] as HostAction[],
     errors: [] as string[],
@@ -883,7 +891,8 @@ export async function deliverGateDecision(
   };
   const order = gate.orderId ? store.order(gate.orderId) : undefined;
   const worker = order?.workerId ? store.worker(order.workerId) : undefined;
-  if (!worker || (worker.status !== 'running' && worker.status !== 'starting')) return out;
+  if (!worker || (worker.status !== 'running' && worker.status !== 'starting'))
+    return { ...out, outcome: 'no-worker' };
   const text = decisionMessage(gate);
   const fake = emptyReport(store.timestamp());
   const result = await sendTo(deps, fake, worker, text);
@@ -905,6 +914,7 @@ export async function deliverGateDecision(
     errors: fake.errors,
     deferred: false,
     retry: result === 'failed',
+    outcome: fake.hostActions.length ? 'host-action' : result === 'sent' ? 'delivered' : 'failed',
   };
 }
 
@@ -944,8 +954,16 @@ async function deliverPendingDecisions(
         `${gate.id} 결정을 ${MAX_DELIVERY_ATTEMPTS}번 못 전해서 그만뒀어요. 워커에 직접 전해 주세요`,
       );
     }
-    store.append({ type: 'gate-delivery', at: store.timestamp(), gateId: gate.id, pending: false });
+    recordGateDelivery(store, gate.id, r.outcome ?? 'failed');
   }
+}
+
+export function recordGateDelivery(
+  store: ConductorStore,
+  gateId: string,
+  outcome: GateDeliveryOutcome,
+): void {
+  store.append({ type: 'gate-delivery', at: store.timestamp(), gateId, pending: false, outcome });
 }
 
 /**

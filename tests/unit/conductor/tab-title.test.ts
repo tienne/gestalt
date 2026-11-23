@@ -198,6 +198,8 @@ describe('tick의 탭 이름', () => {
     vi.stubEnv('CLAUDE_CODE_SESSION_ID', sid);
     vi.stubEnv('GESTALT_CONDUCTOR_WORKER_ID', '');
     vi.stubEnv('ORCA_CLI_COMMAND', bin);
+    vi.stubEnv('ORCA_AGENT_SESSION_ID', undefined);
+    vi.stubEnv('ORCA_AGENT_SESSION_TOOL_TOKEN', undefined);
     vi.stubEnv('ORCA_TERMINAL_HANDLE', 'term_conductor');
     return sid;
   }

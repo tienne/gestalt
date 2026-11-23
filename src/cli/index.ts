@@ -29,6 +29,12 @@ import {
   shipCiWaitCommand,
 } from './commands/ship.js';
 import {
+  conductorBotBindCommand,
+  conductorBotDecideCommand,
+  conductorBotGateCommand,
+  conductorBotGithubCommand,
+  conductorCheckBotMutation,
+  conductorBotReleaseCommand,
   conductorCheckpointSaveCommand,
   conductorContextPathCommand,
   conductorExecPathCommand,
@@ -1066,6 +1072,69 @@ export function createCli(): Command {
     );
   const collect = (v: string, prev: string[] = []) => [...prev, v];
 
+  const botRestrictedMutations = new Set([
+    'archive',
+    'checkpoint save',
+    'deploy report',
+    'handoff',
+    'order cancel',
+    'order mark-merged',
+    'order remove',
+    'order take-over',
+    'queue add',
+    'slack draft',
+    'worker report',
+  ]);
+  conductor.hook('preAction', async (root, action) => {
+    const name =
+      action.parent === root ? action.name() : `${action.parent?.name()} ${action.name()}`;
+    // Workers report through their dispatch identity. The bot-specific CLI actions check their own caller.
+    if (
+      process.env['GESTALT_CONDUCTOR_WORKER_ID'] &&
+      (name === 'worker report' || name === 'checkpoint save')
+    )
+      return;
+    if (botRestrictedMutations.has(name)) await conductorCheckBotMutation(name, action.opts());
+  });
+
+  const bot = conductor.command('bot').description('Orca 봇 컨덕터 운영권');
+  bot
+    .command('bind')
+    .description('확인된 Orca 봇 채팅에 운영권을 등록하거나 이전한다')
+    .requiredOption('--bot <name>', 'Orca 봇 이름')
+    .requiredOption('--chat <id>', '새 운영 채팅 ID')
+    .option('--from-chat <id>', '이전할 때 현재 운영 채팅 ID')
+    .addOption(stateDir())
+    .option('--json')
+    .action(conductorBotBindCommand);
+  bot
+    .command('release')
+    .description('봇 운영을 마치고 터미널에서 이어받을 수 있게 한다')
+    .requiredOption('--from-chat <id>', '현재 운영 채팅 ID')
+    .addOption(stateDir())
+    .option('--json')
+    .action(conductorBotReleaseCommand);
+
+  bot
+    .command('gate <gateId>')
+    .description('머지 승인 게이트와 GitHub에서 확인한 검증 결과를 보여준다')
+    .addOption(stateDir())
+    .action(conductorBotGateCommand);
+  bot
+    .command('decide <gateId>')
+    .description('레포 승인자의 서명을 확인해 머지 게이트를 종료한다')
+    .requiredOption('--decision <decision>', 'approved 또는 rejected')
+    .requiredOption('--signer <id>', '레포 승인자 ID')
+    .requiredOption('--signature <base64>', 'Ed25519 결정 서명')
+    .addOption(stateDir())
+    .action(conductorBotDecideCommand);
+
+  bot
+    .command('github <commentUrl>')
+    .description('GitHub 원본 댓글로 팀 주문을 접수하거나 같은 스레드의 주문 상태를 조회한다')
+    .addOption(stateDir())
+    .action(conductorBotGithubCommand);
+
   const conductorOrder = conductor.command('order').description('주문을 다룬다');
   conductorOrder
     .command('show <id>')
@@ -1110,7 +1179,10 @@ export function createCli(): Command {
     )
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action((o) => conductorOrderAddCommand(o));
+    .action(async (o) => {
+      await conductorCheckBotMutation('order add', o);
+      conductorOrderAddCommand(o);
+    });
   conductorOrder
     .command('remove <orderIds...>')
     .description(

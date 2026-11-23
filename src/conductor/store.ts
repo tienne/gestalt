@@ -143,6 +143,8 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
           decision: e.decision,
           resolvedAt: e.at,
           ...(e.answer !== undefined ? { answer: e.answer } : {}),
+          ...(e.deliveryPending ? { deliveryPending: true } : {}),
+          ...(e.decisionBy ? { decisionBy: e.decisionBy } : {}),
         };
       }
       return;
@@ -165,6 +167,7 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       } else {
         delete next.deliveryPending;
         delete next.deliveryAttempts;
+        if (e.outcome) next.deliveryOutcome = e.outcome;
       }
       s.gates[e.gateId] = next;
       return;

@@ -215,6 +215,8 @@ export type GateType = (typeof GATE_TYPES)[number];
 /** taken-over는 사람이 PR을 넘겨받거나 주문을 취소하면서 같이 종료한 게이트다 */
 export type GateDecision = 'approved' | 'rejected' | 'taken-over';
 
+export type GateDeliveryOutcome = 'delivered' | 'failed' | 'host-action' | 'no-worker';
+
 export interface Gate {
   id: string;
   orderId?: string;
@@ -233,6 +235,8 @@ export interface Gate {
   deliveryPending?: boolean;
   /** send가 던져서 다시 전하려고 한 횟수. 대기가 걷히면 지운다 */
   deliveryAttempts?: number;
+  deliveryOutcome?: GateDeliveryOutcome;
+  decisionBy?: string;
 }
 
 export const NEED_KINDS = [
@@ -350,9 +354,18 @@ export type ConductorEvent =
       gateId: string;
       decision: GateDecision;
       answer?: string;
+      deliveryPending?: boolean;
+      decisionBy?: string;
     }
   /** pending이 true면 결정 전달을 tick에 넘겼고 false면 tick이 그 일을 마쳤다 */
-  | { type: 'gate-delivery'; at: string; gateId: string; pending: boolean; attempts?: number }
+  | {
+      type: 'gate-delivery';
+      at: string;
+      gateId: string;
+      pending: boolean;
+      attempts?: number;
+      outcome?: GateDeliveryOutcome;
+    }
   | { type: 'bypass'; at: string; record: BypassRecord }
   | { type: 'jira-transition'; at: string; record: JiraTransitionRecord }
   | { type: 'slack-posted'; at: string; gateId: string; ref: string }
