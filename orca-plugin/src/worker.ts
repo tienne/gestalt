@@ -584,7 +584,10 @@ class Conductor {
     const cwd = this.cwd(cfg.stateDir || null)
     // 명령이나 저장소가 바뀌면 다른 뷰어다. 저장소 설정이 비면 CLI가 알려 준 저장소로 가른다
     const view = await this.current()
-    const key = JSON.stringify([cfg.command, cfg.stateDir || view.stateDir])
+    const stateDir = cfg.stateDir || view.stateDir
+    // 저장소를 모르는 채로 띄우면 status가 돌아온 뒤 key가 바뀌어 멀쩡한 뷰어를 끄고 다시 띄운다
+    if (!stateDir) throw new Error('컨덕터 저장소를 아직 몰라요. 잠시 뒤 다시 눌러 주세요')
+    const key = JSON.stringify([cfg.command, stateDir])
     return this.viewer.ensure(key, async () => {
       const inv = await this.cli.resolve(cfg.command, cwd)
       if (this.stopped) throw new Error('플러그인 워커가 멈췄어요')
