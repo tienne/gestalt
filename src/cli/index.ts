@@ -32,6 +32,8 @@ import {
   conductorBotBindCommand,
   conductorBotDecideCommand,
   conductorBotGateCommand,
+  conductorBotGithubCommand,
+  conductorCheckBotMutation,
   conductorBotReleaseCommand,
   conductorCheckpointSaveCommand,
   conductorContextPathCommand,
@@ -1070,6 +1072,31 @@ export function createCli(): Command {
     );
   const collect = (v: string, prev: string[] = []) => [...prev, v];
 
+  const botRestrictedMutations = new Set([
+    'archive',
+    'checkpoint save',
+    'deploy report',
+    'handoff',
+    'order cancel',
+    'order mark-merged',
+    'order remove',
+    'order take-over',
+    'queue add',
+    'slack draft',
+    'worker report',
+  ]);
+  conductor.hook('preAction', async (root, action) => {
+    const name =
+      action.parent === root ? action.name() : `${action.parent?.name()} ${action.name()}`;
+    // Workers report through their dispatch identity. The bot-specific CLI actions check their own caller.
+    if (
+      process.env['GESTALT_CONDUCTOR_WORKER_ID'] &&
+      (name === 'worker report' || name === 'checkpoint save')
+    )
+      return;
+    if (botRestrictedMutations.has(name)) await conductorCheckBotMutation(name, action.opts());
+  });
+
   const bot = conductor.command('bot').description('Orca 봇 컨덕터 운영권');
   bot
     .command('bind')
@@ -1101,6 +1128,12 @@ export function createCli(): Command {
     .requiredOption('--signature <base64>', 'Ed25519 결정 서명')
     .addOption(stateDir())
     .action(conductorBotDecideCommand);
+
+  bot
+    .command('github <commentUrl>')
+    .description('GitHub 원본 댓글로 팀 주문을 접수하거나 같은 스레드의 주문 상태를 조회한다')
+    .addOption(stateDir())
+    .action(conductorBotGithubCommand);
 
   const conductorOrder = conductor.command('order').description('주문을 다룬다');
   conductorOrder
@@ -1146,7 +1179,10 @@ export function createCli(): Command {
     )
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action((o) => conductorOrderAddCommand(o));
+    .action(async (o) => {
+      await conductorCheckBotMutation('order add', o);
+      conductorOrderAddCommand(o);
+    });
   conductorOrder
     .command('remove <orderIds...>')
     .description(

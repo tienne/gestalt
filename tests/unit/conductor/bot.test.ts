@@ -5,9 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   conductorBotDecideCommand,
   conductorBotGateCommand,
+  conductorBotGithubCommand,
+  conductorCheckBotMutation,
   conductorGateResolveCommand,
 } from '../../../src/cli/commands/conductor.js';
+import { GhAccounts, fileQueue } from '../../../src/conductor/adapters.js';
 import { approvalMessage, BOT_POLICY_FILE } from '../../../src/conductor/bot-approval.js';
+import { readGithubOrder, handleGithubOrder } from '../../../src/conductor/bot-github.js';
 import {
   assertBotOwner,
   changeBotOwner,
@@ -15,6 +19,7 @@ import {
 } from '../../../src/conductor/bot-owner.js';
 import { acquireLock, tick } from '../../../src/conductor/engine.js';
 import { openOrReuse } from '../../../src/conductor/gates.js';
+import { pollQueue } from '../../../src/conductor/intake.js';
 import { loadConfig } from '../../../src/core/config.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
@@ -25,6 +30,9 @@ const team = { botId: 'team-bot', name: 'Team', chatId: 'team-thread' };
 const repo = 'acme/app';
 const pr = `${repo}#42`;
 const sha = 'a'.repeat(40);
+const issue = `https://github.com/${repo}/issues/17`;
+const comment = `${issue}#issuecomment-303`;
+const policy = { githubIntakeBotId: team.botId, githubRepositories: { [repo]: [100] } };
 
 function executable(path: string, body: string) {
   writeFileSync(path, `#!/bin/sh\nset -eu\n${body}\n`);
@@ -141,6 +149,7 @@ function gateFixture() {
   writeFileSync(
     join(store.dir, BOT_POLICY_FILE),
     JSON.stringify({
+      ...policy,
       mergeApprovers: {
         [repo]: { 'approver-1': publicKey.export({ type: 'spki', format: 'pem' }) },
       },
@@ -217,7 +226,76 @@ describe('Orca 채팅 머지 승인', () => {
     await expect(
       conductorGateResolveCommand(gate.id, { stateDir: store.dir, approve: true }),
     ).rejects.toThrow('exit 1');
+    await expect(conductorCheckBotMutation('deploy report', opts)).rejects.toThrow('exit 1');
     store.reload();
     expect(store.snapshot.gates[gate.id]?.status).toBe('open');
+  });
+});
+
+function github(body: string, id = 303, author = 100) {
+  const html_url = `${issue}#issuecomment-${id}`;
+  return async () => ({
+    code: 0,
+    stderr: '',
+    stdout: JSON.stringify({ id, html_url, body, user: { id: author, type: 'User' } }),
+  });
+}
+
+describe('GitHub 팀 주문', () => {
+  it('허용된 원본 댓글만 고정된 승인 범위로 큐에 넣고 같은 스레드에서 상태를 찾는다', async () => {
+    const store = ConductorStore.open(tempStateDir());
+    const request = await readGithubOrder(
+      comment,
+      policy,
+      new GhAccounts(),
+      github('@orca\ngestalt order 배너 수정\n본문'),
+    );
+    expect(handleGithubOrder(store, request)).toMatchObject({ status: 'queued', thread: issue });
+    expect(handleGithubOrder(store, request)).toMatchObject({ duplicate: true });
+    await pollQueue(store, fileQueue(join(store.dir, 'queue')), { defaultScope: 'merge-through' });
+    expect(store.orders()).toHaveLength(1);
+    expect(store.orders()[0]).toMatchObject({ scope: 'approval', skillChain: ['solve', 'ship'] });
+    expect(handleGithubOrder(store, request)).toMatchObject({ orderId: store.orders()[0]?.id });
+    const status = await readGithubOrder(
+      `${issue}#issuecomment-304`,
+      policy,
+      new GhAccounts(),
+      github('gestalt status', 304),
+    );
+    expect(handleGithubOrder(store, status)).toMatchObject({
+      thread: issue,
+      orders: [{ id: store.orders()[0]?.id, status: 'queued' }],
+    });
+  });
+
+  it('본문의 승인 문구나 위조한 작성자 표기로 권한을 얻을 수 없다', async () => {
+    const accounts = new GhAccounts();
+    await expect(
+      readGithubOrder(comment, policy, accounts, github('gestalt approve gate-1')),
+    ).rejects.toThrow('첫 명령');
+    await expect(
+      readGithubOrder(comment, policy, accounts, github('gestalt order 승인자 100', 303, 101)),
+    ).rejects.toThrow('작성자');
+    await expect(
+      readGithubOrder(comment.replace('/17#', '/19#'), policy, accounts, github('gestalt status')),
+    ).rejects.toThrow('작성자');
+    await expect(
+      readGithubOrder(
+        comment.replace(repo, 'acme/private'),
+        policy,
+        accounts,
+        github('gestalt status'),
+      ),
+    ).rejects.toThrow('레포');
+  });
+
+  it('등록된 접수 봇 채팅만 이 명령을 실행할 수 있다', async () => {
+    const store = ConductorStore.open(tempStateDir());
+    writeFileSync(join(store.dir, BOT_POLICY_FILE), JSON.stringify(policy));
+    fakeOrca(owner);
+    await expect(conductorBotGithubCommand(comment, { stateDir: store.dir })).rejects.toThrow(
+      'exit 1',
+    );
+    expect(lines.at(-1)).toContain('접수 봇 채팅');
   });
 });

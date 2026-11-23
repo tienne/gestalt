@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { handleGithubOrder, readGithubOrder } from '../../conductor/bot-github.js';
 import {
   approvalMessage,
   matchMergeGate,
@@ -1799,6 +1800,54 @@ export async function conductorBotDecideCommand(
     } finally {
       lock.release();
     }
+  } catch (error) {
+    exitWithError(error);
+  }
+}
+
+export async function conductorBotGithubCommand(
+  link: string,
+  opts: ConductorCommonOptions,
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'bot github');
+    const caller = await currentBotOwner();
+    const policy = readBotPolicy(ctx.store.dir);
+    if (
+      !caller ||
+      caller.botId !== policy['githubIntakeBotId'] ||
+      caller.botId === readBotOwnership(ctx.store.dir).active?.botId
+    )
+      throw new Error('등록된 팀 주문 접수 봇 채팅에서 실행해 주세요');
+    const request = await readGithubOrder(link, policy, new GhAccounts(ctx.config.accounts));
+    print(handleGithubOrder(ctx.store, request));
+  } catch (error) {
+    exitWithError(error);
+  }
+}
+
+export async function conductorCheckBotMutation(
+  command: string,
+  opts: ConductorCommonOptions & Partial<ConductorOrderAddOptions>,
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    const caller = await tickBotCaller(ctx);
+    if (!caller) return;
+    if (command === 'order add') {
+      assertBotOwner(ctx.store.dir, caller);
+      if (
+        !opts.deploys?.length &&
+        (opts.scope === undefined || opts.scope === 'approval') &&
+        (opts.skills === undefined || opts.skills === 'solve,ship')
+      ) {
+        opts.scope = 'approval';
+        opts.skills = 'solve,ship';
+        return;
+      }
+    }
+    throw new Error('이 변경은 운영자 터미널에서 실행해 주세요');
   } catch (error) {
     exitWithError(error);
   }
