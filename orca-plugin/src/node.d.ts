@@ -17,6 +17,7 @@ declare module 'node:child_process' {
   ): unknown
   type Readable = { on(event: 'data', listener: (chunk: { toString(): string }) => void): unknown }
   export type ChildProcess = {
+    readonly pid?: number
     readonly exitCode: number | null
     readonly signalCode: string | null
     readonly stdout: Readable | null
@@ -68,7 +69,12 @@ declare module 'node:os' {
   export function tmpdir(): string
 }
 
-declare const process: { env: Record<string, string | undefined>; execPath: string; cwd(): string }
+declare const process: {
+  env: Record<string, string | undefined>
+  execPath: string
+  cwd(): string
+  kill(pid: number, signal?: number | string): true
+}
 
 declare module 'node:http' {
   export type IncomingMessage = {
@@ -90,16 +96,18 @@ declare module 'node:http' {
     off(event: 'error', listener: (error: Error & { code?: string }) => void): Server
   }
   export function createServer(handler: (req: IncomingMessage, res: ServerResponse) => void): Server
-  // 아래는 테스트만 쓴다
   export type ClientResponse = {
     statusCode?: number
     headers: Record<string, string | string[] | undefined>
     setEncoding(encoding: 'utf8'): void
     on(event: 'data', listener: (chunk: string) => void): ClientResponse
     on(event: 'end', listener: () => void): ClientResponse
+    resume(): void
   }
   export type ClientRequest = {
     on(event: 'error', listener: (error: Error) => void): ClientRequest
+    setTimeout(ms: number, listener: () => void): ClientRequest
+    destroy(): void
     end(): void
   }
   export function request(

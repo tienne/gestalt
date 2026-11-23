@@ -1,12 +1,13 @@
 // 컨덕터 저장소를 지켜보다 바뀌면 `gestalt conductor status`를 다시 읽어 패널과 상태 표시줄에 알린다.
 // 이벤트 로그를 직접 재생하지 않는다. 저장소 꼴이 바뀌어도 CLI 하나만 따라가면 되게 하려는 것이다.
 import type { OrcaWorkerApi } from 'orca/worker'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { existsSync, watch, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CliError, CliResolver } from './cli'
 import { MobileServer } from './mobile-server'
+import { ResultsViewer, type ViewerRecord } from './viewer'
 import type {
   AgentState,
   ConductorView,
@@ -14,6 +15,7 @@ import type {
   GateResolveResult,
   GateView,
   OrderBrowseResult,
+  ViewerOpenResult,
   OrderRemoveResult,
   WorkerLive,
   WorkerOpenResult
@@ -34,6 +36,8 @@ import {
 const EVENTS_FILE = 'events.jsonl'
 const STATUS_BAR_ID = 'conductor'
 const NOTIFIED_KEY = 'notifiedGates'
+/** 띄운 결과 뷰어의 pid와 주소. 워커가 다시 떠도 같은 뷰어를 이어받는다 */
+const VIEWER_KEY = 'resultsViewer'
 const DEBOUNCE_MS = 300
 /** 쓰기가 300ms보다 촘촘히 이어져도 이만큼 지나면 한 번은 다시 읽는다 */
 const DEBOUNCE_MAX_MS = 2000
@@ -43,14 +47,12 @@ const RETRY_MS = 5000
  * 도는 주문이 있을 때만 이 간격으로 다시 읽는다
  */
 const ACTIVITY_POLL_MS = 10_000
-/** 결과 뷰어가 주소를 찍을 때까지 기다리는 시간 */
-const BROWSE_START_MS = 10_000
 const STATUS_TIMEOUT_MS = 20_000
 const RESOLVE_TIMEOUT_MS = 100_000
 const MAX_ANSWER = 4000
 const MAX_REMOVE = 200
 
-type Config = { command: string; stateDir: string; mobilePort: number }
+type Config = { command: string; stateDir: string; mobilePort: number; viewerOnStart: boolean }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -189,7 +191,8 @@ class Conductor {
     return {
       command: text(settings['gestaltPath']) || 'gestalt',
       stateDir: text(settings['stateDir']),
-      mobilePort: typeof port === 'number' && Number.isInteger(port) && port > 0 && port < 65536 ? port : 0
+      mobilePort: typeof port === 'number' && Number.isInteger(port) && port > 0 && port < 65536 ? port : 0,
+      viewerOnStart: settings['viewerOnStart'] !== false
     }
   }
 
@@ -542,65 +545,55 @@ class Conductor {
     this.retry = null
   }
 
-  private browse: { child: ChildProcess; url: Promise<string> } | null = null
+  private readonly viewer = new ResultsViewer({
+    load: () => this.orca.storage.get(VIEWER_KEY),
+    save: (rec: ViewerRecord | null) =>
+      rec ? this.orca.storage.set(VIEWER_KEY, rec) : this.orca.storage.delete(VIEWER_KEY).then(() => undefined),
+    log: (line) => this.orca.log(line)
+  })
 
   /** 결과 뷰어를 워커가 살아 있는 동안 하나만 띄워 두고 주문의 작업 내용 탭 주소를 준다 */
   async browseUrl(orderId: unknown): Promise<OrderBrowseResult> {
     if (typeof orderId !== 'string' || !isSafeId(orderId)) return { ok: false, error: '주문 id 꼴이 아니에요' }
+    const out = await this.viewerUrl()
+    return out.ok ? { ok: true, url: `${out.url}/#order/${encodeURIComponent(orderId)}/work` } : out
+  }
+
+  /** 결과 뷰어 첫 화면 주소. 떠 있으면 그 주소를 주고 없으면 띄운다 */
+  async viewerUrl(): Promise<ViewerOpenResult> {
     try {
-      const base = await this.ensureBrowse(await this.config())
-      return { ok: true, url: `${base}/#order/${encodeURIComponent(orderId)}/work` }
+      return { ok: true, url: await this.ensureViewer(await this.config()) }
     } catch (e) {
       return { ok: false, error: `결과 뷰어를 못 띄웠어요. ${message(e)}` }
     }
   }
 
-  private async ensureBrowse(cfg: Config): Promise<string> {
-    const cur = this.browse
-    if (cur && cur.child.exitCode === null && cur.child.signalCode === null) return cur.url
-    const cwd = this.cwd(cfg.stateDir || this.view?.stateDir || null)
-    const inv = await this.cli.resolve(cfg.command, cwd)
-    if (this.stopped) throw new Error('플러그인 워커가 멈췄어요')
-    // 경로를 찾는 사이에 다른 요청이 뷰어를 먼저 띄웠으면 그걸 쓴다
-    const raced = this.browse
-    if (raced && raced.child.exitCode === null && raced.child.signalCode === null) return raced.url
-    const child = spawn(inv.file, [...inv.prefix, 'conductor', 'browse', '--no-open', '--port', '0', ...this.dirArgs(cfg)], {
-      cwd,
-      ...(Object.keys(inv.env).length > 0 ? { env: { ...process.env, ...inv.env } } : {}),
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true
-    })
-    const url = new Promise<string>((resolve, reject) => {
-      let out = ''
-      let err = ''
-      const timer = setTimeout(() => {
-        reject(new Error(`${BROWSE_START_MS / 1000}초 안에 주소를 못 받았어요`))
-        child.kill()
-      }, BROWSE_START_MS)
-      child.stdout?.on('data', (d) => {
-        out = (out + d.toString()).slice(-4000)
-        const m = /http:\/\/127\.0\.0\.1:\d{1,5}/.exec(out)
-        if (!m) return
-        clearTimeout(timer)
-        resolve(m[0])
-      })
-      child.stderr?.on('data', (d) => {
-        err = (err + d.toString()).slice(-1000)
-      })
-      child.once('error', (e) => {
-        clearTimeout(timer)
-        reject(e)
-      })
-      child.once('exit', (code) => {
-        clearTimeout(timer)
-        if (this.browse?.child === child) this.browse = null
-        reject(new Error(err.trim() || `뷰어가 끝났어요(종료 코드 ${String(code)})`))
+  /** 플러그인이 뜰 때 저장소가 있으면 결과 뷰어를 미리 띄운다. 실패해도 버튼을 누를 때 다시 띄운다 */
+  async warmViewer(): Promise<void> {
+    const cfg = await this.config()
+    if (!cfg.viewerOnStart || this.stopped || this.view?.state !== 'ok') return
+    try {
+      await this.ensureViewer(cfg)
+    } catch (e) {
+      this.orca.log(`결과 뷰어를 미리 못 띄웠어요: ${message(e)}`)
+    }
+  }
+
+  private ensureViewer(cfg: Config): Promise<string> {
+    const dir = cfg.stateDir || this.view?.stateDir || null
+    const cwd = this.cwd(dir)
+    // 명령이나 저장소가 바뀌면 다른 뷰어다. 같은 key면 떠 있는 뷰어를 그대로 쓴다
+    const key = JSON.stringify([cfg.command, dir ?? ''])
+    return this.viewer.ensure(key, async () => {
+      const inv = await this.cli.resolve(cfg.command, cwd)
+      if (this.stopped) throw new Error('플러그인 워커가 멈췄어요')
+      return spawn(inv.file, [...inv.prefix, 'conductor', 'browse', '--no-open', ...this.dirArgs(cfg)], {
+        cwd,
+        ...(Object.keys(inv.env).length > 0 ? { env: { ...process.env, ...inv.env } } : {}),
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
       })
     })
-    // 아무도 기다리지 않는 사이에 뷰어가 끝나도 처리 안 된 거절로 남지 않게 한다
-    url.catch(() => undefined)
-    this.browse = { child, url }
-    return url
   }
 
   /** 설정이 바뀌면 gestalt 경로를 다시 찾는다. 명령이 그대로여도 그 뒤의 설치가 바뀌었을 수 있다 */
@@ -610,9 +603,8 @@ class Conductor {
   }
 
   async stop(): Promise<void> {
-    this.browse?.child.kill()
-    this.browse = null
     this.stopped = true
+    await this.viewer.stop()
     this.closeWatcher()
     this.clearRetry()
     if (this.activityPoll) clearTimeout(this.activityPoll)
@@ -640,13 +632,14 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('worker.detail', (input) => conductor.workerDetail(input.orderId))
   orca.panels.handle('order.remove', (input) => conductor.removeOrders(input.orderIds))
   orca.panels.handle('order.browse', (input) => conductor.browseUrl(input.orderId))
+  orca.panels.handle('viewer.open', () => conductor.viewerUrl())
   orca.commands.register('conductor.refresh', async () => {
     await conductor.refresh()
     const view = await conductor.current()
     return statusBarOf(view).text
   })
   orca.settings.onDidChange(() => void conductor.settingsChanged())
-  void conductor.refresh()
+  void conductor.refresh().then(() => conductor.warmViewer())
 }
 
 export async function deactivate(): Promise<void> {

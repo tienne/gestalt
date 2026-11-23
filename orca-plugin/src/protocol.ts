@@ -181,6 +181,7 @@ export type WorkerLive = {
 }
 
 export type OrderBrowseResult = { ok: true; url: string } | { ok: false; error: string }
+export type ViewerOpenResult = OrderBrowseResult
 
 export type WorkerOpenResult = {
   opened: boolean
@@ -209,6 +210,8 @@ declare module 'orca' {
     'worker.detail': { input: { orderId: string }; output: WorkerLive }
     /** `gestalt conductor browse`를 한 번 띄워 두고 주문의 작업 내용 탭 주소를 준다. 데스크톱 상세의 "전체 보기"가 부른다 */
     'order.browse': { input: { orderId: string }; output: OrderBrowseResult }
+    /** 결과 뷰어 첫 화면 주소를 준다. 떠 있으면 그대로 쓰고 없으면 띄운다. 터미널 화면 머리의 "결과 페이지 열기"가 부른다 */
+    'viewer.open': { output: ViewerOpenResult }
   }
   interface PluginPanelEvents {
     'conductor.changed': ConductorView
