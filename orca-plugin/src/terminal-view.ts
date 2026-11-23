@@ -14,10 +14,11 @@ type State = {
   loadError: string | null
   openError: string | null
   openNote: string | null
+  viewerNote: string | null
   open: Set<string>
   live: Record<string, WorkerLive | 'loading'>
 }
-const state: State = { view: null, loadError: null, openError: null, openNote: null, open: new Set(), live: {} }
+const state: State = { view: null, loadError: null, openError: null, openNote: null, viewerNote: null, open: new Set(), live: {} }
 const inflight = new Set<string>()
 let poll: ReturnType<typeof setInterval> | null = null
 let clockTimer: ReturnType<typeof setInterval> | null = null
@@ -92,6 +93,31 @@ async function openBrowseNow(orderId: string): Promise<void> {
   alertRegion.textContent = ''
   if (state.openNote) alertRegion.textContent = state.openNote
   else statusRegion.textContent = '작업 내용을 브라우저에서 열었어요'
+}
+
+/** 머리의 "결과 페이지 열기". 워커가 떠 있는 뷰어를 쓰거나 새로 띄운 주소를 브라우저로 연다 */
+function openViewer(): Promise<void> {
+  return once('결과 페이지를 여는 중이에요', openViewerNow)
+}
+
+async function openViewerNow(): Promise<void> {
+  state.viewerNote = null
+  try {
+    const out = await orca.plugin.request('viewer.open')
+    if (!out.ok) state.viewerNote = out.error
+    else if (!orca.shell) state.viewerNote = `브라우저에서 열어 주세요: ${out.url}`
+    else {
+      const r = await orca.shell.openExternal(out.url)
+      if (!r.opened) state.viewerNote = `브라우저를 못 열었어요. 주소: ${out.url}`
+    }
+  } catch (e) {
+    state.viewerNote = `결과 뷰어를 못 열었어요. ${errorText(e)}`
+  }
+  render()
+  statusRegion.textContent = ''
+  alertRegion.textContent = ''
+  if (state.viewerNote) alertRegion.textContent = state.viewerNote
+  else statusRegion.textContent = '결과 페이지를 브라우저에서 열었어요'
 }
 
 function openWorker(orderId: string): Promise<void> {
@@ -187,6 +213,7 @@ function render(): void {
     loadError: state.loadError,
     openError: state.openError,
     openNote: state.openNote,
+    viewerNote: state.viewerNote,
     open: state.open,
     live: state.live
   })
@@ -249,6 +276,7 @@ export function mountTerminal(): void {
     if (go?.dataset['go']) void openWorker(go.dataset['go'])
     const browse = (e.target as Element | null)?.closest<HTMLElement>('[data-browse]')
     if (browse?.dataset['browse']) void openBrowse(browse.dataset['browse'])
+    if ((e.target as Element | null)?.closest('[data-viewer]')) void openViewer()
   })
   root.addEventListener('dblclick', (e) => {
     const id = openTarget(e)
