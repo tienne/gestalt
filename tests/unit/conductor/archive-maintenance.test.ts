@@ -57,9 +57,15 @@ function seedOpsFiles(dir: string): void {
   }
   // 상태에 없지만 막 쓴 파일은 남긴다
   writeAged(join(dir, PROMPTS_DIR, 'wrk-fresh.md'), '# 지시\n', NOW);
-  writeAged(join(dir, HANDOFF_DIR, 'old.md'), '인계', new Date('2026-11-01T00:00:00.000Z'));
-  writeAged(join(dir, HANDOFF_DIR, 'new.md'), '인계', new Date('2026-11-15T00:00:00.000Z'));
+  writeAged(join(dir, HANDOFF_DIR, HANDOFF_OLD), '인계', OLD);
+  writeAged(join(dir, HANDOFF_DIR, HANDOFF_NEW), '인계', new Date('2026-11-15T00:00:00.000Z'));
+  // 인계 파일 꼴이 아니거나 .md가 아니면 오래됐어도 사람이 둔 것으로 본다
+  writeAged(join(dir, HANDOFF_DIR, 'note.md'), '메모', OLD);
+  writeAged(join(dir, PROMPTS_DIR, 'wrk-gone.txt'), '메모', OLD);
 }
+
+const HANDOFF_OLD = '2026-11-01T00-00-00-000Z-sess-a.md';
+const HANDOFF_NEW = '2026-11-15T00-00-00-000Z-sess-b.md';
 
 describe('보관할 때 운영 파일 정리', () => {
   it('상태에 없는 워커의 prompts와 activity, 기간 지난 handoffs를 지운다', async () => {
@@ -77,9 +83,25 @@ describe('보관할 때 운영 파일 정리', () => {
       'wrk-1.md',
       'wrk-2.md',
       'wrk-fresh.md',
+      'wrk-gone.txt',
     ]);
     expect(existsSync(join(dir, ACTIVITY_DIR, 'wrk-gone.json'))).toBe(false);
-    expect(readdirSync(join(dir, HANDOFF_DIR))).toEqual(['new.md']);
+    expect(readdirSync(join(dir, HANDOFF_DIR)).sort()).toEqual([HANDOFF_NEW, 'note.md']);
+  });
+
+  it('--older-than 0이어도 하루 안 된 인계 파일은 남긴다', async () => {
+    const dir = tempStateDir();
+    seed(dir);
+    const hour = 60 * 60 * 1000;
+    const recent = '2026-11-19T01-00-00-000Z-sess-c.md';
+    const dayOld = '2026-11-18T23-00-00-000Z-sess-d.md';
+    writeAged(join(dir, HANDOFF_DIR, recent), '인계', new Date(NOW.getTime() - 23 * hour));
+    writeAged(join(dir, HANDOFF_DIR, dayOld), '인계', new Date(NOW.getTime() - 25 * hour));
+
+    const result = await archiveOrders(dir, { ...fast, days: 0 });
+
+    expect(result).toMatchObject({ swept: { handoffs: 1 } });
+    expect(readdirSync(join(dir, HANDOFF_DIR))).toEqual([recent]);
   });
 
   it('옮긴 주문 워커의 요약을 보관소에 복사하고 원본은 다음 보관이 지운다', async () => {
@@ -145,10 +167,88 @@ describe('지난 달 보관소 묶기', () => {
     expect(result).toEqual({ status: 'compressed', months: ['2026-09'], warnings: [] });
     expect(readdirSync(join(dir, ARCHIVE_DIR)).sort()).toEqual(['2026-09.tar.gz', '2026-10']);
     expect(tarList(join(dir, ARCHIVE_DIR, '2026-09.tar.gz'))).toEqual(['2026-09/ord-a/order.json']);
-    expect(archiveLocation(dir, '2026-09', 'ord-a')).toBe(
-      join(ARCHIVE_DIR, '2026-09.tar.gz') + ' 안의 2026-09/ord-a',
+    expect(archiveLocation(dir, '2026-09', 'ord-a')).toEqual({
+      status: 'tarball',
+      path: join(ARCHIVE_DIR, '2026-09.tar.gz') + ' 안의 2026-09/ord-a',
+    });
+    expect(archiveLocation(dir, '2026-10', 'ord-b')).toEqual({
+      status: 'dir',
+      path: join(ARCHIVE_DIR, '2026-10', 'ord-b'),
+    });
+    expect(archiveLocation(dir, '2026-08', 'ord-c')).toEqual({ status: 'deleted' });
+  });
+
+  it('1월에는 지난해 11월까지 묶는다', () => {
+    const dir = tempStateDir();
+    monthDir(dir, '2025-11', 'ord-a');
+    monthDir(dir, '2025-12', 'ord-b');
+    monthDir(dir, '2025-13', 'ord-c');
+
+    const result = compressArchive(dir, new Date('2026-01-05T00:00:00Z'));
+
+    expect(result).toMatchObject({ months: ['2025-11'], warnings: [] });
+    expect(readdirSync(join(dir, ARCHIVE_DIR)).sort()).toEqual([
+      '2025-11.tar.gz',
+      '2025-12',
+      '2025-13',
+    ]);
+  });
+
+  it('묶다 죽어 남은 임시 파일을 치우고 끝까지 묶는다', () => {
+    const dir = tempStateDir();
+    const root = join(dir, ARCHIVE_DIR);
+    monthDir(dir, '2026-09', 'ord-a', '"old"');
+    compressArchive(dir, NOW);
+    // 이름을 바꾸기 전에 죽은 자리: 옛 묶음과 새 디렉토리, 임시 파일이 함께 있다
+    monthDir(dir, '2026-09', 'ord-late');
+    writeFileSync(join(root, '2026-09.tar.gz.tmp'), '쓰다 만 묶음');
+    mkdirSync(join(root, '.2026-09.merge', '2026-09'), { recursive: true });
+    // 디렉토리까지 지운 뒤 죽은 달의 임시 파일
+    writeFileSync(join(root, '2026-08.tar.gz.tmp'), '쓰다 만 묶음');
+    mkdirSync(join(root, '.2026-08.merge'));
+
+    const result = compressArchive(dir, NOW);
+
+    expect(result).toMatchObject({ months: ['2026-09'], warnings: [] });
+    expect(readdirSync(root)).toEqual(['2026-09.tar.gz']);
+    expect(tarList(join(root, '2026-09.tar.gz'))).toEqual([
+      '2026-09/ord-a/order.json',
+      '2026-09/ord-late/order.json',
+    ]);
+  });
+
+  it('묶음 안에 그 달 밖을 가리키는 항목이 있으면 풀지 않는다', () => {
+    const dir = tempStateDir();
+    const root = join(dir, ARCHIVE_DIR);
+    const src = tempStateDir();
+    mkdirSync(join(src, '2026-09'), { recursive: true });
+    mkdirSync(join(src, 'other'), { recursive: true });
+    writeFileSync(join(src, 'other', 'x'), '밖');
+    mkdirSync(root, { recursive: true });
+    execFileSync('tar', ['-czf', join(root, '2026-09.tar.gz'), '-C', src, '2026-09', 'other']);
+    monthDir(dir, '2026-09', 'ord-a');
+
+    const result = compressArchive(dir, NOW);
+
+    expect(result).toMatchObject({ months: [] });
+    expect(result.status === 'compressed' && result.warnings[0]).toContain('밖을 가리키는');
+    expect(existsSync(join(root, '2026-09', 'ord-a'))).toBe(true);
+    expect(existsSync(join(root, 'other'))).toBe(false);
+  });
+
+  it('tar가 실패하면 오류 내용을 경고에 싣고 디렉토리를 둔다', () => {
+    const dir = tempStateDir();
+    const root = join(dir, ARCHIVE_DIR);
+    monthDir(dir, '2026-09', 'ord-a');
+    writeFileSync(join(root, '2026-09.tar.gz'), '묶음이 아니에요');
+
+    const result = compressArchive(dir, NOW);
+
+    expect(result).toMatchObject({ months: [] });
+    expect(result.status === 'compressed' && result.warnings[0]).toMatch(
+      /archive\/2026-09을 못 묶었어요: tar -tzf 실패: \S/,
     );
-    expect(archiveLocation(dir, '2026-10', 'ord-b')).toBe(join(ARCHIVE_DIR, '2026-10', 'ord-b'));
+    expect(existsSync(join(root, '2026-09', 'ord-a'))).toBe(true);
   });
 
   it('묶은 달에 늦게 보관한 주문이 생기면 합쳐서 다시 묶는다', () => {
@@ -203,10 +303,24 @@ describe('보관소 지우기', () => {
     expect(readdirSync(join(dir, ARCHIVE_DIR))).toEqual(['2026-10']);
   });
 
+  it('지우는 달의 묶다 남은 임시 파일도 지운다', () => {
+    const dir = tempStateDir();
+    const root = join(dir, ARCHIVE_DIR);
+    mkdirSync(join(root, '.2026-08.merge'), { recursive: true });
+    writeFileSync(join(root, '2026-08.tar.gz.tmp'), '쓰다 만 묶음');
+    monthDir(dir, '2026-10', 'ord-c');
+
+    const pruned = pruneArchive(dir, '2026-09', { now: NOW });
+
+    expect(pruned).toMatchObject({ months: ['2026-08'] });
+    expect(readdirSync(root)).toEqual(['2026-10']);
+  });
+
   it('끝나고 한 달이 안 지난 달이나 꼴이 틀린 값은 받지 않는다', () => {
     const dir = tempStateDir();
     expect(() => pruneArchive(dir, '2026-11', { now: NOW })).toThrow('한 달이 안 지난');
     expect(() => pruneArchive(dir, '2026-9', { now: NOW })).toThrow('YYYY-MM');
+    expect(() => pruneArchive(dir, '2025-13', { now: NOW })).toThrow('YYYY-MM');
   });
 });
 
@@ -239,6 +353,25 @@ describe('tick이 부르는 하루 한 번 보관', () => {
     expect(await runDailyArchive(dir, { now: NOW, settleMs: 5 })).toMatchObject({
       orders: ['ord-old'],
     });
+  });
+
+  it('보관이 던지면 실패 시각을 남기고 한 시간 뒤에 다시 한다', async () => {
+    const dir = tempStateDir();
+    seed(dir);
+    // 이번 달 보관 자리를 파일로 막아 옮기다 던지게 한다
+    mkdirSync(join(dir, ARCHIVE_DIR), { recursive: true });
+    writeFileSync(join(dir, ARCHIVE_DIR, '2026-11'), '막힌 자리');
+
+    await expect(runDailyArchive(dir, { now: NOW, settleMs: 5 })).rejects.toThrow();
+    expect(JSON.parse(readFileSync(join(dir, ARCHIVE_DIR, 'last-run.json'), 'utf-8'))).toEqual({
+      failedAt: NOW.toISOString(),
+    });
+
+    const soon = new Date(NOW.getTime() + 59 * 60 * 1000);
+    expect(await runDailyArchive(dir, { now: soon, settleMs: 5 })).toBeUndefined();
+
+    const hourLater = new Date(NOW.getTime() + 60 * 60 * 1000);
+    await expect(runDailyArchive(dir, { now: hourLater, settleMs: 5 })).rejects.toThrow();
   });
 
   it('지난 달 보관소도 함께 묶는다', async () => {

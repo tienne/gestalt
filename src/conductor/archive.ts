@@ -38,7 +38,9 @@ export const PROMPTS_DIR = 'prompts';
 const LAST_RUN_FILE = 'last-run.json';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MONTH = /^\d{4}-\d{2}$/;
+const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+/** 묶기와 풀기에 쓰는 tar 한 번의 상한. 한 달치 보관소가 이보다 오래 걸리면 다음 보관 때 다시 한다 */
+const TAR_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface ArchivePlan {
   orders: { id: string; month: string; status: OrderStatus }[];
@@ -312,6 +314,9 @@ function copySummaries(dir: string, workerIds: string[], target: string): void {
     const name = `${safeId(id)}.summary.json`;
     const src = join(dir, ACTIVITY_DIR, name);
     if (!lstatSync(src, { throwIfNoEntry: false })?.isFile()) continue;
+    // 워커가 상태에 남은 동안 보관이 여러 번 돌 수 있어 크기가 같은 사본은 다시 안 쓴다
+    const copied = lstatSync(join(dest, name), { throwIfNoEntry: false });
+    if (copied?.isFile() && copied.size === lstatSync(src).size) continue;
     mkdirSync(dest, { recursive: true, mode: 0o700 });
     copyFileSync(src, join(dest, name));
     fsyncFile(join(dest, name));
@@ -396,6 +401,12 @@ function monthOf(iso: string, fallback: Date): string {
 const ORPHAN_GRACE_MS = DAY_MS;
 
 /**
+ * `handoff` 명령이 쓰는 인계 파일 이름(`handoff.ts`의 `<시각>-<세션 id>.md`). 그 꼴이 바뀌면 여기도 고친다.
+ * 사람이 같은 디렉토리에 둔 다른 파일은 안 지운다
+ */
+const HANDOFF_FILE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-.+\.md$/;
+
+/**
  * 운영 파일을 지운다. `prompts/`와 `activity/`는 워커가 상태에 없고 하루 넘게 안 바뀐 파일만,
  * `handoffs/`는 보관 기간보다 오래된 파일만 지운다. 파일 이름에서 워커 id를 읽으므로 심링크나
  * 디렉토리는 건드리지 않는다
@@ -405,10 +416,19 @@ function sweepOpsFiles(dir: string, s: ConductorSnapshot, now: Date, days: numbe
   const orphan = (name: string, suffix: RegExp) => !known.has(name.replace(suffix, ''));
   const grace = now.getTime() - ORPHAN_GRACE_MS;
   return {
-    prompts: removeOldFiles(join(dir, PROMPTS_DIR), grace, (n) => orphan(n, /\.md$/)),
+    prompts: removeOldFiles(
+      join(dir, PROMPTS_DIR),
+      grace,
+      (n) => n.endsWith('.md') && orphan(n, /\.md$/),
+    ),
     // `<워커 id>.json`, `.transcript.json`, `.summary.json`. safeId가 점을 걷으므로 첫 점 앞이 워커 id다
     activity: removeOldFiles(join(dir, ACTIVITY_DIR), grace, (n) => orphan(n, /\..*$/)),
-    handoffs: removeOldFiles(join(dir, HANDOFF_DIR), now.getTime() - days * DAY_MS, () => true),
+    // `--older-than 0`이어도 막 넘긴 인계 파일은 새 세션이 읽기 전이라 하루는 둔다
+    handoffs: removeOldFiles(
+      join(dir, HANDOFF_DIR),
+      Math.min(now.getTime() - days * DAY_MS, grace),
+      (n) => HANDOFF_FILE.test(n),
+    ),
   };
 }
 
@@ -450,7 +470,11 @@ export function compressArchive(dir: string, now: Date): CompressResult {
     const cutoff = settledMonthCutoff(now);
     const months: string[] = [];
     const warnings: string[] = [];
-    for (const name of listDir(root)) {
+    const names = listDir(root);
+    for (const name of names) {
+      // 디렉토리를 지운 뒤 죽은 달의 임시 파일. 디렉토리가 남은 달은 compressMonth가 먼저 치운다
+      const left = leftoverMonth(name);
+      if (left && !names.includes(left)) rmSync(join(root, name), { recursive: true, force: true });
       if (!MONTH.test(name) || name >= cutoff) continue;
       if (!lstatSync(join(root, name)).isDirectory()) continue;
       try {
@@ -466,6 +490,57 @@ export function compressArchive(dir: string, now: Date): CompressResult {
   }
 }
 
+/** 묶다 죽으면 남는 `<YYYY-MM>.tar.gz.tmp`와 `.<YYYY-MM>.merge`에서 달을 꺼낸다 */
+function leftoverMonth(name: string): string | undefined {
+  const m = /^(?:\.(.+)\.merge|(.+)\.tar\.gz\.tmp)$/.exec(name);
+  const month = m?.[1] ?? m?.[2];
+  return month !== undefined && MONTH.test(month) ? month : undefined;
+}
+
+/** 실패하면 tar의 stderr 앞 몇 줄을 메시지에 싣는다. 경고만 보고 원인을 알 수 있게 한다 */
+function tar(args: string[]): string {
+  try {
+    return execFileSync('tar', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+      timeout: TAR_TIMEOUT_MS,
+      maxBuffer: 64 * 1024 * 1024,
+      // macOS tar가 확장 속성을 `._` 파일로 끼워 넣지 않게 한다
+      env: { ...process.env, COPYFILE_DISABLE: '1' },
+    });
+  } catch (e) {
+    const err = e as Error & { stderr?: string };
+    const detail = (err.stderr ?? '').trim().split('\n').slice(0, 3).join(' / ');
+    throw new Error(`tar ${args[0]} 실패: ${detail || err.message}`, { cause: e });
+  }
+}
+
+/** 묶음 안 이름이 전부 `<month>/` 아래인지 본다. 절대 경로나 `..` 칸이 있으면 풀지 않는다 */
+function assertTarEntries(tarball: string, month: string): void {
+  for (const name of tar(['-tzf', tarball]).split('\n').filter(Boolean)) {
+    const parts = name.replace(/\/$/, '').split('/');
+    if (parts[0] !== month || parts.includes('..') || name.startsWith('/'))
+      throw new Error(`${month}.tar.gz에 ${month}/ 밖을 가리키는 항목이 있어요: ${name}`);
+  }
+}
+
+/** 새 묶음에 디렉토리의 항목이 다 들어갔는지 본다. 빠졌으면 이름을 안 바꾸고 디렉토리도 둔다 */
+function assertTarCovers(tmp: string, root: string, month: string): void {
+  const listed = new Set(
+    tar(['-tzf', tmp])
+      .split('\n')
+      .filter(Boolean)
+      .map((n) => n.replace(/\/$/, '')),
+  );
+  const missing = readdirSync(join(root, month), { recursive: true, encoding: 'utf-8' })
+    .map((rel) => join(month, rel).split(sep).join('/'))
+    .filter((n) => !listed.has(n));
+  if (missing.length > 0)
+    throw new Error(
+      `새 묶음에 빠진 항목이 ${missing.length}개예요: ${missing.slice(0, 3).join(', ')}`,
+    );
+}
+
 function compressMonth(root: string, month: string): void {
   const tarball = join(root, `${month}.tar.gz`);
   const tmp = `${tarball}.tmp`;
@@ -474,8 +549,9 @@ function compressMonth(root: string, month: string): void {
   rmSync(merge, { recursive: true, force: true });
   if (lstatSync(tarball, { throwIfNoEntry: false })?.isFile()) {
     // 디렉토리에 있는 쪽이 더 새로 쓴 것이라 겹치는 파일은 디렉토리 쪽을 남긴다
+    assertTarEntries(tarball, month);
     mkdirSync(merge, { mode: 0o700 });
-    execFileSync('tar', ['-xzf', tarball, '-C', merge], { stdio: 'ignore' });
+    tar(['-xzf', tarball, '-C', merge]);
     const old = join(merge, month);
     if (lstatSync(old, { throwIfNoEntry: false })?.isDirectory())
       cpSync(old, join(root, month), {
@@ -486,7 +562,8 @@ function compressMonth(root: string, month: string): void {
       });
     rmSync(merge, { recursive: true, force: true });
   }
-  execFileSync('tar', ['-czf', tmp, '-C', root, month], { stdio: 'ignore' });
+  tar(['-czf', tmp, '-C', root, month]);
+  assertTarCovers(tmp, root, month);
   fsyncFile(tmp);
   renameSync(tmp, tarball);
   fsyncDir(root);
@@ -516,7 +593,7 @@ export function pruneArchive(
     const months = new Set<string>();
     const paths: string[] = [];
     for (const name of listDir(root).sort()) {
-      const month = name.replace(/\.tar\.gz$/, '');
+      const month = leftoverMonth(name) ?? name.replace(/\.tar\.gz$/, '');
       if (!MONTH.test(month) || month >= before) continue;
       months.add(month);
       paths.push(join(ARCHIVE_DIR, name));
@@ -536,14 +613,46 @@ export function pruneArchive(
   }
 }
 
-/** 보관한 주문이 있는 자리. 묶은 달이면 묶음 파일을 가리킨다. 저장소 기준 상대 경로다 */
-export function archiveLocation(dir: string, month: string, id: string): string {
+/**
+ * 보관한 주문이 있는 자리. 묶은 달이면 묶음 파일을 가리키고 `archive prune`으로 지웠으면 `deleted`다.
+ * 경로는 저장소 기준 상대 경로다
+ */
+export function archiveLocation(
+  dir: string,
+  month: string,
+  id: string,
+): { status: 'dir' | 'tarball'; path: string } | { status: 'deleted' } {
   const plain = join(ARCHIVE_DIR, month, id);
-  if (lstatSync(join(dir, plain), { throwIfNoEntry: false })?.isDirectory()) return plain;
+  if (lstatSync(join(dir, plain), { throwIfNoEntry: false })?.isDirectory())
+    return { status: 'dir', path: plain };
   const tarball = join(ARCHIVE_DIR, `${month}.tar.gz`);
   if (lstatSync(join(dir, tarball), { throwIfNoEntry: false })?.isFile())
-    return `${tarball} 안의 ${month}/${id}`;
-  return plain;
+    return { status: 'tarball', path: `${tarball} 안의 ${month}/${id}` };
+  return { status: 'deleted' };
+}
+
+/**
+ * 보관하고 이어서 지난 달을 묶는다. `archive` 명령과 tick이 같이 쓴다. 묶기는 잠금을 따로 잡으므로
+ * 그사이 다른 프로세스가 잡았으면 묶은 달 없이 돌아오고 다음 보관 때 묶는다
+ */
+export async function archiveAndCompress(
+  dir: string,
+  opts: ArchiveOptions & { now: () => Date },
+): Promise<
+  | Exclude<ArchiveResult, { status: 'archived' }>
+  | (Extract<ArchiveResult, { status: 'archived' }> & { compressed: string[] })
+> {
+  const result = await archiveOrders(dir, opts);
+  if (result.status !== 'archived') return result;
+  const compressed = compressArchive(dir, opts.now());
+  return {
+    ...result,
+    compressed: compressed.status === 'compressed' ? compressed.months : [],
+    warnings: [
+      ...result.warnings,
+      ...(compressed.status === 'compressed' ? compressed.warnings : []),
+    ],
+  };
 }
 
 export interface DailyArchiveReport {
@@ -556,50 +665,72 @@ export interface DailyArchiveReport {
   warnings: string[];
 }
 
+/** 보관이 던진 뒤 다시 해 보기까지 기다리는 시간. 같은 실패가 tick마다 되풀이되지 않게 한다 */
+const RETRY_AFTER_FAILURE_MS = 60 * 60 * 1000;
+
 /**
  * tick이 잠금을 놓은 뒤 부른다. 마지막으로 돌린 지 하루가 안 됐거나 잠금을 못 잡으면 아무것도 안 하고
- * undefined다. 보관과 운영 파일 정리, 지난 달 묶기를 차례로 하고 돌린 시각을 남긴다
+ * undefined다. 보관과 운영 파일 정리, 지난 달 묶기를 차례로 하고 돌린 시각을 남긴다. 던지면 실패 시각을
+ * 남기고 다시 던져서 한 시간 동안은 다시 안 한다
  */
 export async function runDailyArchive(
   dir: string,
   opts: { now: Date; days?: number; settleMs?: number },
 ): Promise<DailyArchiveReport | undefined> {
   const last = readLastRun(dir);
-  if (last !== undefined && opts.now.getTime() - last < DAY_MS) return undefined;
-  const result = await archiveOrders(dir, {
-    now: () => opts.now,
-    ...(opts.days !== undefined ? { days: opts.days } : {}),
-    ...(opts.settleMs !== undefined ? { settleMs: opts.settleMs } : {}),
-  });
+  if (last.at !== undefined && opts.now.getTime() - last.at < DAY_MS) return undefined;
+  if (last.failedAt !== undefined && opts.now.getTime() - last.failedAt < RETRY_AFTER_FAILURE_MS)
+    return undefined;
+  let result: Awaited<ReturnType<typeof archiveAndCompress>>;
+  try {
+    result = await archiveAndCompress(dir, {
+      now: () => opts.now,
+      ...(opts.days !== undefined ? { days: opts.days } : {}),
+      ...(opts.settleMs !== undefined ? { settleMs: opts.settleMs } : {}),
+    });
+  } catch (e) {
+    try {
+      writeLastRun(dir, {
+        ...(last.at !== undefined ? { at: new Date(last.at).toISOString() } : {}),
+        failedAt: opts.now.toISOString(),
+      });
+    } catch {
+      // 실패 시각을 못 남겨도 보고할 것은 보관이 던진 오류다
+    }
+    throw e;
+  }
   if (result.status !== 'archived') return undefined;
-  const compressed = compressArchive(dir, opts.now);
-  mkdirSync(join(dir, ARCHIVE_DIR), { recursive: true, mode: 0o700 });
-  writeDurable(
-    join(dir, ARCHIVE_DIR, LAST_RUN_FILE),
-    `${JSON.stringify({ at: opts.now.toISOString() })}\n`,
-  );
+  writeLastRun(dir, { at: opts.now.toISOString() });
   return {
     orders: result.orders.map((o) => o.id),
     removed: result.removed.map((r) => r.id),
     gates: result.gates.length,
     blocked: result.blocked,
-    compressed: compressed.status === 'compressed' ? compressed.months : [],
+    compressed: result.compressed,
     swept: result.swept,
-    warnings: [
-      ...result.warnings,
-      ...(compressed.status === 'compressed' ? compressed.warnings : []),
-    ],
+    warnings: result.warnings,
   };
 }
 
-function readLastRun(dir: string): number | undefined {
+function writeLastRun(dir: string, value: { at?: string; failedAt?: string }): void {
+  mkdirSync(join(dir, ARCHIVE_DIR), { recursive: true, mode: 0o700 });
+  writeDurable(join(dir, ARCHIVE_DIR, LAST_RUN_FILE), `${JSON.stringify(value)}\n`);
+}
+
+function readLastRun(dir: string): { at?: number; failedAt?: number } {
   try {
     const raw = JSON.parse(readFileSync(join(dir, ARCHIVE_DIR, LAST_RUN_FILE), 'utf-8')) as {
       at?: unknown;
+      failedAt?: unknown;
     };
-    const at = typeof raw.at === 'string' ? Date.parse(raw.at) : NaN;
-    return Number.isFinite(at) ? at : undefined;
+    const parse = (v: unknown) => {
+      const t = typeof v === 'string' ? Date.parse(v) : NaN;
+      return Number.isFinite(t) ? t : undefined;
+    };
+    const at = parse(raw.at);
+    const failedAt = parse(raw.failedAt);
+    return { ...(at !== undefined ? { at } : {}), ...(failedAt !== undefined ? { failedAt } : {}) };
   } catch {
-    return undefined;
+    return {};
   }
 }
