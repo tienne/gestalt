@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:f
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ConductorWebServer } from '../../../src/conductor-web/server.js';
-import { updateWorkerInfo } from '../../../src/conductor/activity.js';
+import { readWorkerInfo, updateWorkerInfo } from '../../../src/conductor/activity.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import type { Worker } from '../../../src/conductor/types.js';
 import {
@@ -106,6 +106,20 @@ describe('끝난 워커의 타임라인 요약', () => {
     expect(s.changedFiles).toEqual(['a.ts']);
 
     expect(saveFinishedSummaries(stateDir, [done], { now: at(120), roots })).toEqual([]);
+  });
+
+  it('트랜스크립트를 못 찾으면 한 시간 간격으로 처음까지 세 번만 찾고 그 뒤엔 포기한다', () => {
+    const stateDir = tempStateDir();
+    const roots = [join(tempStateDir(), 'projects')];
+    const done = worker('wrk-miss', 'ord-1', 1, 0, 'finished');
+    updateWorkerInfo(stateDir, done.id, { worktreePath: CWD });
+    const hour = 3600;
+    const tries = [60, 120, 60 + hour, 60 + 2 * hour, 60 + 3 * hour];
+    for (const sec of tries) saveFinishedSummaries(stateDir, [done], { now: at(sec), roots });
+    expect(readWorkerInfo(stateDir, done.id).summaryMisses).toBe(3);
+    writeTranscript(roots[0]!, 'sess-late', 0);
+    expect(saveFinishedSummaries(stateDir, [done], { now: at(60 + 5 * hour), roots })).toEqual([]);
+    expect(readWorkSummary(stateDir, done.id)).toBeUndefined();
   });
 });
 

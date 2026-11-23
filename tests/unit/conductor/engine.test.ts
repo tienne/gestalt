@@ -2044,21 +2044,20 @@ describe('백그라운드 gate 멈춤', () => {
 });
 
 describe('파일 겹침', () => {
-  function overlapSetup(filesA: string[], filesB: string[]) {
+  function overlapSetup(...lists: string[][]) {
     const { store, advance } = clockedStore();
-    const wa = resolve(tempStateDir());
-    const wb = resolve(tempStateDir());
-    const files: Record<string, string[]> = { [wa]: filesA, [wb]: filesB };
+    const files: Record<string, string[]> = {};
     const runner: CommandRunner = async (_cmd, args, opts) => {
       if (args[0] === 'merge-base') return { code: 0, stdout: 'abcdef1\n', stderr: '' };
       if (args[0] === 'diff')
         return { code: 0, stdout: (files[opts?.cwd ?? ''] ?? []).join('\n'), stderr: '' };
       return { code: 0, stdout: '', stderr: '' };
     };
-    for (const [id, handle, at] of [
-      ['a', wa, '2026-11-01T00:00:00.000Z'],
-      ['b', wb, '2026-11-01T00:05:00.000Z'],
-    ] as const) {
+    for (const [i, list] of lists.entries()) {
+      const id = String.fromCharCode(97 + i);
+      const handle = resolve(tempStateDir());
+      files[handle] = list;
+      const at = new Date(Date.parse('2026-11-01T00:00:00.000Z') + i * 300_000).toISOString();
       store.addOrder(order({ id: `ord-${id}`, status: 'running', workerId: `wrk-${id}` }));
       store.startWorker(
         worker(`ord-${id}`, {
@@ -2096,6 +2095,28 @@ describe('파일 겹침', () => {
     resolveGate(store, gates[0]!.id, 'approved');
     await tick(store, d, { force: true });
     expect(store.openGates()).toHaveLength(0);
+  });
+
+  it('앞 주문 둘과 겹치면 한 상대씩 묻고 답을 받은 뒤 다음 상대를 묻는다', async () => {
+    const many = ['1', '2', '3', '4', '5', '6'].map((n) => `f${n}.ts`);
+    const { store, d } = overlapSetup(many, many, many);
+    await tick(store, d, { force: true });
+    const first = store.openGates('ord-c');
+    expect(first).toHaveLength(1);
+    const partner = first[0]!.payload?.['overlapWith'];
+    const reason = first[0]!.reason;
+    await tick(store, d, { force: true });
+    expect(store.openGates('ord-c').map((g) => [g.payload?.['overlapWith'], g.reason])).toEqual([
+      [partner, reason],
+    ]);
+    resolveGate(store, first[0]!.id, 'approved');
+    await tick(store, d, { force: true });
+    const second = store.openGates('ord-c');
+    expect(second).toHaveLength(1);
+    expect(second[0]!.payload?.['overlapWith']).not.toBe(partner);
+    resolveGate(store, second[0]!.id, 'approved');
+    await tick(store, d, { force: true });
+    expect(store.openGates('ord-c')).toHaveLength(0);
   });
 
   it('뒤 주문 워커가 재개돼 id가 바뀌어도 같은 상대로 게이트를 다시 열지 않는다', async () => {

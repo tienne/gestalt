@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import {
   appendFileSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   statSync,
   utimesSync,
@@ -9,10 +10,15 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { orderActivity, updateWorkerInfo } from '../../../src/conductor/activity.js';
+import {
+  orderActivity,
+  refreshTranscript,
+  updateWorkerInfo,
+} from '../../../src/conductor/activity.js';
 import { changedFilesOf, refreshWorkerActivity } from '../../../src/conductor/activity-tick.js';
 import { execRunner } from '../../../src/conductor/launcher.js';
 import {
+  isWorkerTranscriptPath,
   locateWorkerTranscript,
   projectRoots,
   readTranscript,
@@ -25,6 +31,8 @@ afterEach(() => cleanupStateDirs());
 const CWD = '/work/repo';
 const T0 = Date.parse('2026-11-20T10:00:00Z');
 const at = (sec: number) => new Date(T0 + sec * 1000).toISOString();
+// 저장소 금지어 검사와 비밀 스캐너에 안 걸리게 이어 붙여 만든다
+const TOKEN = 'ghp' + '_' + 'Zq8Lm2Xv9Rt4Kp7Wn3Bs6Hy1Jd5Fg0Ce8Ua2Vo';
 
 function toolUse(id: string, name: string, input: object, sec: number, extra: object = {}) {
   return {
@@ -204,6 +212,22 @@ describe('readTranscript', () => {
   });
 });
 
+describe('어시스턴트 본문', () => {
+  it('keepText로 모은 본문도 비밀 값을 가린 뒤 자른다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      {
+        type: 'assistant',
+        timestamp: at(1),
+        message: { role: 'assistant', content: [{ type: 'text', text: `토큰은 ${TOKEN} 이에요` }] },
+      },
+    ]);
+    const s = readTranscript(f, undefined, { cwd: CWD, keepText: true });
+    expect(s.digest.texts?.map((t) => t.text)).toEqual(['토큰은 [비밀값] 이에요']);
+    expect(JSON.stringify(s)).not.toContain(TOKEN);
+  });
+});
+
 describe('locateWorkerTranscript', () => {
   function rootWith(cwd: string): { root: string; dir: string } {
     const root = resolve(tempStateDir(), 'projects');
@@ -236,6 +260,21 @@ describe('locateWorkerTranscript', () => {
     expect(
       locateWorkerTranscript({ cwd: CWD, startedAt: at(0), endedAt: at(3600), roots: [root] }),
     ).toBe(mine);
+  });
+
+  it('저장된 커서 경로는 워크트리 projects 디렉토리 바로 아래 세션 파일만 받는다', () => {
+    const { root, dir } = rootWith(CWD);
+    const id = 'aaaaaaaa-1111-2222-3333-444444444444';
+    const other = join(root, '-other-repo');
+    expect(isWorkerTranscriptPath(join(dir, `${id}.jsonl`), CWD, [root])).toBe(true);
+    for (const bad of [
+      join(other, `${id}.jsonl`),
+      join(dir, 'sub', `${id}.jsonl`),
+      join(dir, `${id}.json`),
+      join(dir, '.hidden.jsonl'),
+      join(dir, '..', '..', `${id}.jsonl`),
+    ])
+      expect(isWorkerTranscriptPath(bad, CWD, [root]), bad).toBe(false);
   });
 
   it('CLAUDE_CONFIG_DIR와 홈 아래 projects를 둘 다 본다', () => {
@@ -302,6 +341,33 @@ describe('작업 내용 저장과 status 필드', () => {
     expect(a.tasks).toBeNull();
     expect(a.subagents).toBeNull();
     expect(statSync(join(stateDir, 'activity', 'wrk-codex.json')).mode & 0o777).toBe(0o600);
+  });
+
+  it('readOnly로 읽으면 새 줄은 보이지만 저장한 커서는 그대로 둔다', () => {
+    const stateDir = tempStateDir();
+    const root = resolve(tempStateDir(), 'projects');
+    const id = 'bbbbbbbb-1111-2222-3333-444444444444';
+    const file = join(root, CWD.replace(/[^A-Za-z0-9-]/g, '-'), `${id}.jsonl`);
+    writeRows(file, [userText('시작', 1), toolUse('t1', 'Read', { file_path: `${CWD}/a.ts` }, 2)]);
+    const w = {
+      id: 'wrk-ro',
+      orderId: 'ord-1',
+      kind: 'git-worktree',
+      agent: 'claude',
+      handle: CWD,
+      sessionId: id,
+      status: 'running',
+      startedAt: at(0),
+      lastSeenAt: at(0),
+      attempt: 1,
+    } as Worker;
+    expect(refreshTranscript(stateDir, w, {}, { roots: [root] })?.digest.timeline).toHaveLength(1);
+    const saved = join(stateDir, 'activity', 'wrk-ro.transcript.json');
+    const before = readFileSync(saved);
+    appendFileSync(file, JSON.stringify(toolUse('t2', 'Bash', { command: 'ls' }, 3)) + '\n');
+    const a = orderActivity(stateDir, order(), w, { roots: [root], readOnly: true });
+    expect(a.recentTools?.map((t) => t.tool)).toEqual(['Read', 'Bash']);
+    expect(readFileSync(saved).equals(before)).toBe(true);
   });
 
   it('워커가 없으면 필드를 전부 비운다', () => {
