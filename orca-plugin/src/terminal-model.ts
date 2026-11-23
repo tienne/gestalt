@@ -1,5 +1,5 @@
 // 컨덕터 터미널 화면의 계산. DOM과 오르카 런타임을 모르는 순수 함수만 둔다.
-import { AWAITING_DEPLOY, displayStatus, GROUP_ORDER, isTerminal, ms, splitRepo } from './model'
+import { AWAITING_DEPLOY, displayStatus, GROUP_ORDER, isTerminal, ms, splitRepo, STATUS_LABEL } from './model'
 import { type ConductorView, type EventView, type GateView, type OrderView, type WaitingView } from './protocol'
 
 export type KindKey = 'orca' | 'git' | 'sub' | 'none'
@@ -24,6 +24,10 @@ const chainFinished = (o: OrderView) => FINISHED_ORDER_STATUSES.has(o.status)
 const ENDED_WORKER_STATUSES: ReadonlySet<string> = new Set(['released', 'finished'])
 export const workerEnded = (o: Pick<OrderView, 'workerStatus'>) =>
   o.workerStatus !== undefined && ENDED_WORKER_STATUSES.has(o.workerStatus)
+
+/** 워커 터미널을 읽거나 그쪽으로 이동할 수 있는 주문. 카드 이동과 상세 폴링이 같은 판정을 쓴다 */
+export const canReachWorker = (o: Pick<OrderView, 'workspaceId' | 'workerStatus'>) =>
+  Boolean(o.workspaceId) && !workerEnded(o)
 
 const stepText = (o: OrderView) => {
   const c = o.checkpoint!
@@ -161,8 +165,8 @@ export function stateLine(o: OrderView, gates: readonly GateView[], now: number,
   const status = displayStatus(o)
   const deploy = status === AWAITING_DEPLOY
   const tone: StateTone = o.status === 'running' ? 'run' : o.status === 'escalated' ? 'gate' : deploy ? 'deploy' : 'idle'
-  // 다른 상태는 CLI 값을 그대로 적는데 배포 대기는 화면에만 있는 상태라 머지됨과 갈리게 글로 적는다
-  return { tone, text: deploy ? '배포 대기' : status, aside: last === null ? '' : `${duration(last, now)} 전` }
+  // 다른 상태는 CLI 값을 그대로 적는데 배포 대기는 화면에만 있는 상태라 머지됨과 갈리게 라벨로 적는다
+  return { tone, text: deploy ? STATUS_LABEL[AWAITING_DEPLOY]! : status, aside: last === null ? '' : `${duration(last, now)} 전` }
 }
 
 /** 카드 둘째 줄. 레포, 지라 키, PR, 계정이나 워커 종류, 기준 브랜치. 계정 이름은 showAccount가 켜졌을 때만 */
