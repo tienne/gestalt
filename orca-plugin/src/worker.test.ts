@@ -747,3 +747,27 @@ test('결과 뷰어도 찾아 둔 bin으로 띄운다', async () => {
     assert.equal(s.calls().find((c) => c.args[1] === 'browse')!.via, bin)
   })
 })
+
+test('gate resolve도 찾아 둔 bin으로 부른다', async () => {
+  const s = store(STATUS)
+  const bin = directBin(s, 'bin-a.mjs')
+  writeFileSync(join(s.dir, 'fake-resolve.json'), JSON.stringify({ gate: { id: 'gate-1' }, hostActions: [], errors: [] }))
+  await run(s, host(s.dir), async (worker) => {
+    const out = await worker.request('gate.resolve', { gateId: 'gate-1', decision: 'approve' })
+    assert.equal(out.ok, true)
+    assert.equal(s.calls().find((c) => c.args[1] === 'gate')!.via, bin)
+  })
+})
+
+test('결과 뷰어를 동시에 두 번 열어도 하나만 띄운다', async () => {
+  const s = store(STATUS)
+  directBin(s, 'bin-a.mjs')
+  await run(s, host(s.dir), async (worker) => {
+    const [a, b] = await Promise.all([
+      worker.request('order.browse', { orderId: 'ord-a' }),
+      worker.request('order.browse', { orderId: 'ord-a' })
+    ])
+    assert.equal(a.ok && b.ok, true)
+    assert.equal(s.calls().filter((c) => c.args[1] === 'browse').length, 1)
+  })
+})
