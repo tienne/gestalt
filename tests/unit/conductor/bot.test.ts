@@ -252,16 +252,20 @@ describe('GitHub 팀 주문', () => {
     );
     expect(handleGithubOrder(store, request)).toMatchObject({ status: 'queued', thread: issue });
     expect(handleGithubOrder(store, request)).toMatchObject({ duplicate: true });
-    await pollQueue(store, fileQueue(join(store.dir, 'queue')), { defaultScope: 'merge-through' });
-    expect(store.orders()).toHaveLength(1);
-    expect(store.orders()[0]).toMatchObject({ scope: 'approval', skillChain: ['solve', 'ship'] });
-    expect(handleGithubOrder(store, request)).toMatchObject({ orderId: store.orders()[0]?.id });
     const status = await readGithubOrder(
       `${issue}#issuecomment-304`,
       policy,
       new GhAccounts(),
       github('gestalt status', 304),
     );
+    expect(handleGithubOrder(store, status)).toMatchObject({
+      orders: [],
+      pending: [expect.stringMatching(/^queue:github-/)],
+    });
+    await pollQueue(store, fileQueue(join(store.dir, 'queue')), { defaultScope: 'merge-through' });
+    expect(store.orders()).toHaveLength(1);
+    expect(store.orders()[0]).toMatchObject({ scope: 'approval', skillChain: ['solve', 'ship'] });
+    expect(handleGithubOrder(store, request)).toMatchObject({ orderId: store.orders()[0]?.id });
     expect(handleGithubOrder(store, status)).toMatchObject({
       thread: issue,
       orders: [{ id: store.orders()[0]?.id, status: 'queued' }],
@@ -297,5 +301,12 @@ describe('GitHub 팀 주문', () => {
       'exit 1',
     );
     expect(lines.at(-1)).toContain('접수 봇 채팅');
+    fakeOrca(team);
+    const bin = tempStateDir();
+    const response = await github('gestalt order 배너 수정')();
+    executable(join(bin, 'gh'), `echo '${response.stdout}'`);
+    vi.stubEnv('PATH', `${bin}:${process.env['PATH'] ?? ''}`);
+    await conductorBotGithubCommand(comment, { stateDir: store.dir });
+    expect(last()).toMatchObject({ status: 'queued', thread: issue });
   });
 });

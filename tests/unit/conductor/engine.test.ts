@@ -1475,6 +1475,7 @@ describe('컨덕터 tick', () => {
     );
     expect(store.snapshot.gates[gateId]).not.toHaveProperty('deliveryPending');
     expect(store.snapshot.gates[gateId]).not.toHaveProperty('deliveryAttempts');
+    expect(store.snapshot.gates[gateId]!.deliveryOutcome).toBe('host-action');
   });
 
   it('send가 세 번 연속 던지면 대기를 걷고 직접 전해 달라고 남긴다', async () => {
@@ -1494,6 +1495,7 @@ describe('컨덕터 tick', () => {
     );
     expect(store.snapshot.gates[gateId]).not.toHaveProperty('deliveryPending');
     expect(store.snapshot.gates[gateId]).not.toHaveProperty('deliveryAttempts');
+    expect(store.snapshot.gates[gateId]!.deliveryOutcome).toBe('failed');
   });
 
   it('미뤄 달라고 한 첫 전달에서 send가 던지면 대기와 시도 1회를 남기고 다음 tick이 다시 전한다', async () => {
