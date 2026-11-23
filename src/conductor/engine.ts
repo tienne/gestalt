@@ -137,7 +137,7 @@ export interface TickReport {
   rateLimited: RateLimitedEntry[];
   /** 사람이 넘겨받은 주문 중 이번 tick에 상태가 바뀐 것. 바뀐 게 없으면 비어 있다 */
   humanOwned: HumanOwnedChange[];
-  /** 배포 주문이 끝나 대상 주문에 배포 성공을 남기거나 건너뛴 자리. 머지 전 대상은 warnings에 간다 */
+  /** 배포 주문이 끝나 대상 주문에 배포 성공을 남기거나 건너뛴 자리. 머지되지 않은 대상은 warnings에 간다 */
   deployTargets: DeployTargetOutcome[];
   /**
    * 상태가 안 바뀐 tick이 이번까지 연달아 몇 번 왔는지. 새 주문, 띄운 워커, 올린 확인 자리, 호스트 할 일,
@@ -392,7 +392,7 @@ async function runTick(
     if (report.humanOwned.length === changesBefore)
       prCheckEvents = store.snapshot.eventCount - before;
   });
-  // 같은 tick의 정산이 남긴 신호를 바로 읽도록 정산 앞에 둔다
+  // 이번 tick에 남긴 배포 신호를 같은 tick의 정산이 바로 읽도록 정산 앞에 둔다
   await step(report, () => recordDeployTargets(store, deps, report));
   await step(report, () => settleMerged(store, deps, report));
   if (deps.slack) {
@@ -1263,11 +1263,17 @@ async function recordDeployTargets(
       }
       if (target.status !== 'merged') {
         report.warnings.push(
-          `${d.id}: 배포 대상 ${id}가 아직 머지 전(${target.status})이라 배포 성공을 안 남겼어요`,
+          `${d.id}: 배포 대상 ${id}가 머지된 상태가 아니라(${target.status}) 배포 성공을 안 남겼어요. ` +
+            '이 배포 주문으로는 다시 안 봐요. 머지된 뒤 배포됐으면 다음 배포 주문의 --deploys에 넣거나 deploy report로 남겨 주세요',
         );
         continue;
       }
       try {
+        // 호스트가 남긴 실패를 덮으면 실패한 배포가 In-QA로 넘어간다
+        if ((await deps.deploy!.status(target)).status === 'failed') {
+          skip('이미 배포 실패 신호가 있어요');
+          continue;
+        }
         await record(id, { status: 'success', ref });
         report.deployTargets.push({ deployOrderId: d.id, orderId: id, outcome: 'recorded' });
       } catch (err) {

@@ -2212,7 +2212,9 @@ describe('배포 주문의 대상 주문 배포 기록', () => {
       expect.objectContaining({ orderId: 'ord-done', outcome: 'skipped' }),
       expect.objectContaining({ orderId: 'ord-story', outcome: 'skipped' }),
     ]);
-    expect(r.warnings).toEqual([expect.stringContaining('ord-open가 아직 머지 전(running)')]);
+    expect(r.warnings).toEqual([
+      expect.stringContaining('ord-open가 머지된 상태가 아니라(running)'),
+    ]);
     expect(store.order('ord-deploy')).toMatchObject({
       status: 'done',
       deployResult: { ref },
@@ -2271,6 +2273,64 @@ describe('배포 주문의 대상 주문 배포 기록', () => {
     await tick(store, d, { force: true });
     expect(mem.signals.size).toBe(0);
     expect(store.order('ord-a')!.status).toBe('merged');
+  });
+
+  it('이미 배포 실패 신호가 있는 대상은 성공으로 덮지 않는다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(
+      order({ id: 'ord-a', issueKey: 'APP-1', issueType: 'sub-bug', status: 'merged' }),
+    );
+    store.addOrder(
+      order({ id: 'ord-deploy', status: 'done', deploys: ['ord-a'], deployResult: { at: 'x' } }),
+    );
+    const mem = memoryDeploy();
+    mem.signals.set('ord-a', { status: 'failed', ref: 'https://x/run/9' });
+    const { deps: d } = deps({ deploy: mem.source });
+    const r = await tick(store, d, { force: true });
+    expect(mem.signals.get('ord-a')).toEqual({ status: 'failed', ref: 'https://x/run/9' });
+    expect(r.deployTargets).toEqual([
+      expect.objectContaining({ orderId: 'ord-a', outcome: 'skipped' }),
+    ]);
+    expect(store.order('ord-a')!.status).toBe('escalated');
+  });
+
+  it('대상 하나만 기록에 실패하면 다음 tick에 그 대상만 다시 남긴다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(
+      order({ id: 'ord-a', issueKey: 'APP-1', issueType: 'sub-bug', status: 'merged' }),
+    );
+    store.addOrder(order({ id: 'ord-b', issueKey: 'APP-2', issueType: 'bug', status: 'merged' }));
+    store.addOrder(
+      order({
+        id: 'ord-deploy',
+        status: 'done',
+        deploys: ['ord-a', 'ord-b'],
+        deployResult: { at: 'x' },
+      }),
+    );
+    const mem = memoryDeploy();
+    let broken = true;
+    const source = {
+      status: mem.source.status,
+      record: (id: string, s: DeploySignal) => {
+        if (id === 'ord-b' && broken) throw new Error('disk full');
+        mem.source.record(id, s);
+      },
+    };
+    const { deps: d } = deps({ deploy: source });
+    const first = await tick(store, d, { force: true });
+    expect(first.errors).toEqual([expect.stringContaining('ord-b에 배포 성공을 못 남겼어요')]);
+    expect(store.order('ord-a')!.status).toBe('done');
+    expect(store.order('ord-deploy')!.deploysRecordedAt).toBeUndefined();
+
+    broken = false;
+    const second = await tick(store, d, { force: true });
+    expect(second.deployTargets).toEqual([
+      expect.objectContaining({ orderId: 'ord-a', outcome: 'skipped' }),
+      { deployOrderId: 'ord-deploy', orderId: 'ord-b', outcome: 'recorded' },
+    ]);
+    expect(store.order('ord-b')!.status).toBe('done');
+    expect(store.order('ord-deploy')!.deploysRecordedAt).toBe(second.at);
   });
 
   it('신호를 남길 자리가 없으면 오류로 알리고 다음 tick에 다시 시도한다', async () => {
