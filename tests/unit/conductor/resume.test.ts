@@ -185,4 +185,30 @@ describe('트랜스크립트로 본 생존 판단', () => {
       cleanupStateDirs();
     }
   });
+
+  it('활동 시각이 1분 넘게 앞서 있으면 믿지 않고 끊김 판단으로 넘긴다', async () => {
+    const c = running();
+    c.advance(400_000);
+    const future = new Date(c.now().getTime() + 10 * 60_000).toISOString();
+    const r = await detectStale(c.store, {
+      now: c.now(),
+      staleAfterMs: 300_000,
+      activityAt: () => future,
+    });
+    expect(r.stopped.map((w) => w.id)).toEqual(['wrk-1']);
+    expect(Date.parse(c.store.worker('wrk-1')!.lastSeenAt)).toBeLessThanOrEqual(c.now().getTime());
+  });
+
+  it('시계가 조금 앞선 활동 시각은 받되 본 시각은 지금으로 자른다', async () => {
+    const c = running();
+    c.advance(400_000);
+    const ahead = new Date(c.now().getTime() + 30_000).toISOString();
+    const r = await detectStale(c.store, {
+      now: c.now(),
+      staleAfterMs: 300_000,
+      activityAt: () => ahead,
+    });
+    expect(r.stopped).toEqual([]);
+    expect(c.store.worker('wrk-1')?.lastSeenAt).toBe(c.now().toISOString());
+  });
 });

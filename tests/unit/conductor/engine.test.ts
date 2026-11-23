@@ -2097,4 +2097,17 @@ describe('파일 겹침', () => {
     await tick(store, d, { force: true });
     expect(store.openGates()).toHaveLength(0);
   });
+
+  it('뒤 주문 워커가 재개돼 id가 바뀌어도 같은 상대로 게이트를 다시 열지 않는다', async () => {
+    const many = ['1', '2', '3', '4', '5', '6'].map((n) => `f${n}.ts`);
+    const { store, d } = overlapSetup(many, many);
+    await tick(store, d, { force: true });
+    resolveGate(store, store.openGates()[0]!.id, 'approved');
+    const prev = store.worker('wrk-b')!;
+    store.updateWorker('wrk-b', { status: 'stopped' });
+    store.startWorker({ ...prev, id: 'wrk-b2', attempt: prev.attempt + 1 });
+    store.updateOrder('ord-b', { status: 'running', workerId: 'wrk-b2' });
+    await tick(store, d, { force: true });
+    expect(store.openGates()).toHaveLength(0);
+  });
 });
