@@ -101,7 +101,7 @@ gestalt conductor tick --json
 
 한 번에 워커 보고 반영, 접수, 끊긴 워커 재개, 전달을 미뤄 둔 확인 자리 결정 내보내기, 빈 슬롯만큼 띄우기, 머지 뒤 지라와 배포 처리, 정리를 돈다. `pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝난다. 사람이 방금 확인 자리를 종료했거나 주문을 넣은 직후면 `--force`를 붙인다.
 
-응답은 짧은 숫자와 할 일만 담는다. 그대로 대화에 붙이지 말고 아래 `hostActions`를 처리한다. `warnings`와 `errors`가 비어 있지 않으면 그 줄만 사용자에게 그대로 전한다.
+응답은 짧은 숫자와 할 일만 담는다. 그대로 대화에 붙이지 말고 아래 `hostActions`를 처리한다. `warnings`와 `errors`가 비어 있지 않으면 그 줄만 사용자에게 그대로 전한다. 백그라운드 gate 뒤 멈춘 워커에 재실행을 보냈다는 줄이 실리면 tick이 워커당 한 번 보낸 것이다. `hostActions`에 `send`로 나오면 3번처럼 실행하고 컨덕터가 같은 말을 따로 보내지 않는다.
 
 오르카 안의 Claude Code 세션이면 세션을 처음 등록하는 tick이 이 탭 이름을 `🤴 지휘자 세션 🤴`로 바꾼다. 인계받은 새 세션도 첫 tick에서 같은 이름이 붙는다. 따로 부를 명령은 없고 실패해도 tick은 그대로 돈다.
 
@@ -129,7 +129,7 @@ tick 프로세스는 외부에 쓰지 못한다. 할 일을 `hostActions`로 돌
 gestalt conductor gate list --json
 ```
 
-사람이 답할 자리는 넷이다. `merge`(merge-through가 아닌 주문의 머지 승인), `slack-post`(초안 게시), `interview`(interview-first 주문의 인터뷰 답), `review-manual-switch`(리뷰 스킬 지침이 사람에게 올리라고 한 자리). `no-procedure`는 컨덕터가 처리 절차를 못 세운 경우다.
+사람이 답할 자리는 다섯이다. `merge`(merge-through가 아닌 주문의 머지 승인), `slack-post`(초안 게시), `interview`(interview-first 주문의 인터뷰 답), `review-manual-switch`(리뷰 스킬 지침이 사람에게 올리라고 한 자리), `file-overlap`(같은 레포 워커끼리 고친 파일이 `overlapGateFiles`개를 넘게 겹친 자리). `no-procedure`는 컨덕터가 처리 절차를 못 세운 경우다.
 
 사람에게 물을 때는 그 자리의 `reason`과 `refs`만 보여준다. 답을 받으면 확인 자리를 종료한다.
 
@@ -151,6 +151,13 @@ gestalt conductor gate resolve <gateId> --take-over --answer "머지는 내가 �
 - **직접 머지**: 사람이 PR을 넘겨받는다. 워커는 종료하고 워크트리와 브랜치는 남는다. 주문은 `human-owned`가 되고 tick이 머지를 확인하면 지라 전환과 배포 처리를 잇는다. `--take-over`
 
 사람이 "머지는 내가 할게"처럼 답하면 거절이 아니라 직접 머지로 받는다. 거절로 닫으면 사람이 나중에 머지해도 컨덕터가 모른다.
+
+`file-overlap` 자리는 뒤에 뜬 주문에 열린다. `reason`에 상대 주문 id와 겹친 파일 수가 있고 `refs`는 겹친 파일 앞 20개다.
+
+- **승인**: 겹치는 걸 알고 이어서 진행한다. `--approve`
+- **거절**: 워커가 고친 내용은 그대로 두고 멈춘 뒤 `done`으로 보고한다. `--reject`
+
+같은 상대와는 한 번만 묻는다. 상대 주문이 여럿이면 열린 자리에 답을 받은 뒤 다음 tick이 다음 상대로 새 자리를 연다.
 
 확인 자리 없이 주문을 사람에게 넘기거나 멈출 때는 아래를 쓴다. `human-owned`로 하루(`humanOwnedParkAfterSec`)가 지나면 `parked`로 내려가 tick이 더 안 본다. 그 뒤 사람이 머지했다고 하면 `order mark-merged`로 알린다. gh로 MERGED를 확인해야 받는다.
 
