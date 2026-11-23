@@ -579,10 +579,12 @@ class Conductor {
     }
   }
 
-  private ensureViewer(cfg: Config): Promise<string> {
-    const cwd = this.cwd(cfg.stateDir || this.view?.stateDir || null)
-    // 명령이나 저장소가 바뀌면 다른 뷰어다. 저장소 설정이 비면 뷰어는 실행 폴더의 저장소를 쓰므로 그 폴더로 가른다
-    const key = JSON.stringify([cfg.command, cfg.stateDir || cwd])
+  private async ensureViewer(cfg: Config): Promise<string> {
+    // status와 같은 폴더에서 부른다. CLI는 실행 폴더로 저장소를 고르지 않는다
+    const cwd = this.cwd(cfg.stateDir || null)
+    // 명령이나 저장소가 바뀌면 다른 뷰어다. 저장소 설정이 비면 CLI가 알려 준 저장소로 가른다
+    const view = await this.current()
+    const key = JSON.stringify([cfg.command, cfg.stateDir || view.stateDir])
     return this.viewer.ensure(key, async () => {
       const inv = await this.cli.resolve(cfg.command, cwd)
       if (this.stopped) throw new Error('플러그인 워커가 멈췄어요')
