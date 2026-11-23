@@ -173,7 +173,10 @@ function highlight(parent, text, start, len) {
   add(parent, document.createTextNode(text.slice(0, start)), el('mark', '', text.slice(start, start + len)), document.createTextNode(text.slice(start + len)));
   return parent;
 }
-function stopWorkPoll() { if (state.workTimer) { clearInterval(state.workTimer); state.workTimer = null; } }
+function stopWorkPoll() {
+  state.workGen = (state.workGen || 0) + 1;
+  if (state.workTimer) { clearTimeout(state.workTimer); state.workTimer = null; }
+}
 function setMain(nodes) {
   stopWorkPoll();
   var main = $('main');
@@ -255,7 +258,11 @@ function renderOrders() {
 }
 function markSelected() {
   var id = state.current;
-  Array.prototype.forEach.call(document.querySelectorAll('.orders a'), function (a) { a.classList.toggle('sel', a.dataset.id === id); });
+  Array.prototype.forEach.call(document.querySelectorAll('.orders a'), function (a) {
+    var on = a.dataset.id === id;
+    a.classList.toggle('sel', on);
+    if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
 }
 
 function bodyCard(title, url, open, focus) {
@@ -307,13 +314,16 @@ function showOrder(id, focus) {
     if (o.prRef) { var pu = prUrl(o.prRef); add(meta, pu ? link(pu, o.prRef) : el('span', '', o.prRef)); }
     add(meta, el('span', '', '생성 ' + stamp(o.createdAt)), el('span', '', '갱신 ' + stamp(o.updatedAt)));
     nodes.push(meta);
-    var tabs = el('div', 'tabs');
+    var tabs = el('nav', 'tabs');
+    tabs.setAttribute('aria-label', '주문 보기');
     var onWork = focus && focus.type === 'work';
     var t1 = el('a', '', '결과');
     var t2 = el('a', '', '작업 내용');
     t1.href = '#order/' + encodeURIComponent(o.id);
     t2.href = t1.href + '/work';
-    if (onWork) t2.className = 'sel'; else t1.className = 'sel';
+    var cur = onWork ? t2 : t1;
+    cur.className = 'sel';
+    cur.setAttribute('aria-current', 'page');
     add(tabs, t1, t2);
     nodes.push(tabs);
     if (onWork) {
@@ -420,6 +430,7 @@ function showOrder(id, focus) {
 }
 
 var WORK_POLL_MS = 5000;
+var WORK_POLL_RETRIES = 3;
 var SOURCE_LABEL = { transcript: '트랜스크립트', summary: '저장한 요약', none: '기록 없음' };
 var TASK_MARK = { completed: '✓', in_progress: '▸', pending: '·' };
 function clock(iso) {
@@ -465,21 +476,34 @@ function workSection(s) {
   return sec;
 }
 function loadWork(id, box) {
+  stopWorkPoll();
+  // 화면을 옮기면 세대가 바뀐다. 늦게 온 옛 응답은 새 화면과 새 타이머를 건드리지 않는다
+  var gen = state.workGen;
+  var failures = 0;
+  function next() { state.workTimer = setTimeout(once, WORK_POLL_MS); }
   function once() {
-    return getJson('/api/orders/' + encodeURIComponent(id) + '/work').then(function (d) {
+    getJson('/api/orders/' + encodeURIComponent(id) + '/work').then(function (d) {
+      if (gen !== state.workGen) return;
       if (state.current !== id || !box.isConnected) return stopWorkPoll();
+      failures = 0;
       var main = $('main');
-      var atEnd = main.scrollTop + main.clientHeight >= main.scrollHeight - 40;
+      var top = main.scrollTop;
+      var atEnd = top + main.clientHeight >= main.scrollHeight - 40;
       box.textContent = '';
       if (!d.sections.length) box.appendChild(el('p', 'muted', '이 주문에는 워커가 없어요'));
       d.sections.forEach(function (s) { box.appendChild(workSection(s)); });
       if (d.live) box.appendChild(el('p', 'muted small', '도는 중이라 ' + (WORK_POLL_MS / 1000) + '초마다 이어서 읽어요'));
-      else stopWorkPoll();
-      if (atEnd && d.live) main.scrollTop = main.scrollHeight;
-    }).catch(function (e) { box.textContent = '못 읽었어요: ' + e.message; stopWorkPoll(); });
+      main.scrollTop = atEnd && d.live ? main.scrollHeight : top;
+      if (d.live) next();
+    }).catch(function (e) {
+      if (gen !== state.workGen) return;
+      failures += 1;
+      var note = box.querySelector('.work-error') || box.insertBefore(el('p', 'muted small work-error'), box.firstChild);
+      note.textContent = '못 읽었어요: ' + e.message + (failures < WORK_POLL_RETRIES ? ' (다시 읽는 중)' : '');
+      if (failures < WORK_POLL_RETRIES) next();
+    });
   }
   once();
-  state.workTimer = setInterval(once, WORK_POLL_MS);
 }
 
 function showUnlinked(focusKey) {

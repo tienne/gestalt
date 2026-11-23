@@ -64,6 +64,7 @@ export class ConductorWebServer {
   // events.jsonl이 바뀔 때마다 결과를 다시 로드해도 이미 읽은 본문은 다시 읽지 않는다
   private readonly bodies = new BodyCache();
   private readonly readers: WorkReaderCache = new Map();
+  private readonly readerMisses = new Map<string, number>();
 
   constructor(private readonly opts: WebServerOptions) {}
 
@@ -187,6 +188,7 @@ export class ConductorWebServer {
       return this.json(
         res,
         orderWork(this.opts.stateDir, detail.workers, this.readers, {
+          misses: this.readerMisses,
           ...(this.opts.transcriptRoots ? { roots: this.opts.transcriptRoots } : {}),
         }),
       );
