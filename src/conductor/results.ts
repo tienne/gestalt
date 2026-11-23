@@ -14,7 +14,7 @@ import {
 import { basename, extname, isAbsolute, join, relative, sep } from 'node:path';
 import { isControlChar } from './intake.js';
 import { orcaWorktreeName } from './launcher.js';
-import { EVENTS_FILE, replay } from './store.js';
+import { BASE_FILE, EVENTS_FILE, listSegments, replayStore } from './store.js';
 import type {
   BypassRecord,
   ConductorSnapshot,
@@ -192,9 +192,15 @@ export function loadResults(opts: LoadOptions): LoadedResults {
     throw new Error(`상태 저장소가 없어요: ${opts.stateDir}`);
   }
   const eventsPath = join(opts.stateDir, EVENTS_FILE);
-  if (!existsSync(eventsPath)) throw new Error(`${eventsPath}가 없어요. 받은 주문이 아직 없어요`);
+  if (
+    !existsSync(eventsPath) &&
+    !existsSync(join(opts.stateDir, BASE_FILE)) &&
+    listSegments(opts.stateDir).length === 0
+  ) {
+    throw new Error(`${eventsPath}가 없어요. 받은 주문이 아직 없어요`);
+  }
   const stateDir = realpathSync(opts.stateDir);
-  const snapshot = replay(eventsPath);
+  const snapshot = replayStore(stateDir);
   const repoRoots = realRoots(Object.values(opts.repoPaths ?? {}));
 
   const orderRefs = new Map<string, OrderRefs>();
