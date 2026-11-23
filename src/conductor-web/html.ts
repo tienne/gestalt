@@ -328,6 +328,8 @@ function showOrder(id, focus) {
     nodes.push(tabs);
     if (onWork) {
       var box = el('div');
+      // 다시 읽기 버튼이 지워질 때 키보드 포커스를 받을 자리다
+      box.tabIndex = -1;
       box.appendChild(el('p', 'muted', '읽는 중…'));
       nodes.push(box);
       setMain(nodes);
@@ -510,7 +512,13 @@ function loadWork(id, box) {
       if (!box.querySelector('.work-retry')) {
         var retry = el('button', 'work-retry', '다시 읽기');
         retry.type = 'button';
-        retry.addEventListener('click', function () { loadWork(id, box); });
+        retry.addEventListener('click', function () {
+          // 요청 중에 또 누르면 폴링이 둘로 갈라져서 막아 둔다. 다시 실패하면 아래에서 새 버튼을 단다
+          retry.remove();
+          note.textContent = '다시 읽는 중이에요';
+          box.focus();
+          loadWork(id, box);
+        });
         note.after(retry);
       }
     });
