@@ -1,11 +1,23 @@
-import { cpSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import {
+  closeSync,
+  cpSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from 'node:fs';
 import { join, sep } from 'node:path';
+import { CLEANUP_FAILED } from './engine.js';
 import { ORDER_LOGS_DIR, foldEvents, fsyncDir, writeDurable, type FoldResult } from './fold.js';
 import { REFS_DIR, SAFE_ORDER_ID, removeOrderRefCopies } from './ref-copy.js';
 import { ConductorStore, detachOrder, removalBlocker, replayStore } from './store.js';
 import {
   TERMINAL_ORDER_STATUSES,
   type ConductorSnapshot,
+  type Gate,
   type OrderStatus,
   type StoredReport,
 } from './types.js';
@@ -24,7 +36,10 @@ export interface ArchivePlan {
   removed: { id: string; month: string }[];
   /** 끝났고 기간도 지났지만 못 옮기는 주문. 사람이 게이트나 워커를 처리해야 옮긴다 */
   blocked: { id: string; reason: string }[];
-  /** 주문에 안 붙는 컨덕터 게이트 중 닫히고 기간이 지나 상태에서 버리는 것 */
+  /**
+   * 주문에 안 붙는 컨덕터 게이트 중 닫히고 기간이 지나 상태에서 버리는 것.
+   * 후속 동작이 그 게이트가 있다는 사실에 기대면 남긴다(`keepsFollowUp`)
+   */
   gates: string[];
 }
 
@@ -62,8 +77,9 @@ export function planArchive(s: ConductorSnapshot, now: Date, days: number): Arch
     plan.removed.push({ id, month: monthOf(r.removedAt, now) });
   }
   for (const g of Object.values(s.gates)) {
-    if (g.orderId === undefined && g.status === 'resolved' && olderThan(g.resolvedAt ?? '', cutoff))
-      plan.gates.push(g.id);
+    if (g.orderId !== undefined || g.status !== 'resolved') continue;
+    if (!olderThan(g.resolvedAt ?? '', cutoff) || keepsFollowUp(s, g)) continue;
+    plan.gates.push(g.id);
   }
   const byId = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
   plan.orders.sort(byId);
@@ -71,6 +87,23 @@ export function planArchive(s: ConductorSnapshot, now: Date, days: number): Arch
   plan.blocked.sort(byId);
   plan.gates.sort();
   return plan;
+}
+
+/**
+ * 닫힌 컨덕터 게이트를 버리면 안 되는 경우.
+ * - `sourceRef`가 있다: 같은 출처에 질문을 다시 안 열고(PR 감시, 접수) 승인 뒤 주문을 만드는 근거다
+ * - 승인했는데 아직 슬랙에 안 올렸다: 게시가 그 게이트를 보고 돈다
+ * - 정리 실패를 승인했는데 워커가 아직 released가 아니다: 다음 tick이 승인을 반영한다
+ */
+function keepsFollowUp(s: ConductorSnapshot, g: Gate): boolean {
+  if (g.payload?.sourceRef !== undefined) return true;
+  if (g.decision !== 'approved') return false;
+  if (g.type === 'slack-post' && s.slackPosted[g.id] === undefined) return true;
+  if (g.payload?.kind === CLEANUP_FAILED) {
+    const w = g.payload.workerId ? s.workers[g.payload.workerId] : undefined;
+    return w !== undefined && w.status !== 'released';
+  }
+  return false;
 }
 
 /**
@@ -113,8 +146,7 @@ export async function archiveOrders(
       for (const { id, month } of plan.removed) {
         const events = stagedEvents(dir, id);
         if (events) {
-          const target = join(dir, ARCHIVE_DIR, month, id);
-          mkdirSync(target, { recursive: true, mode: 0o700 });
+          const target = archiveTarget(dir, month, id);
           writeDurable(join(target, 'events.jsonl'), events);
           fsyncDir(target);
         }
@@ -128,7 +160,9 @@ export async function archiveOrders(
     },
     afterWrite: (state) => {
       warnings.push(...cleanupArchived(dir, state));
-      // 조회용 사본도 잠금 안에서 쓴다. 떼어 낸 뒤 붙은 줄까지 담게 다시 재생한다
+      if (plan.orders.length + plan.removed.length + plan.gates.length === 0) return;
+      // 조회용 사본도 잠금 안에서 쓴다. 반영한 state에는 떼어 낸 뒤 events.jsonl에 붙은 줄이 없어서
+      // 그대로 쓰면 조회가 그 줄만큼 뒤로 간다. 그래서 다시 재생한다
       try {
         ConductorStore.open(dir).flushSnapshot();
       } catch (e) {
@@ -147,8 +181,7 @@ function writeOrderArchive(
   month: string,
   archivedAt: string,
 ): void {
-  const target = join(dir, ARCHIVE_DIR, month, id);
-  mkdirSync(target, { recursive: true, mode: 0o700 });
+  const target = archiveTarget(dir, month, id);
   writeDurable(join(target, 'events.jsonl'), stagedEvents(dir, id));
   const copied = copyRefs(dir, id, target);
 
@@ -164,6 +197,16 @@ function writeOrderArchive(
   const shown = { order, workers, reports, refs, gates, bypasses, archivedAt };
   writeDurable(join(target, 'order.json'), `${JSON.stringify(shown, null, 2)}\n`);
   fsyncDir(target);
+}
+
+/** 보관 디렉토리를 만들고 새로 생긴 디렉토리 엔트리까지 fsync한다. 그 뒤에 base.json이 원본을 지운다 */
+function archiveTarget(dir: string, month: string, id: string): string {
+  const target = join(dir, ARCHIVE_DIR, month, id);
+  mkdirSync(target, { recursive: true, mode: 0o700 });
+  fsyncDir(dir);
+  fsyncDir(join(dir, ARCHIVE_DIR));
+  fsyncDir(join(dir, ARCHIVE_DIR, month));
+  return target;
 }
 
 /** 모아 둔 이벤트를 로그 순서로 잇는다. 모으기 전에 반영한 이벤트는 없다 */
@@ -193,7 +236,27 @@ function copyRefs(dir: string, id: string, target: string): boolean {
   const dest = join(target, REFS_DIR);
   rmSync(dest, { recursive: true, force: true });
   cpSync(src, dest, { recursive: true, verbatimSymlinks: true });
+  fsyncTree(dest);
   return true;
+}
+
+/** 복사한 사본은 base.json을 쓴 뒤 원본이 지워지므로 그 전에 디스크에 둔다 */
+function fsyncTree(path: string): void {
+  for (const e of readdirSync(path, { withFileTypes: true })) {
+    const p = join(path, e.name);
+    if (e.isDirectory()) fsyncTree(p);
+    else if (e.isFile()) fsyncFile(p);
+  }
+  fsyncDir(path);
+}
+
+function fsyncFile(path: string): void {
+  const fd = openSync(path, 'r');
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** 보고의 사본 경로를 옮긴 자리로 바꾼다. 이벤트 줄은 원래 값 그대로 둔다 */

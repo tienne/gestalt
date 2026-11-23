@@ -172,7 +172,7 @@ const STEAL_STALE_MS = 60 * 1000;
 const RELEASE_RETRIES = 20;
 const RELEASE_RETRY_MS = 50;
 /** 정리에 실패한 워커의 게이트를 알아보는 표식 */
-const CLEANUP_FAILED = 'cleanup-failed';
+export const CLEANUP_FAILED = 'cleanup-failed';
 /** 주문 하나의 워커들이 spawnRequest로 만들 수 있는 하위 주문 수. 넘는 요청은 거절해 워커에 알린다 */
 export const MAX_SPAWN_PER_ORDER = 3;
 /** 보고를 적용하다 실패한 원문을 남기는 자리. inbox 아래에 둔다 */
