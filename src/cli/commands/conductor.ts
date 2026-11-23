@@ -232,6 +232,8 @@ export interface ConductorOrderAddOptions extends ConductorCommonOptions {
   issueType?: string;
   jiraStatus?: string;
   pr?: string;
+  /** 이 배포 주문이 배포할 주문 id. 쉼표로 이어 적어도 받는다 */
+  deploys?: string[];
 }
 
 function resolveParent(
@@ -286,6 +288,14 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
             }
           : {}),
         ...(opts.pr ? { prRef: prRef(opts.pr) } : {}),
+        ...(opts.deploys?.length
+          ? {
+              deploys: opts.deploys
+                .flatMap((v) => v.split(','))
+                .map((v) => v.trim())
+                .filter(Boolean),
+            }
+          : {}),
       },
       { defaultScope: ctx.config.defaultScope },
       { trusted: true },
@@ -465,6 +475,12 @@ export function conductorOrderShowCommand(id: string, opts: ConductorCommonOptio
     console.log(`설명: ${order.description ? terminalText(order.description) : '없음'}`);
     console.log(`체인: ${order.skillChain.join(' → ')}`);
     console.log(`PR: ${order.prRef ? terminalText(order.prRef) : '없음'}`);
+    if (order.deploys?.length) {
+      const recorded = order.deploysRecordedAt
+        ? ` (${order.deploysRecordedAt}에 배포 성공 기록)`
+        : '';
+      console.log(`배포 대상: ${order.deploys.join(', ')}${recorded}`);
+    }
     if (order.humanOwnedAt) console.log(`사람이 넘겨받은 시각: ${order.humanOwnedAt}`);
     if (order.cancelReason) console.log(`취소 이유: ${terminalText(order.cancelReason)}`);
     if (order.agent) console.log(`주문 에이전트: ${order.agent}`);
@@ -619,6 +635,9 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
             ...(o.baseBranch ? { baseBranch: o.baseBranch } : {}),
             ...(o.prRef ? { pr: o.prRef } : {}),
             ...(o.issueKey ? { issue: o.issueKey } : {}),
+            ...(o.deploys?.length ? { deploys: o.deploys } : {}),
+            ...(o.deployResult ? { deployResult: o.deployResult } : {}),
+            ...(o.deploysRecordedAt ? { deploysRecordedAt: o.deploysRecordedAt } : {}),
             // 상태는 merged 그대로라 바깥 화면이 끝난 주문과 배포 대기를 이 값으로 가른다
             awaitingDeploy: isAwaitingDeploy(o),
             ...(o.humanOwnedAt ? { humanOwnedAt: o.humanOwnedAt } : {}),
@@ -696,7 +715,8 @@ function checkpointOf(store: ConductorStore, orderId: string): { checkpoint?: ob
 
 /**
  * 컨덕터 자체의 값. 저장소와 설정에서 이미 아는 것만 싣는다.
- * 컴팩트 횟수는 살아 있는 컨덕터 세션을 찾았을 때만 싣는다
+ * 컴팩트 횟수와 세션 id, 작업 디렉토리는 살아 있는 컨덕터 세션을 찾았을 때만 싣는다.
+ * 오르카 플러그인이 세션 id와 디렉토리로 컨덕터 탭을 찾아간다
  */
 function conductorSummary(ctx: Ctx): Record<string, unknown> {
   const { store, config } = ctx;
@@ -717,7 +737,12 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
     queuedOrders: store.queuedOrders().length,
     prWatchRepos: config.prWatchRepos,
     disconnectedWorkers: disconnected,
-    ...(session ? { compactions: readCompactions(store.dir, session.sessionId).count } : {}),
+    ...(session
+      ? {
+          compactions: readCompactions(store.dir, session.sessionId).count,
+          session: { id: session.sessionId, ...(session.cwd ? { cwd: session.cwd } : {}) },
+        }
+      : {}),
   };
 }
 
@@ -886,6 +911,12 @@ function printTickLines({ report, handoff, handoffClose }: WaitTickOutcome): voi
   for (const a of report.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
   for (const l of report.rateLimited) console.log(`${l.orderId} ${rateLimitLine(l)}`);
   for (const h of report.humanOwned) console.log(humanOwnedLine(h));
+  for (const d of report.deployTargets)
+    console.log(
+      d.outcome === 'recorded'
+        ? `배포 성공 기록: ${d.orderId} (배포 주문 ${d.deployOrderId})`
+        : `배포 기록 건너뜀: ${d.orderId} (${d.reason ?? '-'})`,
+    );
   for (const w of report.warnings) console.log(`경고: ${w}`);
   for (const e of report.errors) console.log(`오류: ${e}`);
   if (report.idleTicks > 0) console.log(`변화 없는 tick ${report.idleTicks}번째`);
@@ -1182,6 +1213,7 @@ export interface ConductorWorkerReportOptions extends ConductorCommonOptions {
   waitUntil?: string;
   spawnTitle?: string;
   spawnDetail?: string;
+  deployRef?: string;
   file?: string;
 }
 
@@ -1222,6 +1254,7 @@ export function conductorWorkerReportCommand(opts: ConductorWorkerReportOptions)
       ...(opts.spawnTitle
         ? { spawnRequest: { title: opts.spawnTitle, detail: opts.spawnDetail ?? '' } }
         : {}),
+      ...(opts.deployRef ? { deployRef: opts.deployRef } : {}),
     };
     const name = writeReport(inboxDirOf(ctx.store, {}), raw, ctx.config.resultMaxChars);
     if (opts.json) return print({ queued: name });

@@ -587,6 +587,21 @@ describe('오르카 런처 release', () => {
     expect(rm).not.toContain('--force');
   });
 
+  it('keepBranch면 --delete-branch 없이 워크트리만 지우고 실패 안내에도 안 붙인다', async () => {
+    const { calls, l } = scripted();
+    await l.release(w(), { removeWorktree: true, keepBranch: true });
+    const rm = calls.find((c) => c[1] === 'rm')!;
+    expect(rm).not.toContain('--delete-branch');
+    expect(rm).not.toContain('--force');
+    const failing = scripted({
+      rm: { code: 1, stdout: '{"ok":false,"error":{"code":"worktree_dirty"}}' },
+    });
+    const err = await failing.l
+      .release(w(), { removeWorktree: true, keepBranch: true })
+      .catch((e: unknown) => e as Error);
+    expect(err.message).toContain(`orca worktree rm --worktree id:${ws}\``);
+  });
+
   it('지우기가 실패하면 강제로 지우지 않고 에러를 던진다', async () => {
     const { calls, l } = scripted({
       rm: { code: 1, stdout: '{"ok":false,"error":{"code":"worktree_dirty"}}' },

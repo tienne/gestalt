@@ -14,6 +14,20 @@ describe('워커 결과 검증', () => {
     expect(r).toMatchObject({ workerId: 'wrk-1', status: 'done', merged: true, skill: 'ship' });
   });
 
+  it('배포 실행 주소는 한 줄짜리만 받는다', () => {
+    const url = 'https://github.com/acme/app/actions/runs/1';
+    expect(parseWorkerReport({ ...ok, deployRef: ` ${url} ` }, 2000).deployRef).toBe(url);
+    expect(() => parseWorkerReport({ ...ok, deployRef: `${url}\nx` }, 2000)).toThrow(/deployRef/);
+    expect(() => parseWorkerReport({ ...ok, deployRef: 7 }, 2000)).toThrow(/deployRef/);
+    expect(() => parseWorkerReport({ ...ok, deployRef: 'javascript:alert(1)' }, 2000)).toThrow(
+      /deployRef/,
+    );
+    expect(() => parseWorkerReport({ ...ok, deployRef: 'run 42' }, 2000)).toThrow(/deployRef/);
+    expect(() =>
+      parseWorkerReport({ ...ok, deployRef: 'https://bot:secret@ci.example.com/run/1' }, 2000),
+    ).toThrow(/deployRef/);
+  });
+
   it('diff, 스택 트레이스, 코드 블록, 긴 로그는 거절한다', () => {
     const cases = [
       'diff --git a/x b/x\n--- a/x\n+++ b/x',

@@ -1104,6 +1104,10 @@ export function createCli(): Command {
     .option('--issue-type <type>', 'sub-task, task, bug, sub-bug, story, other')
     .option('--jira-status <status>', '사용자가 정한 지라 상태. 기본 규칙보다 먼저다')
     .option('--pr <ref>', '연결된 PR (owner/name#번호나 GitHub PR 주소)')
+    .option(
+      '--deploys <orderIds...>',
+      '배포 주문이면 이 배포에 들어가는 주문 id. 워커가 done으로 끝나면 tick이 대상마다 배포 성공을 남긴다. 같은 레포 주문만 받는다',
+    )
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorOrderAddCommand(o));
@@ -1317,6 +1321,10 @@ export function createCli(): Command {
     .option('--wait-until <iso>', '언제까지 기다릴 셈인지 ISO 시각')
     .option('--spawn-title <text>', '하위 워커가 필요하면 새 주문 제목')
     .option('--spawn-detail <text>', '새 주문 설명')
+    .option(
+      '--deploy-ref <url>',
+      '배포 주문을 done으로 끝낼 때 배포 실행 주소. 대상 주문의 배포 신호 ref가 된다',
+    )
     .option('--file <path>', '같은 필드를 담은 JSON 파일. 플래그가 먼저다')
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')

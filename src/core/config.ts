@@ -469,6 +469,11 @@ const conductorConfigSchema = z.object({
    */
   removeMergedOrcaWorktrees: z.boolean().default(false),
   /**
+   * 머지 없이 done으로 끝난 주문(리뷰 답글, 읽기 주문 등)의 오르카 워커 워크트리를 정리 단계에서 지운다.
+   * 머지 확인이 없어 브랜치는 남긴다. REPO_CONDUCTOR_KEYS에 넣지 않는 이유는 removeMergedOrcaWorktrees와 같다
+   */
+  removeDoneOrcaWorktrees: z.boolean().default(false),
+  /**
    * tick이 하루 한 번 끝나고 14일 지난 주문을 보관하고 운영 파일을 정리하고 지난 달 보관소를 묶는다.
    * 끄면 `conductor archive`를 사람이 부른다. 파일을 지우는 일이라 REPO_CONDUCTOR_KEYS에 넣지 않는다
    */

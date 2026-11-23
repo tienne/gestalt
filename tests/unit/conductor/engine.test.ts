@@ -740,6 +740,42 @@ describe('컨덕터 tick', () => {
       expect(store.worker('wrk-1')!.status).toBe('released');
     });
 
+    it('removeDoneOrcaWorktrees를 켜면 머지 없이 done인 주문은 브랜치를 남기고 워크트리를 지운다', async () => {
+      const { store } = clockedStore();
+      store.addOrder(order({ id: 'ord-1', status: 'done', workerId: 'wrk-2' }));
+      store.addOrder(order({ id: 'ord-2', status: 'failed' }));
+      store.addOrder(order({ id: 'ord-3', status: 'cancelled' }));
+      addWorker(store, { id: 'wrk-1', attempt: 1, status: 'stopped' });
+      addWorker(store, { id: 'wrk-2', attempt: 2, status: 'finished' });
+      addWorker(store, { id: 'wrk-3', orderId: 'ord-2', status: 'failed' });
+      addWorker(store, { id: 'wrk-4', orderId: 'ord-3', status: 'stopped' });
+      const orca = orcaRelease();
+      const { deps: d } = deps({
+        config: { ...config, removeDoneOrcaWorktrees: true },
+        launchers: { 'orca-worktree': orca.launcher },
+      });
+      await tick(store, d, { force: true });
+      expect(orca.calls.sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+        { id: 'wrk-1', opts: { removeWorktree: true, keepBranch: true } },
+        { id: 'wrk-2', opts: { removeWorktree: true, keepBranch: true } },
+        { id: 'wrk-3', opts: {} },
+        { id: 'wrk-4', opts: {} },
+      ]);
+    });
+
+    it('removeDoneOrcaWorktrees만 켜면 머지된 주문의 워크트리는 남긴다', async () => {
+      const { store } = clockedStore();
+      store.addOrder(order({ id: 'ord-1', status: 'done', mergedAt: '2026-01-01T00:00:00.000Z' }));
+      addWorker(store, { id: 'wrk-1', status: 'finished' });
+      const orca = orcaRelease();
+      const { deps: d } = deps({
+        config: { ...config, removeDoneOrcaWorktrees: true },
+        launchers: { 'orca-worktree': orca.launcher },
+      });
+      await tick(store, d, { force: true });
+      expect(orca.calls).toEqual([{ id: 'wrk-1', opts: {} }]);
+    });
+
     it('머지 안 된 주문은 옵션을 켜도 워크트리를 남긴다', async () => {
       const { store } = clockedStore();
       store.addOrder(order({ id: 'ord-1', status: 'failed' }));
@@ -2206,5 +2242,246 @@ describe('tick 끝의 보관', () => {
 
     expect(skipped.skipped).toBe(true);
     expect(calls).toBe(1);
+  });
+});
+
+describe('배포 주문의 대상 주문 배포 기록', () => {
+  function memoryDeploy() {
+    const signals = new Map<string, DeploySignal>();
+    return {
+      signals,
+      source: {
+        status: async (o: { id: string }) => signals.get(o.id) ?? { status: 'pending' as const },
+        record: (id: string, s: DeploySignal) => {
+          signals.set(id, s);
+        },
+      },
+    };
+  }
+
+  function seed(store: ConductorStore) {
+    store.addOrder(
+      order({ id: 'ord-a', issueKey: 'APP-1', issueType: 'sub-bug', status: 'merged' }),
+    );
+    store.addOrder(order({ id: 'ord-b', issueKey: 'APP-2', issueType: 'bug', status: 'merged' }));
+    store.addOrder(order({ id: 'ord-done', issueKey: 'APP-3', issueType: 'bug', status: 'done' }));
+    store.addOrder(
+      order({ id: 'ord-story', issueKey: 'APP-4', issueType: 'story', status: 'merged' }),
+    );
+    store.addOrder(
+      order({ id: 'ord-open', issueKey: 'APP-5', issueType: 'bug', status: 'running' }),
+    );
+    store.addOrder(
+      order({
+        id: 'ord-deploy',
+        title: 'dev, stage 배포',
+        deploys: ['ord-a', 'ord-b', 'ord-done', 'ord-story', 'ord-open'],
+      }),
+    );
+  }
+
+  async function launchDeploy(store: ConductorStore, d: EngineDeps): Promise<string> {
+    await tick(store, d, { force: true });
+    return store.order('ord-deploy')!.workerId!;
+  }
+
+  it('배포 워커가 done이면 머지된 대상에 성공 신호를 남기고 같은 tick에 In-QA로 끝낸다', async () => {
+    const { store } = clockedStore();
+    seed(store);
+    const jira = fakeJira();
+    const mem = memoryDeploy();
+    const { deps: d } = deps({
+      config: { ...config, maxConcurrentWorkers: 5 },
+      jira: jira.client,
+      deploy: mem.source,
+    });
+    const wid = await launchDeploy(store, d);
+    report(store, d, {
+      workerId: wid,
+      status: 'done',
+      summary: '배포했어요',
+      deployRef: 'https://github.com/acme/app/actions/runs/1',
+    });
+
+    const r = await tick(store, d, { force: true });
+    const ref = 'https://github.com/acme/app/actions/runs/1';
+    expect(mem.signals.get('ord-a')).toEqual({ status: 'success', ref });
+    expect(mem.signals.get('ord-b')).toEqual({ status: 'success', ref });
+    expect(mem.signals.has('ord-done')).toBe(false);
+    expect(mem.signals.has('ord-story')).toBe(false);
+    expect(mem.signals.has('ord-open')).toBe(false);
+    expect(store.order('ord-a')).toMatchObject({ status: 'done', deployedAt: r.at });
+    expect(store.order('ord-b')).toMatchObject({ status: 'done', deployedAt: r.at });
+    expect(jira.moves).toEqual(
+      expect.arrayContaining([
+        { key: 'APP-1', to: 'In-QA' },
+        { key: 'APP-2', to: 'In-QA' },
+      ]),
+    );
+    expect(r.deployTargets).toEqual([
+      { deployOrderId: 'ord-deploy', orderId: 'ord-a', outcome: 'recorded' },
+      { deployOrderId: 'ord-deploy', orderId: 'ord-b', outcome: 'recorded' },
+      expect.objectContaining({ orderId: 'ord-done', outcome: 'skipped' }),
+      expect.objectContaining({ orderId: 'ord-story', outcome: 'skipped' }),
+    ]);
+    expect(r.warnings).toEqual([
+      expect.stringContaining('ord-open가 머지된 상태가 아니라(running)'),
+    ]);
+    expect(store.order('ord-deploy')).toMatchObject({
+      status: 'done',
+      deployResult: { ref },
+      deploysRecordedAt: r.at,
+    });
+
+    // 한 번 남긴 배포 주문은 다음 tick에 다시 돌지 않는다
+    const again = await tick(store, d, { force: true });
+    expect(again.deployTargets).toEqual([]);
+    expect(again.warnings).toEqual([]);
+  });
+
+  it('배포 주소를 안 실으면 배포 주문 id를 ref로 남긴다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(
+      order({ id: 'ord-a', issueKey: 'APP-1', issueType: 'sub-bug', status: 'merged' }),
+    );
+    store.addOrder(order({ id: 'ord-deploy', deploys: ['ord-a'] }));
+    const mem = memoryDeploy();
+    const { deps: d } = deps({ deploy: mem.source });
+    const wid = await launchDeploy(store, d);
+    report(store, d, { workerId: wid, status: 'done' });
+    await tick(store, d, { force: true });
+    expect(mem.signals.get('ord-a')).toEqual({ status: 'success', ref: 'ord-deploy' });
+    expect(store.order('ord-a')!.status).toBe('done');
+  });
+
+  it('배포 워커가 실패하면 대상에 아무것도 안 남긴다', async () => {
+    const { store } = clockedStore();
+    seed(store);
+    const mem = memoryDeploy();
+    const { deps: d } = deps({
+      config: { ...config, maxConcurrentWorkers: 5 },
+      deploy: mem.source,
+    });
+    const wid = await launchDeploy(store, d);
+    report(store, d, { workerId: wid, status: 'failed', deployRef: 'https://x/run/2' });
+    const r = await tick(store, d, { force: true });
+    expect(mem.signals.size).toBe(0);
+    expect(r.deployTargets).toEqual([]);
+    expect(store.order('ord-a')!.status).toBe('merged');
+    expect(store.order('ord-deploy')!.deployResult).toBeUndefined();
+  });
+
+  it('배포 주문이 취소되면 늦은 done 보고가 와도 대상에 아무것도 안 남긴다', async () => {
+    const { store } = clockedStore();
+    seed(store);
+    const mem = memoryDeploy();
+    const { deps: d } = deps({
+      config: { ...config, maxConcurrentWorkers: 5 },
+      deploy: mem.source,
+    });
+    const wid = await launchDeploy(store, d);
+    store.updateOrder('ord-deploy', { status: 'cancelled' });
+    report(store, d, { workerId: wid, status: 'done' });
+    await tick(store, d, { force: true });
+    expect(mem.signals.size).toBe(0);
+    expect(store.order('ord-a')!.status).toBe('merged');
+  });
+
+  it('이미 배포 실패 신호가 있는 대상은 성공으로 덮지 않는다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(
+      order({ id: 'ord-a', issueKey: 'APP-1', issueType: 'sub-bug', status: 'merged' }),
+    );
+    store.addOrder(
+      order({ id: 'ord-deploy', status: 'done', deploys: ['ord-a'], deployResult: { at: 'x' } }),
+    );
+    const mem = memoryDeploy();
+    mem.signals.set('ord-a', { status: 'failed', ref: 'https://x/run/9' });
+    const { deps: d } = deps({ deploy: mem.source });
+    const r = await tick(store, d, { force: true });
+    expect(mem.signals.get('ord-a')).toEqual({ status: 'failed', ref: 'https://x/run/9' });
+    expect(r.deployTargets).toEqual([
+      expect.objectContaining({ orderId: 'ord-a', outcome: 'skipped' }),
+    ]);
+    expect(store.order('ord-a')!.status).toBe('escalated');
+  });
+
+  it('대상 하나만 기록에 실패하면 다음 tick에 그 대상만 다시 남긴다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(
+      order({ id: 'ord-a', issueKey: 'APP-1', issueType: 'sub-bug', status: 'merged' }),
+    );
+    store.addOrder(order({ id: 'ord-b', issueKey: 'APP-2', issueType: 'bug', status: 'merged' }));
+    store.addOrder(
+      order({
+        id: 'ord-deploy',
+        status: 'done',
+        deploys: ['ord-a', 'ord-b'],
+        deployResult: { at: 'x' },
+      }),
+    );
+    const mem = memoryDeploy();
+    let broken = true;
+    const source = {
+      status: mem.source.status,
+      record: (id: string, s: DeploySignal) => {
+        if (id === 'ord-b' && broken) throw new Error('disk full');
+        mem.source.record(id, s);
+      },
+    };
+    const { deps: d } = deps({ deploy: source });
+    const first = await tick(store, d, { force: true });
+    expect(first.errors).toEqual([expect.stringContaining('ord-b에 배포 성공을 못 남겼어요')]);
+    expect(store.order('ord-a')!.status).toBe('done');
+    expect(store.order('ord-deploy')!.deploysRecordedAt).toBeUndefined();
+
+    broken = false;
+    const second = await tick(store, d, { force: true });
+    expect(second.deployTargets).toEqual([
+      expect.objectContaining({ orderId: 'ord-a', outcome: 'skipped' }),
+      { deployOrderId: 'ord-deploy', orderId: 'ord-b', outcome: 'recorded' },
+    ]);
+    expect(store.order('ord-b')!.status).toBe('done');
+    expect(store.order('ord-deploy')!.deploysRecordedAt).toBe(second.at);
+  });
+
+  it('대상의 배포 신호를 못 읽으면 성공을 안 남기고 다음 tick에 다시 시도한다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(
+      order({ id: 'ord-a', issueKey: 'APP-1', issueType: 'sub-bug', status: 'merged' }),
+    );
+    store.addOrder(
+      order({ id: 'ord-deploy', status: 'done', deploys: ['ord-a'], deployResult: { at: 'x' } }),
+    );
+    const recorded: string[] = [];
+    const source = {
+      status: async (): Promise<never> => {
+        throw new Error('EACCES');
+      },
+      record: (id: string) => {
+        recorded.push(id);
+      },
+    };
+    const { deps: d } = deps({ deploy: source });
+    const r = await tick(store, d, { force: true });
+    expect(r.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining('ord-a의 배포 신호를 못 읽었어요')]),
+    );
+    expect(recorded).toEqual([]);
+    expect(store.order('ord-deploy')!.deploysRecordedAt).toBeUndefined();
+  });
+
+  it('신호를 남길 자리가 없으면 오류로 알리고 다음 tick에 다시 시도한다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(
+      order({ id: 'ord-a', issueKey: 'APP-1', issueType: 'sub-bug', status: 'merged' }),
+    );
+    store.addOrder(
+      order({ id: 'ord-deploy', status: 'done', deploys: ['ord-a'], deployResult: { at: 'x' } }),
+    );
+    const { deps: d } = deps({ deploy: { status: async () => ({ status: 'pending' }) } });
+    const r = await tick(store, d, { force: true });
+    expect(r.errors).toEqual([expect.stringContaining('ord-deploy: 배포 신호를 남길 자리가 없어')]);
+    expect(store.order('ord-deploy')!.deploysRecordedAt).toBeUndefined();
   });
 });

@@ -175,6 +175,20 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
     } else problems.push('spawnRequest.title이 없어요');
   }
 
+  const deployRef = r['deployRef'];
+  if (deployRef !== undefined) {
+    if (
+      typeof deployRef === 'string' &&
+      deployRef.trim() &&
+      deployRef.length <= MAX_REF_CHARS &&
+      !hasControlChar(deployRef) &&
+      isHttpUrl(deployRef.trim())
+    )
+      report.deployRef = deployRef.trim();
+    else
+      problems.push('deployRef에는 http나 https로 시작하는 한 줄짜리 배포 실행 주소만 적어 주세요');
+  }
+
   if (report.status === 'stopped' && !report.stopReason) report.stopReason = 'unknown';
   if (report.status === 'needs' && !report.need)
     problems.push('status가 needs면 need가 있어야 해요');
@@ -183,4 +197,16 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
 
   if (problems.length > 0) throw new ReportRejected(problems);
   return report;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    // 계정 정보가 든 주소는 대상 주문의 배포 신호와 지라로 그대로 퍼진다
+    return (
+      (url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password
+    );
+  } catch {
+    return false;
+  }
 }

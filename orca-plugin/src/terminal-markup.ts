@@ -4,7 +4,7 @@
 import { esc } from './html'
 import { displayStatus, ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
 import type { AgentState, ConductorView, EventView, WorkerLive, WorkView } from './protocol'
-import { clock, duration, eventText, gateLabel, lookup, orderWaitText, terminalModel, waitText, type Card, type TerminalModel } from './terminal-model'
+import { clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, terminalModel, waitText, type Card, type TerminalModel } from './terminal-model'
 
 export type TerminalMarkupOptions = {
   now: number
@@ -29,7 +29,7 @@ const span = (cls: string, text: string) => `<span${cls ? ` class="${esc(cls)}"`
 const kv = (k: string, v: string) => div('kv', span('', k), span('', v))
 const SEP = '<div class="sep"></div>'
 
-function conductorBox(v: ConductorView, m: TerminalModel, now: number): string {
+function conductorBox(v: ConductorView, m: TerminalModel, now: number, interactive: boolean): string {
   const info = v.conductor
   const tickAt = ms(v.lastTickAt)
   const repos = info?.prWatchRepos?.map((r) => splitRepo(r).name)
@@ -37,6 +37,9 @@ function conductorBox(v: ConductorView, m: TerminalModel, now: number): string {
     'box conductor',
     '<h3>CONDUCTOR</h3>',
     div('muted', esc(info?.pollIntervalSec ? `세션 · tick ${info.pollIntervalSec}s` : '세션')),
+    interactive &&
+      info?.session &&
+      '<button class="go" data-go-conductor data-focus="go-conductor" aria-label="컨덕터 세션으로 이동">세션으로 이동</button>',
     SEP,
     kv('마지막 tick', tickAt === null ? '없음' : `${duration(tickAt, now)} 전`),
     kv('슬롯', m.maxWorkers !== undefined ? `${m.activeWorkers} / ${m.maxWorkers}` : String(m.activeWorkers)),
@@ -55,6 +58,16 @@ function conductorBox(v: ConductorView, m: TerminalModel, now: number): string {
 const TERMINAL_FIELDS_TEXT = 'gestalt CLI가 낡아 워커 단계와 최근 이벤트가 빠졌어요. gestalt를 새 버전으로 올리면 채워져요.'
 
 const dkv = (k: string, v: string) => div('dkv', span('muted', k), span('', v))
+
+/** 복사 옆의 이동 버튼. 카드를 두 번 누르는 것과 같이 워커 터미널로 간다 */
+function goButton(orderId: string): string {
+  return `<button class="copy" data-go="${esc(orderId)}" data-focus="${esc(`go-head:${orderId}`)}" aria-label="${esc(`${orderId} 워커 터미널로 이동`)}" title="워커 터미널로 이동">이동</button>`
+}
+
+/** 주문 번호 옆의 복사 버튼. 웹 페이지에는 누를 스크립트가 없어 싣지 않는다 */
+function copyOrderButton(orderId: string): string {
+  return `<button class="copy" data-copy="${esc(orderId)}" data-focus="${esc(`copy:${orderId}`)}" aria-label="${esc(`주문 번호 ${orderId} 복사`)}" title="주문 번호 복사">복사</button>`
+}
 
 const AGENT_STATE: Record<AgentState, string> = { working: '작업 중', blocked: '권한 대기', waiting: '입력 대기', done: '끝남' }
 
@@ -170,6 +183,18 @@ function todoBar(t: NonNullable<Card['todo']>, tone: string): string {
   return div('todo', `<div class="prog ${tone}"><b style="width:${pct}%"></b></div>`, span('muted', `todo ${t.done}/${t.total}`))
 }
 
+/** 레포별 묶음. 묶음 머리에 레포가 나오니 카드에서는 레포 줄을 뺀다 */
+function repoGroups(m: TerminalModel, v: ConductorView, opts: TerminalMarkupOptions): string {
+  return join(
+    ...groupByRepo(m.cards, v.projects).map((g) =>
+      `<section class="rg" data-key="${esc(`repo:${g.repo}`)}">${join(
+        div('rg-head', span('rg-name', g.label), span('rg-count', `${g.cards.length}`)),
+        div('workers', ...g.cards.map((c) => card(c, v, opts)))
+      )}</section>`
+    )
+  )
+}
+
 function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
   const o = c.order
   const interactive = opts.interactive
@@ -181,8 +206,9 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
       }`
     : ''
   const body = join(
-    div('t', esc(`${o.id} · ${o.title}`)),
-    div('muted ell', esc(c.meta.join(' · '))),
+    div('t', div('tid-row', span('tid', o.id), interactive && copyOrderButton(o.id), canOpen && goButton(o.id)), span('ttl', o.title)),
+    c.meta.some((r) => r.label !== '레포') &&
+      div('meta', ...c.meta.filter((r) => r.label !== '레포').map((r) => div('mrow', span('muted', r.label), span('ell', r.value)))),
     c.chips.length > 0 && div('chain', ...c.chips.map((ch) => span(`chip ${ch.state}`, ch.text))),
     c.todo === undefined
       ? pct !== null && `<div class="prog ${c.state.tone}"><b style="width:${pct}%"></b></div>`
@@ -273,7 +299,9 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
     div(
       'bar',
       '<span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>',
-      span('bar-title', `conductor · ${m.workers} workers`)
+      span('bar-title', `conductor · ${m.workers} workers`),
+      opts.private &&
+        '<button class="bar-btn" data-browse-all data-focus="browse-all" aria-label="결과 뷰어 열기, 브라우저에서 열려요">결과 뷰어 ↗</button>'
     ),
     div(
       'head',
@@ -291,10 +319,10 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
     opts.openNote && div('alert', esc(opts.openNote)),
     div(
       'grid',
-      conductorBox(v, m, opts.now),
+      conductorBox(v, m, opts.now, opts.interactive),
       div(
         '',
-        m.cards.length > 0 ? div('workers', ...m.cards.map((c) => card(c, v, opts))) : div('box muted', '진행 중인 주문이 없어요.'),
+        m.cards.length > 0 ? repoGroups(m, v, opts) : div('box muted', '진행 중인 주문이 없어요.'),
         div('flow', '──────── ● ──────── 결과 보고 → tick ──────── ● ────────'),
         gateBoxes(m, v)
       )
@@ -320,6 +348,9 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .bar { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-bottom: 1px solid var(--t-line); color: var(--t-dim); font-size: 11px; }
 .bar .dot { width: 10px; height: 10px; border-radius: 50%; }
 .bar-title { margin: 0 auto; }
+.bar-btn { font: inherit; color: var(--t-fg); background: transparent; border: 1px solid var(--t-line); padding: 1px 8px; cursor: pointer; }
+.bar-btn:hover { border-color: var(--t-dim); }
+.bar-btn:focus-visible { outline: 1px solid var(--t-fg); outline-offset: 2px; }
 .head { display: flex; justify-content: center; flex-wrap: wrap; gap: 22px; padding: 10px 0 4px; font-weight: 700; letter-spacing: .04em; }
 .k-orca { color: var(--t-orange); } .k-git { color: var(--t-blue); } .k-sub { color: var(--t-green); }
 .legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 18px; color: var(--t-dim); font-size: 11px; padding-bottom: 10px; }
@@ -333,13 +364,25 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kv { display: flex; justify-content: space-between; gap: 8px; }
 .sep { height: 10px; }
+.rg + .rg { margin-top: 14px; }
+.rg-head { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--t-dim); }
+.rg-head::after { content: ''; flex: 1; border-top: 1px solid var(--t-line); }
+.rg-name { color: var(--t-fg); font-weight: 700; }
+.rg-count { padding: 0 6px; border: 1px solid var(--t-line); border-radius: 8px; }
 .workers { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; align-items: start; }
 .w { border: 1px solid var(--t-line); padding: 8px 9px; min-width: 0; outline: none; }
 .w.openable { cursor: pointer; }
 .w:focus-visible { box-shadow: 0 0 0 1px var(--t-fg); }
 .w.orca { border-color: var(--t-orange); } .w.git { border-color: var(--t-blue); } .w.sub { border-color: var(--t-green); }
-.w .t { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.w .t { font-weight: 700; display: grid; }
+.w .meta { display: grid; gap: 1px; margin-top: 2px; }
+.w .mrow { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; }
+.w .t .tid-row { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 4px; }
+.w .t .tid { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.w .t .ttl { white-space: normal; overflow-wrap: anywhere; }
 .w.orca .t { color: var(--t-orange); } .w.git .t { color: var(--t-blue); } .w.sub .t { color: var(--t-green); }
+.w .t .tid { color: var(--t-bg); background: var(--t-fg); padding: 0 6px; border-radius: 3px; }
+.w.orca .t .tid { background: var(--t-orange); } .w.git .t .tid { background: var(--t-blue); } .w.sub .t .tid { background: var(--t-green); }
 .chain { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0; }
 .chip { padding: 0 5px; border: 1px solid var(--t-line); color: var(--t-dim); }
 .chip.done { color: var(--t-green); border-color: #2f5b43; }
@@ -380,7 +423,12 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .live { margin-top: 6px; border-top: 1px dashed var(--t-line); padding-top: 4px; display: grid; gap: 2px; }
 .tail { margin: 4px 0 0; padding: 6px 8px; background: #0e1015; border: 1px solid var(--t-line); max-height: 200px; overflow: auto; white-space: pre; font: inherit; font-size: 11px; color: var(--t-fg); }
 .go { justify-self: start; margin-top: 6px; font: inherit; font-weight: 700; color: var(--t-bg); background: var(--t-orange); border: 0; padding: 2px 10px; cursor: pointer; }
-.go:focus-visible, .more > summary:focus-visible { outline: 1px solid var(--t-fg); outline-offset: 2px; }
+.copy { font: inherit; font-size: 11px; font-weight: 400; color: var(--t-dim); background: transparent; border: 1px solid var(--t-line); padding: 0 6px; flex: none; cursor: pointer; }
+.toast { position: fixed; left: 50%; bottom: 44px; transform: translate(-50%, 6px); padding: 9px 18px; font-size: 14px; font-weight: 600; white-space: nowrap; max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis; color: #e6e6e6; background: #2b2b2b; border: 1px solid #454545; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; z-index: 10; }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+.copy:hover { color: var(--t-fg); border-color: var(--t-dim); }
+.copy:focus-visible, .go:focus-visible, .more > summary:focus-visible { outline: 1px solid var(--t-fg); outline-offset: 2px; }
 .flow { display: flex; justify-content: center; color: var(--t-dim); margin: 6px 0; font-size: 11px; white-space: nowrap; overflow: hidden; }
 .gates { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 .gbox { border: 1px solid var(--t-yellow); padding: 6px 12px; text-align: center; max-width: 340px; }

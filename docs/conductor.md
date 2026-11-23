@@ -481,7 +481,7 @@ tick은 잠금을 놓은 뒤 하루에 한 번 보관과 운영 파일 정리, �
 7. **사람이 넘겨받은 PR**: `human-owned` 주문의 PR을 주문마다 `humanOwnedPollSec` 간격으로 gh로 본다. 규칙은 [주문 상태](#주문-상태)에 있다.
 8. **머지 뒤 처리**: 지라 상태를 옮기고 배포 결과를 확인한다.
 9. **슬랙**: 승인된 초안을 `slack-post`로 넘긴다.
-10. **정리**: 끝난 워커와 끝난 주문에 남은 멈춘 워커를 거둔다. git 워커는 워크트리를 지우고 오르카 워커는 터미널만 거둔다. `removeMergedOrcaWorktrees`를 켜면 머지된 주문의 오르카 워크트리까지 지운다. 규칙은 [워커 정리](#워커-정리)에 있다.
+10. **정리**: 끝난 워커와 끝난 주문에 남은 멈춘 워커를 거둔다. git 워커는 워크트리를 지우고 오르카 워커는 터미널만 거둔다. `removeMergedOrcaWorktrees`를 켜면 머지된 주문의 오르카 워크트리까지 지우고 `removeDoneOrcaWorktrees`를 켜면 머지 없이 끝난 `done` 주문의 워크트리도 지운다. 규칙은 [워커 정리](#워커-정리)에 있다.
 11. **보관**: 잠금을 놓은 뒤 하루 한 번 끝난 주문을 보관하고 운영 파일을 정리한다. 규칙은 [tick이 하루 한 번 보관](#tick이-하루-한-번-보관)에 있다.
 
 `pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝나서 상태를 자주 물어도 토큰이 늘지 않는다. 응답에는 숫자와 할 일만 담는다. 감시 주기마다 tick을 돌리고 할 일이 생겼을 때만 깨우는 건 [`wait`](#백그라운드-wait)가 한다.
@@ -577,7 +577,7 @@ gestalt conductor order add --repo acme/app --title "쿠폰 목록 하위 작업
 
 tick 마지막 단계는 `finished`나 `failed` 워커를 거두고 `released`로 바꾼다. 멈춘(`stopped`) 워커는 재개가 그 dispatch id나 워크트리를 다시 쓸 수 있어 남긴다.
 
-주문이 끝 상태(`done`, `failed`, `cancelled`)면 멈춘 워커도 같은 tick에 거둔다. 재개될 일이 없고 남겨 두면 `order remove`가 계속 거절해서다. 거두는 방식은 아래 표대로 `finished` 워커와 같다. 오르카 워커는 터미널만 거두고 워크트리는 남긴다. `removeMergedOrcaWorktrees`를 켠 머지된 주문이면 주문 상태와 상관없이 워크트리까지 지운다. 그 밖의 `parked` 주문은 사람이 PR과 워크트리를 쥐고 있을 수 있어 멈춘 워커를 거두지 않는다. 취소하면 그때 거둔다. `finished`나 `failed` 워커는 `parked` 주문이어도 그대로 거둔다.
+주문이 끝 상태(`done`, `failed`, `cancelled`)면 멈춘 워커도 같은 tick에 거둔다. 재개될 일이 없고 남겨 두면 `order remove`가 계속 거절해서다. 거두는 방식은 아래 표대로 `finished` 워커와 같다. 오르카 워커는 터미널만 거두고 워크트리는 남긴다. `removeMergedOrcaWorktrees`를 켠 머지된 주문이면 주문 상태와 상관없이 워크트리까지 지운다. `removeDoneOrcaWorktrees`를 켠 머지 없는 `done` 주문도 워크트리까지 지운다. 그 밖의 `parked` 주문은 사람이 PR과 워크트리를 쥐고 있을 수 있어 멈춘 워커를 거두지 않는다. 취소하면 그때 거둔다. `finished`나 `failed` 워커는 `parked` 주문이어도 그대로 거둔다.
 
 | 워커            | 거두는 범위                                                                               |
 | --------------- | ----------------------------------------------------------------------------------------- |
@@ -595,7 +595,7 @@ tick 마지막 단계는 `finished`나 `failed` 워커를 거두고 `released`�
 4. `orca worktree rm --worktree id:<레포 id>::<경로> --delete-branch`로 워크트리를 지운다. `--force`는 안 붙인다.
 
 - 재개로 회차가 여러 개 생긴 주문이면 `stopped`로 남은 앞 회차 워커도 같이 거둬서 `<주문 id>-<회차>` 워크트리를 빠짐없이 지운다.
-- 머지 안 된 주문(`failed`, 사람이 중단한 주문 등)의 워크트리는 켜도 남긴다. 확인할 거리가 남았을 수 있어서다.
+- 머지 안 된 주문의 워크트리는 켜도 남긴다. 그중 `done` 주문은 아래 `removeDoneOrcaWorktrees`로 따로 켠다.
 - 아래 중 하나라도 걸리면 지우지 않고 정리 실패로 올린다.
   - 지울 경로의 마지막 조각이 `<주문 id>-<회차>`와 다르다
   - 주문의 부모 워크트리이거나 그 위 경로다
@@ -605,6 +605,10 @@ tick 마지막 단계는 `finished`나 `failed` 워커를 거두고 `released`�
 - 같은 레포의 워크트리 삭제는 git 잠금이 겹치지 않게 차례로 돌리고 다른 레포끼리는 함께 돌린다.
 - `--delete-branch`는 오르카가 머지됐다고 확인한 브랜치만 지운다. 스쿼시 머지처럼 확인 못 하는 브랜치는 오르카가 남긴다.
 - 이미 없는 워크트리(`selector_not_found`)는 지운 것으로 본다.
+
+머지 없이 `done`으로 끝난 주문(리뷰 답글, 읽기만 하는 주문 등)의 워크트리도 지우려면 `~/.gestalt/conductor.json`에 `"removeDoneOrcaWorktrees": true`를 적는다. 이것도 레포 `gestalt.json`의 값은 받지 않는다. 순서와 지우지 않는 조건은 위 머지 경로와 같고 `worktree rm`에 `--delete-branch`를 붙이지 않는 것만 다르다. 머지를 확인하지 못한 주문이라 브랜치에만 남은 커밋이 있을 수 있어서다. `failed`, `cancelled`, `parked` 주문은 켜도 워크트리를 남긴다. 두 옵션은 따로 움직여서 이 옵션만 켜면 머지된 주문의 워크트리는 남는다.
+
+이미 `released`로 바뀐 워커는 다시 보지 않는다. 옵션을 켜기 전에 끝난 주문의 워크트리는 사람이 `orca worktree rm`으로 지운다.
 
 커밋 안 한 변경이 있어 오르카가 거절하거나 다른 이유로 정리가 실패하면 강제로 지우지 않는다. 주문 없는 `cleanup-failed` 게이트를 열고 그 게이트가 열린 동안은 다시 시도하지 않는다. 사람이 직접 정리하고 승인하면 `released`로 두고 거절하면 다음 tick에 다시 시도한다.
 
@@ -751,6 +755,10 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 | 배포 성공 (bug, task, sub-bug)                            | In-QA       |
 
 주문에 `jiraStatus`가 있으면 사용자가 정한 값이라 기본 규칙보다 먼저다. 배포는 머지 뒤 파이프라인 성공으로 판단한다. 호스트가 결과를 확인해 `gestalt conductor deploy report`로 남기고 tick이 읽는다. 배포가 실패하면 그 주문만 사람에게 올린다. 배포가 `deployWaitMaxSec`(기본 24시간)까지 대기 중이면 지라 이동 없이 주문을 `done`으로 바꾸고 tick에 경고를 남긴다. 기한은 `mergedAt`부터 센다. 예전 주문에 이 값이 없으면 `updatedAt`부터 센다.
+
+배포 파이프라인이 자동으로 안 도는 브랜치는 "dev, stage 배포" 같은 배포 주문을 따로 넣는다. 이때 `order add --deploys <orderId...>`로 그 배포에 들어가는 주문을 같이 적어 두면 손으로 주문마다 `deploy report`를 남기지 않아도 된다. 접수할 때 대상이 있는 주문인지, 배포 주문과 같은 레포인지 확인하고 틀리면 거절한다. 대상은 `order show --json`과 `status --json`의 `deploys`에 보인다.
+
+배포 워커가 done으로 보고하면 다음 tick이 대상 주문마다 `deploy report --status success`와 같은 신호 파일을 `deploy/`에 쓴다. ref는 워커가 `worker report --deploy-ref <url>`로 실은 배포 실행 주소이고 없으면 배포 주문 id다. 신호를 쓴 뒤에는 같은 tick의 머지 뒤 정산이 평소처럼 지라를 In-QA로 옮기고 주문을 `done`으로 끝낸다. 대상이 이미 `done`이거나 배포를 안 기다리는 유형이면 건너뛰고 tick 결과의 `deployTargets`에 남긴다. 호스트가 이미 배포 실패 신호를 남긴 대상도 성공으로 덮지 않고 건너뛴다. 머지되지 않은 대상은 이 배포에 안 들어간 것이라 기록하지 않고 warnings에 남긴다. 이 배포 주문으로는 그 대상을 다시 안 보므로, 나중에 머지돼 배포됐으면 다음 배포 주문의 `--deploys`에 넣거나 `deploy report`로 남긴다. 배포 주문당 한 번만 돌고 그 시각을 `deploysRecordedAt`에 남긴다. 배포 워커가 실패하거나 주문이 취소되면 대상에는 아무것도 남기지 않고 `deployWaitMaxSec` 기한도 그대로 흐른다.
 
 ## PR 감시
 

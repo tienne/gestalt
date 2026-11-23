@@ -86,6 +86,39 @@ describe('gestalt conductor', () => {
     ]);
   });
 
+  it('배포 주문은 대상 주문 id를 받아 order show와 status에 싣고 틀린 대상은 거절한다', () => {
+    const stateDir = tempStateDir();
+    conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: 'a' });
+    const a = (last()['order'] as { id: string }).id;
+    conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: 'b' });
+    const b = (last()['order'] as { id: string }).id;
+
+    conductorOrderAddCommand({
+      stateDir,
+      json: true,
+      repo: 'acme/app',
+      title: 'dev 배포',
+      deploys: [`${a},${b}`],
+    });
+    const deployId = (last()['order'] as { id: string }).id;
+    conductorOrderShowCommand(deployId, { stateDir, json: true });
+    expect((last()['order'] as { deploys: string[] }).deploys).toEqual([a, b]);
+    conductorStatusCommand({ stateDir, json: true });
+    expect(last()['orders']).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: deployId, deploys: [a, b] })]),
+    );
+
+    expect(() =>
+      conductorOrderAddCommand({
+        stateDir,
+        repo: 'acme/web',
+        title: 'web 배포',
+        deploys: [a],
+      }),
+    ).toThrow('exit 1');
+    expect(err.join('\n')).toContain('acme/app 주문이라 acme/web 배포에 못 넣어요');
+  });
+
   it('bypass로 넘긴 일을 주문별로 보여주고 --all이면 끝난 주문도 싣는다', () => {
     const stateDir = tempStateDir();
     conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: '배너 고치기' });
@@ -308,6 +341,7 @@ describe('gestalt conductor', () => {
       disconnectedWorkers: 0,
     });
     expect(status['conductor']).not.toHaveProperty('compactions');
+    expect(status['conductor']).not.toHaveProperty('session');
   });
 
   it('대기 이벤트는 기한을 문장에 굳히지 않고 주문의 waiting.until과 같은 ISO로 싣는다', () => {
@@ -377,7 +411,11 @@ describe('gestalt conductor', () => {
 
     conductorStatusCommand({ stateDir, json: true });
     const status = last();
-    expect(status['conductor']).toMatchObject({ disconnectedWorkers: 1, compactions: 1 });
+    expect(status['conductor']).toMatchObject({
+      disconnectedWorkers: 1,
+      compactions: 1,
+      session: { id: sid, cwd: '/w' },
+    });
     expect(status['recentEvents']).toEqual([]);
   });
 

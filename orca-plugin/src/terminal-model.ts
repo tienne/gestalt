@@ -147,20 +147,24 @@ export function stateLine(o: OrderView, gates: readonly GateView[], now: number,
 }
 
 /** 카드 둘째 줄. 레포, 지라 키, PR, 계정이나 워커 종류, 기준 브랜치. 계정 이름은 showAccount가 켜졌을 때만 */
-export function metaOf(o: OrderView, showAccount = true): string[] {
-  const parts = [o.repo ? splitRepo(o.repo).name : '']
-  if (o.issue) parts.push(o.issue)
-  if (o.pr) parts.push(o.pr)
-  if (o.account && showAccount) parts.push(`acct ${o.account}`)
-  else if (o.workerKind === 'subagent') parts.push('subagent')
-  if (o.baseBranch) parts.push(`⤷ ${o.baseBranch}`)
-  return parts.filter(Boolean)
+export type MetaRow = { label: string; value: string }
+
+/** 카드 머리의 이름표 달린 줄들. 값이 없는 줄은 뺀다 */
+export function metaOf(o: OrderView, showAccount = true): MetaRow[] {
+  const rows: MetaRow[] = []
+  if (o.repo) rows.push({ label: '레포', value: splitRepo(o.repo).name })
+  if (o.issue) rows.push({ label: '티켓', value: o.issue })
+  if (o.pr) rows.push({ label: 'PR', value: o.pr })
+  if (o.account && showAccount) rows.push({ label: '계정', value: o.account })
+  else if (o.workerKind === 'subagent') rows.push({ label: '워커', value: 'subagent' })
+  if (o.baseBranch) rows.push({ label: '기준 브랜치', value: o.baseBranch })
+  return rows.filter((r) => r.value)
 }
 
 export type Card = {
   order: OrderView
   kind: KindKey
-  meta: string[]
+  meta: MetaRow[]
   chips: Chip[]
   progress: number | null
   /** 작업 내용을 아는 CLI면 todo 막대가 스킬 체인 막대 자리에 들어간다 */
@@ -236,4 +240,24 @@ export function terminalModel(v: ConductorView, now: number, showPrivate = true)
     bypasses: live.reduce((n, o) => n + o.bypasses.length, 0),
     events: v.recentEvents ?? []
   }
+}
+
+export type RepoGroup = { repo: string; label: string; cards: Card[] }
+
+/**
+ * 카드를 레포별로 묶는다. 묶음 순서는 정렬된 카드 목록에서 그 레포가 처음 나온 순서라
+ * 워커가 붙어 바쁜 레포가 위로 온다. 이름은 오르카 프로젝트 이름을 먼저 쓰고 없으면 레포 이름이다
+ */
+export function groupByRepo(cards: readonly Card[], projects: Record<string, string> = {}): RepoGroup[] {
+  const groups = new Map<string, RepoGroup>()
+  for (const c of cards) {
+    const repo = c.order.repo
+    let g = groups.get(repo)
+    if (!g) {
+      g = { repo, label: projects[repo] ?? (repo ? splitRepo(repo).name : '레포 없음'), cards: [] }
+      groups.set(repo, g)
+    }
+    g.cards.push(c)
+  }
+  return [...groups.values()]
 }

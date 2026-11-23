@@ -203,3 +203,52 @@ describe('intake', () => {
     expect(normalizeIssueType('Epic')).toBe('other');
   });
 });
+
+describe('배포 주문 접수', () => {
+  function seeded() {
+    const s = ConductorStore.open(tempStateDir());
+    const a = intakeOrder(s, { source: 'spoken', repo: 'acme/app', title: 'a' }, config).order;
+    const other = intakeOrder(s, { source: 'spoken', repo: 'acme/web', title: 'w' }, config).order;
+    return { s, a, other };
+  }
+
+  it('같은 레포의 있는 주문만 배포 대상으로 받고 겹친 id는 하나로 둔다', () => {
+    const { s, a } = seeded();
+    const { order } = intakeOrder(
+      s,
+      { source: 'spoken', repo: 'acme/app', title: '배포', deploys: [a.id, a.id] },
+      config,
+      { trusted: true },
+    );
+    expect(order.deploys).toEqual([a.id]);
+    expect(s.order(order.id)!.deploys).toEqual([a.id]);
+  });
+
+  it('없는 주문이나 다른 레포 주문은 이유와 함께 거절한다', () => {
+    const { s, other } = seeded();
+    const add = (deploys: string[]) =>
+      intakeOrder(s, { source: 'spoken', repo: 'acme/app', title: '배포', deploys }, config, {
+        trusted: true,
+      });
+    expect(() => add(['ord-nope'])).toThrow('배포 대상 주문이 없어요: ord-nope');
+    expect(() => add([other.id])).toThrow(`acme/web 주문이라 acme/app 배포에 못 넣어요`);
+    expect(s.orders()).toHaveLength(2);
+  });
+
+  it('바깥 출처의 주문은 배포 대상을 못 정한다', () => {
+    const { s, a } = seeded();
+    expect(() =>
+      intakeOrder(
+        s,
+        {
+          source: 'external-queue',
+          sourceRef: 'queue:1',
+          repo: 'acme/app',
+          title: 'x',
+          deploys: [a.id],
+        },
+        config,
+      ),
+    ).toThrow(/order add/);
+  });
+});

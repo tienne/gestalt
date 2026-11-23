@@ -31,6 +31,7 @@ function report(over: Partial<TickReport> = {}): TickReport {
     warnings: [],
     rateLimited: [],
     humanOwned: [],
+    deployTargets: [],
     idleTicks: 0,
     counts: {
       queued: 0,
