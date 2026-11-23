@@ -2,7 +2,7 @@
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { request } from 'node:http'
 import { join } from 'node:path'
 import type { ConductorView } from './protocol'
@@ -445,6 +445,22 @@ test('설정이 바뀐 뒤의 기록이 실제 결과 뷰어면 그 뷰어를 �
       assert.notEqual(out.ok ? out.url : '', orphan.url)
       assert.equal(browseCalls(s).length, before + 1)
       await until(() => orphan.child.exitCode !== null || orphan.child.signalCode !== null)
+    })
+  } finally {
+    orphan.child.kill()
+  }
+})
+
+test('저장소 설정이 비면 실행 폴더로 가른 기록의 뷰어를 이어받는다', async () => {
+  const s = store(STATUS)
+  const orphan = await orphanOf([FAKE, 'conductor', 'browse', '--no-open', `--state-dir=${s.dir}`])
+  try {
+    // 설정이 비면 CLI를 홈에서 부르고 뷰어는 그 폴더의 저장소를 쓴다
+    const before = browseCalls(s).length
+    const h = host('', { resultsViewer: { pid: orphan.child.pid!, url: orphan.url, key: JSON.stringify([FAKE, homedir()]) } })
+    await run(s, h, async (worker) => {
+      assert.deepEqual(await worker.request('viewer.open'), { ok: true, url: orphan.url })
+      assert.equal(browseCalls(s).length, before)
     })
   } finally {
     orphan.child.kill()
