@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.157.0] - 2026-11-23
+
+### Added
+
+- **컨덕터에 `removeDoneOrcaWorktrees` 옵션을 넣었어요.** 켜면 머지 없이 `done`으로 끝난 주문(리뷰 답글, 읽기만 하는 주문 등)의 오르카 워크트리도 정리할 때 지워요.
+  - 머지를 확인하지 못한 주문이라 `--delete-branch`를 빼고 워크트리만 지워요. 브랜치에만 남은 커밋은 그대로 있어요.
+  - `--force`는 안 붙여요. 커밋 안 한 변경이 있으면 오르카가 거절하고 정리 실패 게이트로 올라가요.
+  - `failed`, `cancelled`, `parked` 주문은 켜도 남겨요. `removeMergedOrcaWorktrees`와 따로 켜고 끄며 사용자 전역 `~/.gestalt/conductor.json`에서만 읽어요.
+  - `removeMergedOrcaWorktrees`만으로는 리뷰 답글 주문처럼 머지가 없는 주문의 워크트리가 계속 쌓였어요. 한 머신에서 30개 가까이 남은 걸 보고 넣었어요.
+- **컨덕터 스킬에 Orca 봇 채팅의 컨텍스트 인계 절차(7-1-B)를 넣었어요(#164).** Codex로 도는 봇 채팅은 Claude Code 세션 id와 컴팩트 기록이 없어 자동 인계와 세션 소유권 차단이 안 걸렸어요.
+  - 봇 채팅인지 가리는 법과 인계 메모 위치, 홈 채팅 교체(`orca bot new-chat`), 다른 채팅으로 맡기기(`--chat new --type handoff`)를 적었어요.
+  - 메모에 넘기기 직전의 `lastTickAt`을 그대로 적고 이어받는 쪽이 그 값으로 중복 tick을 확인해요.
+  - 감시는 운영을 넘기는 인계가 성공한 뒤에만 꺼요. 실패하거나 일만 맡긴 위임이면 그대로 둬요.
+
+### 남긴 것
+
+- 이미 `released`로 바뀐 워커는 옵션을 켜도 다시 보지 않아요. 옵션을 켜기 전에 끝난 주문의 워크트리는 `orca worktree rm`으로 직접 지워야 해요.
+
 ## [0.156.0] - 2026-11-23
 
 ### Added
