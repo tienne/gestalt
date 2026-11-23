@@ -2,7 +2,7 @@
 // 계산은 terminal-model이 하고 여기는 이스케이프한 HTML 문자열만 만든다. DOM과 오르카 런타임은 모른다.
 // 주문 제목이나 게이트 사유는 지라나 PR에서 온 바깥 글이라 전부 esc를 거친다.
 import { esc } from './html'
-import { ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
+import { displayStatus, ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
 import type { AgentState, ConductorView, EventView, WorkerLive, WorkView } from './protocol'
 import { clock, duration, eventText, gateLabel, lookup, orderWaitText, terminalModel, waitText, type Card, type TerminalModel } from './terminal-model'
 
@@ -196,7 +196,7 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
     c.next && div('muted ell', esc(`next › ${c.next}`)),
     c.bypass && div('muted ell', esc(`bypass › ${c.bypass}`)),
     c.children.length > 0 &&
-      div('children', ...c.children.map((k) => div('child', span('ell', `${k.id} ${k.title}`), span('', k.status)))),
+      div('children', ...c.children.map((k) => div('child', span('ell', `${k.id} ${k.title}`), span('', displayStatus(k))))),
     detail(c, v, opts)
   )
   return `<div class="w ${c.kind}${canOpen ? ' openable' : ''}"${attrs}>${body}</div>`
@@ -362,6 +362,7 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .st.wait, .st.gate { color: var(--t-yellow); } .st.wait::before, .st.gate::before { content: '◷ '; }
 .st.limit { color: var(--t-red); } .st.limit::before { content: '■ '; }
 .st.idle { color: var(--t-dim); }
+.st.deploy { color: var(--t-blue); } .st.deploy::before { content: '⇡ '; }
 @keyframes blink { 50% { opacity: .25; } }
 .children { margin-top: 8px; border-top: 1px dashed var(--t-line); padding-top: 6px; }
 .child { display: flex; justify-content: space-between; gap: 8px; color: var(--t-dim); }

@@ -218,3 +218,11 @@ test('파일 없이 tool만 있으면 웹 페이지에는 tool 이름을 안 싣
   lacks(terminalMarkup(view([order('ord-a', { work })]), { now: NOW, interactive: false, private: false }), 'WebFetch')
   has(terminalMarkup(view([order('ord-a', { work })]), { now: NOW, interactive: true, private: true }), '▸ WebFetch')
 })
+
+test('하위 주문 줄도 배포 대기를 상태줄과 같게 그린다', () => {
+  const html = terminalMarkup(
+    view([order('ord-p'), order('ord-c', { status: 'merged', awaitingDeploy: true, parentOrderId: 'ord-p', worker: undefined })]),
+    { now: NOW, interactive: false, private: false }
+  )
+  has(html, 'ord-c ord-c</span><span>awaiting-deploy')
+})

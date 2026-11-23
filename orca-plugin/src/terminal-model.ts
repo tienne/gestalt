@@ -1,6 +1,6 @@
 // 컨덕터 터미널 화면의 계산. DOM과 오르카 런타임을 모르는 순수 함수만 둔다.
-import { AWAITING_DEPLOY, displayStatus, isTerminal, ms, splitRepo } from './model'
-import { ORDER_STATUSES, type ConductorView, type EventView, type GateView, type OrderView, type WaitingView } from './protocol'
+import { AWAITING_DEPLOY, displayStatus, GROUP_ORDER, isTerminal, ms, splitRepo } from './model'
+import { type ConductorView, type EventView, type GateView, type OrderView, type WaitingView } from './protocol'
 
 export type KindKey = 'orca' | 'git' | 'sub' | 'none'
 
@@ -124,7 +124,7 @@ export function eventText(e: EventView): string {
   return e.orderId ? `${e.orderId} ${body}` : body
 }
 
-export type StateTone = 'run' | 'wait' | 'gate' | 'limit' | 'idle'
+export type StateTone = 'run' | 'wait' | 'gate' | 'limit' | 'idle' | 'deploy'
 export type StateLine = { tone: StateTone; text: string; aside: string }
 
 /** 상태줄. 한도, 열린 게이트, 워커 대기, 그 밖 순으로 하나만 고른다 */
@@ -142,7 +142,7 @@ export function stateLine(o: OrderView, gates: readonly GateView[], now: number,
   const last = Math.max(ms(o.checkpoint?.savedAt) ?? 0, ms(o.updatedAt) ?? 0) || null
   const status = displayStatus(o)
   const tone: StateTone =
-    o.status === 'running' ? 'run' : o.status === 'escalated' ? 'gate' : status === AWAITING_DEPLOY ? 'wait' : 'idle'
+    o.status === 'running' ? 'run' : o.status === 'escalated' ? 'gate' : status === AWAITING_DEPLOY ? 'deploy' : 'idle'
   return { tone, text: status, aside: last === null ? '' : `${duration(last, now)} 전` }
 }
 
@@ -186,7 +186,7 @@ export type TerminalModel = {
   events: EventView[]
 }
 
-const STATUS_RANK = new Map<string, number>(ORDER_STATUSES.map((s, i) => [s, i]))
+const STATUS_RANK = new Map<string, number>(GROUP_ORDER.map((s, i) => [s, i]))
 
 /** showPrivate가 꺼지면 인증 없는 폰 페이지용이라 계정 이름과 워커가 쓴 글(다음 할 일, bypass, 대기 사유)을 싣지 않는다 */
 export function terminalModel(v: ConductorView, now: number, showPrivate = true): TerminalModel {
@@ -199,7 +199,7 @@ export function terminalModel(v: ConductorView, now: number, showPrivate = true)
     .sort(
       (a, b) =>
         Number(Boolean(b.worker)) - Number(Boolean(a.worker)) ||
-        (STATUS_RANK.get(a.status) ?? 99) - (STATUS_RANK.get(b.status) ?? 99) ||
+        (STATUS_RANK.get(displayStatus(a)) ?? 99) - (STATUS_RANK.get(displayStatus(b)) ?? 99) ||
         (ms(b.updatedAt) ?? 0) - (ms(a.updatedAt) ?? 0)
     )
   const cards = roots.map((o): Card => {

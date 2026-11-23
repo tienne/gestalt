@@ -73,7 +73,7 @@ export const STATUS_TONE: Record<string, Tone> = {
 export const isTerminal = (status: string) => TERMINAL_ORDER_STATUSES.includes(status)
 
 /** 묶는 순서. 배포 대기는 아직 진행 중인 주문이라 머지됨보다 앞에 둔다 */
-const GROUP_ORDER: readonly string[] = ORDER_STATUSES.flatMap((s): string[] =>
+export const GROUP_ORDER: readonly string[] = ORDER_STATUSES.flatMap((s): string[] =>
   s === 'merged' ? [AWAITING_DEPLOY, s] : [s]
 )
 
