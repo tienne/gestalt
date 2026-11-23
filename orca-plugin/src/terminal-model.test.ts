@@ -1,6 +1,6 @@
 import { assert, test } from 'orca/testing'
 import type { ConductorView, OrderView } from './protocol'
-import { chainChips, clock, duration, eventText, groupByRepo, metaOf, progressOf, stateLine, terminalModel } from './terminal-model'
+import { chainChips, clock, duration, eventText, groupByRepo, metaOf, progressOf, stateLine, terminalModel, workerEnded } from './terminal-model'
 
 const base: OrderView = { id: 'o1', status: 'running', scope: 'pr', repo: 'acme/web', title: 't', bypasses: [] }
 const cp = (over: Partial<NonNullable<OrderView['checkpoint']>> = {}) => ({
@@ -32,6 +32,36 @@ test('chainChips는 체인에 없는 스킬을 돌면 끝난 칩 뒤에 끼우�
   assert.equal(progressOf(base), null)
 })
 
+test('머지됐거나 끝난 주문은 체크포인트와 상관없이 체인을 다 돈 것으로 그린다', () => {
+  // 워커가 머지 직전 체크포인트만 남기고 끝나서 끝남 체크포인트가 없다
+  const stale = cp({ skill: 'gestalt:ship', completedSkills: [] })
+  for (const status of ['merged', 'done']) {
+    const o = { ...base, status, skillChain: ['solve', 'ship'], checkpoint: stale }
+    assert.deepEqual(chainChips(o), [
+      { text: 'solve', state: 'done' },
+      { text: 'ship', state: 'done' }
+    ])
+    assert.equal(progressOf(o), 1)
+  }
+  assert.equal(progressOf({ ...base, status: 'merged', skillChain: [] }), null)
+})
+
+test('체크포인트 스킬과 끝난 스킬은 gestalt: 접두를 떼고 체인과 맞춘다', () => {
+  const o = { ...base, skillChain: ['solve', 'ship'], checkpoint: cp({ skill: 'gestalt:ship', phase: 'copilot', completedSkills: ['gestalt:solve'] }) }
+  assert.deepEqual(
+    chainChips(o).map((c) => `${c.state}:${c.text}`),
+    ['done:solve', 'cur:ship · copilot']
+  )
+  assert.equal(progressOf(o), 0.5)
+})
+
+test('workerEnded는 해제됐거나 끝난 워커만 고른다', () => {
+  assert.equal(workerEnded({ workerStatus: 'released' }), true)
+  assert.equal(workerEnded({ workerStatus: 'finished' }), true)
+  assert.equal(workerEnded({ workerStatus: 'running' }), false)
+  assert.equal(workerEnded({}), false)
+})
+
 test('stateLine은 한도, 게이트, 대기, 그 밖 순으로 고른다', () => {
   const now = Date.parse('2026-11-12T01:00:00.000Z')
   const gates = [{ id: 'g', type: 'merge', orderId: 'o1', reason: '', openedAt: '2026-11-12T00:42:00.000Z' }]
@@ -47,7 +77,7 @@ test('stateLine은 한도, 게이트, 대기, 그 밖 순으로 고른다', () =
   })
   assert.deepEqual(stateLine({ ...base, status: 'merged', awaitingDeploy: true }, [], now), {
     tone: 'deploy',
-    text: 'awaiting-deploy',
+    text: '배포 대기',
     aside: ''
   })
   assert.deepEqual(stateLine({ ...base, status: 'merged' }, [], now), { tone: 'idle', text: 'merged', aside: '' }, '옛 CLI 주문은 그대로다')

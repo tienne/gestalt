@@ -13,21 +13,38 @@ export function kindKey(workerKind?: string): KindKey {
 
 export type Chip = { text: string; state: 'done' | 'cur' | 'todo' }
 
+/** 워커는 체크포인트에 `gestalt:ship`처럼 플러그인 접두를 붙여 남기고 주문의 skillChain은 `ship`이라 비교 전에 뗀다 */
+const bareSkill = (skill: string) => skill.replace(/^gestalt:/, '')
+
+/** 머지나 끝남이면 워커가 끝남 체크포인트를 못 남기고 나갔어도 체인을 다 돈 것이다 */
+const FINISHED_ORDER_STATUSES: ReadonlySet<string> = new Set(['merged', 'done'])
+const chainFinished = (o: OrderView) => FINISHED_ORDER_STATUSES.has(o.status)
+
+/** 해제됐거나 끝난 워커. 워크트리가 이미 지워졌을 수 있어 터미널을 찾지 않는다 */
+const ENDED_WORKER_STATUSES: ReadonlySet<string> = new Set(['released', 'finished'])
+export const workerEnded = (o: Pick<OrderView, 'workerStatus'>) =>
+  o.workerStatus !== undefined && ENDED_WORKER_STATUSES.has(o.workerStatus)
+
 const stepText = (o: OrderView) => {
   const c = o.checkpoint!
-  return `${c.skill}${c.phase ? ` · ${c.phase}` : ''}${c.round ? ` r${c.round}` : ''}`
+  return `${bareSkill(c.skill)}${c.phase ? ` · ${c.phase}` : ''}${c.round ? ` r${c.round}` : ''}`
 }
 
-/** 스킬 체인 칩. 끝난 스킬, 체크포인트의 지금 스킬, 남은 스킬로 가른다. 체크포인트가 없으면 전부 남은 스킬이다 */
+/**
+ * 스킬 체인 칩. 끝난 스킬, 체크포인트의 지금 스킬, 남은 스킬로 가른다. 체크포인트가 없으면 전부 남은 스킬이다.
+ * 주문이 머지됐거나 끝났으면 체크포인트와 상관없이 전부 끝난 스킬이다
+ */
 export function chainChips(o: OrderView): Chip[] {
   const chain = o.skillChain ?? []
+  if (chainFinished(o)) return chain.map((text) => ({ text, state: 'done' }))
   const cp = o.checkpoint
   if (!cp) return chain.map((text) => ({ text, state: 'todo' }))
-  const done = new Set(cp.completedSkills)
+  const done = new Set(cp.completedSkills.map(bareSkill))
+  const current = bareSkill(cp.skill)
   let placed = false
   const chips: Chip[] = chain.map((s) => {
-    if (done.has(s)) return { text: s, state: 'done' }
-    if (!placed && s === cp.skill) {
+    if (done.has(bareSkill(s))) return { text: s, state: 'done' }
+    if (!placed && bareSkill(s) === current) {
       placed = true
       return { text: stepText(o), state: 'cur' }
     }
@@ -41,12 +58,13 @@ export function chainChips(o: OrderView): Chip[] {
   return chips
 }
 
-/** completedSkills / skillChain. 체인이 비면 null이라 막대를 안 그린다 */
+/** completedSkills / skillChain. 체인이 비면 null이라 막대를 안 그린다. 머지됐거나 끝난 주문은 1이다 */
 export function progressOf(o: OrderView): number | null {
   const chain = o.skillChain ?? []
   if (chain.length === 0) return null
-  const done = new Set(o.checkpoint?.completedSkills ?? [])
-  return chain.filter((s) => done.has(s)).length / chain.length
+  if (chainFinished(o)) return 1
+  const done = new Set((o.checkpoint?.completedSkills ?? []).map(bareSkill))
+  return chain.filter((s) => done.has(bareSkill(s))).length / chain.length
 }
 
 export type TodoLayer = { done: number; total: number } | 'unknown'
@@ -141,9 +159,10 @@ export function stateLine(o: OrderView, gates: readonly GateView[], now: number,
   }
   const last = Math.max(ms(o.checkpoint?.savedAt) ?? 0, ms(o.updatedAt) ?? 0) || null
   const status = displayStatus(o)
-  const tone: StateTone =
-    o.status === 'running' ? 'run' : o.status === 'escalated' ? 'gate' : status === AWAITING_DEPLOY ? 'deploy' : 'idle'
-  return { tone, text: status, aside: last === null ? '' : `${duration(last, now)} 전` }
+  const deploy = status === AWAITING_DEPLOY
+  const tone: StateTone = o.status === 'running' ? 'run' : o.status === 'escalated' ? 'gate' : deploy ? 'deploy' : 'idle'
+  // 다른 상태는 CLI 값을 그대로 적는데 배포 대기는 화면에만 있는 상태라 머지됨과 갈리게 글로 적는다
+  return { tone, text: deploy ? '배포 대기' : status, aside: last === null ? '' : `${duration(last, now)} 전` }
 }
 
 /** 카드 둘째 줄. 레포, 지라 키, PR, 계정이나 워커 종류, 기준 브랜치. 계정 이름은 showAccount가 켜졌을 때만 */
