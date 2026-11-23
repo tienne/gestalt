@@ -195,13 +195,13 @@ gestalt conductor deploy report --order <orderId> --status success --ref <pipeli
 
 `failed`면 그 주문을 사람에게 올린다.
 
-기능 브랜치처럼 배포를 따로 돌려야 하면 배포 주문에 그 배포에 들어가는 주문 id를 같이 넣는다. 같은 레포의 있는 주문만 받는다.
+기능 브랜치처럼 배포를 따로 돌려야 하면 배포 주문에 그 배포에 들어가는 주문 id를 같이 넣는다. 같은 레포에 실제로 있는 주문만 받는다.
 
 ```bash
 gestalt conductor order add --repo <owner/name> --title "dev, stage 배포" --deploys <orderId> <orderId>
 ```
 
-배포 워커가 `--deploy-ref <실행 URL>`을 실어 done으로 끝내면 다음 tick이 머지된 대상마다 위와 같은 성공 신호를 남기고 In-QA로 끝낸다. 이미 끝났거나 배포를 안 기다리는 대상은 tick 결과 `deployTargets`에 건너뜀으로, 머지 전 대상은 warnings에 남는다. 배포 주문이 실패하거나 취소되면 아무것도 안 남긴다. 이 경우는 손으로 `deploy report`를 부르지 않아도 된다.
+배포 워커가 `--deploy-ref <실행 URL>`을 실어 done으로 끝내면 다음 tick이 머지된 대상마다 위와 같은 성공 신호를 남기고 In-QA로 끝낸다. 머지된 대상은 손으로 `deploy report`를 부르지 않아도 된다. 이미 끝났거나 배포를 안 기다리는 대상, 배포 실패 신호가 이미 있는 대상은 tick 결과 `deployTargets`에 건너뜀으로 남는다. 머지되지 않은 대상은 warnings에 남고 이 배포 주문으로는 다시 안 본다. 그 뒤 머지돼 배포됐으면 다음 배포 주문에 넣거나 `deploy report`로 남긴다. 배포 주문이 실패하거나 취소되면 대상에는 아무것도 안 남긴다.
 
 ## 7. 루프
 

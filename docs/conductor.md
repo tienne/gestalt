@@ -725,7 +725,7 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 
 배포 파이프라인이 자동으로 안 도는 브랜치는 "dev, stage 배포" 같은 배포 주문을 따로 넣는다. 이때 `order add --deploys <orderId...>`로 그 배포에 들어가는 주문을 같이 적어 두면 손으로 주문마다 `deploy report`를 남기지 않아도 된다. 접수할 때 대상이 있는 주문인지, 배포 주문과 같은 레포인지 확인하고 틀리면 거절한다. 대상은 `order show --json`과 `status --json`의 `deploys`에 보인다.
 
-배포 워커가 done으로 보고하면 다음 tick이 대상 주문마다 `deploy report --status success`와 같은 신호 파일을 `deploy/`에 쓴다. ref는 워커가 `worker report --deploy-ref <url>`로 실은 배포 실행 주소이고 없으면 배포 주문 id다. 신호를 쓴 뒤에는 같은 tick의 머지 뒤 정산이 평소처럼 지라를 In-QA로 옮기고 주문을 `done`으로 닫는다. 대상이 이미 `done`이거나 배포를 안 기다리는 유형이면 건너뛰고 tick 결과의 `deployTargets`에 남긴다. 아직 머지 전인 대상은 이 배포에 안 들어간 것이라 기록하지 않고 warnings에 남긴다. 배포 주문당 한 번만 돌고 그 시각을 `deploysRecordedAt`에 남긴다. 배포 워커가 실패하거나 주문이 취소되면 대상에는 아무것도 남기지 않고 `deployWaitMaxSec` 기한도 그대로 흐른다.
+배포 워커가 done으로 보고하면 다음 tick이 대상 주문마다 `deploy report --status success`와 같은 신호 파일을 `deploy/`에 쓴다. ref는 워커가 `worker report --deploy-ref <url>`로 실은 배포 실행 주소이고 없으면 배포 주문 id다. 신호를 쓴 뒤에는 같은 tick의 머지 뒤 정산이 평소처럼 지라를 In-QA로 옮기고 주문을 `done`으로 끝낸다. 대상이 이미 `done`이거나 배포를 안 기다리는 유형이면 건너뛰고 tick 결과의 `deployTargets`에 남긴다. 호스트가 이미 배포 실패 신호를 남긴 대상도 성공으로 덮지 않고 건너뛴다. 머지되지 않은 대상은 이 배포에 안 들어간 것이라 기록하지 않고 warnings에 남긴다. 이 배포 주문으로는 그 대상을 다시 안 보므로, 나중에 머지돼 배포됐으면 다음 배포 주문의 `--deploys`에 넣거나 `deploy report`로 남긴다. 배포 주문당 한 번만 돌고 그 시각을 `deploysRecordedAt`에 남긴다. 배포 워커가 실패하거나 주문이 취소되면 대상에는 아무것도 남기지 않고 `deployWaitMaxSec` 기한도 그대로 흐른다.
 
 ## PR 감시
 
