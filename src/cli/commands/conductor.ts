@@ -367,20 +367,21 @@ export async function conductorArchiveCommand(opts: ConductorArchiveOptions): Pr
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'archive');
+    // Number('')가 0이라 빈 값이 끝난 주문을 전부 옮기지 않게 숫자만 받는다
+    if (opts.olderThan !== undefined && !/^\d+$/.test(opts.olderThan))
+      throw new Error(`--older-than은 0 이상의 정수(일)로 주세요: ${opts.olderThan}`);
     const days = opts.olderThan === undefined ? DEFAULT_ARCHIVE_DAYS : Number(opts.olderThan);
-    if (!Number.isSafeInteger(days) || days < 0)
+    if (!Number.isSafeInteger(days))
       throw new Error(`--older-than은 0 이상의 정수(일)로 주세요: ${opts.olderThan}`);
     const result = await archiveOrders(ctx.store.dir, { days, dryRun: opts.dryRun === true });
     if (result.status === 'locked')
       throw new Error(
         `다른 프로세스(${result.holder ?? '알 수 없음'})가 저장소를 쓰는 중이에요. 잠시 뒤 다시 불러 주세요`,
       );
-    // 조회용 사본에서도 옮긴 주문을 뺀다
-    if (result.status === 'archived') ConductorStore.open(ctx.store.dir).flushSnapshot();
     if (opts.json) return print(result);
     const verb = result.status === 'dry-run' ? '옮길' : '옮긴';
     console.log(
-      `${verb} 주문 ${result.orders.length}개, 지운 주문의 이벤트 ${result.removed.length}개 (${days}일 기준)`,
+      `${verb} 주문 ${result.orders.length}개, 지운 주문의 이벤트 ${result.removed.length}개, 버린 컨덕터 게이트 ${result.gates.length}개 (${days}일 기준)`,
     );
     for (const o of result.orders)
       console.log(`  ${o.id}  ${o.status}  archive/${o.month}/${o.id}`);

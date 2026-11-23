@@ -1,16 +1,8 @@
-import {
-  cpSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-} from 'node:fs';
+import { cpSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import { ORDER_LOGS_DIR, foldEvents, fsyncDir, writeDurable, type FoldResult } from './fold.js';
 import { REFS_DIR, SAFE_ORDER_ID, removeOrderRefCopies } from './ref-copy.js';
-import { detachOrder, removalBlocker, replayStore } from './store.js';
+import { ConductorStore, detachOrder, removalBlocker, replayStore } from './store.js';
 import {
   TERMINAL_ORDER_STATUSES,
   type ConductorSnapshot,
@@ -30,8 +22,10 @@ export interface ArchivePlan {
   orders: { id: string; month: string; status: OrderStatus }[];
   /** `order remove`로 지운 주문. 상태에는 이미 없고 모아 둔 이벤트만 옮긴다 */
   removed: { id: string; month: string }[];
-  /** 끝났고 기간도 지났지만 못 옮기는 주문. tick 보고에 경고로 남긴다 */
+  /** 끝났고 기간도 지났지만 못 옮기는 주문. 사람이 게이트나 워커를 처리해야 옮긴다 */
   blocked: { id: string; reason: string }[];
+  /** 주문에 안 붙는 컨덕터 게이트 중 닫히고 기간이 지나 상태에서 버리는 것 */
+  gates: string[];
 }
 
 export interface ArchiveOptions {
@@ -52,31 +46,30 @@ export type ArchiveResult =
  * 보관할 주문을 고른다. 끝난 시각(`updatedAt`)이 기간보다 오래된 끝난 주문 중 `order remove`가 받아 주는
  * 주문만 옮긴다. 열린 게이트나 멈춘 워커가 남은 주문은 사람이 처리할 때까지 남긴다
  */
-export function planArchive(
-  dir: string,
-  s: ConductorSnapshot,
-  now: Date,
-  days: number,
-): ArchivePlan {
+export function planArchive(s: ConductorSnapshot, now: Date, days: number): ArchivePlan {
   const cutoff = now.getTime() - days * DAY_MS;
-  const plan: ArchivePlan = { orders: [], removed: [], blocked: [] };
+  const plan: ArchivePlan = { orders: [], removed: [], blocked: [], gates: [] };
   for (const o of Object.values(s.orders)) {
     if (!TERMINAL_ORDER_STATUSES.has(o.status) || !olderThan(o.updatedAt, cutoff)) continue;
     const reason = SAFE_ORDER_ID.test(o.id)
-      ? removalBlocker(s, o.id)
+      ? removalBlocker(s, o.id, 'archive')
       : `주문 id 꼴이 이상해 안 옮겨요: ${o.id.slice(0, 80)}`;
     if (reason) plan.blocked.push({ id: o.id, reason });
     else plan.orders.push({ id: o.id, month: monthOf(o.updatedAt, now), status: o.status });
   }
   for (const [id, r] of Object.entries(s.removedOrders)) {
-    if (!olderThan(r.removedAt, cutoff) || !SAFE_ORDER_ID.test(id)) continue;
-    if (existsSync(join(dir, ORDER_LOGS_DIR, id)))
-      plan.removed.push({ id, month: monthOf(r.removedAt, now) });
+    if (r.archived || !olderThan(r.removedAt, cutoff) || !SAFE_ORDER_ID.test(id)) continue;
+    plan.removed.push({ id, month: monthOf(r.removedAt, now) });
+  }
+  for (const g of Object.values(s.gates)) {
+    if (g.orderId === undefined && g.status === 'resolved' && olderThan(g.resolvedAt ?? '', cutoff))
+      plan.gates.push(g.id);
   }
   const byId = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
   plan.orders.sort(byId);
   plan.removed.sort(byId);
   plan.blocked.sort(byId);
+  plan.gates.sort();
   return plan;
 }
 
@@ -85,8 +78,8 @@ export function planArchive(
  *
  * 떼어 내기(`foldEvents`)와 한 번에 돈다. 잠금을 잡고 `events.jsonl`을 떼어 반영한 뒤 base.json을 쓰기 전에
  * 보관 파일을 쓰고 상태에서 주문을 뺀다. 주문별로 모아 둔 이벤트와 refs 사본은 base.json을 fsync한 뒤에
- * 지운다. 보관 파일은 주문 id 자리에 덮어써서 중간에 죽고 다시 돌아도 겹치지 않는다. base.json까지 쓰고
- * 죽으면 남은 이벤트와 사본은 다음 보관이 `archivedOrders`를 보고 지운다.
+ * 지운다. base.json을 쓰기 전에 죽으면 모아 둔 이벤트가 그대로라 다음 보관이 같은 자리에 같은 내용을
+ * 덮어쓴다. base.json까지 쓰고 죽으면 남은 이벤트와 사본은 다음 보관이 보관 기록을 보고 지운다.
  */
 export async function archiveOrders(
   dir: string,
@@ -94,9 +87,9 @@ export async function archiveOrders(
 ): Promise<ArchiveResult> {
   const now = opts.now ?? (() => new Date());
   const days = opts.days ?? DEFAULT_ARCHIVE_DAYS;
-  if (opts.dryRun) return { status: 'dry-run', ...planArchive(dir, replayStore(dir), now(), days) };
+  if (opts.dryRun) return { status: 'dry-run', ...planArchive(replayStore(dir), now(), days) };
 
-  let plan: ArchivePlan = { orders: [], removed: [], blocked: [] };
+  let plan: ArchivePlan = { orders: [], removed: [], blocked: [], gates: [] };
   const warnings: string[] = [];
   const fold = await foldEvents(dir, {
     now,
@@ -104,7 +97,7 @@ export async function archiveOrders(
     beforeWrite: (state) => {
       warnings.push(...cleanupArchived(dir, state));
       const at = now();
-      plan = planArchive(dir, state, at, days);
+      plan = planArchive(state, at, days);
       for (const { id, month } of plan.orders) {
         writeOrderArchive(dir, state, id, month, at.toISOString());
         const o = detachOrder(state, id);
@@ -116,17 +109,32 @@ export async function archiveOrders(
           ...(o.status === 'parked' && o.prRef ? { humanPr: o.prRef } : {}),
         };
       }
-      // 지운 주문은 상태가 안 바뀐다. 이벤트를 옮기고 모아 둔 것만 지운다
+      // 지운 주문은 이벤트만 옮기고 옮긴 달을 남긴다. 모아 둔 이벤트가 없으면 표시만 한다
       for (const { id, month } of plan.removed) {
-        const target = join(dir, ARCHIVE_DIR, month, id);
-        mkdirSync(target, { recursive: true, mode: 0o700 });
-        writeDurable(join(target, 'events.jsonl'), stagedEvents(dir, id));
-        fsyncDir(target);
-        rmSync(join(dir, ORDER_LOGS_DIR, id), { recursive: true, force: true });
+        const events = stagedEvents(dir, id);
+        if (events) {
+          const target = join(dir, ARCHIVE_DIR, month, id);
+          mkdirSync(target, { recursive: true, mode: 0o700 });
+          writeDurable(join(target, 'events.jsonl'), events);
+          fsyncDir(target);
+        }
+        state.removedOrders[id] = { ...state.removedOrders[id]!, archived: month };
       }
-      return plan.orders.length > 0;
+      for (const id of plan.gates) {
+        delete state.gates[id];
+        delete state.slackPosted[id];
+      }
+      return plan.orders.length + plan.removed.length + plan.gates.length > 0;
     },
-    afterWrite: (state) => warnings.push(...cleanupArchived(dir, state)),
+    afterWrite: (state) => {
+      warnings.push(...cleanupArchived(dir, state));
+      // 조회용 사본도 잠금 안에서 쓴다. 떼어 낸 뒤 붙은 줄까지 담게 다시 재생한다
+      try {
+        ConductorStore.open(dir).flushSnapshot();
+      } catch (e) {
+        warnings.push(`snapshot.json을 못 썼어요: ${(e as Error).message}`);
+      }
+    },
   });
   if (fold.status === 'locked') return fold;
   return { status: 'archived', fold: fold.status, ...plan, warnings };
@@ -206,16 +214,30 @@ function movedRefCopies(
   };
 }
 
-/** 보관한 주문에 남은 모아 둔 이벤트와 refs 사본을 지운다. base.json에 적힌 보관만 보므로 지워도 된다 */
+/**
+ * 옮긴 주문에 남은 모아 둔 이벤트와 refs 사본을 지운다. base.json에 적힌 보관만 보므로 지워도 된다.
+ * 보관 기록은 늘기만 하므로 디렉토리에 남은 이름만 본다
+ */
 function cleanupArchived(dir: string, s: ConductorSnapshot): string[] {
-  const warnings: string[] = [];
-  for (const id of Object.keys(s.archivedOrders)) {
-    if (!SAFE_ORDER_ID.test(id)) continue;
+  const done = (id: string) =>
+    SAFE_ORDER_ID.test(id) && (id in s.archivedOrders || !!s.removedOrders[id]?.archived);
+  for (const id of listDir(join(dir, ORDER_LOGS_DIR)).filter(done))
     rmSync(join(dir, ORDER_LOGS_DIR, id), { recursive: true, force: true });
+  const warnings: string[] = [];
+  for (const id of listDir(join(dir, REFS_DIR)).filter((id) => id in s.archivedOrders)) {
+    if (!SAFE_ORDER_ID.test(id)) continue;
     const warning = removeOrderRefCopies(dir, id);
     if (warning) warnings.push(warning);
   }
   return warnings;
+}
+
+function listDir(path: string): string[] {
+  try {
+    return readdirSync(path);
+  } catch {
+    return [];
+  }
 }
 
 function olderThan(iso: string, cutoff: number): boolean {
