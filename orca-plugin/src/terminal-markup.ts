@@ -16,6 +16,8 @@ export type TerminalMarkupOptions = {
   openError?: string | null
   /** 이동은 했지만 워커 터미널이 아닌 곳으로 갔을 때의 안내. 워커가 이유까지 담아 지은 문장이다 */
   openNote?: string | null
+  /** 머리의 "결과 페이지 열기" 옆에 한 줄로 붙일 안내. 뷰어를 못 띄운 이유나 브라우저를 못 열었을 때의 주소다 */
+  viewerNote?: string | null
   /** 상세를 펼쳐 둔 주문. 웹 페이지는 폴링 스크립트가 data-key로 펼침을 지키니 안 넘긴다 */
   open?: ReadonlySet<string>
   /** 펼친 카드에 붙일 워커 터미널. interactive일 때만 그린다 */
@@ -280,6 +282,19 @@ const eventRow = (e: EventView, showPrivate: boolean) =>
     span('ell', showSummary(e, showPrivate) ? eventText(e) : (e.orderId ?? ''))
   )
 
+/**
+ * 결과 뷰어는 결과 본문에 사내 정보가 있어 127.0.0.1에만 연다. 인증 없는 폰 페이지(private: false)에서는
+ * 버튼을 그리지 않는다. 폰에서 누르면 폰의 127.0.0.1을 열게 되기도 한다
+ */
+const viewerTools = (opts: TerminalMarkupOptions) =>
+  opts.interactive &&
+  opts.private &&
+  div(
+    'tools',
+    `<button class="go" data-viewer="1" data-focus="viewer" aria-label="결과 페이지 열기, 브라우저에서 열려요">결과 페이지 열기</button>`,
+    opts.viewerNote && span('viewer-note', opts.viewerNote)
+  )
+
 const LEGEND: [string, string][] = [
   ['var(--t-orange)', 'orca-worktree'],
   ['var(--t-blue)', 'git-worktree'],
@@ -300,10 +315,9 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
     div(
       'bar',
       '<span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>',
-      span('bar-title', `conductor · ${m.workers} workers`),
-      opts.private &&
-        '<button class="bar-btn" data-browse-all data-focus="browse-all" aria-label="결과 뷰어 열기, 브라우저에서 열려요">결과 뷰어 ↗</button>'
+      span('bar-title', `conductor · ${m.workers} workers`)
     ),
+    viewerTools(opts),
     div(
       'head',
       span('', 'GESTALT CONDUCTOR'),
@@ -349,10 +363,10 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .bar { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-bottom: 1px solid var(--t-line); color: var(--t-dim); font-size: 11px; }
 .bar .dot { width: 10px; height: 10px; border-radius: 50%; }
 .bar-title { margin: 0 auto; }
-.bar-btn { font: inherit; color: var(--t-fg); background: transparent; border: 1px solid var(--t-line); padding: 1px 8px; cursor: pointer; }
-.bar-btn:hover { border-color: var(--t-dim); }
-.bar-btn:focus-visible { outline: 1px solid var(--t-fg); outline-offset: 2px; }
 .head { display: flex; justify-content: center; flex-wrap: wrap; gap: 22px; padding: 10px 0 4px; font-weight: 700; letter-spacing: .04em; }
+.tools { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 8px 14px 0; min-width: 0; }
+.tools .go { margin-top: 0; flex: none; }
+.viewer-note { color: var(--t-red); min-width: 0; overflow-wrap: anywhere; }
 .k-orca { color: var(--t-orange); } .k-git { color: var(--t-blue); } .k-sub { color: var(--t-green); }
 .legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 18px; color: var(--t-dim); font-size: 11px; padding-bottom: 10px; }
 .legend i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; vertical-align: middle; }
@@ -452,6 +466,7 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
   .term { font-size: 11px; }
   .bar, .legend, .flow, .motto, .cmd { display: none; }
   .head { justify-content: flex-start; gap: 10px; padding: 8px 8px 6px; letter-spacing: 0; }
+  .tools { justify-content: flex-start; padding: 8px 8px 0; }
   .grid { gap: 8px; padding: 0 8px 8px; }
   .conductor h3 { display: none; }
   .workers { grid-template-columns: 1fr; gap: 8px; }

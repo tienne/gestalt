@@ -14,10 +14,11 @@ type State = {
   loadError: string | null
   openError: string | null
   openNote: string | null
+  viewerNote: string | null
   open: Set<string>
   live: Record<string, WorkerLive | 'loading'>
 }
-const state: State = { view: null, loadError: null, openError: null, openNote: null, open: new Set(), live: {} }
+const state: State = { view: null, loadError: null, openError: null, openNote: null, viewerNote: null, open: new Set(), live: {} }
 const inflight = new Set<string>()
 let poll: ReturnType<typeof setInterval> | null = null
 let clockTimer: ReturnType<typeof setInterval> | null = null
@@ -80,22 +81,17 @@ async function once(label: string, run: () => Promise<void>): Promise<void> {
   }
 }
 
-/** 결과 뷰어를 브라우저로 연다. 주문 id가 있으면 그 주문의 작업 내용 탭이다. 브라우저를 못 여는 화면이면 주소를 알려 준다 */
-function openBrowse(orderId?: string): Promise<void> {
-  return once(orderId ? '작업 내용을 여는 중이에요' : '결과 뷰어를 여는 중이에요', () => openBrowseNow(orderId))
+/** 결과 뷰어의 작업 내용 탭을 브라우저로 연다. 브라우저를 못 여는 화면이면 주소를 알려 준다 */
+function openBrowse(orderId: string): Promise<void> {
+  return once('작업 내용을 여는 중이에요', () => openBrowseNow(orderId))
 }
 
-async function openBrowseNow(orderId?: string): Promise<void> {
+async function openBrowseNow(orderId: string): Promise<void> {
   state.openError = null
   state.openNote = null
   try {
-    const out = await orca.plugin.request('order.browse', orderId ? { orderId } : {})
-    if (!out.ok) state.openNote = out.error
-    else if (!orca.shell) state.openNote = `브라우저에서 열어 주세요: ${out.url}`
-    else {
-      const r = await orca.shell.openExternal(out.url)
-      if (!r.opened) state.openNote = `브라우저를 못 열었어요. 주소: ${out.url}`
-    }
+    const out = await orca.plugin.request('order.browse', { orderId })
+    state.openNote = out.ok ? await openUrl(out.url) : out.error
   } catch (e) {
     state.openNote = `결과 뷰어를 못 열었어요. ${errorText(e)}`
   }
@@ -103,7 +99,7 @@ async function openBrowseNow(orderId?: string): Promise<void> {
   statusRegion.textContent = ''
   alertRegion.textContent = ''
   if (state.openNote) alertRegion.textContent = state.openNote
-  else statusRegion.textContent = orderId ? '작업 내용을 브라우저에서 열었어요' : '결과 뷰어를 브라우저에서 열었어요'
+  else statusRegion.textContent = '작업 내용을 브라우저에서 열었어요'
 }
 
 /** 주문 번호를 클립보드에 넣는다. 오르카 호스트 API에 클립보드가 없어 프레임의 브라우저 API를 쓰고, 막혀 있으면 선택 복사로 한 번 더 해 본다 */
@@ -143,6 +139,40 @@ function copyBySelection(text: string): boolean {
     return false
   } finally {
     ta.remove()
+  }
+}
+
+/** 머리의 "결과 페이지 열기". 워커가 떠 있는 뷰어를 쓰거나 새로 띄운 주소를 브라우저로 연다 */
+function openViewer(): Promise<void> {
+  return once('결과 페이지를 여는 중이에요', openViewerNow)
+}
+
+async function openViewerNow(): Promise<void> {
+  state.viewerNote = null
+  try {
+    const out = await orca.plugin.request('viewer.open')
+    state.viewerNote = out.ok ? await openUrl(out.url) : out.error
+  } catch (e) {
+    state.viewerNote = `결과 뷰어를 못 열었어요. ${errorText(e)}`
+  }
+  render()
+  statusRegion.textContent = ''
+  alertRegion.textContent = ''
+  if (state.viewerNote) alertRegion.textContent = state.viewerNote
+  else statusRegion.textContent = '결과 페이지를 브라우저에서 열었어요'
+}
+
+/**
+ * 주소를 시스템 브라우저로 열고 못 열었으면 사용자에게 보일 한 줄을 준다.
+ * 뷰어를 띄우는 사이 클릭으로 받은 열기 권한이 끝났을 수 있어서 다시 눌러 달라고 적는다
+ */
+async function openUrl(url: string): Promise<string | null> {
+  if (!orca.shell) return `브라우저에서 열어 주세요: ${url}`
+  try {
+    const r = await orca.shell.openExternal(url)
+    return r.opened ? null : `브라우저를 못 열었어요. 다시 눌러 주세요. 주소: ${url}`
+  } catch {
+    return `브라우저를 못 열었어요. 다시 눌러 주세요. 주소: ${url}`
   }
 }
 
@@ -264,6 +294,7 @@ function render(): void {
     loadError: state.loadError,
     openError: state.openError,
     openNote: state.openNote,
+    viewerNote: state.viewerNote,
     open: state.open,
     live: state.live
   })
@@ -326,7 +357,7 @@ export function mountTerminal(): void {
     if (go?.dataset['go']) void openWorker(go.dataset['go'])
     const browse = (e.target as Element | null)?.closest<HTMLElement>('[data-browse]')
     if (browse?.dataset['browse']) void openBrowse(browse.dataset['browse'])
-    if ((e.target as Element | null)?.closest('[data-browse-all]')) void openBrowse()
+    if ((e.target as Element | null)?.closest('[data-viewer]')) void openViewer()
     if ((e.target as Element | null)?.closest('[data-go-conductor]')) void openConductor()
     const copy = (e.target as Element | null)?.closest<HTMLElement>('[data-copy]')
     if (copy?.dataset['copy']) void copyText(copy.dataset['copy'])

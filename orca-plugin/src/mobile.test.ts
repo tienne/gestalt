@@ -240,6 +240,12 @@ test('웹 터미널은 워커가 쓴 다음 할 일과 대기 사유, bypass, �
   has(html, 'ord-a')
 })
 
+test('인증 없는 웹 터미널에는 127.0.0.1 결과 뷰어를 여는 버튼을 넣지 않는다', () => {
+  const html = terminalFragment(view({ orders: [order('ord-a')] }), NOW)
+  assert.equal(html.includes('data-viewer'), false)
+  assert.equal(html.includes('결과 페이지 열기'), false)
+})
+
 test('서버는 ?view=terminal에 터미널 페이지를 같은 규칙으로 돌려준다', async () => {
   const server = new MobileServer(() => view({ orders: [order('ord-a', { title: '터미널 주문' })] }))
   const port = await server.start(0)

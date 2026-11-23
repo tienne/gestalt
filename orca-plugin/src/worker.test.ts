@@ -1,5 +1,6 @@
 // 진짜 gestalt 대신 test/fake-gestalt.mjs를 부른다. 저장소도 임시 폴더라 실제 컨덕터 상태는 건드리지 않는다.
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
+import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { request } from 'node:http'
@@ -56,9 +57,12 @@ const WORKSPACES = {
   truncated: false
 }
 
-function host(dir: string, storage: Record<string, string[]> = {}, extra: Record<string, unknown> = {}) {
+type Stored = Parameters<typeof mockHost>[0] extends infer O ? (O extends { storage?: infer S } ? S : never) : never
+
+// 결과 뷰어 미리 띄우기는 따로 시험한다. 다른 테스트의 gestalt 호출 수가 흔들리지 않게 기본은 끈다
+function host(dir: string, storage: Stored = {}, extra: Record<string, unknown> = {}) {
   return mockHost({
-    settings: { gestaltPath: FAKE, stateDir: dir, ...extra },
+    settings: { gestaltPath: FAKE, stateDir: dir, viewerOnStart: false, ...extra },
     storage,
     results: { 'workspace.list': WORKSPACES, 'workspace.open': { opened: true } }
   })
@@ -294,20 +298,251 @@ test('order.remove는 CLI가 하나도 못 지우면 stdout에 남긴 주문별 
   })
 })
 
+const VIEWER_URL = /^http:\/\/127\.0\.0\.1:\d+$/
+const browseCalls = (s: ReturnType<typeof store>) => s.calls().filter((c) => c.args[1] === 'browse')
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function until(check: () => boolean, ms = 5000): Promise<void> {
+  const end = Date.now() + ms
+  while (!check()) {
+    if (Date.now() > end) throw new Error('기다리던 상태가 안 됐어요')
+    await new Promise((r) => setTimeout(r, 20))
+  }
+}
+
 test('order.browse는 결과 뷰어를 한 번만 띄우고 작업 내용 탭 주소를 준다', async () => {
   const s = store(STATUS)
   await run(s, host(s.dir), async (worker) => {
     const first = await worker.request('order.browse', { orderId: 'ord-a' })
-    assert.deepEqual(first, { ok: true, url: 'http://127.0.0.1:49999/#order/ord-a/work' })
+    assert.equal(first.ok, true)
+    const base = first.ok ? first.url.replace(/\/#order\/ord-a\/work$/, '') : ''
+    assert.match(base, VIEWER_URL)
     const second = await worker.request('order.browse', { orderId: 'ord-b' })
-    assert.deepEqual(second, { ok: true, url: 'http://127.0.0.1:49999/#order/ord-b/work' })
-    const browse = s.calls().filter((c) => c.args[1] === 'browse')
+    assert.deepEqual(second, { ok: true, url: `${base}/#order/ord-b/work` })
+    const browse = browseCalls(s)
     assert.equal(browse.length, 1)
-    assert.deepEqual(browse[0]!.args, ['conductor', 'browse', '--no-open', '--port', '0', `--state-dir=${s.dir}`])
-    const home = await worker.request('order.browse', {})
-    assert.deepEqual(home, { ok: true, url: 'http://127.0.0.1:49999/' })
+    assert.deepEqual(browse[0]!.args, ['conductor', 'browse', '--no-open', `--state-dir=${s.dir}`])
     const bad = await worker.request('order.browse', { orderId: '--all' })
     assert.equal(bad.ok, false)
+  })
+})
+
+test('결과 페이지 열기는 떠 있는 뷰어를 다시 쓰고 작업 내용 보기와 같은 뷰어를 쓴다', async () => {
+  const s = store(STATUS)
+  const h = host(s.dir)
+  await run(s, h, async (worker) => {
+    const first = await worker.request('viewer.open')
+    assert.equal(first.ok, true)
+    const url = first.ok ? first.url : ''
+    assert.match(url, VIEWER_URL)
+    assert.deepEqual(await worker.request('viewer.open'), { ok: true, url })
+    const work = await worker.request('order.browse', { orderId: 'ord-a' })
+    assert.deepEqual(work, { ok: true, url: `${url}/#order/ord-a/work` })
+    assert.equal(browseCalls(s).length, 1)
+    const rec = h.data().storage['resultsViewer'] as { pid: number; url: string }
+    assert.equal(rec.url, url, '다음 워커가 이어받게 뷰어 주소를 남긴다')
+    assert.equal(pidAlive(rec.pid), true)
+  })
+})
+
+test('워커가 내려가면 띄운 결과 뷰어를 끄고 기록을 지운다', async () => {
+  const s = store(STATUS)
+  const h = host(s.dir)
+  const worker = await mountWorker(main, { host: h })
+  let pid = 0
+  try {
+    const out = await worker.request('viewer.open')
+    assert.equal(out.ok, true)
+    pid = (h.data().storage['resultsViewer'] as { pid: number }).pid
+  } finally {
+    await worker.deactivate()
+  }
+  try {
+    await until(() => !pidAlive(pid))
+    assert.equal(h.data().storage['resultsViewer'], undefined)
+  } finally {
+    s.cleanup()
+  }
+})
+
+test('지난 워커가 남긴 결과 뷰어가 살아 있으면 새로 띄우지 않고 이어받는다', async () => {
+  const s = store(STATUS)
+  // 워커가 비정상으로 죽어 고아로 남은 뷰어를 흉내 낸다
+  const orphan = spawn(process.execPath, [FAKE, 'conductor', 'browse', '--no-open', `--state-dir=${s.dir}`], {
+    stdio: ['ignore', 'pipe', 'ignore']
+  })
+  try {
+    const url = await new Promise<string>((resolve) => {
+      let out = ''
+      orphan.stdout?.on('data', (d) => {
+        out += d.toString()
+        const m = /http:\/\/127\.0\.0\.1:\d+/.exec(out)
+        if (m) resolve(m[0])
+      })
+    })
+    const before = browseCalls(s).length
+    const h = host(s.dir, { resultsViewer: { pid: orphan.pid!, url, key: JSON.stringify([FAKE, s.dir]) } })
+    await run(s, h, async (worker) => {
+      assert.deepEqual(await worker.request('viewer.open'), { ok: true, url })
+      assert.equal(browseCalls(s).length, before, '같은 저장소에 뷰어를 하나 더 띄우지 않는다')
+    })
+    await until(() => orphan.exitCode !== null || orphan.signalCode !== null)
+  } finally {
+    orphan.kill()
+  }
+})
+
+test('남은 뷰어 기록의 프로세스가 없으면 새로 띄우고 기록을 바꾼다', async () => {
+  const s = store(STATUS)
+  const h = host(s.dir, { resultsViewer: { pid: 999_999, url: 'http://127.0.0.1:1', key: JSON.stringify([FAKE, s.dir]) } })
+  await run(s, h, async (worker) => {
+    const out = await worker.request('viewer.open')
+    assert.equal(out.ok, true)
+    assert.equal(browseCalls(s).length, 1)
+    const rec = h.data().storage['resultsViewer'] as { pid: number; url: string }
+    assert.notEqual(rec.pid, 999_999)
+    assert.equal(out.ok && rec.url === out.url, true)
+  })
+})
+
+/** 고아로 남은 프로세스를 흉내 낸다. 찍은 주소를 받을 때까지 기다린다 */
+async function orphanOf(args: string[]) {
+  const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'ignore'] })
+  const url = await new Promise<string>((resolve, reject) => {
+    let out = ''
+    child.stdout?.on('data', (d) => {
+      out += d.toString()
+      const m = /http:\/\/127\.0\.0\.1:\d+/.exec(out)
+      if (m) resolve(m[0])
+    })
+    child.once('exit', (code) => reject(new Error(`주소를 찍기 전에 끝났어요(${String(code)})`)))
+  })
+  return { child, url }
+}
+
+// 첫 화면 HTML만 주고 주문 목록 API는 없는 다른 로컬 서버
+const PLAIN_SERVER = `require('node:http').createServer((req, res) => {
+  res.writeHead(200, { 'content-type': 'text/html' }); res.end('<p>other</p>')
+}).listen(0, '127.0.0.1', function () { console.log('http://127.0.0.1:' + this.address().port) })`
+
+test('설정이 바뀐 뒤의 기록이 실제 결과 뷰어면 그 뷰어를 끄고 새로 띄운다', async () => {
+  const s = store(STATUS)
+  const orphan = await orphanOf([FAKE, 'conductor', 'browse', '--no-open', `--state-dir=${s.dir}`])
+  try {
+    const before = browseCalls(s).length
+    const h = host(s.dir, { resultsViewer: { pid: orphan.child.pid!, url: orphan.url, key: JSON.stringify([FAKE, '/elsewhere']) } })
+    await run(s, h, async (worker) => {
+      const out = await worker.request('viewer.open')
+      assert.equal(out.ok, true)
+      assert.notEqual(out.ok ? out.url : '', orphan.url)
+      assert.equal(browseCalls(s).length, before + 1)
+      await until(() => orphan.child.exitCode !== null || orphan.child.signalCode !== null)
+    })
+  } finally {
+    orphan.child.kill()
+  }
+})
+
+test('저장소 설정이 비고 CLI도 저장소를 못 알려 주면 뷰어를 띄우지도 기록을 건드리지도 않는다', async () => {
+  const s = store(STATUS)
+  const orphan = await orphanOf([FAKE, 'conductor', 'browse', '--no-open', `--state-dir=${s.dir}`])
+  try {
+    // 가짜 CLI는 --state-dir 없이는 status에 실패해 저장소를 알려 주지 않는다
+    const before = browseCalls(s).length
+    const rec = { pid: orphan.child.pid!, url: orphan.url, key: JSON.stringify([FAKE, s.dir]) }
+    const h = host('', { resultsViewer: rec })
+    await run(s, h, async (worker) => {
+      const out = await worker.request('viewer.open')
+      assert.equal(out.ok, false)
+      assert.match(out.ok ? '' : out.error, /저장소를 아직 몰라요/)
+      assert.equal(browseCalls(s).length, before)
+      assert.deepEqual(h.data().storage['resultsViewer'], rec)
+    })
+    assert.equal(pidAlive(orphan.child.pid!), true, '저장소를 모를 때는 남은 뷰어를 끄지 않는다')
+  } finally {
+    orphan.child.kill()
+  }
+})
+
+test('기록의 pid가 결과 뷰어가 아닌 서버면 이어받지도 끄지도 않고 기록만 바꾼다', async () => {
+  const s = store(STATUS)
+  const other = await orphanOf(['-e', PLAIN_SERVER])
+  try {
+    const pid = other.child.pid!
+    const h = host(s.dir, { resultsViewer: { pid, url: other.url, key: JSON.stringify([FAKE, s.dir]) } })
+    await run(s, h, async (worker) => {
+      const out = await worker.request('viewer.open')
+      assert.equal(out.ok, true)
+      assert.notEqual(out.ok ? out.url : '', other.url, '다른 서버를 결과 뷰어로 이어받지 않는다')
+      assert.equal(browseCalls(s).length, 1)
+      const rec = h.data().storage['resultsViewer'] as { pid: number }
+      assert.notEqual(rec.pid, pid)
+    })
+    assert.equal(pidAlive(pid), true, '결과 뷰어가 아닌 프로세스는 끄지 않는다')
+  } finally {
+    other.child.kill()
+  }
+})
+
+test('설정이 바뀐 뒤의 기록이 응답 없는 프로세스면 끄지 않는다', async () => {
+  const s = store(STATUS)
+  const other = await orphanOf(['-e', PLAIN_SERVER])
+  try {
+    const pid = other.child.pid!
+    const h = host(s.dir, { resultsViewer: { pid, url: 'http://127.0.0.1:1', key: JSON.stringify([FAKE, '/elsewhere']) } })
+    await run(s, h, async (worker) => {
+      assert.equal((await worker.request('viewer.open')).ok, true)
+    })
+    assert.equal(pidAlive(pid), true)
+  } finally {
+    other.child.kill()
+  }
+})
+
+test('결과 뷰어를 못 띄우면 이유를 돌려준다', async () => {
+  const s = store(STATUS)
+  writeFileSync(join(s.dir, 'fake-browse-fail'), '결과 뷰어를 못 띄웠어요: listen EADDRINUSE 127.0.0.1:7894\n')
+  await run(s, host(s.dir), async (worker) => {
+    const out = await worker.request('viewer.open')
+    assert.equal(out.ok, false)
+    assert.match(out.ok ? '' : out.error, /EADDRINUSE/)
+  })
+})
+
+test('gestalt를 못 찾으면 결과 뷰어 대신 그 이유를 돌려준다', async () => {
+  const s = store(STATUS)
+  await run(s, host(s.dir, {}, { gestaltPath: join(s.dir, 'no-such-gestalt') }), async (worker) => {
+    const out = await worker.request('viewer.open')
+    assert.equal(out.ok, false)
+    assert.match(out.ok ? '' : out.error, /결과 뷰어를 못 띄웠어요/)
+  })
+})
+
+test('켜 두면 플러그인이 뜰 때 저장소가 있으면 결과 뷰어를 미리 띄운다', async () => {
+  const s = store(STATUS)
+  await run(s, host(s.dir, {}, { viewerOnStart: true }), async (worker) => {
+    await until(() => browseCalls(s).length === 1)
+    const out = await worker.request('viewer.open')
+    assert.equal(out.ok, true)
+    assert.equal(browseCalls(s).length, 1, '미리 띄운 뷰어를 버튼이 그대로 쓴다')
+  })
+})
+
+test('저장소가 없으면 결과 뷰어를 미리 띄우지 않는다', async () => {
+  const s = store()
+  await run(s, host(s.dir, {}, { viewerOnStart: true }), async (worker) => {
+    const view = await worker.request('conductor.status')
+    assert.equal(view.state, 'missing')
+    await new Promise((r) => setTimeout(r, 200))
+    assert.equal(browseCalls(s).length, 0)
   })
 })
 

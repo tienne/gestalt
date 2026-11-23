@@ -92,6 +92,13 @@
         "default": 0,
         "minimum": 0,
         "maximum": 65535
+      },
+      {
+        "key": "viewerOnStart",
+        "type": "boolean",
+        "title": "오르카를 켤 때 결과 뷰어 띄우기",
+        "description": "켜 두면 플러그인이 뜰 때 컨덕터 저장소가 있으면 결과 뷰어(gestalt conductor browse)를 이 맥의 127.0.0.1에 하나만 미리 띄워 두고 플러그인이 내려갈 때 같이 꺼요. 꺼 두면 컨덕터 터미널의 \"결과 페이지 열기\"를 누를 때 띄워요.",
+        "default": true
       }
     ]
   },

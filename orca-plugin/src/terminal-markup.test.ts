@@ -231,7 +231,7 @@ test('웹 페이지는 고친 파일과 지금 파일만 보여 주고 todo와 �
   lacks(html, 'data-browse')
   const desk = terminalMarkup(view([order('ord-a', { work: WORK })]), { now: NOW, interactive: true, private: true })
   has(desk, 'data-browse="ord-a"')
-  has(desk, 'data-browse-all')
+  has(desk, 'data-viewer')
   has(desk, 'data-copy="ord-a"')
   lacks(html, 'data-copy')
   has(html, 'w-ord-a')
@@ -249,6 +249,26 @@ test('하위 주문 줄도 배포 대기를 상태줄과 같게 그린다', () =
     { now: NOW, interactive: false, private: false }
   )
   has(html, 'ord-c ord-c</span><span>awaiting-deploy')
+})
+
+test('결과 페이지 열기는 데스크톱 화면 머리에만 있고 카드 목록보다 위에 있다', () => {
+  const desk = terminalMarkup(view([order('ord-a')]), { now: NOW, interactive: true, private: true })
+  has(desk, 'data-viewer')
+  assert.equal(desk.indexOf('data-viewer') < desk.indexOf('class="workers"'), true, '카드 목록보다 위에 있어요')
+  lacks(terminalMarkup(view([order('ord-a')]), { now: NOW, interactive: false, private: false }), 'data-viewer')
+  lacks(terminalMarkup(view([order('ord-a')]), { now: NOW, interactive: true, private: false }), 'data-viewer')
+})
+
+test('결과 뷰어를 못 띄운 이유는 버튼 옆에 이스케이프해서 한 줄로 붙인다', () => {
+  const html = terminalMarkup(view([order('ord-a')]), {
+    now: NOW,
+    interactive: true,
+    private: true,
+    viewerNote: '결과 뷰어를 못 띄웠어요. <gestalt> 실행 파일을 못 찾았어요'
+  })
+  has(html, '<span class="viewer-note">결과 뷰어를 못 띄웠어요. &lt;gestalt&gt; 실행 파일을 못 찾았어요</span>')
+  assert.equal(html.indexOf('viewer-note') > html.indexOf('data-viewer'), true)
+  lacks(terminalMarkup(view([order('ord-a')]), { now: NOW, interactive: true, private: true }), 'viewer-note')
 })
 
 test('카드는 주문 id를 워커 종류 색 배지로, 제목은 다음 줄에 그리고 길면 줄바꿈한다', () => {
