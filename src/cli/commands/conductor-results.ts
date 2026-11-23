@@ -190,6 +190,8 @@ export function conductorResultsShowCommand(id: string, opts: ResultsShowOptions
     const resolved = resolveOrderId(results, id);
     if (!resolved.ok) {
       if (resolved.reason === 'removed') throw new Error(`지운 주문이에요: ${id}`);
+      if (resolved.reason === 'archived')
+        throw new Error(`보관한 주문이에요: archive/${resolved.month}/${id}/ 에서 찾아 주세요`);
       if (resolved.reason === 'ambiguous') {
         const list = resolved.candidates.slice(0, 10).join(', ');
         const rest =

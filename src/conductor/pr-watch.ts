@@ -52,7 +52,7 @@ export interface PrWatchResult {
  * 끝나지 않은 주문이다. 그 워커가 이미 PR을 다루고 있거나 승인 뒤 다시 다룰 거라
  * 주문을 하나 더 만들면 두 워커가 같은 스레드에 답하게 된다.
  * 사람이 넘겨받은 PR(human-owned, parked)도 건드리지 않는다. parked는 끝 상태지만 PR은 사람이
- * 쥐고 있어 컨덕터가 답글을 달면 사람과 워커가 같은 PR을 만진다.
+ * 쥐고 있어 컨덕터가 답글을 달면 사람과 워커가 같은 PR을 만진다. parked로 보관한 주문의 PR도 같다.
  */
 export async function pollPrs(
   store: ConductorStore,
@@ -60,15 +60,16 @@ export async function pollPrs(
   config: { defaultScope: OrderScope },
 ): Promise<PrWatchResult> {
   const result: PrWatchResult = { created: [], gated: [], unansweredThreads: 0 };
-  const busy = new Set(
-    store
+  const busy = new Set([
+    ...store
       .orders()
       .filter(
         (o) =>
           o.prRef && (!TERMINAL_ORDER_STATUSES.has(o.status) || HUMAN_PR_STATUSES.has(o.status)),
       )
       .map((o) => o.prRef!),
-  );
+    ...store.archivedHumanPrs(),
+  ]);
 
   const authored = await source.authored();
   const reviewing = await source.reviewing();

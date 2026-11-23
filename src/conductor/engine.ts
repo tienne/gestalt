@@ -193,7 +193,7 @@ const STEAL_STALE_MS = 60 * 1000;
 const RELEASE_RETRIES = 20;
 const RELEASE_RETRY_MS = 50;
 /** 정리에 실패한 워커의 게이트를 알아보는 표식 */
-const CLEANUP_FAILED = 'cleanup-failed';
+export const CLEANUP_FAILED = 'cleanup-failed';
 /** 주문 하나의 워커들이 spawnRequest로 만들 수 있는 하위 주문 수. 넘는 요청은 거절해 워커에 알린다 */
 export const MAX_SPAWN_PER_ORDER = 3;
 /** 보고를 적용하다 실패한 원문을 남기는 자리. inbox 아래에 둔다 */
@@ -824,10 +824,7 @@ async function spawnFromReport(
   if (order.parentOrderId) return refuse('하위 주문의 하위 주문은 만들 수 없어요');
   const sourceRef = `spawn:${order.id}:${req.title}`;
   if (store.hasSourceRef(sourceRef)) return;
-  // 지운 하위 주문도 센다. 안 그러면 끝난 하위 주문을 지울 때마다 상한이 다시 열린다
-  const made = [...store.orders(), ...Object.values(store.snapshot.removedOrders)].filter(
-    (o) => o.parentOrderId === order.id,
-  ).length;
+  const made = store.childOrderCount(order.id);
   if (made >= MAX_SPAWN_PER_ORDER)
     return refuse(`주문 하나에 ${MAX_SPAWN_PER_ORDER}개까지만 만들어요`);
   const scope: OrderScope = order.scope === 'merge-through' ? 'approval' : order.scope;

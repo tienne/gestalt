@@ -1,5 +1,6 @@
 import { Command, Option } from 'commander';
 import type { ClientType } from '../execute/rule-writer.js';
+import { DEFAULT_ARCHIVE_DAYS } from '../conductor/archive.js';
 import { interviewCommand } from './commands/interview.js';
 import { specCommand } from './commands/spec.js';
 import { serveCommand } from './commands/serve.js';
@@ -39,6 +40,7 @@ import {
   conductorOrderCancelCommand,
   conductorOrderMarkMergedCommand,
   conductorOrderRemoveCommand,
+  conductorArchiveCommand,
   conductorOrderShowCommand,
   conductorOrderTakeOverCommand,
   conductorQueueAddCommand,
@@ -1156,6 +1158,19 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorContextPathCommand(o));
+
+  conductor
+    .command('archive')
+    .description(
+      '끝나고 기간이 지난 주문을 archive/<YYYY-MM>/<주문 id>/로 옮긴다. 열린 게이트나 멈춘 워커가 남은 주문은 남긴다',
+    )
+    .option('--older-than <days>', `끝나고 며칠 지난 주문을 옮길지. 기본 ${DEFAULT_ARCHIVE_DAYS}일`)
+    .option('--dry-run', '옮기지 않고 옮길 주문만 보여준다')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (o) => {
+      await conductorArchiveCommand(o);
+    });
 
   conductor
     .command('status')

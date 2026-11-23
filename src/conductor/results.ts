@@ -622,13 +622,16 @@ export function listOrders(
 
 export type ResolvedOrderId =
   | { ok: true; id: string }
-  | { ok: false; reason: 'unknown' | 'removed' | 'ambiguous'; candidates: string[] };
+  | { ok: false; reason: 'unknown' | 'removed' | 'ambiguous'; candidates: string[] }
+  | { ok: false; reason: 'archived'; month: string; candidates: string[] };
 
 /** 주문 id. 앞부분만 적어도 하나로 정해지면 받는다 */
 export function resolveOrderId(results: LoadedResults, input: string): ResolvedOrderId {
-  const { orders, removedOrders } = results.snapshot;
+  const { orders, removedOrders, archivedOrders } = results.snapshot;
   if (Object.hasOwn(orders, input)) return { ok: true, id: input };
   if (Object.hasOwn(removedOrders, input)) return { ok: false, reason: 'removed', candidates: [] };
+  if (Object.hasOwn(archivedOrders, input))
+    return { ok: false, reason: 'archived', month: archivedOrders[input]!.month, candidates: [] };
   const hits = input ? Object.keys(orders).filter((id) => id.startsWith(input)) : [];
   if (hits.length === 1) return { ok: true, id: hits[0]! };
   return { ok: false, reason: hits.length > 1 ? 'ambiguous' : 'unknown', candidates: hits.sort() };

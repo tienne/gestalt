@@ -362,11 +362,27 @@ export interface RemovedOrder {
   sourceRef: string;
   parentOrderId?: string;
   removedAt: string;
+  /** 모아 둔 이벤트를 `archive/<이 달>/<주문 id>/`로 옮긴 달. 옮긴 뒤 다시 옮기지 않는다 */
+  archived?: string;
+}
+
+/**
+ * 보관소(`archive/<month>/<주문 id>/`)로 옮긴 주문에서 남기는 것. 지운 주문처럼 같은 출처를 다시 받지 않고
+ * 하위 주문 상한을 센다. parked 주문이면 사람에게 넘긴 PR을 남겨 PR 감시가 그 PR로 주문을 새로 만들지 않게 한다
+ */
+export interface ArchivedOrder {
+  sourceRef: string;
+  parentOrderId?: string;
+  archivedAt: string;
+  /** 보관한 달(YYYY-MM). 주문이 끝난 달이다 */
+  month: string;
+  humanPr?: string;
 }
 
 export interface ConductorSnapshot {
   orders: Record<string, Order>;
   removedOrders: Record<string, RemovedOrder>;
+  archivedOrders: Record<string, ArchivedOrder>;
   workers: Record<string, Worker>;
   /** 주문마다 마지막 체크포인트 하나 */
   checkpoints: Record<string, Checkpoint>;

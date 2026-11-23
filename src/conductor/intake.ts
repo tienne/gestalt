@@ -106,7 +106,9 @@ export type IntakeResult =
   | { created: true; order: Order }
   | { created: false; order: Order }
   /** 같은 출처의 주문을 사람이 지웠다. 다시 받지 않는다 */
-  | { created: false; removedAt: string };
+  | { created: false; removedAt: string }
+  /** 같은 출처의 주문을 보관소로 옮겼다. 다시 받지 않는다 */
+  | { created: false; archivedAt: string };
 
 export const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 
@@ -176,6 +178,8 @@ export function intakeOrder(
   if (existing) return { order: existing, created: false };
   const removedAt = store.removedAtOf(sourceRef);
   if (removedAt) return { created: false, removedAt };
+  const archivedAt = store.archivedAtOf(sourceRef);
+  if (archivedAt) return { created: false, archivedAt };
 
   const at = store.timestamp();
   const order: Order = {
