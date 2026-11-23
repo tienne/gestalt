@@ -224,8 +224,7 @@ function checkDeployTargets(
   trusted: boolean,
 ): string[] {
   // 바깥 출처가 정하면 남의 주문에 배포 성공을 찍어 지라를 In-QA로 옮길 수 있다
-  if (!trusted)
-    throw new Error('배포 대상은 컨덕터 세션이 order add로 넣은 주문에만 지정할 수 있어요');
+  if (!trusted) throw new Error('--deploys는 컨덕터 세션이 order add로 넣을 때만 쓸 수 있어요');
   const out = [...new Set(ids)];
   for (const id of out) {
     const target = store.order(id);
