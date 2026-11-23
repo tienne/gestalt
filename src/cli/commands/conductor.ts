@@ -2,6 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import {
+  assertBotOwner,
+  changeBotOwner,
+  currentBotOwner,
+  targetBotOwner,
+  readBotOwnership,
+  type BotOwner,
+} from '../../conductor/bot-owner.js';
 import { loadConfig, WAIT_MAX_SEC_LIMIT } from '../../core/config.js';
 import { getVersion } from '../../core/version.js';
 import { writeJsonAtomic } from '../../core/json-file.js';
@@ -676,7 +684,10 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
         store.order(w.orderId)?.workerId === w.id &&
         !TERMINAL_ORDER_STATUSES.has(store.order(w.orderId)!.status),
     ).length;
-  const session = findActiveConductor(store.dir, '', Date.now(), activeConductorWindowMs(config));
+  const botOwner = readBotOwnership(store.dir).active;
+  const session = botOwner
+    ? undefined
+    : findActiveConductor(store.dir, '', Date.now(), activeConductorWindowMs(config));
   return {
     pollIntervalSec: config.pollIntervalSec,
     maxWorkers: config.maxConcurrentWorkers,
@@ -684,6 +695,7 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
     queuedOrders: store.queuedOrders().length,
     prWatchRepos: config.prWatchRepos,
     disconnectedWorkers: disconnected,
+    ...(botOwner ? { botOwner } : {}),
     ...(session
       ? {
           compactions: readCompactions(store.dir, session.sessionId).count,
@@ -723,8 +735,9 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'tick');
-    const sessionId = await enterTickSession(ctx, opts.takeOver === true);
-    const outcome = await runConductorTick(ctx, opts, sessionId, (r) => (handoffClose = r));
+    const caller = await tickBotCaller(ctx);
+    const sessionId = await enterTickSession(ctx, opts.takeOver === true, caller);
+    const outcome = await runConductorTick(ctx, opts, sessionId, caller, (r) => (handoffClose = r));
     if (opts.json) return print(tickJson(outcome));
     printTickLines(outcome);
   } catch (e) {
@@ -733,12 +746,28 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
   }
 }
 
+async function tickBotCaller(ctx: Ctx): Promise<BotOwner | undefined> {
+  try {
+    return await currentBotOwner();
+  } catch (error) {
+    if (readBotOwnership(ctx.store.dir).active || process.env['ORCA_STRUCTURED_SESSION'])
+      throw error;
+    return undefined;
+  }
+}
+
 /**
  * 인계했거나 넘겨받힌 세션이면 거절하고 처음 보는 세션이면 등록해 탭 이름을 붙인다. 세션 id를 돌려준다.
  * 다른 탭에서 주문만 넣으려다 컨덕터가 둘이 되지 않도록, 처음 등록하는 세션은 최근에 tick을 돌린
  * 다른 컨덕터 세션이 있으면 거절한다. takeOver면 그 세션을 넘겨받는다.
  */
-async function enterTickSession(ctx: Ctx, takeOver: boolean): Promise<string | undefined> {
+async function enterTickSession(
+  ctx: Ctx,
+  takeOver: boolean,
+  caller?: BotOwner,
+): Promise<string | undefined> {
+  assertBotOwner(ctx.store.dir, caller);
+  if (caller) return undefined;
   const sessionId = currentSessionId();
   if (!sessionId) return undefined;
   const dir = ctx.store.dir;
@@ -785,6 +814,7 @@ async function runConductorTick(
   ctx: Ctx,
   opts: Pick<ConductorTickOptions, 'force' | 'prWatch' | 'queue'>,
   sessionId: string | undefined,
+  caller: BotOwner | undefined,
   onClose: (r: HandoffCloseResult[]) => void = () => {},
 ): Promise<WaitTickOutcome> {
   // wait가 도는 사이 인계했거나 다른 세션이 넘겨받았으면 다음 tick에서 거절해 wait를 끝낸다
@@ -822,7 +852,10 @@ async function runConductorTick(
       ? { accounts: new GhAccountSwitcher({ accounts: gh }) }
       : {}),
   };
-  const report = await tick(ctx.store, deps, { force: opts.force === true });
+  const report = await tick(ctx.store, deps, {
+    force: opts.force === true,
+    admit: () => assertBotOwner(ctx.store.dir, caller),
+  });
   report.hostActions.push(...deferred);
   // 건너뛴 tick은 감시를 안 돌았다. 경로 누락 오류를 붙이면 출력이 그걸 건너뛴 이유로 보여 준다
   if (!report.skipped) report.errors.push(...(queue?.errors ?? []), ...(watch?.errors ?? []));
@@ -892,9 +925,11 @@ export async function conductorWaitCommand(
     const maxWaitSec = opts.maxWaitSec ?? ctx.config.waitMaxSec;
     if (!Number.isInteger(maxWaitSec) || maxWaitSec < 1 || maxWaitSec > WAIT_MAX_SEC_LIMIT)
       throw new Error(`--max-wait-sec는 1~${WAIT_MAX_SEC_LIMIT} 사이의 정수여야 해요`);
-    const sessionId = await enterTickSession(ctx, opts.takeOver === true);
+    const caller = await tickBotCaller(ctx);
+    const sessionId = await enterTickSession(ctx, opts.takeOver === true, caller);
     const owner = claimWaitOwner(ctx.store.dir, sessionId, () => {
-      if (sessionId) return;
+      assertBotOwner(ctx.store.dir, caller);
+      if (sessionId || caller) return;
       const active = findActiveConductor(
         ctx.store.dir,
         '',
@@ -917,6 +952,7 @@ export async function conductorWaitCommand(
             ctx,
             { ...opts, force: true },
             sessionId,
+            caller,
             (r) => (handoffClose = r),
           );
         },
@@ -1564,5 +1600,36 @@ function recentEventsField(store: ConductorStore): {
     return { recentEvents: readRecentEvents(store.dir, store.snapshot) };
   } catch (e) {
     return { recentEvents: [], recentEventsError: (e as Error).message };
+  }
+}
+
+export async function conductorBotBindCommand(
+  opts: ConductorCommonOptions & { bot: string; chat: string; fromChat?: string },
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'bot bind');
+    if (await tickBotCaller(ctx)) throw new Error('운영권은 운영자 터미널에서 등록해 주세요');
+    const next = await targetBotOwner(opts.bot, opts.chat);
+    changeBotOwner(ctx.store.dir, opts.fromChat, next);
+    if (opts.json) return print(next);
+    console.log(`운영권을 ${next.name}의 채팅 ${next.chatId}에 등록했어요`);
+  } catch (error) {
+    exitWithError(error);
+  }
+}
+
+export async function conductorBotReleaseCommand(
+  opts: ConductorCommonOptions & { fromChat: string },
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'bot release');
+    if (await tickBotCaller(ctx)) throw new Error('운영권은 운영자 터미널에서 종료해 주세요');
+    changeBotOwner(ctx.store.dir, opts.fromChat);
+    if (opts.json) return print({ released: opts.fromChat });
+    console.log('봇의 운영권을 종료했어요');
+  } catch (error) {
+    exitWithError(error);
   }
 }

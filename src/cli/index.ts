@@ -29,6 +29,8 @@ import {
   shipCiWaitCommand,
 } from './commands/ship.js';
 import {
+  conductorBotBindCommand,
+  conductorBotReleaseCommand,
   conductorCheckpointSaveCommand,
   conductorContextPathCommand,
   conductorExecPathCommand,
@@ -1065,6 +1067,25 @@ export function createCli(): Command {
       '상태 저장소 경로. 없으면 GESTALT_CONDUCTOR_STATE_DIR, 설정, 기본값 순서',
     );
   const collect = (v: string, prev: string[] = []) => [...prev, v];
+
+  const bot = conductor.command('bot').description('Orca 봇 컨덕터 운영권');
+  bot
+    .command('bind')
+    .description('확인된 Orca 봇 채팅에 운영권을 등록하거나 이전한다')
+    .requiredOption('--bot <name>', 'Orca 봇 이름')
+    .requiredOption('--chat <id>', '새 운영 채팅 ID')
+    .option('--from-chat <id>', '이전할 때 현재 운영 채팅 ID')
+    .addOption(stateDir())
+    .option('--json')
+    .action(conductorBotBindCommand);
+  bot
+    .command('release')
+    .description('봇 운영을 마치고 터미널에서 이어받을 수 있게 한다')
+    .requiredOption('--from-chat <id>', '현재 운영 채팅 ID')
+    .addOption(stateDir())
+    .option('--json')
+    .action(conductorBotReleaseCommand);
+
 
   const conductorOrder = conductor.command('order').description('주문을 다룬다');
   conductorOrder

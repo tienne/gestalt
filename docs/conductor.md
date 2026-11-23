@@ -173,6 +173,21 @@ loop 반복과 비교하면 할 일 없는 주기에 세션이 아예 안 깨어
 
 `/loop`도 백그라운드 알림도 없는 호스트(Codex, Grok 등)에서는 감시를 걸지 않고 안내만 한다. 다시 돌려 달라고 그때그때 말하거나 그 호스트의 반복 기능을 쓴다. 호스트마다 반복 기능이 어떻게 동작하는지는 아직 확인하지 않았다.
 
+### Orca 봇 운영과 인계
+
+운영자 터미널에서 Orca 봇과 채팅을 확인하고 상태 저장소의 운영권을 등록한다. 등록하기 전에 기존 컨덕터의 마지막 tick과 `hostActions`를 마친다.
+
+```sh
+orca bot list --json
+orca bot chats --bot Conductor --json
+gestalt conductor bot bind --bot Conductor --chat <채팅-ID>
+gestalt conductor status --json
+```
+
+`conductor.botOwner`에 봇과 채팅 ID가 표시된다. 등록된 채팅만 같은 저장소의 tick과 wait를 돌릴 수 있다. 운영을 넘기려면 인계 메모를 받은 새 채팅이 준비됐는지 확인한 뒤 터미널에서 `gestalt conductor bot bind --bot Conductor --chat <새-ID> --from-chat <기존-ID>`를 호출한다. 대상 확인, tick 잠금 또는 기존 ID 비교에서 실패하면 운영권은 그대로다. 성공하면 기존 채팅의 감시를 끈다. 터미널 운영으로 복귀하려면 `gestalt conductor bot release --from-chat <현재-ID>`로 등록을 해제한다.
+
+Orca의 `bot new-chat`은 기존 홈을 닫는다. 운영을 이어가면서 홈을 교체하려면 별도 채팅으로 먼저 운영권을 넘긴다. 새 홈이 열려 준비된 뒤 별도 채팅에서 다시 운영권을 넘긴다.
+
 ### 세션 인계
 
 컨덕터 세션은 컴팩트를 한 번까지만 허용한다. 두 번째 컴팩트가 오기 전에 새 세션을 띄워 대화에만 있던 맥락을 넘기고 기존 세션은 감시(wait나 반복)를 멈춘다. 진행 상태는 이미 저장소에 들어 있으니 다시 쓰지 않는다.

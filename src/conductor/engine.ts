@@ -289,7 +289,7 @@ function formatGap(ms: number): string {
 export async function tick(
   store: ConductorStore,
   deps: EngineDeps,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; admit?: () => void } = {},
 ): Promise<TickReport> {
   assertCanSpawn(deps.env);
   const report = emptyReport(store.timestamp());
@@ -308,6 +308,7 @@ export async function tick(
   }
   try {
     // 잠금을 잡은 뒤에 읽어야 앞 tick이 띄운 주문을 queued로 보고 또 띄우지 않는다
+    opts.admit?.();
     store.reload();
     const last = store.snapshot.lastTickAt;
     const interval = deps.config.pollIntervalSec * 1000;
