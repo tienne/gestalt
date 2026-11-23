@@ -8,12 +8,25 @@ import { request } from 'node:http'
 export const VIEWER_START_MS = 10_000
 /** 이어받기 전에 남은 뷰어가 응답하는지 보는 시간 */
 const PROBE_MS = 1500
+/** 이어받은 뷰어는 pid만으로는 살아 있는지 장담할 수 없어 이 간격마다 응답을 다시 본다 */
+const RECHECK_MS = 5000
+/** 워커가 내려갈 때 뷰어가 SIGTERM으로 끝나기를 기다리는 시간. 넘기면 SIGKILL로 끈다 */
+export const VIEWER_STOP_MS = 2000
 const URL_PATTERN = /http:\/\/127\.0\.0\.1:\d{1,5}/
 
 /** 저장소에 남기는 뷰어 기록. key는 gestalt 명령과 저장소 폴더를 묶은 값이라 설정이 바뀌면 이어받지 않는다 */
 export type ViewerRecord = { pid: number; url: string; key: string }
 
-type Running = { key: string; url: Promise<string>; pid: () => number | undefined; alive: () => boolean; kill: () => void }
+type Running = {
+  key: string
+  url: Promise<string>
+  pid: () => number | undefined
+  alive: () => boolean
+  /** 지난 워커가 띄운 뷰어를 이어받았는지. 이 워커의 자식이 아니라 pid로만 다룬다 */
+  adopted: boolean
+  checkedAt: number
+  stop: () => Promise<void>
+}
 
 /** 뷰어 프로세스를 띄운다. gestalt 경로 찾기에 실패하면 throw한다 */
 export type LaunchViewer = () => Promise<ChildProcess>
@@ -39,9 +52,11 @@ export class ResultsViewer {
   ensure(key: string, launch: LaunchViewer): Promise<string> {
     if (this.stopped) return Promise.reject(new Error('플러그인 워커가 멈췄어요'))
     const cur = this.cur
-    if (cur && cur.key === key && cur.alive()) return cur.url
+    if (cur && cur.key === key && cur.alive() && (!cur.adopted || Date.now() - cur.checkedAt < RECHECK_MS)) return cur.url
     if (this.starting?.key === key) return this.starting.url
     if (cur && cur.key !== key) this.drop(cur)
+    // 이어받은 뷰어는 기록을 다시 읽어 응답부터 본다. 응답이 없으면 그 pid를 끄지 않고 기록만 지운다
+    else if (cur) this.cur = null
     const gen = ++this.generation
     const url = this.start(key, gen, launch).finally(() => {
       if (this.starting?.url === url) this.starting = null
@@ -55,6 +70,7 @@ export class ResultsViewer {
   private async start(key: string, gen: number, launch: LaunchViewer): Promise<string> {
     const adopted = await this.adopt(key, gen)
     if (adopted) return adopted
+    if (this.stopped || gen !== this.generation) throw new Error(this.stopped ? '플러그인 워커가 멈췄어요' : '설정이 바뀌어 다시 띄워요')
     const child = await launch()
     if (this.stopped || gen !== this.generation) {
       child.kill()
@@ -68,7 +84,9 @@ export class ResultsViewer {
       }),
       pid: () => child.pid,
       alive: () => child.exitCode === null && child.signalCode === null,
-      kill: () => child.kill()
+      adopted: false,
+      checkedAt: Date.now(),
+      stop: () => stopChild(child)
     }
     this.cur = running
     const url = await running.url
@@ -76,7 +94,11 @@ export class ResultsViewer {
     return url
   }
 
-  /** 지난 워커가 남긴 뷰어가 같은 설정으로 떠 있고 응답하면 이어받는다 */
+  /**
+   * 지난 워커가 남긴 뷰어가 같은 설정으로 떠 있고 응답하면 이어받는다.
+   * 설정이 바뀐 뒤의 기록이어도 그 주소가 결과 뷰어로 응답하면 이 플러그인이 남긴 뷰어라 끈다.
+   * 응답이 없으면 pid가 다른 프로그램에 다시 쓰였을 수 있어서 끄지 않고 기록만 지운다
+   */
   private async adopt(key: string, gen: number): Promise<string | null> {
     let rec: ViewerRecord | null = null
     try {
@@ -84,24 +106,42 @@ export class ResultsViewer {
     } catch (e) {
       this.deps.log?.(`남은 결과 뷰어 기록을 못 읽었어요: ${errorText(e)}`)
     }
-    if (!rec) return null
-    // 설정이 바뀌어 key가 다르면 이어받지 않는다. 그 pid가 정말 그 뷰어인지 장담할 수 없어 끄지도 않는다
-    const live = rec.key === key && pidAlive(rec.pid) && (await (this.deps.probe ?? probe)(rec.url))
-    if (!live) {
-      await this.remember(null)
-      return null
-    }
+    if (!rec || this.stopped || gen !== this.generation) return null
+    const viewer = pidAlive(rec.pid) && (await this.isViewer(rec.url))
     if (this.stopped || gen !== this.generation) return null
     const pid = rec.pid
-    this.cur = { key, url: Promise.resolve(rec.url), pid: () => pid, alive: () => pidAlive(pid), kill: () => killPid(pid) }
-    this.deps.log?.(`떠 있던 결과 뷰어를 이어받았어요: ${rec.url}`)
-    return rec.url
+    if (viewer && rec.key === key) {
+      const running: Running = {
+        key,
+        url: Promise.resolve(rec.url),
+        pid: () => pid,
+        alive: () => pidAlive(pid),
+        adopted: true,
+        checkedAt: Date.now(),
+        stop: () => this.stopAdopted(pid, rec.url)
+      }
+      this.cur = running
+      this.deps.log?.(`떠 있던 결과 뷰어를 이어받았어요: ${rec.url}`)
+      return rec.url
+    }
+    if (viewer) killPid(pid)
+    await this.forget(pid)
+    return null
+  }
+
+  private isViewer(url: string): Promise<boolean> {
+    return (this.deps.probe ?? probe)(url)
+  }
+
+  /** 이어받은 뷰어는 끄기 직전에 한 번 더 응답을 본다. 그사이 끝나고 pid가 다른 프로그램에 쓰였으면 끄지 않는다 */
+  private async stopAdopted(pid: number, url: string): Promise<void> {
+    if (pidAlive(pid) && (await this.isViewer(url))) killPid(pid)
   }
 
   private drop(r: Running): void {
-    r.kill()
     if (this.cur === r) this.cur = null
-    void this.forget(r.pid())
+    const pid = r.pid()
+    void r.stop().then(() => this.forget(pid))
   }
 
   /** 기록이 이 pid의 것일 때만 지운다. 새 뷰어 기록을 옛 뷰어의 종료가 지우지 않게 한다 */
@@ -128,9 +168,26 @@ export class ResultsViewer {
     const cur = this.cur
     this.cur = null
     if (!cur) return
-    cur.kill()
-    await this.forget(cur.pid())
+    const pid = cur.pid()
+    await cur.stop()
+    await this.forget(pid)
   }
+}
+
+/** SIGTERM을 보내고 끝나기를 기다린다. 시간 안에 안 끝나면 SIGKILL로 끈다 */
+function stopChild(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      resolve()
+    }, VIEWER_STOP_MS)
+    child.once('exit', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+    child.kill()
+  })
 }
 
 function waitForUrl(child: ChildProcess, onExit: () => void): Promise<string> {
@@ -192,14 +249,21 @@ function killPid(pid: number): void {
   }
 }
 
-/** pid가 다른 프로그램에 다시 쓰였을 수 있어서 주소가 결과 뷰어 화면을 주는지까지 본다 */
-function probe(url: string): Promise<boolean> {
+/**
+ * pid가 다른 프로그램에 다시 쓰였을 수 있어서 그 주소가 결과 뷰어로 응답하는지까지 본다.
+ * 첫 화면 HTML만으로는 다른 로컬 서버와 구별이 안 돼 주문 목록 API가 JSON을 주는지도 본다
+ */
+async function probe(url: string): Promise<boolean> {
   const port = Number(url.slice(url.lastIndexOf(':') + 1))
+  return (await answers(port, '/', 'text/html')) && (await answers(port, '/api/orders', 'application/json'))
+}
+
+function answers(port: number, path: string, type: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const req = request({ host: '127.0.0.1', port, path: '/', method: 'GET' }, (res) => {
+    const req = request({ host: '127.0.0.1', port, path, method: 'GET' }, (res) => {
       res.resume()
-      const type = res.headers['content-type']
-      resolve(res.statusCode === 200 && typeof type === 'string' && type.startsWith('text/html'))
+      const got = res.headers['content-type']
+      resolve(res.statusCode === 200 && typeof got === 'string' && got.startsWith(type))
     })
     req.setTimeout(PROBE_MS, () => {
       req.destroy()

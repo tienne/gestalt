@@ -580,10 +580,9 @@ class Conductor {
   }
 
   private ensureViewer(cfg: Config): Promise<string> {
-    const dir = cfg.stateDir || this.view?.stateDir || null
-    const cwd = this.cwd(dir)
-    // 명령이나 저장소가 바뀌면 다른 뷰어다. 같은 key면 떠 있는 뷰어를 그대로 쓴다
-    const key = JSON.stringify([cfg.command, dir ?? ''])
+    const cwd = this.cwd(cfg.stateDir || this.view?.stateDir || null)
+    // 명령이나 저장소 설정이 바뀌면 다른 뷰어다. 뷰어에 넘기는 --state-dir과 같은 값으로 가른다
+    const key = JSON.stringify([cfg.command, cfg.stateDir])
     return this.viewer.ensure(key, async () => {
       const inv = await this.cli.resolve(cfg.command, cwd)
       if (this.stopped) throw new Error('플러그인 워커가 멈췄어요')

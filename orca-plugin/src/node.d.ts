@@ -22,7 +22,7 @@ declare module 'node:child_process' {
     readonly signalCode: string | null
     readonly stdout: Readable | null
     readonly stderr: Readable | null
-    kill(): boolean
+    kill(signal?: 'SIGTERM' | 'SIGKILL'): boolean
     once(event: 'error', listener: (error: Error) => void): ChildProcess
     once(event: 'exit', listener: (code: number | null) => void): ChildProcess
   }
