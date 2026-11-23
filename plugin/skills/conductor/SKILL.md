@@ -195,6 +195,14 @@ gestalt conductor deploy report --order <orderId> --status success --ref <pipeli
 
 `failed`면 그 주문을 사람에게 올린다.
 
+기능 브랜치처럼 배포를 따로 돌려야 하면 배포 주문에 그 배포에 들어가는 주문 id를 같이 넣는다. 같은 레포의 있는 주문만 받는다.
+
+```bash
+gestalt conductor order add --repo <owner/name> --title "dev, stage 배포" --deploys <orderId> <orderId>
+```
+
+배포 워커가 `--deploy-ref <실행 URL>`을 실어 done으로 끝내면 다음 tick이 머지된 대상마다 위와 같은 성공 신호를 남기고 In-QA로 끝낸다. 이미 끝났거나 배포를 안 기다리는 대상은 tick 결과 `deployTargets`에 건너뜀으로, 머지 전 대상은 warnings에 남는다. 배포 주문이 실패하거나 취소되면 아무것도 안 남긴다. 이 경우는 손으로 `deploy report`를 부르지 않아도 된다.
+
 ## 7. 루프
 
 사람이 멈추라고 하거나 7-1 인계를 마칠 때까지 tick → hostActions → 사람 확인 자리 점검을 반복한다. `pollIntervalSec`는 tick 사이 하한이라 그 안에 다시 부른 tick은 `skipped: true`로 끝난다. `--force`를 붙이면 이 하한을 무시하고 바로 돈다. 기다리는 동안 상태를 다시 묻지 않는다.
