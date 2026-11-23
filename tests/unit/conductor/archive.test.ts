@@ -19,6 +19,7 @@ import {
   BASE_FILE,
   ConductorStore,
   EVENTS_FILE,
+  SNAPSHOT_FILE,
   emptySnapshot,
   listSegments,
   orderOfEvent,
@@ -271,7 +272,7 @@ describe('archiveOrders', () => {
     expect(types).toHaveLength(7);
   });
 
-  it('옮긴 주문에 늦게 온 줄은 보관 파일을 안 바꾸고 상태에도 안 붙는다', async () => {
+  it('옮긴 주문에 늦게 온 줄은 반영할 때 모으지 않고 재생해도 상태에 안 붙는다', async () => {
     const dir = tempStateDir();
     seed(dir);
     const s = ConductorStore.open(dir, { now: () => new Date('2026-11-02T00:00:00.000Z') });
@@ -289,10 +290,18 @@ describe('archiveOrders', () => {
       { type: 'worker-started', at, worker: worker('ord-old', { id: 'wrk-late' }) },
       { type: 'gate-opened', at, gate: gate({ id: 'gate-late', orderId: 'ord-gone' }) },
       { type: 'order-updated', at, orderId: 'ord-gone', patch: { status: 'done' } },
+      { type: 'bypass', at, record: { orderId: 'ord-old', need: 'merge', action: '늦음', at } },
+      {
+        type: 'jira-transition',
+        at,
+        record: { orderId: 'ord-gone', issueKey: 'APP-3', to: 'done', at },
+      },
+      { type: 'slack-posted', at, gateId: 'gate-gone', ref: 'C1/2' },
     ];
     appendFileSync(join(dir, EVENTS_FILE), late.map((e) => `${JSON.stringify(e)}\n`).join(''));
     expect(ConductorStore.open(dir).snapshot.workers['wrk-late']).toBeUndefined();
-    await archiveOrders(dir, fast);
+    // 훅 없는 반영은 남은 파일을 안 지우므로 모으기에서 거른 것만 남는다
+    await foldEvents(dir, fast);
 
     expect([readFileSync(oldEvents, 'utf-8'), readFileSync(goneEvents, 'utf-8')]).toEqual(before);
     expect(readdirSync(join(dir, ORDER_LOGS_DIR))).not.toContain('ord-old');
@@ -300,6 +309,9 @@ describe('archiveOrders', () => {
     const after = ConductorStore.open(dir).snapshot;
     expect(after.workers['wrk-late']).toBeUndefined();
     expect(after.gates['gate-late']).toBeUndefined();
+    expect(after.bypasses).toEqual([]);
+    expect(after.jiraTransitions).toEqual([]);
+    expect(after.slackPosted).toEqual({});
   });
 
   it('닫히고 기간이 지난 컨덕터 게이트를 상태에서 버린다', async () => {
@@ -321,6 +333,48 @@ describe('archiveOrders', () => {
     const after = ConductorStore.open(dir).snapshot;
     expect(Object.keys(after.gates)).toEqual(['gate-open']);
     expect(after.slackPosted['gate-old']).toBeUndefined();
+    const shown = JSON.parse(readFileSync(join(dir, SNAPSHOT_FILE), 'utf-8')) as ConductorSnapshot;
+    expect(Object.keys(shown.gates)).toEqual(['gate-open']);
+  });
+
+  it('후속 동작이 기대는 닫힌 컨덕터 게이트는 남긴다', async () => {
+    const dir = tempStateDir();
+    const s = ConductorStore.open(dir, { now: () => new Date('2026-11-01T00:00:00.000Z') });
+    s.addOrder(order({ id: 'ord-1' }));
+    s.startWorker(worker('ord-1', { id: 'wrk-stuck', status: 'finished' }));
+    s.startWorker(worker('ord-1', { id: 'wrk-done', status: 'released' }));
+    const closed: [Gate, 'approved' | 'rejected'][] = [
+      [
+        gate({
+          id: 'gate-asked',
+          type: 'review-manual-switch',
+          payload: { sourceRef: 'pr-watch:x' },
+        }),
+        'rejected',
+      ],
+      [gate({ id: 'gate-unposted', type: 'slack-post' }), 'approved'],
+      [
+        gate({ id: 'gate-cleanup', payload: { kind: 'cleanup-failed', workerId: 'wrk-stuck' } }),
+        'approved',
+      ],
+      [
+        gate({ id: 'gate-cleaned', payload: { kind: 'cleanup-failed', workerId: 'wrk-done' } }),
+        'approved',
+      ],
+    ];
+    for (const [g, decision] of closed) {
+      s.openGate(g);
+      s.append({ type: 'gate-resolved', at: s.timestamp(), gateId: g.id, decision });
+    }
+
+    const result = await archiveOrders(dir, fast);
+
+    expect(result).toMatchObject({ gates: ['gate-cleaned'] });
+    expect(Object.keys(ConductorStore.open(dir).snapshot.gates).sort()).toEqual([
+      'gate-asked',
+      'gate-cleanup',
+      'gate-unposted',
+    ]);
   });
 
   it('꼴이 이상한 주문 id의 줄은 저장소 밖에 안 쓴다', async () => {

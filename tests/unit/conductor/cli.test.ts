@@ -14,6 +14,7 @@ import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  conductorArchiveCommand,
   conductorCheckpointSaveCommand,
   conductorContextPathCommand,
   conductorDeployReportCommand,
@@ -1159,6 +1160,23 @@ describe('주문 상세와 에이전트', () => {
     expect(last()['reports']).toEqual([]);
     expect(() => conductorOrderShowCommand('ord-missing', { stateDir })).toThrow('exit 1');
   });
+
+  it.each(['', ' ', '-1', '1.5', 'abc'])(
+    'archive는 --older-than %j를 거절하고 아무것도 안 옮긴다',
+    async (olderThan) => {
+      const stateDir = tempStateDir();
+      const store = ConductorStore.open(stateDir, { now: () => new Date('2000-01-01T00:00:00Z') });
+      store.addOrder(order({ id: 'ord-done' }));
+      store.updateOrder('ord-done', { status: 'done' });
+
+      await expect(conductorArchiveCommand({ stateDir, olderThan })).rejects.toThrow('exit 1');
+
+      expect(err.join('\n')).toContain('--older-than은 0 이상의 정수');
+      expect(existsSync(join(stateDir, 'base.json'))).toBe(false);
+      expect(existsSync(join(stateDir, 'archive'))).toBe(false);
+      expect(ConductorStore.open(stateDir).order('ord-done')).toBeDefined();
+    },
+  );
 });
 
 describe('컨덕터 세션은 하나만', () => {
