@@ -2177,6 +2177,21 @@ describe('tick 끝의 보관', () => {
     expect(r.archive).toBeUndefined();
   });
 
+  it('보관이 상태를 바꾸고 던져도 store를 다시 읽는다', async () => {
+    const { store } = clockedStore();
+    const { deps: d } = deps({
+      archive: () => {
+        ConductorStore.open(store.dir).addOrder(order({ id: 'ord-late' }));
+        return Promise.reject(new Error('중간에 멈췄어요'));
+      },
+    });
+
+    const r = await tick(store, d);
+
+    expect(r.errors).toContain('보관 실패: 중간에 멈췄어요');
+    expect(store.order('ord-late')).toBeDefined();
+  });
+
   it('감시 간격 안이라 건너뛴 tick은 보관을 안 부른다', async () => {
     const { store } = clockedStore();
     let calls = 0;

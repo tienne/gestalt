@@ -355,12 +355,17 @@ async function archiveStep(
           .map((b) => b.id)
           .join(
             ', ',
-          )}${r.blocked.length > 5 ? ' 외' : ''}. 이유는 \`gestalt conductor archive --dry-run\`으로 봐요`,
+          )}${r.blocked.length > 5 ? ' 외' : ''}. 이유는 \`gestalt conductor archive --dry-run\`으로 확인해 주세요`,
       );
-    // 보관이 상태에서 주문을 뺐다. 같은 프로세스가 이어서 쓰는 store가 옛 상태를 들고 있지 않게 한다
-    store.reload();
   } catch (e) {
     report.errors.push(`보관 실패: ${(e as Error).message}`);
+  } finally {
+    // 보관이 상태에서 주문을 뺐을 수 있다. 중간에 던졌어도 base.json은 이미 바뀌었을 수 있어 늘 다시 읽는다
+    try {
+      store.reload();
+    } catch (e) {
+      report.errors.push(`보관 뒤 상태 다시 읽기 실패: ${(e as Error).message}`);
+    }
   }
 }
 
