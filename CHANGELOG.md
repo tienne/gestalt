@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.153.0] - 2026-11-23
+
+### Added
+
+- **컨덕터 상태 저장소가 `base.json`에서 시작해 남은 로그만 재생해요(#158).** 저장소를 열 때마다 `events.jsonl`을 처음부터 재생해서 오래 쓸수록 여는 시간이 늘었어요. 실데이터 사본으로 반영해보니 상태는 같고 여는 시간은 39ms에서 12ms로 줄었어요.
+  - 재생 순서는 `base.json`, `segments/*.jsonl`(이름순, 반영한 길이 뒤만), `events.jsonl`이에요. `base.json`이 없으면 빈 상태에서 시작해서 기존 저장소는 그대로 열려요.
+  - 반영 함수 `foldEvents`를 넣었지만 아직 부르는 곳은 없어요. 끝난 주문 보관과 tick 자동 반영은 다음 PR에서 켜요. 읽는 쪽을 먼저 배포해 두려고 이번에 따로 냈어요.
+- **반영은 `events.jsonl`을 다시 쓰지 않고 이름만 바꿔 segment로 떼어 내요.** 워커가 잠금 없이 덧붙이기 때문이에요.
+  - tick과 같은 `tick.lock`을 잡고 `base.json`은 fsync한 뒤에만 segment를 지워요. 어느 단계에서 죽어도 다시 열면 같은 상태가 나와요.
+  - 이번에 떼어 낸 segment는 다음 반영까지 남겨서 늦게 붙은 줄도 잃지 않아요. 지우기 직전에 줄이 더 붙었으면 한 번 더 미뤄요.
+  - segment 이름은 순번 10자리가 앞이라 시계가 뒤로 가도 떼어 낸 순서대로 정렬돼요.
+
+### Changed
+
+- **결과 보기와 웹 뷰어, 최근 이벤트도 같은 순서로 읽어요.** 웹 뷰어 캐시 키에 `base.json`과 segment마다의 크기와 mtime을 넣었어요.
+- **잠금 없이 읽는 쪽은 앞뒤로 저장소 모양을 비교해 바뀌었으면 다시 읽어요.** 다섯 번 읽어도 계속 바뀌면 어긋난 상태 대신 에러를 내요. `status --json`은 최근 이벤트를 못 읽으면 실패하지 않고 빈 목록과 `recentEventsError`를 실어요.
+- **깨진 `base.json`은 빈 상태로 넘기지 않고 경로를 붙여 멈춰요.** 이름 꼴이 아닌 `segments/` 파일은 읽지도 지우지도 않아요.
+
+### 검증 범위
+
+- #158은 로컬 리뷰를 네 라운드 돌렸고 이슈가 11건, 8건, 4건, 1건으로 줄었어요. 3라운드에 줄바꿈 없이 끝난 마지막 줄을 두 번째 반영이 지워 이벤트가 빠지는 회귀가 걸려서 고쳤어요. 4라운드 warning 1건은 고쳤지만 다시 리뷰하지는 않았어요.
+- gate(테스트 9490개 통과)와 GitHub CI 네 건(Ubuntu와 macOS의 Node.js 22와 24)을 모두 통과했어요.
+
+### 남긴 것
+
+- `fold.ts`의 `writeDurable`은 `writeJsonAtomic`에 fsync만 더한 사본이에요. 보관 PR에서 합칠지 봐요.
+- `replay`에 시작 위치를 주면 깨진 줄 에러의 줄 번호가 파일 기준이 아니라 범위 안 번호예요.
+
 ## [0.152.0] - 2026-11-23
 
 ### Added
