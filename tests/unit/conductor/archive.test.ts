@@ -1,9 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ARCHIVE_DIR, archiveOrders } from '../../../src/conductor/archive.js';
 import { acquireLock } from '../../../src/conductor/engine.js';
-import { ORDER_LOGS_DIR, foldEvents } from '../../../src/conductor/fold.js';
+import { ORDER_LOGS_DIR, foldEvents, writeDurable } from '../../../src/conductor/fold.js';
 import { intakeOrder } from '../../../src/conductor/intake.js';
 import { pollPrs } from '../../../src/conductor/pr-watch.js';
 import { REFS_DIR } from '../../../src/conductor/ref-copy.js';
@@ -12,10 +19,12 @@ import {
   BASE_FILE,
   ConductorStore,
   EVENTS_FILE,
+  emptySnapshot,
   listSegments,
+  orderOfEvent,
   readBase,
 } from '../../../src/conductor/store.js';
-import type { ConductorSnapshot } from '../../../src/conductor/types.js';
+import type { ConductorEvent, ConductorSnapshot, Gate } from '../../../src/conductor/types.js';
 import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
 
 afterEach(cleanupStateDirs);
@@ -186,7 +195,7 @@ describe('archiveOrders', () => {
     expect(result).toMatchObject({ status: 'archived', orders: [] });
     if (result.status !== 'archived') throw new Error('unreachable');
     expect(result.blocked.map((b) => b.id)).toEqual(['ord-gate', 'ord-stopped']);
-    expect(result.blocked[0]!.reason).toContain('열린 게이트');
+    expect(result.blocked[0]!.reason).toBe('열린 게이트가 있어서 못 옮겨요: ord-gate');
     expect(ConductorStore.open(dir).order('ord-gate')).toBeDefined();
   });
 
@@ -231,7 +240,104 @@ describe('archiveOrders', () => {
     );
     expect(events.trim().split('\n').at(-1)).toContain('"order-removed"');
     expect(existsSync(join(dir, ORDER_LOGS_DIR, 'ord-old'))).toBe(false);
-    expect(ConductorStore.open(dir).snapshot.removedOrders['ord-old']).toBeDefined();
+    expect(ConductorStore.open(dir).snapshot.removedOrders['ord-old']).toMatchObject({
+      archived: '2026-11',
+    });
+  });
+
+  it('지운 주문을 옮기다 base.json 전에 죽으면 다시 돌 때 전체 이벤트로 덮어쓴다', async () => {
+    const dir = tempStateDir();
+    seed(dir);
+    const s = ConductorStore.open(dir, { now: () => new Date('2026-11-02T00:00:00.000Z') });
+    s.removeOrder('ord-old');
+    await foldEvents(dir, fast);
+    // 다음 반영이 앞 segment를 지운다. 앞쪽 이벤트는 이제 모아 둔 파일에만 있다
+    s.append({ type: 'tick', at: s.timestamp() });
+    await foldEvents(dir, fast);
+    expect(listSegments(dir)).toHaveLength(1);
+    // 보관 파일 일부만 쓰고 base.json을 쓰기 전에 죽은 자리를 흉내 낸다
+    const target = join(dir, ARCHIVE_DIR, '2026-11', 'ord-old');
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, 'events.jsonl'), '{"type":"order-removed"}\n');
+
+    await archiveOrders(dir, fast);
+
+    const types = readFileSync(join(target, 'events.jsonl'), 'utf-8')
+      .trim()
+      .split('\n')
+      .map((l) => (JSON.parse(l) as { type: string }).type);
+    expect(types[0]).toBe('order-added');
+    expect(types.at(-1)).toBe('order-removed');
+    expect(types).toHaveLength(7);
+  });
+
+  it('옮긴 주문에 늦게 온 줄은 보관 파일을 안 바꾸고 상태에도 안 붙는다', async () => {
+    const dir = tempStateDir();
+    seed(dir);
+    const s = ConductorStore.open(dir, { now: () => new Date('2026-11-02T00:00:00.000Z') });
+    s.addOrder(order({ id: 'ord-gone', sourceRef: 'jira:APP-3' }));
+    s.updateOrder('ord-gone', { status: 'cancelled' });
+    s.removeOrder('ord-gone');
+    await archiveOrders(dir, fast);
+    const oldEvents = join(dir, ARCHIVE_DIR, '2026-11', 'ord-old', 'events.jsonl');
+    const goneEvents = join(dir, ARCHIVE_DIR, '2026-11', 'ord-gone', 'events.jsonl');
+    const before = [readFileSync(oldEvents, 'utf-8'), readFileSync(goneEvents, 'utf-8')];
+
+    // 보관 전 상태를 들고 있던 다른 프로세스가 늦게 쓴 줄을 흉내 낸다. append는 모르는 주문을 거절한다
+    const at = '2026-11-20T00:00:01.000Z';
+    const late: ConductorEvent[] = [
+      { type: 'worker-started', at, worker: worker('ord-old', { id: 'wrk-late' }) },
+      { type: 'gate-opened', at, gate: gate({ id: 'gate-late', orderId: 'ord-gone' }) },
+      { type: 'order-updated', at, orderId: 'ord-gone', patch: { status: 'done' } },
+    ];
+    appendFileSync(join(dir, EVENTS_FILE), late.map((e) => `${JSON.stringify(e)}\n`).join(''));
+    expect(ConductorStore.open(dir).snapshot.workers['wrk-late']).toBeUndefined();
+    await archiveOrders(dir, fast);
+
+    expect([readFileSync(oldEvents, 'utf-8'), readFileSync(goneEvents, 'utf-8')]).toEqual(before);
+    expect(readdirSync(join(dir, ORDER_LOGS_DIR))).not.toContain('ord-old');
+    expect(readdirSync(join(dir, ORDER_LOGS_DIR))).not.toContain('ord-gone');
+    const after = ConductorStore.open(dir).snapshot;
+    expect(after.workers['wrk-late']).toBeUndefined();
+    expect(after.gates['gate-late']).toBeUndefined();
+  });
+
+  it('닫히고 기간이 지난 컨덕터 게이트를 상태에서 버린다', async () => {
+    const dir = tempStateDir();
+    const s = ConductorStore.open(dir, { now: () => new Date('2026-11-01T00:00:00.000Z') });
+    s.openGate(gate({ id: 'gate-old' }));
+    s.append({
+      type: 'gate-resolved',
+      at: s.timestamp(),
+      gateId: 'gate-old',
+      decision: 'approved',
+    });
+    s.append({ type: 'slack-posted', at: s.timestamp(), gateId: 'gate-old', ref: 'C1/1' });
+    s.openGate(gate({ id: 'gate-open' }));
+
+    const result = await archiveOrders(dir, fast);
+
+    expect(result).toMatchObject({ gates: ['gate-old'] });
+    const after = ConductorStore.open(dir).snapshot;
+    expect(Object.keys(after.gates)).toEqual(['gate-open']);
+    expect(after.slackPosted['gate-old']).toBeUndefined();
+  });
+
+  it('꼴이 이상한 주문 id의 줄은 저장소 밖에 안 쓴다', async () => {
+    const dir = tempStateDir();
+    const s = ConductorStore.open(dir);
+    s.append({ type: 'order-added', at: s.timestamp(), order: order({ id: '../evil' }) });
+    s.append({
+      type: 'order-updated',
+      at: s.timestamp(),
+      orderId: '../evil',
+      patch: { status: 'done' },
+    });
+
+    await foldEvents(dir, fast);
+
+    expect(existsSync(join(dir, 'evil'))).toBe(false);
+    expect(existsSync(join(dir, ORDER_LOGS_DIR))).toBe(false);
   });
 
   it('base.json을 쓰고 죽어 남은 모아 둔 이벤트와 사본은 다음 보관이 지운다', async () => {
@@ -329,5 +435,99 @@ describe('보관한 주문의 중복 판정', () => {
       month: '2026-11',
       candidates: [],
     });
+  });
+});
+
+function gate(over: Partial<Gate> = {}): Gate {
+  return {
+    id: 'gate-1',
+    type: 'merge',
+    status: 'open',
+    reason: '확인',
+    refs: [],
+    openedAt: '2026-11-01T00:00:00.000Z',
+    ...over,
+  };
+}
+
+describe('orderOfEvent', () => {
+  const at = '2026-11-01T00:00:00.000Z';
+  const s = emptySnapshot();
+  s.workers['wrk-1'] = worker('ord-1', { id: 'wrk-1' });
+  s.gates['gate-1'] = gate({ orderId: 'ord-1' });
+  s.gates['gate-c'] = gate({ id: 'gate-c' });
+  const report = { workerId: 'wrk-1', status: 'done' as const, summary: '', refs: [] };
+  const cases: [string, ConductorEvent, string | undefined][] = [
+    ['order-added', { type: 'order-added', at, order: order({ id: 'ord-1' }) }, 'ord-1'],
+    ['order-updated', { type: 'order-updated', at, orderId: 'ord-1', patch: {} }, 'ord-1'],
+    ['order-removed', { type: 'order-removed', at, orderId: 'ord-1' }, 'ord-1'],
+    ['worker-started', { type: 'worker-started', at, worker: worker('ord-1') }, 'ord-1'],
+    ['worker-updated', { type: 'worker-updated', at, workerId: 'wrk-1', patch: {} }, 'ord-1'],
+    ['모르는 워커', { type: 'worker-updated', at, workerId: 'wrk-x', patch: {} }, undefined],
+    ['report-applied', { type: 'report-applied', at, name: 'r', report }, 'ord-1'],
+    ['이름만 있는 report-applied', { type: 'report-applied', at, name: 'r' }, undefined],
+    [
+      'checkpoint-saved',
+      {
+        type: 'checkpoint-saved',
+        at,
+        checkpoint: {
+          orderId: 'ord-1',
+          workerId: 'wrk-1',
+          skill: 's',
+          next: '',
+          completedSkills: [],
+          refs: [],
+          savedAt: at,
+        },
+      },
+      'ord-1',
+    ],
+    ['gate-opened', { type: 'gate-opened', at, gate: gate({ orderId: 'ord-1' }) }, 'ord-1'],
+    ['gate-updated', { type: 'gate-updated', at, gateId: 'gate-1', reason: '', refs: [] }, 'ord-1'],
+    [
+      'gate-resolved',
+      { type: 'gate-resolved', at, gateId: 'gate-1', decision: 'approved' },
+      'ord-1',
+    ],
+    ['gate-delivery', { type: 'gate-delivery', at, gateId: 'gate-1', pending: false }, 'ord-1'],
+    ['slack-posted', { type: 'slack-posted', at, gateId: 'gate-1', ref: 'C1/1' }, 'ord-1'],
+    [
+      '컨덕터 게이트',
+      { type: 'gate-resolved', at, gateId: 'gate-c', decision: 'approved' },
+      undefined,
+    ],
+    ['tick', { type: 'tick', at }, undefined],
+    ['tail-repaired', { type: 'tail-repaired', at }, undefined],
+  ];
+
+  it.each(cases)('%s', (_, e, expected) => {
+    expect(orderOfEvent(e, s)).toBe(expected);
+  });
+});
+
+describe('writeDurable', () => {
+  it('새 내용으로 바꾸고 임시 파일을 안 남긴다', () => {
+    const dir = tempStateDir();
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, 'a.json');
+    writeFileSync(path, 'old');
+
+    writeDurable(path, 'new');
+
+    expect(readFileSync(path, 'utf-8')).toBe('new');
+    expect(readdirSync(dir)).toEqual(['a.json']);
+  });
+
+  it('바꾸기에 실패하면 옛 자리를 그대로 두고 임시 파일을 지운다', () => {
+    const dir = tempStateDir();
+    const path = join(dir, 'a.json');
+    // 비어 있지 않은 디렉토리 자리에는 이름을 바꿀 수 없다
+    mkdirSync(join(path, 'keep'), { recursive: true });
+
+    expect(() => writeDurable(path, 'new')).toThrow();
+
+    expect(readdirSync(dir)).toEqual(['a.json']);
+    expect(readdirSync(path)).toEqual(['keep']);
   });
 });
