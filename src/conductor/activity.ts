@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { join } from 'node:path';
 import type { Order, Worker } from './types.js';
 import {
+  isWorkerTranscriptPath,
   locateWorkerTranscript,
   readTranscript,
   type AgentTask,
@@ -16,8 +17,8 @@ import {
  *
  * - `<워커 id>.json`: tick만 쓴다. 워크트리 경로, `git diff`로 모은 고친 파일, 파일 겹침, gate 멈춤 알림 기록이다.
  *   status는 읽기만 해서 플러그인이 자주 불러도 git을 돌리지 않는다.
- * - `<워커 id>.transcript.json`: 트랜스크립트 리더의 커서와 쌓은 값이다. status와 tick이 둘 다 갱신한다.
- *   둘이 겹쳐 써도 같은 줄을 다시 읽을 뿐이라 잃는 건 없다.
+ * - `<워커 id>.transcript.json`: 트랜스크립트 리더의 커서와 쌓은 값이다. tick만 갱신한다.
+ *   status는 이 커서에서 새 줄만 읽고 다시 쓰지 않는다.
  *
  * 이벤트 로그(`events.jsonl`)에 넣지 않는 건 tick마다 바뀌는 값이라 로그가 불어나서다.
  * 파일은 사용자만 읽게 둔다(0600). 경로와 명령 앞부분이 들어 있다.
@@ -38,8 +39,9 @@ export interface WorkerActivityInfo {
   overlaps?: { orderId: string; files: string[] }[];
   /** 백그라운드 gate 뒤 멈춤 알림을 보낸 시각. 한 워커에 한 번만 보낸다 */
   gateStallNotifiedAt?: string;
-  /** 이 워커 주문에 겹침 게이트를 이미 연 상대 주문. 사람이 답한 뒤 다시 열지 않는다 */
-  overlapGated?: string[];
+  /** 끝난 워커 요약을 만들려다 트랜스크립트를 못 찾은 마지막 시각과 횟수. 한 시간 간격으로 세 번까지만 다시 찾는다 */
+  summaryMissAt?: string;
+  summaryMisses?: number;
 }
 
 export function activityDir(stateDir: string): string {
@@ -52,7 +54,7 @@ const transcriptPath = (stateDir: string, workerId: string) =>
   join(activityDir(stateDir), `${safeId(workerId)}.transcript.json`);
 
 /** 워커 id가 파일 이름이 되므로 경로 문자를 걷는다 */
-function safeId(id: string): string {
+export function safeId(id: string): string {
   return id.replace(/[^A-Za-z0-9_-]/g, '_');
 }
 
@@ -65,7 +67,9 @@ function readJson<T>(file: string): T | undefined {
 }
 
 function writeJson(file: string, value: unknown): void {
-  mkdirSync(join(file, '..'), { recursive: true, mode: 0o700 });
+  const dir = join(file, '..');
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(dir, 0o700);
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(value), { mode: FILE_MODE });
   chmodSync(tmp, FILE_MODE);
@@ -107,6 +111,8 @@ export interface RefreshOptions extends Pick<ReadOptions, 'keepText' | 'readLimi
   endedAt?: string;
   /** 저장소 커서를 건드리지 않는다. 작업 내용 탭처럼 따로 상태를 들고 있는 쪽이 켠다 */
   noSave?: boolean;
+  /** 저장소 커서를 읽기만 하고 다시 쓰지 않는다. status가 켠다. 커서 갱신은 tick 몫이다 */
+  readOnly?: boolean;
   prev?: TranscriptState;
 }
 
@@ -131,6 +137,7 @@ export function refreshTranscript(
     const reuse =
       prev &&
       (!sessionId || prev.cursor.file.endsWith(`${sessionId}.jsonl`)) &&
+      isWorkerTranscriptPath(prev.cursor.file, cwd, opts.roots) &&
       existsSync(prev.cursor.file);
     const file = reuse
       ? prev.cursor.file
@@ -147,14 +154,13 @@ export function refreshTranscript(
       ...(opts.keepText ? { keepText: true } : {}),
       ...(opts.readLimit ? { readLimit: opts.readLimit } : {}),
     });
-    if (!opts.noSave && next !== prev) writeJson(transcriptPath(stateDir, w.id), next);
+    if (!opts.noSave && !opts.readOnly && next !== prev)
+      writeJson(transcriptPath(stateDir, w.id), next);
     return next;
   } catch {
     return undefined;
   }
 }
-
-// ── status --with-activity ────────────────────────────────
 
 export interface OrderActivityFields {
   activity: { tool: string; file?: string; at: string } | null;

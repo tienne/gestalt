@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { log } from '../core/log.js';
 import {
   readWorkerInfo,
   refreshTranscript,
@@ -55,6 +56,16 @@ export async function changedFilesOf(
   return { files: files.slice(0, MAX_CHANGED_FILES), base };
 }
 
+function sameChanged(info: WorkerActivityInfo, next: { files: string[]; base: string }): boolean {
+  const prev = info.changedFiles;
+  return (
+    info.changedBase === next.base &&
+    !!prev &&
+    prev.length === next.files.length &&
+    prev.every((f, i) => f === next.files[i])
+  );
+}
+
 export interface WorkerActivitySnapshot {
   info: WorkerActivityInfo;
   /** 트랜스크립트에서 읽은 마지막 줄의 시각. 못 읽었으면 없다 */
@@ -93,7 +104,8 @@ export async function refreshWorkerActivity(
       const cwd = info.worktreePath;
       if (cwd && existsSync(cwd)) {
         const changed = await changedFilesOf(deps.runner, cwd, orderOf(w)?.baseBranch);
-        if (changed)
+        // 목록이 그대로면 쓰지 않는다. tick마다 같은 파일을 다시 쓰면 changedAt만 바뀐다
+        if (changed && !sameChanged(info, changed))
           info = updateWorkerInfo(deps.stateDir, w.id, {
             changedFiles: changed.files,
             changedBase: changed.base,
@@ -112,8 +124,9 @@ export async function refreshWorkerActivity(
         ...(d?.lastEventAt ? { lastEventAt: d.lastEventAt } : {}),
         ...(d?.backgroundGate ? { backgroundGate: d.backgroundGate } : {}),
       });
-    } catch {
-      // 작업 내용은 보여 주기용이라 실패해도 tick을 멈추지 않는다
+    } catch (err) {
+      // 작업 내용은 보여 주기용이라 실패해도 tick을 멈추지 않는다. report.errors에 넣으면 tick이 idle로 못 쉰다
+      log(`conductor activity ${w.id}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   return out;

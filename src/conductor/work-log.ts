@@ -1,10 +1,13 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { log } from '../core/log.js';
 import {
   activityDir,
   readsClaudeTranscript,
   readWorkerInfo,
   refreshTranscript,
+  safeId,
+  updateWorkerInfo,
   type WorkerActivityInfo,
 } from './activity.js';
 import { clean, type TextEntry, type ToolEvent, type TranscriptState } from './transcript.js';
@@ -36,7 +39,7 @@ export interface WorkSummary {
 }
 
 const summaryPath = (stateDir: string, workerId: string) =>
-  join(activityDir(stateDir), `${workerId.replace(/[^A-Za-z0-9_-]/g, '_')}.summary.json`);
+  join(activityDir(stateDir), `${safeId(workerId)}.summary.json`);
 
 export function readWorkSummary(stateDir: string, workerId: string): WorkSummary | undefined {
   try {
@@ -80,10 +83,20 @@ function summaryOf(
 function writeSummary(stateDir: string, summary: WorkSummary): void {
   const file = summaryPath(stateDir, summary.workerId);
   mkdirSync(activityDir(stateDir), { recursive: true, mode: 0o700 });
+  chmodSync(activityDir(stateDir), 0o700);
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(summary), { mode: FILE_MODE });
   chmodSync(tmp, FILE_MODE);
   renameSync(tmp, file);
+}
+
+const SUMMARY_MAX_MISSES = 3;
+const SUMMARY_RETRY_MS = 60 * 60 * 1000;
+
+function summaryRetryDue(info: WorkerActivityInfo, now: string): boolean {
+  if (!info.summaryMissAt) return true;
+  if ((info.summaryMisses ?? 0) >= SUMMARY_MAX_MISSES) return false;
+  return Date.parse(now) - Date.parse(info.summaryMissAt) >= SUMMARY_RETRY_MS;
 }
 
 /**
@@ -100,24 +113,30 @@ export function saveFinishedSummaries(
     if (ACTIVE_WORKER_STATUSES.has(w.status) || !readsClaudeTranscript(w)) continue;
     if (existsSync(summaryPath(stateDir, w.id))) continue;
     const info = readWorkerInfo(stateDir, w.id);
-    if (!info.worktreePath) continue;
+    if (!info.worktreePath || !summaryRetryDue(info, opts.now)) continue;
     const endedAt = opts.nextStartOf?.(w);
     const state = refreshTranscript(stateDir, w, info, {
       ...(opts.roots ? { roots: opts.roots } : {}),
       ...(endedAt ? { endedAt } : {}),
     });
-    if (!state) continue;
+    if (!state) {
+      // 트랜스크립트가 늦게 잡힐 수 있어 바로 포기하진 않되 tick마다 다시 뒤지지는 않는다
+      updateWorkerInfo(stateDir, w.id, {
+        summaryMissAt: opts.now,
+        summaryMisses: (info.summaryMisses ?? 0) + 1,
+      });
+      continue;
+    }
     try {
       writeSummary(stateDir, summaryOf(w, state, info, opts.now));
       saved.push(w.id);
-    } catch {
+    } catch (err) {
       // 요약은 보여 주기용이라 못 써도 tick은 계속 돈다
+      log(`conductor summary ${w.id}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   return saved;
 }
-
-// ── browse 작업 내용 탭 ─────────────────────────────────────
 
 export interface WorkSection {
   workerId: string;
@@ -145,6 +164,8 @@ export interface OrderWork {
 export type WorkReaderCache = Map<string, TranscriptState>;
 
 const MAX_CACHED_READERS = 64;
+/** 트랜스크립트를 못 찾은 워커를 다시 찾기까지 기다리는 시간. 탭이 5초마다 불러 그때마다 디렉토리를 훑지 않게 한다 */
+const MISS_RETRY_MS = 60_000;
 
 function toolRow(t: ToolEvent): WorkSection['timeline'][number] {
   return {
@@ -164,8 +185,9 @@ export function orderWork(
   stateDir: string,
   workers: Worker[],
   cache: WorkReaderCache,
-  opts: { roots?: string[] } = {},
+  opts: { roots?: string[]; misses?: Map<string, number>; now?: number } = {},
 ): OrderWork {
+  const now = opts.now ?? Date.now();
   const sorted = [...workers]
     .filter((w) => w.kind !== 'subagent')
     .sort((a, b) => a.attempt - b.attempt);
@@ -178,14 +200,24 @@ export function orderWork(
       status: w.status,
       startedAt: w.startedAt,
     };
-    const state = refreshTranscript(stateDir, w, info, {
-      keepText: true,
-      noSave: true,
-      ...(cache.has(w.id) ? { prev: cache.get(w.id)! } : {}),
-      ...(opts.roots ? { roots: opts.roots } : {}),
-      ...(endedAt ? { endedAt } : {}),
-    });
+    const missAt = cache.has(w.id) ? undefined : opts.misses?.get(w.id);
+    const skip = missAt !== undefined && now - missAt < MISS_RETRY_MS;
+    const state = skip
+      ? undefined
+      : refreshTranscript(stateDir, w, info, {
+          keepText: true,
+          noSave: true,
+          ...(cache.has(w.id) ? { prev: cache.get(w.id)! } : {}),
+          ...(opts.roots ? { roots: opts.roots } : {}),
+          ...(endedAt ? { endedAt } : {}),
+        });
+    if (!state && !skip && !cache.has(w.id)) {
+      opts.misses?.set(w.id, now);
+      while (opts.misses && opts.misses.size > MAX_CACHED_READERS)
+        opts.misses.delete(opts.misses.keys().next().value!);
+    }
     if (state) {
+      opts.misses?.delete(w.id);
       cache.delete(w.id);
       cache.set(w.id, state);
       while (cache.size > MAX_CACHED_READERS) cache.delete(cache.keys().next().value!);

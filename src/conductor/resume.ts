@@ -23,6 +23,8 @@ export const defaultShipReader: ShipReader = (dir) => checkCheckpoint(dir, defau
 
 /** 재개를 사람에게 올린 게이트임을 payload로 표시한다. 승인되면 시도 수를 다시 센다 */
 const RESUME_GATE_KIND = 'resume';
+/** 워커 시계가 이만큼 넘게 앞서 있으면 트랜스크립트 시각을 생존 근거로 안 쓴다 */
+const CLOCK_SKEW_MS = 60_000;
 
 export interface CheckpointInput {
   workerId: string;
@@ -181,7 +183,10 @@ export async function detectStale(store: ConductorStore, opts: StaleOptions): Pr
 
     // 판단 순서는 리더, (오르카면) 터미널 probe, 끊김이다
     const active = opts.activityAt?.(w);
-    const activeMs = active ? Date.parse(active) : NaN;
+    // 트랜스크립트 시각은 워커 쪽 시계다. 1분 넘게 앞서 있으면 믿지 않고 probe로 넘긴다. 받아 주면 그 시각까지 끊김 판단이 꺼진다
+    const parsed = active ? Date.parse(active) : NaN;
+    const activeMs =
+      parsed > opts.now.getTime() + CLOCK_SKEW_MS ? NaN : Math.min(parsed, opts.now.getTime());
     if (!Number.isNaN(activeMs) && opts.now.getTime() - activeMs < opts.staleAfterMs) {
       if (activeMs > seen)
         store.updateWorker(w.id, { lastSeenAt: new Date(activeMs).toISOString() });

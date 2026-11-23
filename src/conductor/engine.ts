@@ -331,8 +331,10 @@ async function runTick(
       now: new Date(report.at),
       ...(deps.transcriptRoots ? { transcriptRoots: deps.transcriptRoots } : {}),
     });
-    await nudgeStalledGates(store, deps, report, activity);
-    checkFileOverlaps(store, deps, report, activity);
+  });
+  await step(report, () => nudgeStalledGates(store, deps, report, activity));
+  await step(report, async () => checkFileOverlaps(store, deps, report, activity));
+  await step(report, async () => {
     saveFinishedSummaries(store.dir, store.workers(), {
       now: report.at,
       ...(deps.transcriptRoots ? { roots: deps.transcriptRoots } : {}),
@@ -429,16 +431,14 @@ function checkFileOverlaps(
       `${first.orderId}와 ${later.orderId}가 같은 파일 ${files.length}개를 고치고 있어요`,
     );
     if (files.length <= limit) continue;
-    const info = activity.get(later.id)!.info;
-    if (info.overlapGated?.includes(first.orderId)) continue;
+    if (overlapGateOpened(store, later.orderId, first.orderId)) continue;
     openOrReuse(store, {
       orderId: later.orderId,
       type: 'file-overlap',
       reason: `${first.orderId}와 같은 파일 ${files.length}개를 고치고 있어요(기준 ${limit}개). 이어서 할지 정해 주세요`,
       refs: files.slice(0, 20),
+      payload: { overlapWith: first.orderId },
     });
-    info.overlapGated = [...(info.overlapGated ?? []), first.orderId];
-    updateWorkerInfo(store.dir, later.id, { overlapGated: info.overlapGated });
   }
   for (const w of workers) {
     const next = byWorker.get(w.id) ?? [];
@@ -446,6 +446,16 @@ function checkFileOverlaps(
     if (JSON.stringify(prev) !== JSON.stringify(next))
       updateWorkerInfo(store.dir, w.id, { overlaps: next });
   }
+}
+
+/** 재개로 워커 id가 바뀌어도 사람이 한 번 답한 상대로 다시 묻지 않게 주문의 게이트 이력으로 본다 */
+function overlapGateOpened(store: ConductorStore, orderId: string, otherOrderId: string): boolean {
+  return Object.values(store.snapshot.gates).some(
+    (g) =>
+      g.orderId === orderId &&
+      g.type === 'file-overlap' &&
+      g.payload?.['overlapWith'] === otherOrderId,
+  );
 }
 
 /** 백그라운드 gate 뒤 멈춘 워커에 포그라운드 재실행을 한 번 보낸다. 보낸 뒤엔 같은 워커에 다시 안 보낸다 */

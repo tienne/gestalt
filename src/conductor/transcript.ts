@@ -8,8 +8,9 @@ import {
   realpathSync,
   statSync,
 } from 'node:fs';
+import { maskSecrets } from '../architecture/secret-mask.js';
 import { homedir } from 'node:os';
-import { isAbsolute, join, relative } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { cwdSlug, isSessionId } from '../peer/locate.js';
 import {
   LAUNCHED_STATUSES,
@@ -149,8 +150,6 @@ export function emptyDigest(keepText = false): TranscriptDigest {
   };
 }
 
-// ── 세션 찾기 ──────────────────────────────────────────────
-
 /**
  * 트랜스크립트를 찾을 설정 디렉토리들. `CLAUDE_CONFIG_DIR`이 있으면 먼저 보고 `~/.claude`도 본다.
  * 오르카 프로필은 `projects`를 `~/.claude/projects`로 심링크해 두는 경우가 많아 실제 경로로 겹침을 걷는다
@@ -187,6 +186,14 @@ export interface LocateOptions {
   roots?: string[];
 }
 
+/** 저장해 둔 커서 경로를 다시 쓸 때 본다. 워크트리의 projects 디렉토리 바로 아래 세션 파일만 받는다 */
+export function isWorkerTranscriptPath(file: string, cwd: string, roots = projectRoots()): boolean {
+  const name = basename(file);
+  if (!name.endsWith('.jsonl') || !isSessionId(name.slice(0, -'.jsonl'.length))) return false;
+  const dir = dirname(file);
+  return roots.some((r) => join(r, cwdSlug(cwd)) === dir);
+}
+
 /**
  * 워커 세션 트랜스크립트를 고른다. 세션 id가 있으면 그 파일을, 없으면 워크트리 디렉토리에서 세션이
  * 워커 시작 뒤(5분 여유)와 종료 앞에 시작한 파일 중 가장 최근에 바뀐 것을 고른다. 못 찾으면 undefined
@@ -203,7 +210,7 @@ export function locateWorkerTranscript(opts: LocateOptions): string | undefined 
   const startMs = Date.parse(opts.startedAt);
   if (Number.isNaN(startMs)) return undefined;
   const endMs = opts.endedAt ? Date.parse(opts.endedAt) : Number.POSITIVE_INFINITY;
-  let best: { file: string; mtime: number } | undefined;
+  let best: { file: string; mtime: number; gap: number } | undefined;
   for (const d of dirs) {
     let names: string[];
     try {
@@ -225,14 +232,32 @@ export function locateWorkerTranscript(opts: LocateOptions): string | undefined 
       if (mtime < startMs - START_SLACK_MS) continue;
       const began = sessionStartMs(file);
       if (began === undefined || began < startMs - START_SLACK_MS || began >= endMs) continue;
-      if (!best || mtime > best.mtime) best = { file, mtime };
+      // 끝이 정해진 회차는 다음 회차 세션이 일찍 떠 후보에 섞일 수 있어 시작 기록에 가장 가까운 세션을 고른다
+      const gap = Math.abs(began - startMs);
+      const better = opts.endedAt ? !best || gap < best.gap : !best || mtime > best.mtime;
+      if (better) best = { file, mtime, gap };
     }
   }
   return best?.file;
 }
 
-/** 파일 앞부분에서 시각이 있는 첫 줄의 시각 */
+/** 세션 첫 줄은 안 바뀌어서 한 번 읽은 시작 시각을 경로로 기억한다. tick과 browse가 후보마다 앞부분을 다시 읽지 않게 한다 */
+const startCache = new Map<string, number>();
+const START_CACHE_MAX = 512;
+
 function sessionStartMs(file: string): number | undefined {
+  const hit = startCache.get(file);
+  if (hit !== undefined) return hit;
+  const v = readSessionStartMs(file);
+  if (v !== undefined) {
+    startCache.set(file, v);
+    while (startCache.size > START_CACHE_MAX) startCache.delete(startCache.keys().next().value!);
+  }
+  return v;
+}
+
+/** 파일 앞부분에서 시각이 있는 첫 줄의 시각 */
+function readSessionStartMs(file: string): number | undefined {
   let head: string;
   try {
     head = readRange(file, 0, HEAD_BYTES);
@@ -249,8 +274,6 @@ function sessionStartMs(file: string): number | undefined {
   }
   return undefined;
 }
-
-// ── 읽기 ──────────────────────────────────────────────────
 
 export interface ReadOptions {
   /** 경로를 상대로 줄일 워크트리 */
@@ -324,8 +347,6 @@ function cloneDigest(d: TranscriptDigest): TranscriptDigest {
     ...(d.texts ? { texts: [...d.texts] } : {}),
   };
 }
-
-// ── 줄 해석 ────────────────────────────────────────────────
 
 type Row = Record<string, unknown>;
 
@@ -436,7 +457,8 @@ function toolDetail(input: Row, cwd: string | undefined): string {
     input['query'] ??
     input['skill'] ??
     '';
-  return clean(d);
+  // 자른 뒤에 가리면 잘린 토큰이 패턴에 안 걸려 그대로 남는다
+  return clean(typeof d === 'string' ? maskSecrets(d).text : d);
 }
 
 function shortPath(p: string, cwd: string | undefined): string {
@@ -559,8 +581,6 @@ function finishSubagent(digest: TranscriptDigest, id: string, at: string): void 
     s.endedAt = at;
   }
 }
-
-// ── todo ──────────────────────────────────────────────────
 
 const CREATED = /^Task #(\d+) created successfully: ([^\r\n]+)$/;
 const UPDATED =
@@ -731,8 +751,6 @@ function applyTaskEffect(todos: AgentTask[], effect: TaskEffect): AgentTask[] | 
     );
   return title && status && todos.length < MAX_TASKS ? [...todos, { id, title, status }] : null;
 }
-
-// ── 작은 도구 ──────────────────────────────────────────────
 
 function isFile(p: string): boolean {
   try {

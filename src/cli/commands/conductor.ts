@@ -497,7 +497,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
               ? { lastSummary: store.snapshot.reports[o.id]?.at(-1)?.summary ?? null }
               : {}),
             bypasses: bypassesOf.get(o.id) ?? [],
-            ...(opts.withActivity ? orderActivity(store.dir, o, w) : {}),
+            ...(opts.withActivity ? orderActivity(store.dir, o, w, { readOnly: true }) : {}),
           };
         }),
         unassignedBypasses: bypassesOf.get('') ?? [],
