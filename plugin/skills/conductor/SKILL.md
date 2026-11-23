@@ -313,7 +313,7 @@ wait는 tick을 감시 간격마다 `--force`로 돌린다. 이미 보여 준 �
 
 **봇 채팅인지 판별한다.** `orca bot chats --json`을 `--bot` 없이 부른다. 종료 코드가 0이고 JSON의 `ok`가 `true`일 때만 봇 채팅으로 본다. 그 밖에는 오류 문장을 맞춰 보지 않고 봇 채팅이 아니라고 보고 7-1을 따른다. 봇 채팅이면 봇 채팅이고 `result.bot`이 봇 이름이다. `result.chats`에서 `self: true`인 줄이 지금 채팅이고 그 줄이 `home: true`면 홈 채팅이다. 봇 폴더는 `~/.orca/bots/<봇 이름>`이다. Claude Code로 도는 봇이라 세션 id가 있어도 인계는 이 절을 따른다.
 
-**넘길 때를 정한다.** Codex 봇은 컨텍스트 사용량을 알려 주는 신호가 없으니 소유자가 넘기라고 하거나 대화가 길어져 이 세션이 앞 내용을 놓친다고 판단할 때 넘긴다. Claude Code로 도는 봇이면 tick 응답의 `handoff.due: true`도 넘길 때다. 넘기기 전에 진행 중인 tick과 그 tick의 hostActions, 4절 점검, 사람이 답한 확인 자리의 `gate resolve`까지 끝낸다. 운영을 넘기는 인계(홈 교체, 운영 위임)가 성공하면 이 채팅이 걸어 둔 7번 감시(wait, loop 반복, `ScheduleWakeup`, 크론)를 7-C 끝 문단대로 모두 끈다. 교체나 전송이 실패했거나 운영과 상관없는 일만 맡겼으면 이 채팅이 계속 운영하니 감시를 그대로 둔다.
+**넘길 때를 정한다.** Codex 봇은 컨텍스트 사용량을 알려 주는 신호가 없으니 소유자가 넘기라고 하거나 대화가 길어져 이 세션이 앞 내용을 놓친다고 판단할 때 넘긴다. Claude Code로 도는 봇이면 tick 응답의 `handoff.due: true`도 넘길 때다. 넘기기 전에 진행 중인 tick과 그 tick의 hostActions, 4절 점검, 사람이 답한 확인 자리의 `gate resolve`까지 끝낸다. 운영을 넘기는 인계(홈 교체, 운영 위임)가 성공하면 이 채팅이 걸어 둔 7번 감시(wait, loop 반복, `ScheduleWakeup`, 크론)를 7-C 끝 문단대로 모두 끈다. 교체나 전송이 실패했거나 운영과 상관없는 일만 맡겼으면 이 채팅이 계속 운영하니 감시를 그대로 둔다. 7-A wait가 `handoff`를 받고 이미 끝났다면 둘 감시가 없으니 7번대로 다시 건다.
 
 **인계 메모를 쓴다.** 메모는 넘기기 직전에 쓰고 쓴 뒤로는 이 채팅에서 tick을 돌리지 않는다. 메모를 쓰고 tick을 더 돌렸으면 메모를 다시 쓴다. 위치는 `<stateDir>/handoffs/bot-<봇 이름>-<YYYYMMDD-HHMM>.md`다. `handoffs/`는 결과 검색이 훑지 않는 운영 파일 자리다. 저장소에 있는 진행 상태는 옮기지 않고 7-1의 1번처럼 대화에만 있는 것만 적는다.
 
@@ -367,10 +367,10 @@ orca orchestration send --to bot:<봇 이름> --chat new --type handoff \
 - 메모의 누가 이어 돌리는지 줄이 지금 채팅을 가리킨다. 보내는 채팅이 계속 돌린다고 적혀 있으면 이 채팅은 tick을 돌리지 않고 맡은 일만 하며 아래 나머지 확인은 건너뛴다.
 - `<stateDir>/tick.lock`이 없다. 있으면 다른 tick이 돌고 있으니 끝날 때까지 기다린다.
 - `gestalt conductor status --json`의 `lastTickAt`이 메모에 적힌 값과 같다. 다르면 메모를 쓴 뒤에 누군가 tick을 돌렸다.
-- 같은 결과의 `conductor.compactions`가 없다. 이 값은 최근 tick을 돌린 Claude Code 컨덕터 세션이 있을 때만 실린다.
+- 같은 결과의 `conductor.compactions`가 없다. 이 값은 최근 tick을 돌린 Claude Code 컨덕터 세션이 있을 때만 실린다. Claude Code로 도는 봇끼리 넘겼으면 이전 채팅 때문에 늘 실리니 이 항목은 건너뛰고 나머지 확인으로 판단한다.
 - 홈 교체면 `orca bot chats --all --json`에서 이전 홈이 `closed: true`다. 같은 봇의 다른 열린 채팅이 컨덕터를 돌리고 있지 않다(목록의 `lastAsked`, `lastSaid`로 본다).
 
-Claude Code로 도는 봇이라 첫 tick이 "다른 컨덕터 세션이 돌고 있어요"로 거절되면 위 확인을 다시 하고 이전 홈이 닫힌 게 맞을 때만 `--take-over`를 붙인다.
+Claude Code로 도는 봇이라 첫 tick이 "다른 컨덕터 세션이 돌고 있어요"로 거절되면 위 확인을 다시 하고 이전 홈이 닫혔거나 메모에 이전 채팅이 운영을 넘기고 더 돌리지 않는다고 적혀 있을 때만 `--take-over`를 붙인다.
 
 ## 8. 효과 재기
 
