@@ -41,6 +41,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 /** 묶기와 풀기에 쓰는 tar 한 번의 상한. 한 달치 보관소가 이보다 오래 걸리면 다음 보관 때 다시 한다 */
 const TAR_TIMEOUT_MS = 10 * 60 * 1000;
+/** 한 번 보관에서 묶는 달 수. 밀린 달은 다음 보관 때 이어서 묶어 잠금을 오래 쥐지 않는다 */
+const MAX_COMPRESS_MONTHS = 2;
+/** 잠금을 잡고 이만큼 지났으면 새 달을 시작하지 않는다. 잠금이 걷히는 6시간 근처까지 가지 않게 한다 */
+const MAX_COMPRESS_MS = 60 * 60 * 1000;
 
 export interface ArchivePlan {
   orders: { id: string; month: string; status: OrderStatus }[];
@@ -460,23 +464,37 @@ export type CompressResult =
 /**
  * 끝나고 한 달 지난 달의 `archive/<YYYY-MM>/`을 `archive/<YYYY-MM>.tar.gz`로 묶고 디렉토리를 지운다.
  * 끝난 지 오래된 주문이 늦게 보관되면 묶은 달에 디렉토리가 다시 생긴다. 그때는 묶음을 풀어 합친 뒤
- * 다시 묶는다. 새 묶음을 fsync하고 이름을 바꾼 뒤에 디렉토리를 지우므로 어디서 죽어도 다시 부르면 끝난다
+ * 다시 묶는다. 새 묶음을 fsync하고 이름을 바꾼 뒤에 디렉토리를 지우므로 어디서 죽어도 다시 부르면 끝난다.
+ * 오래된 달부터 묶고 한 번에 2개를 묶었거나 1시간이 지났으면 멈춘다. 못 묶은 달은 이 개수에 안 넣는다
  */
-export function compressArchive(dir: string, now: Date): CompressResult {
+export function compressArchive(
+  dir: string,
+  now: Date,
+  limits: { maxMonths?: number; maxMs?: number } = {},
+): CompressResult {
   const lock = acquireLock(dir);
   if (!lock.ok) return { status: 'locked', holder: lock.holder };
+  const started = Date.now();
+  const maxMonths = limits.maxMonths ?? MAX_COMPRESS_MONTHS;
+  const maxMs = limits.maxMs ?? MAX_COMPRESS_MS;
   try {
     const root = join(dir, ARCHIVE_DIR);
     const cutoff = settledMonthCutoff(now);
     const months: string[] = [];
     const warnings: string[] = [];
-    const names = listDir(root);
+    const names = listDir(root).sort();
+    const due: string[] = [];
     for (const name of names) {
-      // 디렉토리를 지운 뒤 죽은 달의 임시 파일. 디렉토리가 남은 달은 compressMonth가 먼저 치운다
+      // 디렉토리가 이미 없는 달의 임시 파일. 디렉토리가 남은 달은 compressMonth가 먼저 치운다
       const left = leftoverMonth(name);
       if (left && !names.includes(left)) rmSync(join(root, name), { recursive: true, force: true });
       if (!MONTH.test(name) || name >= cutoff) continue;
-      if (!lstatSync(join(root, name)).isDirectory()) continue;
+      if (lstatSync(join(root, name)).isDirectory()) due.push(name);
+    }
+    let i = 0;
+    for (; i < due.length; i++) {
+      if (months.length >= maxMonths || Date.now() - started >= maxMs) break;
+      const name = due[i]!;
       try {
         compressMonth(root, name);
         months.push(name);
@@ -484,7 +502,9 @@ export function compressArchive(dir: string, now: Date): CompressResult {
         warnings.push(`archive/${name}을 못 묶었어요: ${(e as Error).message}`);
       }
     }
-    return { status: 'compressed', months: months.sort(), warnings };
+    if (i < due.length)
+      warnings.push(`못 묶은 달 ${due.length - i}개는 다음 보관 때 이어서 묶어요`);
+    return { status: 'compressed', months, warnings };
   } finally {
     lock.release();
   }
@@ -498,7 +518,7 @@ function leftoverMonth(name: string): string | undefined {
 }
 
 /** 실패하면 tar의 stderr 앞 몇 줄을 메시지에 싣는다. 경고만 보고 원인을 알 수 있게 한다 */
-function tar(args: string[]): string {
+function tar(args: string[], env: Record<string, string> = {}): string {
   try {
     return execFileSync('tar', args, {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -506,7 +526,7 @@ function tar(args: string[]): string {
       timeout: TAR_TIMEOUT_MS,
       maxBuffer: 64 * 1024 * 1024,
       // macOS tar가 확장 속성을 `._` 파일로 끼워 넣지 않게 한다
-      env: { ...process.env, COPYFILE_DISABLE: '1' },
+      env: { ...process.env, COPYFILE_DISABLE: '1', ...env },
     });
   } catch (e) {
     const err = e as Error & { stderr?: string };
@@ -515,13 +535,37 @@ function tar(args: string[]): string {
   }
 }
 
-/** 묶음 안 이름이 전부 `<month>/` 아래인지 본다. 절대 경로나 `..` 칸이 있으면 풀지 않는다 */
+/**
+ * 묶음 안 이름이 전부 `<month>/` 아래인지 본다. 첫 칸이 그 달이 아니면(절대 경로 포함) 또는 `..` 칸이
+ * 있으면 풀지 않는다. 링크 항목은 대상도 본다
+ */
 function assertTarEntries(tarball: string, month: string): void {
   for (const name of tar(['-tzf', tarball]).split('\n').filter(Boolean)) {
     const parts = name.replace(/\/$/, '').split('/');
-    if (parts[0] !== month || parts.includes('..') || name.startsWith('/'))
+    if (parts[0] !== month || parts.includes('..'))
       throw new Error(`${month}.tar.gz에 ${month}/ 밖을 가리키는 항목이 있어요: ${name}`);
   }
+  // 문구가 로캘을 타지 않게 C로 돌린다. 구분자는 GNU tar와 bsdtar가 같다
+  for (const line of tar(['-tzvf', tarball], { LC_ALL: 'C' }).split('\n').filter(Boolean)) {
+    const bad = tarLinkViolation(line, month);
+    if (bad) throw new Error(`${month}.tar.gz에 ${bad}: ${line}`);
+  }
+}
+
+/**
+ * `tar -tzvf` 한 줄이 묶음 밖을 가리키는 링크면 이유를 돌려준다. 심링크는 대상이 절대 경로거나 `..` 칸이
+ * 있으면, 하드링크는 그에 더해 대상 첫 칸이 그 달이 아니면 막는다. 구분자가 없거나 여러 번이면 모호해서 막는다
+ */
+export function tarLinkViolation(line: string, month: string): string | undefined {
+  const sep = line[0] === 'l' ? ' -> ' : line[0] === 'h' ? ' link to ' : undefined;
+  if (sep === undefined) return undefined;
+  const pieces = line.split(sep);
+  if (pieces.length !== 2) return '대상을 가를 수 없는 링크가 있어요';
+  const target = pieces[1]!;
+  const parts = target.replace(/\/$/, '').split('/');
+  if (target.startsWith('/') || parts.includes('..') || (sep === ' link to ' && parts[0] !== month))
+    return `${month}/ 밖을 가리키는 링크가 있어요`;
+  return undefined;
 }
 
 /** 새 묶음에 디렉토리의 항목이 다 들어갔는지 본다. 빠졌으면 이름을 안 바꾸고 디렉토리도 둔다 */
@@ -677,7 +721,13 @@ export async function runDailyArchive(
   dir: string,
   opts: { now: Date; days?: number; settleMs?: number },
 ): Promise<DailyArchiveReport | undefined> {
-  const last = readLastRun(dir);
+  // 시계가 뒤로 가 미래로 남은 시각은 없는 값으로 본다. 그대로 두면 그 시각까지 보관이 멈춘다
+  const now = opts.now.getTime();
+  const read = readLastRun(dir);
+  const last = {
+    ...(read.at !== undefined && read.at <= now ? { at: read.at } : {}),
+    ...(read.failedAt !== undefined && read.failedAt <= now ? { failedAt: read.failedAt } : {}),
+  };
   if (last.at !== undefined && opts.now.getTime() - last.at < DAY_MS) return undefined;
   if (last.failedAt !== undefined && opts.now.getTime() - last.failedAt < RETRY_AFTER_FAILURE_MS)
     return undefined;
@@ -710,6 +760,18 @@ export async function runDailyArchive(
     swept: result.swept,
     warnings: result.warnings,
   };
+}
+
+/**
+ * tick에 넘길 하루 한 번 보관. 사용자 전역 설정의 `archive.enabled`가 false면 undefined라 tick이 보관을 안 한다.
+ * 레포 gestalt.json의 값은 설정을 읽을 때 이미 버려진다
+ */
+export function dailyArchiveFor(
+  config: { archive?: { enabled: boolean } | undefined },
+  dir: string,
+): ((now: Date) => Promise<DailyArchiveReport | undefined>) | undefined {
+  if (config.archive?.enabled === false) return undefined;
+  return (now) => runDailyArchive(dir, { now });
 }
 
 function writeLastRun(dir: string, value: { at?: string; failedAt?: string }): void {
