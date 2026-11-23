@@ -108,8 +108,14 @@ export class ResultsViewer {
     }
     if (!rec || this.stopped || gen !== this.generation) return null
     const viewer = pidAlive(rec.pid) && (await this.isViewer(rec.url))
-    if (this.stopped || gen !== this.generation) return null
     const pid = rec.pid
+    // 응답을 보는 사이 워커가 멈췄으면 이어받을 뻔한 뷰어를 맡을 워커가 없어서 끈다
+    if (this.stopped) {
+      if (viewer) killPid(pid)
+      await this.forget(pid)
+      return null
+    }
+    if (gen !== this.generation) return null
     if (viewer && rec.key === key) {
       const running: Running = {
         key,
@@ -255,7 +261,8 @@ function killPid(pid: number): void {
  */
 async function probe(url: string): Promise<boolean> {
   const port = Number(url.slice(url.lastIndexOf(':') + 1))
-  return (await answers(port, '/', 'text/html')) && (await answers(port, '/api/orders', 'application/json'))
+  const [page, api] = await Promise.all([answers(port, '/', 'text/html'), answers(port, '/api/orders', 'application/json')])
+  return page && api
 }
 
 function answers(port: number, path: string, type: string): Promise<boolean> {
