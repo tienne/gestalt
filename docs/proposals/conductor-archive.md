@@ -84,11 +84,11 @@ archive/YYYY-MM/
 | `order-*`                    | `orderId`, `order.id`                                      |
 | `worker-*`, `report-applied` | `workerId`로 워커를 찾아 `orderId`                         |
 | `checkpoint-saved`           | `checkpoint.orderId`                                       |
-| `gate-*`                     | `gate.orderId`, `gateId`로 게이트를 찾아 `orderId`         |
+| `gate-*`, `slack-posted`     | `gate.orderId`, `gateId`로 게이트를 찾아 `orderId`         |
 | `bypass`, `jira-transition`  | `record.orderId`                                           |
 | `tick`, `tail-repaired`      | 주문에 안 붙는다. `base.json`에 누적 값만 남고 줄은 버린다 |
 
-주문에 안 붙는 게이트(`review-manual-switch` 같은 컨덕터 게이트)는 끝나고 같은 기간이 지나면 버린다.
+주문에 안 붙는 게이트(`review-manual-switch` 같은 컨덕터 게이트)는 끝나고 같은 기간이 지나면 버린다. `report` 없이 이름만 있는 옛 `report-applied`도 주문에 안 붙는다. 이 줄은 `appliedReports`에만 쓰이고 그건 `base.json`에 남는다.
 
 ### 중복 판정
 
