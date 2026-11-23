@@ -59,7 +59,8 @@ export type ArchiveResult =
 
 /**
  * 보관할 주문을 고른다. 끝난 시각(`updatedAt`)이 기간보다 오래된 끝난 주문 중 `order remove`가 받아 주는
- * 주문만 옮긴다. 열린 게이트나 멈춘 워커가 남은 주문은 사람이 처리할 때까지 남긴다
+ * 주문만 옮긴다. 열린 게이트나 멈춘 워커가 남은 주문은 사람이 처리할 때까지 남긴다. 보관은 사람이 고르지
+ * 않으므로 tick이 아직 할 일이 남은 주문도 남긴다(`archiveBlocker`)
  */
 export function planArchive(s: ConductorSnapshot, now: Date, days: number): ArchivePlan {
   const cutoff = now.getTime() - days * DAY_MS;
@@ -67,7 +68,7 @@ export function planArchive(s: ConductorSnapshot, now: Date, days: number): Arch
   for (const o of Object.values(s.orders)) {
     if (!TERMINAL_ORDER_STATUSES.has(o.status) || !olderThan(o.updatedAt, cutoff)) continue;
     const reason = SAFE_ORDER_ID.test(o.id)
-      ? removalBlocker(s, o.id, 'archive')
+      ? (removalBlocker(s, o.id, 'archive') ?? archiveBlocker(s, o.id))
       : `주문 id 꼴이 이상해 안 옮겨요: ${o.id.slice(0, 80)}`;
     if (reason) plan.blocked.push({ id: o.id, reason });
     else plan.orders.push({ id: o.id, month: monthOf(o.updatedAt, now), status: o.status });
@@ -90,6 +91,33 @@ export function planArchive(s: ConductorSnapshot, now: Date, days: number): Arch
 }
 
 /**
+ * tick이 그 주문으로 아직 할 일이 남았는지. 옮기면 워커와 게이트가 상태에서 빠져 그 일이 사라진다.
+ * - 끝났지만 아직 released가 아닌 워커: 정리가 워크트리를 거둔다
+ * - 그 주문 워커의 정리 실패 게이트가 열려 있다: 게이트가 주문을 `payload`에만 들고 있다
+ * - 승인했는데 아직 슬랙에 안 올린 게이트: 게시가 그 게이트를 보고 돈다
+ */
+function archiveBlocker(s: ConductorSnapshot, orderId: string): string | undefined {
+  const workers = Object.values(s.workers).filter((w) => w.orderId === orderId);
+  if (workers.some((w) => w.status === 'finished' || w.status === 'failed'))
+    return `아직 정리 안 된 워커가 있어서 못 옮겨요: ${orderId}`;
+  const gates = Object.values(s.gates);
+  if (
+    gates.some(
+      (g) =>
+        g.status === 'open' && g.payload?.kind === CLEANUP_FAILED && g.payload.orderId === orderId,
+    )
+  )
+    return `워커 정리 실패 게이트가 열려 있어서 못 옮겨요: ${orderId}`;
+  if (gates.some((g) => g.orderId === orderId && unposted(s, g)))
+    return `아직 안 올린 슬랙 게시가 있어서 못 옮겨요: ${orderId}`;
+  return undefined;
+}
+
+function unposted(s: ConductorSnapshot, g: Gate): boolean {
+  return g.type === 'slack-post' && g.decision === 'approved' && s.slackPosted[g.id] === undefined;
+}
+
+/**
  * 닫힌 컨덕터 게이트를 버리면 안 되는 경우.
  * - `sourceRef`가 있다: 같은 출처에 질문을 다시 안 열고(PR 감시, 접수) 승인 뒤 주문을 만드는 근거다
  * - 승인했는데 아직 슬랙에 안 올렸다: 게시가 그 게이트를 보고 돈다
@@ -98,7 +126,7 @@ export function planArchive(s: ConductorSnapshot, now: Date, days: number): Arch
 function keepsFollowUp(s: ConductorSnapshot, g: Gate): boolean {
   if (g.payload?.sourceRef !== undefined) return true;
   if (g.decision !== 'approved') return false;
-  if (g.type === 'slack-post' && s.slackPosted[g.id] === undefined) return true;
+  if (unposted(s, g)) return true;
   if (g.payload?.kind === CLEANUP_FAILED) {
     const w = g.payload.workerId ? s.workers[g.payload.workerId] : undefined;
     return w !== undefined && w.status !== 'released';
@@ -132,7 +160,8 @@ export async function archiveOrders(
       const at = now();
       plan = planArchive(state, at, days);
       for (const { id, month } of plan.orders) {
-        writeOrderArchive(dir, state, id, month, at.toISOString());
+        if (!writeOrderArchive(dir, state, id, month, at.toISOString()))
+          warnings.push(`모아 둔 이벤트가 없어 빈 events.jsonl을 썼어요: ${id}`);
         const o = detachOrder(state, id);
         state.archivedOrders[id] = {
           sourceRef: o.sourceRef,
@@ -174,15 +203,17 @@ export async function archiveOrders(
   return { status: 'archived', fold: fold.status, ...plan, warnings };
 }
 
+/** 모아 둔 이벤트가 있었으면 true. 없으면 빈 events.jsonl을 쓰고 false다 */
 function writeOrderArchive(
   dir: string,
   s: ConductorSnapshot,
   id: string,
   month: string,
   archivedAt: string,
-): void {
+): boolean {
   const target = archiveTarget(dir, month, id);
-  writeDurable(join(target, 'events.jsonl'), stagedEvents(dir, id));
+  const events = stagedEvents(dir, id);
+  writeDurable(join(target, 'events.jsonl'), events);
   const copied = copyRefs(dir, id, target);
 
   const order = s.orders[id]!;
@@ -197,6 +228,7 @@ function writeOrderArchive(
   const shown = { order, workers, reports, refs, gates, bypasses, archivedAt };
   writeDurable(join(target, 'order.json'), `${JSON.stringify(shown, null, 2)}\n`);
   fsyncDir(target);
+  return events.length > 0;
 }
 
 /** 보관 디렉토리를 만들고 새로 생긴 디렉토리 엔트리까지 fsync한다. 그 뒤에 base.json이 원본을 지운다 */

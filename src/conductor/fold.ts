@@ -1,6 +1,5 @@
 import {
   closeSync,
-  existsSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -147,14 +146,14 @@ function stageOrderLogs(
       continue;
     }
     const orderDir = join(dir, ORDER_LOGS_DIR, id);
-    if (!existsSync(orderDir)) {
-      mkdirSync(orderDir, { recursive: true, mode: 0o700 });
-      // 새 디렉토리 엔트리도 디스크에 둬야 segment를 지운 뒤 앞쪽 이벤트가 남는다
-      fsyncDir(dir);
-      fsyncDir(join(dir, ORDER_LOGS_DIR));
-    }
+    mkdirSync(orderDir, { recursive: true, mode: 0o700 });
     writeDurable(join(orderDir, name), `${ls.join('\n')}\n`);
     fsyncDir(orderDir);
+  }
+  // 새 디렉토리 엔트리도 base.json보다 먼저 디스크에 둔다. 지난 회차가 만들고 fsync 전에 죽었어도 여기서 맞춰진다
+  if (lines.size > 0) {
+    fsyncDir(join(dir, ORDER_LOGS_DIR));
+    fsyncDir(dir);
   }
 }
 
