@@ -148,9 +148,11 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       return;
     }
     case 'bypass':
+      if (e.record.orderId !== undefined && isRetired(s, e.record.orderId)) return;
       s.bypasses.push(e.record);
       return;
     case 'jira-transition':
+      if (isRetired(s, e.record.orderId)) return;
       s.jiraTransitions.push(e.record);
       return;
     case 'gate-delivery': {
@@ -168,6 +170,8 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       return;
     }
     case 'slack-posted':
+      // 주문과 함께 빠졌거나 보관에서 버린 게이트에 늦게 온 줄이다
+      if (!s.gates[e.gateId]) return;
       s.slackPosted[e.gateId] = e.ref;
       return;
     case 'order-removed':
@@ -192,15 +196,16 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
   }
 }
 
-/**
- * 주문을 못 지우는 이유를 준다. 지울 수 있으면 undefined.
- * 멈춘 워커도 막는다. 그 워크트리가 남아 있을 수 있어서 워커 기록을 지우면 workerAt 가드가 풀린다
- */
 const REMOVAL_WORDS = {
   remove: { can: '지울', cannot: '지워요' },
   archive: { can: '옮길', cannot: '옮겨요' },
 } as const;
 
+/**
+ * 주문을 못 지우는 이유를 준다. 지울 수 있으면 undefined. 보관 명령은 `action`을 `archive`로 줘서 같은 규칙을
+ * 옮기는 쪽 문구로 받는다.
+ * 멈춘 워커도 막는다. 그 워크트리가 남아 있을 수 있어서 워커 기록을 지우면 workerAt 가드가 풀린다
+ */
 export function removalBlocker(
   s: ConductorSnapshot,
   orderId: string,
