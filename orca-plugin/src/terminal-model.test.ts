@@ -65,6 +65,9 @@ test('workerEnded는 해제됐거나 끝난 워커만 고른다', () => {
   assert.equal(workerEnded({ workerStatus: 'finished' }), true)
   assert.equal(workerEnded({ workerStatus: 'running' }), false)
   assert.equal(workerEnded({}), false)
+})
+
+test('canReachWorker는 워크트리가 있고 워커가 안 끝난 주문만 고른다', () => {
   assert.equal(canReachWorker({ workspaceId: 'ws', workerStatus: 'running' }), true)
   assert.equal(canReachWorker({ workspaceId: 'ws', workerStatus: 'released' }), false)
   assert.equal(canReachWorker({ workerStatus: 'running' }), false)
