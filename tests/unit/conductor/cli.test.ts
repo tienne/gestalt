@@ -123,6 +123,34 @@ describe('gestalt conductor', () => {
     );
   });
 
+  it('status JSON은 배포 신호를 기다리는 merged 주문에만 awaitingDeploy를 켠다', () => {
+    const stateDir = tempStateDir();
+    const add = (title: string) => {
+      conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title });
+      return (last()['order'] as { id: string }).id;
+    };
+    const bug = add('버그');
+    const subTask = add('하위 작업');
+    const deployed = add('배포 끝난 버그');
+    const running = add('진행 중인 버그');
+    const store = ConductorStore.open(stateDir);
+    store.updateOrder(bug, { status: 'merged', issueKey: 'APP-1', issueType: 'sub-bug' });
+    store.updateOrder(subTask, { status: 'merged', issueKey: 'APP-2', issueType: 'sub-task' });
+    store.updateOrder(deployed, {
+      status: 'merged',
+      issueKey: 'APP-3',
+      issueType: 'bug',
+      deployedAt: '2026-01-01T00:00:00.000Z',
+    });
+    store.updateOrder(running, { status: 'running', issueKey: 'APP-4', issueType: 'bug' });
+
+    conductorStatusCommand({ stateDir, json: true });
+    const flags = Object.fromEntries(
+      (last()['orders'] as Record<string, unknown>[]).map((o) => [o['id'], o['awaitingDeploy']]),
+    );
+    expect(flags).toEqual({ [bug]: true, [subTask]: false, [deployed]: false, [running]: false });
+  });
+
   it('status JSON에 저장소 경로와 워커 워크트리를 찾을 값을 싣는다', () => {
     const stateDir = tempStateDir();
     conductorOrderAddCommand({ stateDir, json: true, repo: 'acme/app', title: '배너 고치기' });

@@ -30,6 +30,20 @@ export interface DeploySource {
 /** 배포를 기다렸다가 In-QA로 가는 유형. 엔진의 머지 뒤 정산도 이 집합으로 배포를 기다릴지 정한다 */
 export const QA_TYPES: ReadonlySet<IssueType> = new Set(['bug', 'task', 'sub-bug']);
 
+/** 머지 뒤 배포 신호를 기다렸다 끝낼 주문인가. 엔진의 머지 뒤 정산과 status 출력이 같은 기준을 쓴다 */
+export function waitsForDeploy(order: Pick<Order, 'issueKey' | 'issueType'>): boolean {
+  return (
+    order.issueKey !== undefined && order.issueType !== undefined && QA_TYPES.has(order.issueType)
+  );
+}
+
+/** 머지됐고 배포 신호를 아직 못 받은 주문. 상태는 merged 그대로라 화면이 이 값으로 배포 대기를 따로 그린다 */
+export function isAwaitingDeploy(
+  order: Pick<Order, 'status' | 'issueKey' | 'issueType' | 'deployedAt'>,
+): boolean {
+  return order.status === 'merged' && waitsForDeploy(order) && order.deployedAt === undefined;
+}
+
 // 뒤로 가는 전환을 막는 데 쓴다. Done과 In-QA는 둘 다 끝 자리라 같은 값이다
 const RANK: Record<JiraStatus, number> = {
   TODO: 0,
