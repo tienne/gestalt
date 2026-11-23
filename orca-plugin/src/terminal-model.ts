@@ -1,5 +1,5 @@
 // 컨덕터 터미널 화면의 계산. DOM과 오르카 런타임을 모르는 순수 함수만 둔다.
-import { isTerminal, ms, splitRepo } from './model'
+import { AWAITING_DEPLOY, displayStatus, isTerminal, ms, splitRepo } from './model'
 import { ORDER_STATUSES, type ConductorView, type EventView, type GateView, type OrderView, type WaitingView } from './protocol'
 
 export type KindKey = 'orca' | 'git' | 'sub' | 'none'
@@ -140,8 +140,10 @@ export function stateLine(o: OrderView, gates: readonly GateView[], now: number,
     return { tone: 'wait', text: orderWaitText(o.waiting, showFreeText), aside: duration(ms(o.waiting.since), now) }
   }
   const last = Math.max(ms(o.checkpoint?.savedAt) ?? 0, ms(o.updatedAt) ?? 0) || null
-  const tone: StateTone = o.status === 'running' ? 'run' : o.status === 'escalated' ? 'gate' : 'idle'
-  return { tone, text: o.status, aside: last === null ? '' : `${duration(last, now)} 전` }
+  const status = displayStatus(o)
+  const tone: StateTone =
+    o.status === 'running' ? 'run' : o.status === 'escalated' ? 'gate' : status === AWAITING_DEPLOY ? 'wait' : 'idle'
+  return { tone, text: status, aside: last === null ? '' : `${duration(last, now)} 전` }
 }
 
 /** 카드 둘째 줄. 레포, 지라 키, PR, 계정이나 워커 종류, 기준 브랜치. 계정 이름은 showAccount가 켜졌을 때만 */

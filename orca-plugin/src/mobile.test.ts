@@ -266,3 +266,19 @@ test('서버는 ?view=terminal에 터미널 페이지를 같은 규칙으로 돌
     await server.stop()
   }
 })
+
+test('배포를 기다리는 merged 주문은 배포 대기로 그리고 값이 없으면 머지됨이다', () => {
+  const html = mobileFragment(
+    view({
+      orders: [
+        order('ord-d', { status: 'merged', awaitingDeploy: true }),
+        order('ord-e', { status: 'merged' })
+      ]
+    }),
+    NOW
+  )
+  has(html, 'order tone-accent')
+  has(html, '배포 대기')
+  has(html, 'order tone-success')
+  has(html, '머지됨')
+})

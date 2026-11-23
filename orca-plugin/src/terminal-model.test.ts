@@ -45,6 +45,12 @@ test('stateLine은 한도, 게이트, 대기, 그 밖 순으로 고른다', () =
     text: 'running',
     aside: '3분 전'
   })
+  assert.deepEqual(stateLine({ ...base, status: 'merged', awaitingDeploy: true }, [], now), {
+    tone: 'wait',
+    text: 'awaiting-deploy',
+    aside: ''
+  })
+  assert.deepEqual(stateLine({ ...base, status: 'merged' }, [], now), { tone: 'idle', text: 'merged', aside: '' }, '옛 CLI 주문은 그대로다')
   assert.equal(duration(null, now), '')
 })
 
