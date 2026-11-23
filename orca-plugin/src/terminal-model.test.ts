@@ -1,6 +1,6 @@
 import { assert, test } from 'orca/testing'
 import type { ConductorView, OrderView } from './protocol'
-import { chainChips, clock, duration, eventText, metaOf, progressOf, stateLine, terminalModel } from './terminal-model'
+import { chainChips, clock, duration, eventText, groupByRepo, metaOf, progressOf, stateLine, terminalModel } from './terminal-model'
 
 const base: OrderView = { id: 'o1', status: 'running', scope: 'pr', repo: 'acme/web', title: 't', bypasses: [] }
 const cp = (over: Partial<NonNullable<OrderView['checkpoint']>> = {}) => ({
@@ -54,11 +54,12 @@ test('stateLine은 한도, 게이트, 대기, 그 밖 순으로 고른다', () =
   assert.equal(duration(null, now), '')
 })
 
-test('metaOf는 레포 이름, 지라 키, PR, 계정이나 서브에이전트, 기준 브랜치를 잇는다', () => {
-  assert.deepEqual(metaOf({ ...base, issue: 'PROJ-12', account: 'work' }), ['web', 'PROJ-12', 'acct work'])
-  assert.deepEqual(metaOf({ ...base, pr: 'api#48', workerKind: 'subagent' }), ['web', 'api#48', 'subagent'])
-  assert.deepEqual(metaOf({ ...base, baseBranch: 'feat/search' }), ['web', '⤷ feat/search'])
-  assert.deepEqual(metaOf({ ...base, issue: 'PROJ-12', account: 'work' }, false), ['web', 'PROJ-12'], '폰 페이지에는 계정 이름을 안 싣는다')
+test('metaOf는 레포 이름, 지라 키, PR, 계정이나 서브에이전트, 기준 브랜치를 이름표와 함께 낸다', () => {
+  const rows = (o: Parameters<typeof metaOf>[0], show?: boolean) => metaOf(o, show).map((r) => `${r.label}=${r.value}`)
+  assert.deepEqual(rows({ ...base, issue: 'PROJ-12', account: 'work' }), ['레포=web', '티켓=PROJ-12', '계정=work'])
+  assert.deepEqual(rows({ ...base, pr: 'api#48', workerKind: 'subagent' }), ['레포=web', 'PR=api#48', '워커=subagent'])
+  assert.deepEqual(rows({ ...base, baseBranch: 'feat/search' }), ['레포=web', '기준 브랜치=feat/search'])
+  assert.deepEqual(rows({ ...base, issue: 'PROJ-12', account: 'work' }, false), ['레포=web', '티켓=PROJ-12'], '폰 페이지에는 계정 이름을 안 싣는다')
 })
 
 test('terminalModel은 끝나지 않은 주문만 카드로 만들고 하위 주문은 부모 카드 안에 넣는다', () => {
@@ -142,5 +143,14 @@ test('terminalModel은 배포 대기 카드를 머지됨 카드보다 앞에 둔
   assert.deepEqual(
     terminalModel(view, 0).cards.map((c) => c.order.id),
     ['d', 'm']
+  )
+})
+
+test('groupByRepo는 레포가 처음 나온 순서로 묶고 프로젝트 이름, 레포 이름, 레포 없음 순으로 이름을 고른다', () => {
+  const card = (id: string, repo: string) => ({ order: { id, repo } }) as unknown as Parameters<typeof groupByRepo>[0][number]
+  const groups = groupByRepo([card('a', 'acme/api'), card('b', 'acme/web'), card('c', 'acme/api'), card('d', '')], { 'acme/web': '웹' })
+  assert.deepEqual(
+    groups.map((g) => `${g.label}:${g.cards.map((c) => c.order.id).join('')}`),
+    ['api:ac', '웹:b', '레포 없음:d']
   )
 })

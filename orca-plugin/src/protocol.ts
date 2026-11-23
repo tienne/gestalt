@@ -66,6 +66,8 @@ export type ConductorInfo = {
   prWatchRepos?: string[]
   disconnectedWorkers?: number
   compactions?: number
+  /** 최근에 tick을 돌린 컨덕터 세션. 플러그인이 이 세션의 오르카 탭을 찾아간다 */
+  session?: { id: string; cwd?: string }
 }
 
 /** CLI가 이벤트 로그에서 고른 한 줄. summary에 바깥에서 온 글이 섞여 있으니 텍스트로만 그린다 */
@@ -212,6 +214,8 @@ declare module 'orca' {
     'order.browse': { input: { orderId: string }; output: OrderBrowseResult }
     /** 결과 뷰어 첫 화면 주소를 준다. 떠 있으면 그대로 쓰고 없으면 띄운다. 터미널 화면 머리의 "결과 페이지 열기"가 부른다 */
     'viewer.open': { output: ViewerOpenResult }
+    /** 컨덕터 세션의 터미널로 간다. 터미널을 못 찾으면 세션이 도는 워크스페이스만 연다 */
+    'conductor.open': { output: WorkerOpenResult }
   }
   interface PluginPanelEvents {
     'conductor.changed': ConductorView

@@ -1008,3 +1008,48 @@ test('결과 뷰어를 동시에 두 번 열어도 하나만 띄운다', async (
     assert.equal(s.calls().filter((c) => c.args[1] === 'browse').length, 1)
   })
 })
+
+test('conductor.open은 컨덕터 세션 id와 같은 에이전트의 터미널로 간다', async () => {
+  const s = store({ ...STATUS, conductor: { session: { id: 'sess-1', cwd: '/w/ord-a-2/sub' } } })
+  const agents = {
+    agents: [
+      { terminalId: 'term-other', title: 'x', agent: 'claude', state: 'working', stateStartedAt: 1, sessionId: 'sess-2' },
+      { terminalId: 'term-conductor', title: 'c', agent: 'claude', state: 'waiting', stateStartedAt: 2, sessionId: 'sess-1' }
+    ]
+  }
+  const h = liveHost(s.dir, { 'agents.list': agents, 'terminal.focus': { focused: true } })
+  await run(s, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    assert.deepEqual(await worker.request('conductor.open'), { opened: true })
+    assert.deepEqual(h.callsOf('agents.list'), [{ workspaceId: 'ws-a' }], '세션 폴더를 품은 가장 깊은 워크스페이스를 고른다')
+    assert.deepEqual(h.callsOf('terminal.focus'), [{ terminalId: 'term-conductor' }])
+  })
+})
+
+test('conductor.open은 세션 터미널을 못 찾으면 다른 터미널로 가지 않고 워크스페이스만 연다', async () => {
+  const s = store({ ...STATUS, conductor: { session: { id: 'sess-1', cwd: '/w/ord-a-2' } } })
+  const h = liveHost(s.dir, { 'agents.list': AGENTS, 'terminal.focus': { focused: true } })
+  await run(s, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    const out = await worker.request('conductor.open')
+    assert.equal(out.opened, true)
+    assert.equal(out.worktreeOnly, true)
+    assert.deepEqual(h.callsOf('terminal.focus'), [])
+    assert.deepEqual(h.callsOf('workspace.open'), [{ workspaceId: 'ws-a' }])
+  })
+})
+
+test('conductor.open은 세션이 없거나 폴더가 워크스페이스 밖이면 열지 않는다', async () => {
+  const none = store(STATUS)
+  await run(none, liveHost(none.dir, {}), async (worker) => {
+    await worker.request('conductor.refresh')
+    assert.equal((await worker.request('conductor.open')).opened, false)
+  })
+  const outside = store({ ...STATUS, conductor: { session: { id: 'sess-1', cwd: '/elsewhere' } } })
+  const h = liveHost(outside.dir, {})
+  await run(outside, h, async (worker) => {
+    await worker.request('conductor.refresh')
+    assert.equal((await worker.request('conductor.open')).opened, false)
+    assert.deepEqual(h.callsOf('workspace.open'), [])
+  })
+})

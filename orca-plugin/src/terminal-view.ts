@@ -36,6 +36,18 @@ statusRegion.setAttribute('role', 'status')
 statusRegion.setAttribute('aria-live', 'polite')
 alertRegion.setAttribute('role', 'alert')
 for (const r of [statusRegion, alertRegion]) r.style.cssText = SR_ONLY
+// 다시 그려도 사라지지 않게 root 밖에 둔다. 스크린 리더 안내는 statusRegion이 맡아 여기선 숨긴다
+const toast = document.createElement('div')
+toast.className = 'toast'
+toast.setAttribute('aria-hidden', 'true')
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+function showToast(text: string): void {
+  toast.textContent = text
+  toast.classList.add('on')
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => toast.classList.remove('on'), 1600)
+}
 
 async function load(): Promise<void> {
   try {
@@ -90,6 +102,46 @@ async function openBrowseNow(orderId: string): Promise<void> {
   else statusRegion.textContent = '작업 내용을 브라우저에서 열었어요'
 }
 
+/** 주문 번호를 클립보드에 넣는다. 오르카 호스트 API에 클립보드가 없어 프레임의 브라우저 API를 쓰고, 막혀 있으면 선택 복사로 한 번 더 해 본다 */
+async function copyText(text: string): Promise<void> {
+  state.openNote = null
+  let copied = false
+  try {
+    await navigator.clipboard.writeText(text)
+    copied = true
+  } catch {
+    copied = copyBySelection(text)
+  }
+  statusRegion.textContent = ''
+  alertRegion.textContent = ''
+  if (copied) {
+    statusRegion.textContent = `${text} 복사했어요`
+    showToast(`${text} 복사했어요`)
+  }
+  else {
+    state.openNote = `클립보드에 못 넣었어요. 직접 복사해 주세요: ${text}`
+    render()
+    alertRegion.textContent = state.openNote
+  }
+}
+
+function copyBySelection(text: string): boolean {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.append(ta)
+  ta.select()
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    ta.remove()
+  }
+}
+
 /** 머리의 "결과 페이지 열기". 워커가 떠 있는 뷰어를 쓰거나 새로 띄운 주소를 브라우저로 연다 */
 function openViewer(): Promise<void> {
   return once('결과 페이지를 여는 중이에요', openViewerNow)
@@ -126,6 +178,27 @@ async function openUrl(url: string): Promise<string | null> {
 
 function openWorker(orderId: string): Promise<void> {
   return once('워크트리로 옮기는 중이에요', () => openWorkerNow(orderId))
+}
+
+function openConductor(): Promise<void> {
+  return once('컨덕터 세션으로 옮기는 중이에요', openConductorNow)
+}
+
+async function openConductorNow(): Promise<void> {
+  state.openError = null
+  state.openNote = null
+  try {
+    const out = await orca.plugin.request('conductor.open')
+    if (!out.opened) state.openNote = `컨덕터 세션으로 못 옮겼어요. ${out.error ?? '이유를 못 받았어요.'}`
+    else if (out.worktreeOnly) state.openNote = out.error ?? '워크스페이스만 열었어요.'
+  } catch (e) {
+    state.openNote = `컨덕터 세션으로 못 옮겼어요. ${errorText(e)}`
+  }
+  render()
+  statusRegion.textContent = ''
+  alertRegion.textContent = ''
+  if (state.openNote) alertRegion.textContent = state.openNote
+  else statusRegion.textContent = '컨덕터 세션으로 옮겼어요'
 }
 
 async function openWorkerNow(orderId: string): Promise<void> {
@@ -248,7 +321,7 @@ function render(): void {
 /** 두 번 누른 카드의 주문 id. 워크트리를 못 찾은 카드는 data-open이 없고 상세 안은 제 할 일이 따로 있다 */
 function openTarget(e: Event): string | undefined {
   const target = e.target as Element | null
-  if (target?.closest('.more')) return undefined
+  if (target?.closest('.more, .tid-row button')) return undefined
   return target?.closest<HTMLElement>('.w[data-open]')?.dataset['order']
 }
 
@@ -273,7 +346,7 @@ export function mountTerminal(): void {
   const style = document.createElement('style')
   style.textContent = TERMINAL_STYLE
   document.head.append(style)
-  document.body.append(root, statusRegion, alertRegion)
+  document.body.append(root, toast, statusRegion, alertRegion)
   root.addEventListener('toggle', onToggle, true)
   root.addEventListener('click', (e) => {
     const go = (e.target as Element | null)?.closest<HTMLElement>('[data-go]')
@@ -281,6 +354,9 @@ export function mountTerminal(): void {
     const browse = (e.target as Element | null)?.closest<HTMLElement>('[data-browse]')
     if (browse?.dataset['browse']) void openBrowse(browse.dataset['browse'])
     if ((e.target as Element | null)?.closest('[data-viewer]')) void openViewer()
+    if ((e.target as Element | null)?.closest('[data-go-conductor]')) void openConductor()
+    const copy = (e.target as Element | null)?.closest<HTMLElement>('[data-copy]')
+    if (copy?.dataset['copy']) void copyText(copy.dataset['copy'])
   })
   root.addEventListener('dblclick', (e) => {
     const id = openTarget(e)

@@ -122,7 +122,29 @@ function conductorInfo(v: unknown): ConductorInfo | undefined {
   }
   const repos = strings(v['prWatchRepos'])
   if (repos) out.prWatchRepos = repos
+  const session = v['session']
+  if (isRecord(session)) {
+    const id = str(session['id'])
+    const cwd = str(session['cwd'])
+    if (id && SESSION_ID_RE.test(id)) out.session = { id, ...(cwd && isAbsolute(cwd) ? { cwd } : {}) }
+  }
   return out
+}
+
+const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
+const isAbsolute = (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
+
+/** 컨덕터 세션이 도는 디렉토리를 품은 워크스페이스. 여럿이면 가장 깊은 것 */
+export function workspaceForPath(cwd: string, workspaces: readonly Workspace[]): Workspace | undefined {
+  const trim = (p: string) => p.replace(/[\\/]+$/, '')
+  const target = trim(cwd)
+  let best: Workspace | undefined
+  for (const w of workspaces) {
+    const root = trim(w.path)
+    if (!root || (target !== root && !target.startsWith(`${root}/`) && !target.startsWith(`${root}\\`))) continue
+    if (!best || root.length > trim(best.path).length) best = w
+  }
+  return best
 }
 
 function events(v: unknown): EventView[] | undefined {
