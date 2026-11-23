@@ -2132,3 +2132,158 @@ describe('파일 겹침', () => {
     expect(store.openGates()).toHaveLength(0);
   });
 });
+
+describe('배포 주문의 대상 주문 배포 기록', () => {
+  function memoryDeploy() {
+    const signals = new Map<string, DeploySignal>();
+    return {
+      signals,
+      source: {
+        status: async (o: { id: string }) => signals.get(o.id) ?? { status: 'pending' as const },
+        record: (id: string, s: DeploySignal) => {
+          signals.set(id, s);
+        },
+      },
+    };
+  }
+
+  function seed(store: ConductorStore) {
+    store.addOrder(
+      order({ id: 'ord-a', issueKey: 'APP-1', issueType: 'sub-bug', status: 'merged' }),
+    );
+    store.addOrder(order({ id: 'ord-b', issueKey: 'APP-2', issueType: 'bug', status: 'merged' }));
+    store.addOrder(order({ id: 'ord-done', issueKey: 'APP-3', issueType: 'bug', status: 'done' }));
+    store.addOrder(
+      order({ id: 'ord-story', issueKey: 'APP-4', issueType: 'story', status: 'merged' }),
+    );
+    store.addOrder(
+      order({ id: 'ord-open', issueKey: 'APP-5', issueType: 'bug', status: 'running' }),
+    );
+    store.addOrder(
+      order({
+        id: 'ord-deploy',
+        title: 'dev, stage 배포',
+        deploys: ['ord-a', 'ord-b', 'ord-done', 'ord-story', 'ord-open'],
+      }),
+    );
+  }
+
+  async function launchDeploy(store: ConductorStore, d: EngineDeps): Promise<string> {
+    await tick(store, d, { force: true });
+    return store.order('ord-deploy')!.workerId!;
+  }
+
+  it('배포 워커가 done이면 머지된 대상에 성공 신호를 남기고 같은 tick에 In-QA로 끝낸다', async () => {
+    const { store } = clockedStore();
+    seed(store);
+    const jira = fakeJira();
+    const mem = memoryDeploy();
+    const { deps: d } = deps({
+      config: { ...config, maxConcurrentWorkers: 5 },
+      jira: jira.client,
+      deploy: mem.source,
+    });
+    const wid = await launchDeploy(store, d);
+    report(store, d, {
+      workerId: wid,
+      status: 'done',
+      summary: '배포했어요',
+      deployRef: 'https://github.com/acme/app/actions/runs/1',
+    });
+
+    const r = await tick(store, d, { force: true });
+    const ref = 'https://github.com/acme/app/actions/runs/1';
+    expect(mem.signals.get('ord-a')).toEqual({ status: 'success', ref });
+    expect(mem.signals.get('ord-b')).toEqual({ status: 'success', ref });
+    expect(mem.signals.has('ord-done')).toBe(false);
+    expect(mem.signals.has('ord-story')).toBe(false);
+    expect(mem.signals.has('ord-open')).toBe(false);
+    expect(store.order('ord-a')).toMatchObject({ status: 'done', deployedAt: r.at });
+    expect(store.order('ord-b')).toMatchObject({ status: 'done', deployedAt: r.at });
+    expect(jira.moves).toEqual(
+      expect.arrayContaining([
+        { key: 'APP-1', to: 'In-QA' },
+        { key: 'APP-2', to: 'In-QA' },
+      ]),
+    );
+    expect(r.deployTargets).toEqual([
+      { deployOrderId: 'ord-deploy', orderId: 'ord-a', outcome: 'recorded' },
+      { deployOrderId: 'ord-deploy', orderId: 'ord-b', outcome: 'recorded' },
+      expect.objectContaining({ orderId: 'ord-done', outcome: 'skipped' }),
+      expect.objectContaining({ orderId: 'ord-story', outcome: 'skipped' }),
+    ]);
+    expect(r.warnings).toEqual([expect.stringContaining('ord-open가 아직 머지 전(running)')]);
+    expect(store.order('ord-deploy')).toMatchObject({
+      status: 'done',
+      deployResult: { ref },
+      deploysRecordedAt: r.at,
+    });
+
+    // 한 번 남긴 배포 주문은 다음 tick에 다시 돌지 않는다
+    const again = await tick(store, d, { force: true });
+    expect(again.deployTargets).toEqual([]);
+    expect(again.warnings).toEqual([]);
+  });
+
+  it('배포 주소를 안 실으면 배포 주문 id를 ref로 남긴다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(
+      order({ id: 'ord-a', issueKey: 'APP-1', issueType: 'sub-bug', status: 'merged' }),
+    );
+    store.addOrder(order({ id: 'ord-deploy', deploys: ['ord-a'] }));
+    const mem = memoryDeploy();
+    const { deps: d } = deps({ deploy: mem.source });
+    const wid = await launchDeploy(store, d);
+    report(store, d, { workerId: wid, status: 'done' });
+    await tick(store, d, { force: true });
+    expect(mem.signals.get('ord-a')).toEqual({ status: 'success', ref: 'ord-deploy' });
+    expect(store.order('ord-a')!.status).toBe('done');
+  });
+
+  it('배포 워커가 실패하면 대상에 아무것도 안 남긴다', async () => {
+    const { store } = clockedStore();
+    seed(store);
+    const mem = memoryDeploy();
+    const { deps: d } = deps({
+      config: { ...config, maxConcurrentWorkers: 5 },
+      deploy: mem.source,
+    });
+    const wid = await launchDeploy(store, d);
+    report(store, d, { workerId: wid, status: 'failed', deployRef: 'https://x/run/2' });
+    const r = await tick(store, d, { force: true });
+    expect(mem.signals.size).toBe(0);
+    expect(r.deployTargets).toEqual([]);
+    expect(store.order('ord-a')!.status).toBe('merged');
+    expect(store.order('ord-deploy')!.deployResult).toBeUndefined();
+  });
+
+  it('배포 주문이 취소되면 늦은 done 보고가 와도 대상에 아무것도 안 남긴다', async () => {
+    const { store } = clockedStore();
+    seed(store);
+    const mem = memoryDeploy();
+    const { deps: d } = deps({
+      config: { ...config, maxConcurrentWorkers: 5 },
+      deploy: mem.source,
+    });
+    const wid = await launchDeploy(store, d);
+    store.updateOrder('ord-deploy', { status: 'cancelled' });
+    report(store, d, { workerId: wid, status: 'done' });
+    await tick(store, d, { force: true });
+    expect(mem.signals.size).toBe(0);
+    expect(store.order('ord-a')!.status).toBe('merged');
+  });
+
+  it('신호를 남길 자리가 없으면 오류로 알리고 다음 tick에 다시 시도한다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(
+      order({ id: 'ord-a', issueKey: 'APP-1', issueType: 'sub-bug', status: 'merged' }),
+    );
+    store.addOrder(
+      order({ id: 'ord-deploy', status: 'done', deploys: ['ord-a'], deployResult: { at: 'x' } }),
+    );
+    const { deps: d } = deps({ deploy: { status: async () => ({ status: 'pending' }) } });
+    const r = await tick(store, d, { force: true });
+    expect(r.errors).toEqual([expect.stringContaining('ord-deploy: 배포 신호를 남길 자리가 없어')]);
+    expect(store.order('ord-deploy')!.deploysRecordedAt).toBeUndefined();
+  });
+});

@@ -175,6 +175,18 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
     } else problems.push('spawnRequest.title이 없어요');
   }
 
+  const deployRef = r['deployRef'];
+  if (deployRef !== undefined) {
+    if (
+      typeof deployRef === 'string' &&
+      deployRef.trim() &&
+      deployRef.length <= MAX_REF_CHARS &&
+      !hasControlChar(deployRef)
+    )
+      report.deployRef = deployRef.trim();
+    else problems.push('deployRef에는 한 줄짜리 배포 실행 주소만 적어 주세요');
+  }
+
   if (report.status === 'stopped' && !report.stopReason) report.stopReason = 'unknown';
   if (report.status === 'needs' && !report.need)
     problems.push('status가 needs면 need가 있어야 해요');

@@ -342,6 +342,10 @@ export function buildWorkerPrompt(
     `- 결과는 \`${report} --status done --summary "<결과 요약>" --ref "<파일 경로>"\`로 낸다. 요약과 refs만 싣고 diff나 로그 원문은 파일로 두고 경로만 적는다.`,
   );
   lines.push('- PR을 만들거나 다루면 결과 보고에 `--pr owner/name#번호` 꼴로 싣는다.');
+  if (order.deploys?.length)
+    lines.push(
+      `- 배포 주문이다. 배포가 성공하면 결과 보고에 \`--deploy-ref <배포 실행 URL>\`을 함께 싣는다. 컨덕터가 그 주소로 대상 주문(${order.deploys.map((d) => oneLine(d)).join(', ')})에 배포 성공을 남긴다. 실패했으면 --status failed로 낸다.`,
+    );
   lines.push(
     `- ship이 GitHub PR을 만들면 Copilot 리뷰를 요청하기 전에 바로 \`${report} --status progress --skill ship --summary "draft PR 생성" --pr owner/name#번호\`로 보고한다. 컨덕터의 PR 감시가 이 보고로 처리 중인 PR을 알아본다. 늦으면 Copilot 코멘트를 남의 코멘트로 읽고 같은 PR에 주문을 하나 더 만든다.`,
   );

@@ -100,6 +100,8 @@ export interface IntakeInput {
   explicitJiraStatus?: JiraStatus;
   prRef?: string;
   parentOrderId?: string;
+  /** 배포 주문이 배포할 주문 id. 컨덕터 세션이 order add로 넣을 때만 받는다 */
+  deploys?: string[];
 }
 
 export type IntakeResult =
@@ -165,6 +167,9 @@ export function intakeOrder(
     if (!isAbsolute(input.parentWorktree))
       throw new Error(`부모 워크트리는 절대 경로로 주세요: ${oneLine(input.parentWorktree)}`);
   }
+  const deploys = input.deploys?.length
+    ? checkDeployTargets(store, input.repo, input.deploys, trusted)
+    : undefined;
   const skills = trusted ? input.skillChain : input.skillChain?.filter((s) => KNOWN_SKILLS.has(s));
 
   const description =
@@ -205,9 +210,29 @@ export function intakeOrder(
     ...(input.explicitJiraStatus ? { explicitJiraStatus: input.explicitJiraStatus } : {}),
     ...(input.prRef ? { prRef: input.prRef } : {}),
     ...(input.parentOrderId ? { parentOrderId: input.parentOrderId } : {}),
+    ...(deploys ? { deploys } : {}),
   };
   store.addOrder(order);
   return { order, created: true };
+}
+
+/** 배포 대상이 같은 레포의 있는 주문인지 확인하고 겹친 id를 걷어 돌려준다 */
+function checkDeployTargets(
+  store: ConductorStore,
+  repo: string,
+  ids: string[],
+  trusted: boolean,
+): string[] {
+  // 바깥 출처가 정하면 남의 주문에 배포 성공을 찍어 지라를 In-QA로 옮길 수 있다
+  if (!trusted) throw new Error('배포 대상은 컨덕터 세션이 order add로 넣은 주문만 받아요');
+  const out = [...new Set(ids)];
+  for (const id of out) {
+    const target = store.order(id);
+    if (!target) throw new Error(`배포 대상 주문이 없어요: ${oneLine(id)}`);
+    if (target.repo !== repo)
+      throw new Error(`배포 대상 ${id}는 ${target.repo} 주문이라 ${repo} 배포에 못 넣어요`);
+  }
+  return out;
 }
 
 export interface JiraTicket {

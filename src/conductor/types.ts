@@ -96,6 +96,15 @@ export interface Order {
   cancelReason?: string;
   /** 워커의 spawnRequest로 생긴 주문이면 그 워커가 맡았던 주문. 이 주문의 워커는 더 못 늘린다 */
   parentOrderId?: string;
+  /**
+   * 배포 주문이면 이 배포에 들어가는 주문 id. 워커가 done으로 끝나면 tick이 대상 주문마다 배포 성공 신호를 남긴다.
+   * 접수 때 같은 레포의 있는 주문인지 확인했다
+   */
+  deploys?: string[];
+  /** 배포 주문의 워커가 done으로 보고한 시각과 배포 실행 주소. 실패나 취소로 끝나면 남지 않는다 */
+  deployResult?: { at: string; ref?: string };
+  /** 대상 주문에 배포 신호를 남긴 시각. 한 번만 남긴다 */
+  deploysRecordedAt?: string;
 }
 
 export const WORKER_STATUSES = [
@@ -277,6 +286,8 @@ export interface WorkerReport {
   wait?: { reason: string; until?: string };
   /** 워커가 하위 워커가 필요하다고 판단했을 때. 컨덕터가 새 주문으로 받는다 */
   spawnRequest?: { title: string; detail: string };
+  /** 배포 주문의 워커가 실은 배포 실행 주소. 대상 주문의 배포 신호 ref로 쓴다 */
+  deployRef?: string;
 }
 
 /**

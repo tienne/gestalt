@@ -137,6 +137,8 @@ export interface TickReport {
   rateLimited: RateLimitedEntry[];
   /** 사람이 넘겨받은 주문 중 이번 tick에 상태가 바뀐 것. 바뀐 게 없으면 비어 있다 */
   humanOwned: HumanOwnedChange[];
+  /** 배포 주문이 끝나 대상 주문에 배포 성공을 남기거나 건너뛴 자리. 머지 전 대상은 warnings에 간다 */
+  deployTargets: DeployTargetOutcome[];
   /**
    * 상태가 안 바뀐 tick이 이번까지 연달아 몇 번 왔는지. 새 주문, 띄운 워커, 올린 확인 자리, 호스트 할 일,
    * 오류가 없고 앞 tick 뒤로 저장소에 쌓인 이벤트도 없어야 센다. 하나라도 있으면 0이다
@@ -150,6 +152,14 @@ export interface TickReport {
     openGates: number;
     unansweredThreads: number;
   };
+}
+
+export interface DeployTargetOutcome {
+  deployOrderId: string;
+  orderId: string;
+  outcome: 'recorded' | 'skipped';
+  /** 건너뛴 이유 */
+  reason?: string;
 }
 
 export interface RateLimitedEntry {
@@ -382,6 +392,8 @@ async function runTick(
     if (report.humanOwned.length === changesBefore)
       prCheckEvents = store.snapshot.eventCount - before;
   });
+  // 같은 tick의 정산이 남긴 신호를 바로 읽도록 정산 앞에 둔다
+  await step(report, () => recordDeployTargets(store, deps, report));
   await step(report, () => settleMerged(store, deps, report));
   if (deps.slack) {
     const slack = deps.slack;
@@ -686,6 +698,7 @@ function pickStoredReport(r: WorkerReport, refCopies: RefCopy[] = []): StoredRep
     ...(r.merged !== undefined ? { merged: r.merged } : {}),
     ...(r.stopReason !== undefined ? { stopReason: r.stopReason } : {}),
     ...(r.need !== undefined ? { need: r.need } : {}),
+    ...(r.deployRef !== undefined ? { deployRef: r.deployRef } : {}),
     ...(refCopies.length > 0 ? { refCopies } : {}),
   };
 }
@@ -756,15 +769,19 @@ async function applyReport(
       if (r.prRef || (r.skill && REVIEW_SKILLS.has(r.skill)))
         await moveJira(store, deps, report, order.id, 'review');
       return;
-    case 'done':
+    case 'done': {
       store.updateWorker(worker.id, { status: 'finished' });
+      const deployResult = order.deploys?.length
+        ? { deployResult: { at: report.at, ...(r.deployRef ? { ref: r.deployRef } : {}) } }
+        : {};
       if (r.merged) {
-        store.updateOrder(order.id, { status: 'merged', mergedAt: report.at });
+        store.updateOrder(order.id, { status: 'merged', mergedAt: report.at, ...deployResult });
         await moveJira(store, deps, report, order.id, 'merged');
       } else {
-        store.updateOrder(order.id, { status: 'done' });
+        store.updateOrder(order.id, { status: 'done', ...deployResult });
       }
       return;
+    }
     case 'failed':
       store.updateWorker(worker.id, { status: 'failed' });
       store.updateOrder(order.id, { status: 'failed' });
@@ -1205,6 +1222,65 @@ export async function afterHumanMerge(
 }
 
 /**
+ * 워커가 done으로 끝낸 배포 주문의 대상 주문마다 `deploy report`와 같은 성공 신호를 남긴다. 지라 이동과
+ * done 전환은 뒤이은 정산(settleOne)이 맡는다. 대상마다 한 번만 보고 배포 주문에 남긴 시각으로 다시 안 돈다.
+ * 머지 전 대상은 이 배포에 안 들어갔으니 기록하지 않고 경고만 남긴다. 신호를 남길 자리가 없거나 쓰다 실패하면
+ * 다음 tick에 다시 시도하게 시각을 안 남긴다
+ */
+async function recordDeployTargets(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+): Promise<void> {
+  const pending = store
+    .orders()
+    .filter((o) => o.deploys?.length && o.deployResult && !o.deploysRecordedAt);
+  for (const d of pending) {
+    const record = deps.deploy?.record;
+    if (!record) {
+      report.errors.push(
+        `${d.id}: 배포 신호를 남길 자리가 없어 대상 주문에 배포 성공을 못 남겼어요`,
+      );
+      continue;
+    }
+    const ref = d.deployResult!.ref ?? d.id;
+    let failed = false;
+    for (const id of d.deploys!) {
+      const target = store.order(id);
+      const skip = (reason: string) =>
+        report.deployTargets.push({ deployOrderId: d.id, orderId: id, outcome: 'skipped', reason });
+      if (!target) {
+        report.warnings.push(`${d.id}: 배포 대상 ${id}가 저장소에 없어 배포 성공을 안 남겼어요`);
+        continue;
+      }
+      if (target.status === 'done') {
+        skip('이미 끝난 주문이에요');
+        continue;
+      }
+      if (!waitsForDeploy(target)) {
+        skip('배포를 기다리지 않는 유형이에요');
+        continue;
+      }
+      if (target.status !== 'merged') {
+        report.warnings.push(
+          `${d.id}: 배포 대상 ${id}가 아직 머지 전(${target.status})이라 배포 성공을 안 남겼어요`,
+        );
+        continue;
+      }
+      try {
+        await record(id, { status: 'success', ref });
+        report.deployTargets.push({ deployOrderId: d.id, orderId: id, outcome: 'recorded' });
+      } catch (err) {
+        failed = true;
+        report.errors.push(`${d.id}: 배포 대상 ${id}에 배포 성공을 못 남겼어요: ${message(err)}`);
+      }
+    }
+    // 못 남긴 대상이 있으면 다음 tick에 다시 돈다. 이미 남긴 대상은 정산으로 done이 돼 그때 건너뛴다
+    if (!failed) store.updateOrder(d.id, { deploysRecordedAt: report.at });
+  }
+}
+
+/**
  * 머지된 주문을 끝낸다. bug, task, sub-bug는 배포 파이프라인이 성공해야 In-QA로 옮기고 끝낸다.
  * 배포가 실패하면 그 주문만 사람에게 올린다.
  */
@@ -1408,6 +1484,7 @@ function emptyReport(at: string): TickReport {
     warnings: [],
     rateLimited: [],
     humanOwned: [],
+    deployTargets: [],
     idleTicks: 0,
     counts: {
       queued: 0,
