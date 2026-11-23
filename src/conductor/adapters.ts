@@ -80,6 +80,7 @@ export function writeDeploySignal(dir: string, orderId: string, signal: DeploySi
 /** 호스트가 남긴 배포 결과 파일을 읽는다. 아직 없으면 기다리는 중으로 본다 */
 export function fileDeploySource(dir: string): DeploySource {
   return {
+    record: (orderId, signal) => writeDeploySignal(dir, orderId, signal),
     status: async (order: Order) => {
       const file = join(dir, `${order.id}.json`);
       if (!existsSync(file)) return { status: 'pending' };

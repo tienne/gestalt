@@ -25,6 +25,8 @@ export interface JiraClient {
 /** 머지 뒤 배포 파이프라인 결과를 알려 주는 어댑터 */
 export interface DeploySource {
   status(order: Order): Promise<DeploySignal>;
+  /** 배포 주문이 끝났을 때 대상 주문의 신호를 남긴다. `deploy report`와 같은 자리에 쓴다 */
+  record?(orderId: string, signal: DeploySignal): void | Promise<void>;
 }
 
 /** 배포를 기다렸다가 In-QA로 가는 유형. 엔진의 머지 뒤 정산도 이 집합으로 배포를 기다릴지 정한다 */
