@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -63,7 +64,7 @@ function seed(dir: string): ConductorStore {
       refCopies: [{ ref: '/tmp/result.md', path: copy }],
     },
   });
-  s.updateWorker('wrk-1', { status: 'finished' });
+  s.updateWorker('wrk-1', { status: 'released' });
   s.updateOrder('ord-old', { status: 'done' });
   s.append({ type: 'tick', at: s.timestamp() });
   return s;
@@ -198,6 +199,58 @@ describe('archiveOrders', () => {
     expect(result.blocked.map((b) => b.id)).toEqual(['ord-gate', 'ord-stopped']);
     expect(result.blocked[0]!.reason).toBe('열린 게이트가 있어서 못 옮겨요: ord-gate');
     expect(ConductorStore.open(dir).order('ord-gate')).toBeDefined();
+  });
+
+  it('정리 안 된 워커나 정리 실패 게이트, 안 올린 슬랙 게시가 남은 주문은 옮기지 않는다', async () => {
+    const dir = tempStateDir();
+    const s = ConductorStore.open(dir, { now: () => new Date('2026-11-01T00:00:00.000Z') });
+    s.addOrder(order({ id: 'ord-finished' }));
+    s.startWorker(worker('ord-finished', { id: 'wrk-f', status: 'finished' }));
+    s.updateOrder('ord-finished', { status: 'done' });
+    s.addOrder(order({ id: 'ord-cleanup' }));
+    s.openGate(
+      gate({
+        id: 'gate-cleanup',
+        payload: { kind: 'cleanup-failed', orderId: 'ord-cleanup', workerId: 'wrk-gone' },
+      }),
+    );
+    s.updateOrder('ord-cleanup', { status: 'done' });
+    s.addOrder(order({ id: 'ord-slack' }));
+    s.openGate(gate({ id: 'gate-slack', orderId: 'ord-slack', type: 'slack-post' }));
+    s.append({
+      type: 'gate-resolved',
+      at: s.timestamp(),
+      gateId: 'gate-slack',
+      decision: 'approved',
+    });
+    s.updateOrder('ord-slack', { status: 'done' });
+
+    const result = await archiveOrders(dir, fast);
+
+    if (result.status !== 'archived') throw new Error('unreachable');
+    expect(result.orders).toEqual([]);
+    expect(Object.fromEntries(result.blocked.map((b) => [b.id, b.reason]))).toEqual({
+      'ord-finished': '아직 정리 안 된 워커가 있어서 못 옮겨요: ord-finished',
+      'ord-cleanup': '워커 정리 실패 게이트가 열려 있어서 못 옮겨요: ord-cleanup',
+      'ord-slack': '아직 안 올린 슬랙 게시가 있어서 못 옮겨요: ord-slack',
+    });
+  });
+
+  it('모아 둔 이벤트가 없으면 빈 events.jsonl을 쓰고 경고를 남긴다', async () => {
+    const dir = tempStateDir();
+    seed(dir);
+    await foldEvents(dir, fast);
+    rmSync(join(dir, ORDER_LOGS_DIR, 'ord-old'), { recursive: true });
+
+    const result = await archiveOrders(dir, fast);
+
+    expect(result).toMatchObject({
+      orders: [{ id: 'ord-old' }],
+      warnings: ['모아 둔 이벤트가 없어 빈 events.jsonl을 썼어요: ord-old'],
+    });
+    expect(
+      readFileSync(join(dir, ARCHIVE_DIR, '2026-11', 'ord-old', 'events.jsonl'), 'utf-8'),
+    ).toBe('');
   });
 
   it('dry-run은 아무것도 안 바꾸고 옮길 주문만 준다', async () => {
