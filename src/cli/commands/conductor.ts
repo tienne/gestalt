@@ -56,6 +56,7 @@ import {
 import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
 import { readRecentEvents, type RecentEvent } from '../../conductor/recent-events.js';
 import { removeOrderRefCopies } from '../../conductor/ref-copy.js';
+import { archiveOrders, DEFAULT_ARCHIVE_DAYS } from '../../conductor/archive.js';
 import { resolveGate } from '../../conductor/gates.js';
 import { terminalText } from '../../conductor/terminal-text.js';
 import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS, oneLine } from '../../conductor/intake.js';
@@ -285,6 +286,12 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
       if (opts.json) return print({ created: false, removedAt: out.removedAt });
       return console.log(`이 출처의 주문은 ${out.removedAt}에 지웠어요. 다시 받지 않아요`);
     }
+    if ('archivedAt' in out) {
+      if (opts.json) return print({ created: false, archivedAt: out.archivedAt });
+      return console.log(
+        `이 출처의 주문은 ${out.archivedAt}에 보관소로 옮겼어요. 다시 받지 않아요`,
+      );
+    }
     if (opts.json) return print({ created: out.created, order: out.order });
     console.log(
       `${out.created ? '주문을 받았어요' : '이미 받은 주문이에요'}: ${out.order.id} (${out.order.scope})`,
@@ -342,6 +349,44 @@ export async function conductorOrderRemoveCommand(
     // 하나도 못 지우면 이유를 stderr로 한 번만 낸다. 플러그인처럼 실패하면 stderr만 보는 호출자도 받는다
     if (removed.length === 0 && skipped.length > 0)
       exitWithError(new Error(skipped.map((s) => s.reason).join('\n')));
+  } catch (e) {
+    exitWithError(e);
+  }
+}
+
+export interface ConductorArchiveOptions extends ConductorCommonOptions {
+  olderThan?: string;
+  dryRun?: boolean;
+}
+
+/**
+ * 끝나고 기간이 지난 주문을 `archive/<YYYY-MM>/<주문 id>/`로 옮긴다. `events.jsonl`을 떼어 base.json에 반영하는
+ * 일도 같이 한다. tick과 같은 잠금을 잡고 못 잡으면 1로 끝난다
+ */
+export async function conductorArchiveCommand(opts: ConductorArchiveOptions): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'archive');
+    const days = opts.olderThan === undefined ? DEFAULT_ARCHIVE_DAYS : Number(opts.olderThan);
+    if (!Number.isSafeInteger(days) || days < 0)
+      throw new Error(`--older-than은 0 이상의 정수(일)로 주세요: ${opts.olderThan}`);
+    const result = await archiveOrders(ctx.store.dir, { days, dryRun: opts.dryRun === true });
+    if (result.status === 'locked')
+      throw new Error(
+        `다른 프로세스(${result.holder ?? '알 수 없음'})가 저장소를 쓰는 중이에요. 잠시 뒤 다시 불러 주세요`,
+      );
+    // 조회용 사본에서도 옮긴 주문을 뺀다
+    if (result.status === 'archived') ConductorStore.open(ctx.store.dir).flushSnapshot();
+    if (opts.json) return print(result);
+    const verb = result.status === 'dry-run' ? '옮길' : '옮긴';
+    console.log(
+      `${verb} 주문 ${result.orders.length}개, 지운 주문의 이벤트 ${result.removed.length}개 (${days}일 기준)`,
+    );
+    for (const o of result.orders)
+      console.log(`  ${o.id}  ${o.status}  archive/${o.month}/${o.id}`);
+    for (const r of result.removed) console.log(`  ${r.id}  removed  archive/${r.month}/${r.id}`);
+    for (const b of result.blocked) console.log(`못 옮겨요: ${b.reason}`);
+    if (result.status === 'archived') for (const w of result.warnings) console.log(`경고: ${w}`);
   } catch (e) {
     exitWithError(e);
   }
