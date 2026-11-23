@@ -129,7 +129,7 @@ tick 프로세스는 외부에 쓰지 못한다. 할 일을 `hostActions`로 돌
 gestalt conductor gate list --json
 ```
 
-Orca 운영 봇 채팅에서는 `gestalt conductor bot gate <gateId>`가 반환하는 레포, PR 주소, 검증 결과, 게이트 ID를 보여 준다. 운영자가 채팅으로 보낸 서명으로 `gestalt conductor bot decide`를 호출하고 결정과 워커 전달 상태를 알린다. 패널에서 먼저 처리했으면 기존 결정을 전한다. [봇 채팅 머지 승인](../../../docs/conductor.md#봇-채팅에서-머지-승인)을 따른다. 다른 게이트는 기존 패널이나 운영자 터미널에서 처리한다.
+Orca 운영 봇 채팅에서는 `gestalt conductor bot gate <gateId>`가 반환하는 레포, PR 주소, 검증 결과와 승인 단계 ID를 보여 준다. 운영자가 채팅으로 보낸 서명으로 `gestalt conductor bot decide`를 호출하고 결정과 워커 전달 상태를 알린다. 패널에서 먼저 처리했으면 기존 결정을 전한다. [봇 채팅 머지 승인](../../../docs/conductor.md#봇-채팅에서-머지-승인)을 따른다. 다른 확인 자리는 기존 패널이나 운영자 터미널에서 처리한다.
 
 사람이 답할 자리는 다섯이다. `merge`(merge-through가 아닌 주문의 머지 승인), `slack-post`(초안 게시), `interview`(interview-first 주문의 인터뷰 답), `review-manual-switch`(리뷰 스킬 지침이 사람에게 올리라고 한 자리), `file-overlap`(같은 레포 워커끼리 고친 파일이 `overlapGateFiles`개를 넘게 겹친 자리). `no-procedure`는 컨덕터가 처리 절차를 못 세운 경우다.
 

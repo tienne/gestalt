@@ -207,7 +207,7 @@ openssl pkeyutl -sign -rawin -inkey approver.key -in decision.txt | openssl base
 
 #### GitHub 팀 주문
 
-Orca GitHub 커넥터가 연결된 팀 접수 봇은 운영 봇과 별도로 둔다. 운영자가 상태 저장소에 `bot-policy.json`을 작성한다. 레포 키는 소문자를 쓰고, 팀 접수 권한은 GitHub 사용자 숫자 ID를 등록한다.
+Orca GitHub 커넥터가 연결된 팀 접수 봇은 운영 봇과 별도로 둔다. 운영자가 상태 저장소에 `bot-policy.json`을 작성한다. 레포 키는 소문자로 적는다. 팀 접수 권한은 GitHub 사용자 숫자 ID를 등록한다.
 
 ```json
 {
@@ -219,9 +219,9 @@ Orca GitHub 커넥터가 연결된 팀 접수 봇은 운영 봇과 별도로 둔
 }
 ```
 
-팀원은 GitHub 이슈나 PR의 일반 댓글 첫 줄에 Orca의 호출 멘션을 단독으로 쓰고, 다음 줄에 `gestalt order <제목>` 또는 `gestalt status`를 적는다. 주문 설명은 제목 아래에 쓴다. 접수 봇은 `gestalt conductor bot github <원본-댓글-URL>`을 호출한다. Gestalt가 GitHub API에서 스레드와 작성자 ID를 확인하고 기존 큐에 `solve → ship`, `approval` 범위로 넣는다. 같은 댓글을 다시 받으면 기존 주문을 돌려준다. 봇은 반환된 스레드와 자신을 깨운 스레드가 같을 때 Orca 최종 응답으로 결과를 남긴다. 팀원은 이후 같은 스레드에서 `gestalt status`로 주문 상태와 PR을 확인한다.
+팀원은 GitHub 이슈나 PR의 일반 댓글 첫 줄에 Orca의 호출 멘션을 단독으로 적는다. 다음 줄에 `gestalt order <제목>` 또는 `gestalt status`를 적는다. 주문 설명은 제목 아래에 쓴다. 접수 봇은 `gestalt conductor bot github <원본-댓글-URL>`을 호출한다. Gestalt가 GitHub API에서 스레드와 작성자 ID를 확인하고 기존 큐에 `solve → ship`, `approval` 범위로 넣는다. 같은 댓글을 다시 받으면 기존 주문을 돌려준다. 봇은 반환된 스레드와 자신을 깨운 스레드가 같을 때 Orca 최종 응답으로 결과를 남긴다. 팀원은 이후 같은 스레드에서 `gestalt status`로 주문 상태와 PR을 확인한다.
 
-팀 접수 봇의 도구는 GitHub 조회와 허용된 큐 동작으로 한정한다. 운영자와 같은 계정의 범용 셸, 컨덕터 상태·정책 쓰기, 승인자 키와 머지·배포 자격 증명을 팀 요청 경로에 열면 CLI 검사를 우회할 수 있다. Orca의 Who can ask는 채널 접수 범위를 좁히는 설정이다. 설치된 CLI에서 채팅 답변의 승인자나 GitHub에서 실행을 깨운 요청자의 신원을 직접 읽는 공개 인터페이스는 확인하지 못했다. 머지 승인은 채팅으로 받은 서명으로, 팀 주문은 GitHub API의 원본 댓글로 검사한다.
+팀 접수 봇의 도구는 GitHub 조회와 허용된 큐 동작으로 한정한다. 운영자와 같은 계정의 범용 셸, 컨덕터 상태와 정책 쓰기, 승인자 키와 머지와 배포 자격 증명을 팀 요청 경로에 열면 CLI 검사를 우회할 수 있다. Orca의 Who can ask는 채널 접수 범위를 좁히는 설정이다. 설치된 CLI에서 채팅 답변의 승인자나 GitHub에서 실행을 깨운 요청자의 신원을 직접 읽는 공개 인터페이스는 확인하지 못했다. 머지 승인은 채팅으로 받은 서명으로, 팀 주문은 GitHub API의 원본 댓글로 검사한다.
 
 [Orca 봇](https://orca.dev/docs/bots), [커넥터](https://orca.dev/docs/bots/connectors), [보안](https://orca.dev/docs/bots/security).
 
