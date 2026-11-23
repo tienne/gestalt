@@ -102,7 +102,8 @@ export async function foldEvents(dir: string, opts: FoldOptions = {}): Promise<F
         const lines = new Map<string, string[]>();
         replay(join(segDir, name), state, { from, to: end }, (e, line, s) => {
           const id = orderOfEvent(e, s);
-          if (id === undefined) return;
+          // 이미 옮긴 주문에 늦게 온 줄은 버린다. 끝나고 기간이 지났고 워커도 게이트도 없는 주문만 옮긴다
+          if (id === undefined || id in s.archivedOrders || s.removedOrders[id]?.archived) return;
           const list = lines.get(id);
           if (list) list.push(line);
           else lines.set(id, [line]);

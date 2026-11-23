@@ -359,6 +359,8 @@ export interface RemovedOrder {
   sourceRef: string;
   parentOrderId?: string;
   removedAt: string;
+  /** 모아 둔 이벤트를 `archive/<이 달>/<주문 id>/`로 옮긴 달. 옮긴 뒤 다시 옮기지 않는다 */
+  archived?: string;
 }
 
 /**

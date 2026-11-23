@@ -108,6 +108,7 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       return;
     }
     case 'worker-started':
+      if (isRetired(s, e.worker.orderId)) return;
       s.workers[e.worker.id] = { ...e.worker };
       return;
     case 'worker-updated': {
@@ -121,9 +122,11 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       return;
     }
     case 'checkpoint-saved':
+      if (isRetired(s, e.checkpoint.orderId)) return;
       s.checkpoints[e.checkpoint.orderId] = { ...e.checkpoint };
       return;
     case 'gate-opened':
+      if (e.gate.orderId !== undefined && isRetired(s, e.gate.orderId)) return;
       s.gates[e.gate.id] = { ...e.gate };
       return;
     case 'gate-updated': {
@@ -193,19 +196,34 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
  * 주문을 못 지우는 이유를 준다. 지울 수 있으면 undefined.
  * 멈춘 워커도 막는다. 그 워크트리가 남아 있을 수 있어서 워커 기록을 지우면 workerAt 가드가 풀린다
  */
-export function removalBlocker(s: ConductorSnapshot, orderId: string): string | undefined {
+const REMOVAL_WORDS = {
+  remove: { can: '지울', cannot: '지워요' },
+  archive: { can: '옮길', cannot: '옮겨요' },
+} as const;
+
+export function removalBlocker(
+  s: ConductorSnapshot,
+  orderId: string,
+  action: keyof typeof REMOVAL_WORDS = 'remove',
+): string | undefined {
+  const { can, cannot } = REMOVAL_WORDS[action];
   const o = s.orders[orderId];
   if (!o) return `모르는 주문이에요: ${orderId}`;
   if (!TERMINAL_ORDER_STATUSES.has(o.status))
-    return `끝난 주문만 지울 수 있어요: ${orderId}(${o.status})`;
+    return `끝난 주문만 ${can} 수 있어요: ${orderId}(${o.status})`;
   if (Object.values(s.gates).some((g) => g.orderId === o.id && g.status === 'open'))
-    return `열린 게이트가 있어서 못 지워요: ${orderId}`;
+    return `열린 게이트가 있어서 못 ${cannot}: ${orderId}`;
   const workers = Object.values(s.workers).filter((w) => w.orderId === o.id);
   if (workers.some((w) => ACTIVE_WORKER_STATUSES.has(w.status)))
-    return `도는 워커가 있어서 못 지워요: ${orderId}`;
+    return `도는 워커가 있어서 못 ${cannot}: ${orderId}`;
   if (workers.some((w) => w.status === 'stopped'))
-    return `멈춘 워커의 워크트리가 남아 있을 수 있어서 못 지워요: ${orderId}`;
+    return `멈춘 워커의 워크트리가 남아 있을 수 있어서 못 ${cannot}: ${orderId}`;
   return undefined;
+}
+
+/** 지우거나 보관한 주문. 늦게 온 이벤트로 워커나 게이트가 다시 붙지 않게 재생이 거른다 */
+function isRetired(s: ConductorSnapshot, orderId: string): boolean {
+  return orderId in s.removedOrders || orderId in s.archivedOrders;
 }
 
 function removeFromSnapshot(s: ConductorSnapshot, orderId: string, at: string): void {
@@ -268,6 +286,12 @@ export function orderOfEvent(e: ConductorEvent, s: ConductorSnapshot): string | 
     case 'tick':
     case 'tail-repaired':
       return undefined;
+    default: {
+      // 새 이벤트 종류를 넣으면 여기서 타입 에러가 난다. 재생은 멈추지 않게 던지지 않는다
+      const unhandled: never = e;
+      void unhandled;
+      return undefined;
+    }
   }
 }
 
