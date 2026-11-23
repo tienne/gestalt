@@ -119,6 +119,22 @@ export interface EngineDeps {
   gitRunner?: CommandRunner;
   /** 워커 트랜스크립트를 찾을 projects 폴더. 테스트가 바꿔 끼운다 */
   transcriptRoots?: string[];
+  /**
+   * tick이 잠금을 놓은 뒤 부르는 보관. 하루에 한 번만 실제로 돌고 나머지는 undefined다.
+   * 보관이 엔진을 가져다 쓰므로 CLI가 끼운다. 없으면 보관하지 않는다
+   */
+  archive?: (now: Date) => Promise<TickArchiveReport | undefined>;
+}
+
+/** tick 끝에 돈 보관 결과. 하루 한 번 돈 tick에만 붙는다 */
+export interface TickArchiveReport {
+  orders: string[];
+  removed: string[];
+  gates: number;
+  blocked: { id: string; reason: string }[];
+  compressed: string[];
+  swept: { prompts: number; activity: number; handoffs: number };
+  warnings: string[];
 }
 
 export interface TickReport {
@@ -140,6 +156,7 @@ export interface TickReport {
   humanOwned: HumanOwnedChange[];
   /** 배포 주문이 끝나 대상 주문에 배포 성공을 남기거나 건너뛴 자리. 머지되지 않은 대상은 warnings에 간다 */
   deployTargets: DeployTargetOutcome[];
+  archive?: TickArchiveReport;
   /**
    * 상태가 안 바뀐 tick이 이번까지 연달아 몇 번 왔는지. 새 주문, 띄운 워커, 올린 확인 자리, 호스트 할 일,
    * 오류가 없고 앞 tick 뒤로 저장소에 쌓인 이벤트도 없어야 센다. 하나라도 있으면 0이다
@@ -307,6 +324,7 @@ export async function tick(
       counts: counts(store, 0),
     };
   }
+  let result: TickReport;
   try {
     // 잠금을 잡은 뒤에 읽어야 앞 tick이 띄운 주문을 queued로 보고 또 띄우지 않는다
     opts.admit?.();
@@ -323,9 +341,43 @@ export async function tick(
     }
     const gap = tickGapWarning(last, report.at, deps.config.staleAfterSec * 1000);
     if (gap) report.warnings.push(gap);
-    return await store.deferSnapshot(() => runTick(store, deps, report));
+    result = await store.deferSnapshot(() => runTick(store, deps, report));
   } finally {
     lock.release();
+  }
+  // 보관은 같은 잠금을 스스로 잡으므로 놓은 뒤에 부른다
+  if (deps.archive) await archiveStep(store, deps.archive, result);
+  return result;
+}
+
+async function archiveStep(
+  store: ConductorStore,
+  archive: NonNullable<EngineDeps['archive']>,
+  report: TickReport,
+): Promise<void> {
+  try {
+    const r = await archive(new Date(report.at));
+    if (!r) return;
+    report.archive = r;
+    report.warnings.push(...r.warnings.map((w) => `보관: ${w}`));
+    if (r.blocked.length > 0)
+      report.warnings.push(
+        `보관 기간이 지났지만 못 옮긴 주문 ${r.blocked.length}개: ${r.blocked
+          .slice(0, 5)
+          .map((b) => b.id)
+          .join(
+            ', ',
+          )}${r.blocked.length > 5 ? ' 외' : ''}. 이유는 \`gestalt conductor archive --dry-run\`으로 확인해 주세요`,
+      );
+  } catch (e) {
+    report.errors.push(`보관 실패: ${(e as Error).message}`);
+  } finally {
+    // 보관이 상태에서 주문을 뺐을 수 있다. 중간에 던졌어도 base.json은 이미 바뀌었을 수 있어 늘 다시 읽는다
+    try {
+      store.reload();
+    } catch (e) {
+      report.errors.push(`보관 뒤 상태 다시 읽기 실패: ${(e as Error).message}`);
+    }
   }
 }
 

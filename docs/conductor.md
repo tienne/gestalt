@@ -431,19 +431,19 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 | `base.json`                    | 떼어 내기       | 떼어 낸 로그를 반영한 기준점 상태와 반영한 segment의 이름과 길이(`foldedSegments`). 재생은 여기서 시작한다                                                                                                                                                                |
 | `segments/`                    | 떼어 내기       | `events.jsonl`에서 떼어 낸 로그. 반영한 뒤에도 다음 반영 때까지 남겨 두고 그때 지운다                                                                                                                                                                                     |
 | `order-logs/<주문 id>/`        | 떼어 내기       | 반영한 이벤트를 주문별로 옮겨 둔 것. 그 주문을 보관할 때 `archive/`로 옮기고 지운다                                                                                                                                                                                       |
-| `archive/<YYYY-MM>/<주문 id>/` | `archive` 명령  | 보관한 주문의 이벤트(`events.jsonl`), 끝 상태(`order.json`), refs 사본(`refs/`). 아래 [끝난 주문 보관](#끝난-주문-보관)에 있다                                                                                                                                            |
+| `archive/<YYYY-MM>/<주문 id>/` | 보관            | 보관한 주문의 이벤트(`events.jsonl`), 끝 상태(`order.json`), refs 사본(`refs/`), 워커 요약(`workers/`). 끝나고 한 달 지난 달은 `archive/<YYYY-MM>.tar.gz`로 묶는다. 아래 [끝난 주문 보관](#끝난-주문-보관)에 있다                                                         |
 | `inbox/`                       | 워커            | `worker report`가 남긴 결과 파일. 다음 tick이 상태와 보고 본문을 이벤트에 기록한 뒤 지운다. 적용하다 실패한 원문은 `inbox/failed/`로 옮긴다                                                                                                                               |
 | `inbox/unrecorded/`            | tick            | 적용은 끝났는데 `report-applied` 기록만 실패한 결과 파일. 다음 tick이 다시 적용하지 않고 기록만 남긴 뒤 지운다. 다시 적용하면 bypass와 워커에 전하기, 하위 주문이 한 번 더 돌기 때문이다                                                                                  |
 | `refs/<주문 id>/`              | tick            | 보고 refs 중 저장소 밖 텍스트 파일의 사본. 규칙은 아래 [refs 사본](#refs-사본)에 있다                                                                                                                                                                                     |
 | `activity/<워커 id>.*`         | tick, status    | 워커 작업 내용. 아래 [워커 트랜스크립트](#워커-트랜스크립트)에 있다                                                                                                                                                                                                       |
-| `prompts/`                     | tick            | 워커 첫 지시 파일                                                                                                                                                                                                                                                         |
+| `prompts/`                     | tick            | 워커 첫 지시 파일. 워커가 상태에서 빠지고 하루 지나면 보관할 때 지운다                                                                                                                                                                                                    |
 | `worktrees/`                   | tick            | 오르카가 없을 때 만든 git 워크트리                                                                                                                                                                                                                                        |
 | `deploy/`                      | 호스트          | `deploy report`가 남긴 배포 결과                                                                                                                                                                                                                                          |
 | `queue/`                       | 외부 시스템     | 외부 큐 메시지. 다음 tick이 읽고 지운다. 못 읽은 파일은 `queue/failed/`로 옮긴다                                                                                                                                                                                          |
 | `slack/`                       | 호스트          | 슬랙 초안 본문                                                                                                                                                                                                                                                            |
 | `context/<owner>/<name>.md`    | 컨덕터 세션     | 레포 공통 맥락. 워커 지시에 경로가 실린다                                                                                                                                                                                                                                 |
 | `sessions/<세션 id>/`          | tick, 컴팩트 훅 | 등록한 컨덕터 세션. `session.json`은 tick이, `compactions`(횟수와 트랜스크립트 경로)는 훅이, `handoff.json`(인계 기록)은 `handoff` 명령이 쓰고 이전 탭을 닫은 결과(`close`)와 `close-claim`은 새 세션의 tick이 쓴다                                                       |
-| `handoffs/`                    | `handoff` 명령  | 새 컨덕터 세션에 넘긴 인계 파일                                                                                                                                                                                                                                           |
+| `handoffs/`                    | `handoff` 명령  | 새 컨덕터 세션에 넘긴 인계 파일. 보관 기간(14일)이 지나면 보관할 때 지운다                                                                                                                                                                                                |
 | `tick.lock`                    | tick            | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다                                                                                                                                                                   |
 
 ### refs 사본
@@ -464,17 +464,45 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 ### 끝난 주문 보관
 
-`gestalt conductor archive [--older-than <일>] [--dry-run] [--json]`은 끝나고(`updatedAt` 기준) 기간이 지난 주문을 `archive/<YYYY-MM>/<주문 id>/`로 옮기고 상태에서 뺀다. 기간은 기본 14일이고 `YYYY-MM`은 주문이 끝난 달이다. 지금은 사람이 부른다. tick이 하루 한 번 부르는 일은 다음 단계에서 넣는다.
+`gestalt conductor archive [--older-than <일>] [--dry-run] [--json]`은 끝나고(`updatedAt` 기준) 기간이 지난 주문을 `archive/<YYYY-MM>/<주문 id>/`로 옮기고 상태에서 뺀다. 기간은 기본 14일이고 `YYYY-MM`은 주문이 끝난 달이다. tick이 하루 한 번 같은 일을 하고(아래 [tick이 하루 한 번 보관](#tick이-하루-한-번-보관)) 사람도 언제든 부를 수 있다.
 
 - `events.jsonl`을 떼어 반영하는 일과 한 번에 돈다. tick과 같은 잠금을 잡고 못 잡으면 exit 1로 끝난다. `--dry-run`은 잠금 없이 옮길 주문만 보여 준다.
 - 옮기는 주문은 `order remove`가 받아 주는 주문과 같다. 끝난 주문(done, failed, cancelled, parked) 중 열린 게이트나 멈춘 워커가 남은 주문은 옮기지 않고 이유를 `blocked`에 남긴다. 여기에 tick이 아직 할 일이 남은 주문도 막는다. 워커가 finished나 failed로 남아 아직 안 거둔 주문, 그 주문 워커의 정리 실패 게이트가 열려 있는 주문, 승인했지만 아직 슬랙에 안 올린 `slack-post`가 있는 주문이다. 옮기면 tick이 그 일을 할 근거가 상태에서 사라진다.
-- 주문 디렉토리에는 셋을 둔다. `events.jsonl`은 `order-logs/`에 모아 둔 그 주문의 이벤트 줄을 원래 값 그대로 이은 것이다. `order.json`은 `order show --json`과 같은 꼴에 `stateDir` 대신 보관한 시각(`archivedAt`)을 둔다. `refs/`는 `refs/<주문 id>/`를 복사한 것이고 `order.json`의 `refCopies[].path`는 옮긴 자리(`archive/<YYYY-MM>/<주문 id>/refs/...`)로 바꿔 적는다. 모아 둔 이벤트가 없으면(손으로 `order-logs/`를 지운 경우) 빈 `events.jsonl`을 쓰고 `warnings`에 남긴다.
+- 주문 디렉토리에는 넷을 둔다. `events.jsonl`은 `order-logs/`에 모아 둔 그 주문의 이벤트 줄을 원래 값 그대로 이은 것이다. `order.json`은 `order show --json`과 같은 꼴에 `stateDir` 대신 보관한 시각(`archivedAt`)을 둔다. `refs/`는 `refs/<주문 id>/`를 복사한 것이고 `order.json`의 `refCopies[].path`는 옮긴 자리(`archive/<YYYY-MM>/<주문 id>/refs/...`)로 바꿔 적는다. `workers/<워커 id>.summary.json`은 그 주문 워커의 타임라인 요약(`activity/<워커 id>.summary.json`)을 복사한 것이다. 모아 둔 이벤트가 없으면(손으로 `order-logs/`를 지운 경우) 빈 `events.jsonl`을 쓰고 `warnings`에 남긴다.
 - 상태에서는 `order remove`와 같은 규칙으로 주문과 워커, 체크포인트, 게이트, bypass, 지라 전이, 보고를 빼고 `archivedOrders`에 출처(`sourceRef`), 상위 주문, 보관 시각과 달을 남긴다. 지운 주문처럼 같은 출처를 다시 받지 않는다. 상위 주문이 하위 주문을 몇 개 만들었는지 셀 때도 넣는다. parked 주문이면 사람에게 넘긴 PR을 `humanPr`로 남겨 PR 감시가 그 PR로 주문을 새로 만들지 않는다.
 - `order remove`로 지운 주문은 지운 시각에서 같은 기간이 지나면 모아 둔 이벤트만 `archive/<지운 달>/<주문 id>/events.jsonl`로 옮기고 `removedOrders`의 그 주문에 옮긴 달(`archived`)을 적는다. 모아 둔 이벤트가 없으면 달만 적는다. 한 번 옮긴 지운 주문은 다시 옮기지 않는다.
 - 주문에 안 붙는 컨덕터 게이트는 닫히고 같은 기간이 지나면 상태에서 버린다. 다만 그 게이트가 있어야 도는 일이 남았으면 둔다. `sourceRef`가 있는 게이트(PR 감시와 접수가 같은 질문을 다시 안 여는 근거), 승인했지만 아직 슬랙에 안 올린 `slack-post`, 승인했지만 워커가 아직 released가 아닌 정리 실패 게이트가 그렇다. `sourceRef`가 있는 게이트는 상한 없이 쌓인다. 상태를 열 때마다 들고 다니는 크기가 그만큼 늘어나므로 출처별 색인으로 줄이는 일을 다음 단계에서 본다.
 - 보관 파일과 refs 사본, 새로 만든 보관 디렉토리와 `base.json`을 다 쓰고 fsync한 뒤에 `order-logs/<주문 id>/`와 `refs/<주문 id>/`를 지운다. 지운 주문도 같다. `base.json`을 쓰기 전에 죽으면 모아 둔 이벤트가 그대로라 다시 불렀을 때 같은 자리에 같은 내용을 덮어쓴다. `base.json`까지 쓰고 죽어 남은 파일은 다음 보관이 보관 기록(`archivedOrders`, `removedOrders`의 `archived`)을 보고 지운다.
 - 옮긴 뒤에 그 주문으로 붙는 줄은 모으지 않고 버린다. 재생할 때도 지우거나 옮긴 주문에 워커, 체크포인트, 게이트, bypass, 지라 전이를 다시 붙이지 않는다. 없는 게이트에 온 `slack-posted`도 버린다. 끝나고 기간이 지났고 도는 워커와 열린 게이트가 없는 주문만 옮기므로 그런 줄은 옮기는 순간에 늦게 쓴 경우뿐이다.
-- `results show`에 보관한 주문 id를 주면 보관소 자리를 알려 준다. 결과 뷰어가 보관소를 읽는 일은 뒤에 따로 한다.
+- `results show`에 보관한 주문 id를 주면 보관소 자리를 알려 준다. 묶은 달이면 `archive/<YYYY-MM>.tar.gz` 안의 자리를, `archive prune`으로 지운 달이면 지웠다는 사실을 알려 준다. 결과 뷰어가 보관소를 읽는 일은 뒤에 따로 한다.
+
+#### 운영 파일 정리
+
+보관할 때 결과를 읽는 데 필요 없는 운영 파일도 지운다. 보관 결과의 `swept`에 지운 개수가 나온다.
+
+- `prompts/<워커 id>.md`와 `activity/<워커 id>.*`는 그 워커가 상태에 없고 하루 넘게 안 바뀐 파일만 지운다. 워커는 주문을 보관하거나 `order remove`로 지울 때 상태에서 빠진다. 보관하는 순간에는 그 주문의 워커가 아직 상태에 있으므로 다음 보관 때 지운다. 워커 요약은 주문을 보관할 때 보관소의 `workers/`로 복사해 둔다. `order remove`로 지운 주문은 이벤트만 옮기므로 그 워커의 요약은 복사하지 않고 같이 지운다.
+- `handoffs/`는 보관 기간(`--older-than`, 기본 14일)보다 오래된 인계 파일(`<시각>-<세션 id>.md`)을 지운다. 인계 파일은 주문이 아니라 컨덕터 세션에 붙어 있어서다. `--older-than 0`이어도 하루 안 된 파일은 새 세션이 아직 안 읽었을 수 있어 둔다. 그 꼴이 아닌 파일은 사람이 둔 것으로 보고 안 지운다.
+- `prompts/`는 `.md` 파일만 본다. 심링크나 디렉토리는 건드리지 않는다. `inbox/failed/`는 사람이 볼 자리라 그대로 둔다.
+
+#### 지난 달 묶기와 지우기
+
+끝나고 한 달이 지난 달의 `archive/<YYYY-MM>/`은 `archive/<YYYY-MM>.tar.gz`로 묶고 디렉토리를 지운다. 11월 23일이면 9월까지가 대상이다. `archive` 명령과 tick이 보관을 마쳐 잠금을 놓은 뒤 다시 잡고 묶는다.
+
+- 끝난 지 오래된 주문은 게이트나 워커가 풀린 뒤에야 보관된다. 그 주문이 끝난 달을 이미 묶었으면 디렉토리가 다시 생긴다. 다음 묶기가 묶음을 풀어 합치고 다시 묶는다. 같은 파일이 양쪽에 있으면 디렉토리 쪽이 나중에 쓴 것이라 그쪽을 남긴다.
+- 새 묶음을 임시 이름으로 쓰고 fsync한 뒤 이름을 바꾸고 그다음에 디렉토리를 지운다. 어디서 죽어도 다시 부르면 끝까지 간다.
+- 시스템 `tar`를 부른다. 풀기 전에 묶음 안 이름이 전부 그 달 디렉토리 아래인지 보고 링크 항목은 대상도 본다. 심링크 대상이 절대 경로거나 `..`를 거치면, 하드링크 대상이 그 달 밖이면 풀지 않는다. 새 묶음은 디렉토리의 항목이 다 들어갔는지 확인한 뒤에 이름을 바꾼다. 못 묶은 달은 `warnings`에 tar의 오류 앞 몇 줄과 함께 남기고 다음 달로 넘어간다.
+- 한 번에 오래된 달부터 두 달까지만 묶는다. 잠금을 잡고 1시간이 지났으면 새 달을 시작하지 않는다. 남은 달은 다음 보관 때 이어서 묶고 `warnings`에 몇 달 남았는지 적는다. 밀린 달은 tick 기준으로 하루에 두 달씩 줄어든다. 못 묶은 달은 이 두 달에 안 센다.
+- 묶다 죽어 남은 임시 파일(`<YYYY-MM>.tar.gz.tmp`, `.<YYYY-MM>.merge`)은 다음 묶기가 치운다. `archive prune`도 지우는 달의 임시 파일을 같이 지운다.
+
+지우기는 자동으로 하지 않는다. `gestalt conductor archive prune --before <YYYY-MM> [--dry-run] [--json]`이 그 달보다 앞선 `archive/<YYYY-MM>/`과 `archive/<YYYY-MM>.tar.gz`를 지운다. 끝나고 한 달이 안 지난 달은 받지 않는다(11월이면 `--before`는 `2026-10`까지). 상태의 `archivedOrders` 기록은 남기므로 지운 주문의 출처를 다시 받지 않는다.
+
+#### tick이 하루 한 번 보관
+
+tick은 잠금을 놓은 뒤 하루에 한 번 보관과 운영 파일 정리, 지난 달 묶기를 차례로 한다. 마지막으로 돌린 시각은 `archive/last-run.json`에 남긴다. 잠금을 못 잡으면 시각을 안 남겨서 다음 tick이 다시 해 본다. 보관이 오류로 멈추면 실패 시각(`failedAt`)을 남기고 한 시간 뒤에 다시 해 본다. 같은 실패가 tick마다 되풀이되지 않게 하려는 것이다. 시계가 뒤로 가서 남은 시각이 지금보다 미래면 없는 값으로 보고 바로 돈다. 감시 간격 안이라 건너뛴 tick은 보관을 안 부른다.
+
+- 돈 tick의 응답에는 `archive`(옮긴 주문, 지운 주문, 버린 게이트 수, 못 옮긴 주문과 이유, 묶은 달, 지운 운영 파일 수)가 붙는다. 보관 경고는 `보관:`을 붙여 `warnings`에 싣고 못 옮긴 주문이 있으면 개수와 앞쪽 id 다섯 개를 한 줄로 남긴다. 이유는 `archive --dry-run`으로 본다.
+- 보관이 실패해도 tick 결과는 그대로 두고 `errors`에 `보관 실패:`로 남긴다.
+- 끄려면 `~/.gestalt/conductor.json`에 `"archive": { "enabled": false }`를 적는다. 파일을 지우는 일이라 레포 `gestalt.json`의 값은 받지 않는다. 기간은 14일로 고정이고 다르게 하려면 끄고 `archive --older-than`을 사람이 부른다.
 
 ### 워커 트랜스크립트
 
@@ -506,6 +534,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 8. **머지 뒤 처리**: 지라 상태를 옮기고 배포 결과를 확인한다.
 9. **슬랙**: 승인된 초안을 `slack-post`로 넘긴다.
 10. **정리**: 끝난 워커와 끝난 주문에 남은 멈춘 워커를 거둔다. git 워커는 워크트리를 지우고 오르카 워커는 터미널만 거둔다. `removeMergedOrcaWorktrees`를 켜면 머지된 주문의 오르카 워크트리까지 지우고 `removeDoneOrcaWorktrees`를 켜면 머지 없이 끝난 `done` 주문의 워크트리도 지운다. 규칙은 [워커 정리](#워커-정리)에 있다.
+11. **보관**: 잠금을 놓은 뒤 하루 한 번 끝난 주문을 보관하고 운영 파일을 정리한다. 규칙은 [tick이 하루 한 번 보관](#tick이-하루-한-번-보관)에 있다.
 
 `pollIntervalSec` 안에 다시 부르면 `skipped: true`로 바로 끝나서 상태를 자주 물어도 토큰이 늘지 않는다. 응답에는 숫자와 할 일만 담는다. 감시 주기마다 tick을 돌리고 할 일이 생겼을 때만 깨우는 건 [`wait`](#백그라운드-wait)가 한다.
 

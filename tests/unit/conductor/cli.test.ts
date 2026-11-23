@@ -14,7 +14,9 @@ import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  conductorArchiveAction,
   conductorArchiveCommand,
+  conductorArchivePruneCommand,
   conductorCheckpointSaveCommand,
   conductorContextPathCommand,
   conductorDeployReportCommand,
@@ -1243,6 +1245,39 @@ describe('주문 상세와 에이전트', () => {
       expect(ConductorStore.open(stateDir).order('ord-done')).toBeDefined();
     },
   );
+
+  it('archive는 --before를 거절하고 archive prune은 --before가 있어야 한다', async () => {
+    const stateDir = tempStateDir();
+    await expect(conductorArchiveCommand({ stateDir, before: '2000-01' })).rejects.toThrow(
+      'exit 1',
+    );
+    expect(err.join('\n')).toContain('--before는 archive prune에서만');
+    expect(() => conductorArchivePruneCommand({ stateDir })).toThrow('exit 1');
+    expect(err.join('\n')).toContain('--before <YYYY-MM>이 필요해요');
+    expect(() =>
+      conductorArchivePruneCommand({ stateDir, before: '2000-01', olderThan: '3' }),
+    ).toThrow('exit 1');
+  });
+
+  it('archive는 모르는 동작을 다른 오류처럼 exit 1로 끝낸다', async () => {
+    const stateDir = tempStateDir();
+
+    await expect(conductorArchiveAction('purge', { stateDir })).rejects.toThrow('exit 1');
+
+    expect(err.join('\n')).toContain('모르는 동작이에요: purge');
+    expect(existsSync(join(stateDir, 'archive'))).toBe(false);
+  });
+
+  it('archive prune은 앞선 달의 보관소를 지운다', () => {
+    const stateDir = tempStateDir();
+    mkdirSync(join(stateDir, 'archive', '2000-01', 'ord-a'), { recursive: true });
+    mkdirSync(join(stateDir, 'archive', '2000-03'), { recursive: true });
+
+    conductorArchivePruneCommand({ stateDir, before: '2000-02', json: true });
+
+    expect(last()).toMatchObject({ status: 'pruned', months: ['2000-01'] });
+    expect(readdirSync(join(stateDir, 'archive'))).toEqual(['2000-03']);
+  });
 });
 
 describe('컨덕터 세션은 하나만', () => {

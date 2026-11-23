@@ -13,6 +13,7 @@ import {
   type LoadedResults,
   type ResultFilters,
 } from '../../conductor/results.js';
+import { archiveLocation } from '../../conductor/archive.js';
 import { resolveStateDir } from '../../conductor/state-dir.js';
 import { ORDER_STATUSES } from '../../conductor/types.js';
 import { terminalBody, terminalText } from '../../conductor/terminal-text.js';
@@ -190,8 +191,14 @@ export function conductorResultsShowCommand(id: string, opts: ResultsShowOptions
     const resolved = resolveOrderId(results, id);
     if (!resolved.ok) {
       if (resolved.reason === 'removed') throw new Error(`지운 주문이에요: ${id}`);
-      if (resolved.reason === 'archived')
-        throw new Error(`보관한 주문이에요: archive/${resolved.month}/${id}/ 에서 찾아 주세요`);
+      if (resolved.reason === 'archived') {
+        const where = archiveLocation(results.stateDir, resolved.month, id);
+        throw new Error(
+          where.status === 'deleted'
+            ? `보관한 주문인데 archive/${resolved.month} 보관소가 지워졌어요(archive prune): ${id}`
+            : `보관한 주문이에요: ${where.path}에서 찾아 주세요`,
+        );
+      }
       if (resolved.reason === 'ambiguous') {
         const list = resolved.candidates.slice(0, 10).join(', ');
         const rest =

@@ -47,7 +47,7 @@ import {
   conductorOrderCancelCommand,
   conductorOrderMarkMergedCommand,
   conductorOrderRemoveCommand,
-  conductorArchiveCommand,
+  conductorArchiveAction,
   conductorOrderShowCommand,
   conductorOrderTakeOverCommand,
   conductorQueueAddCommand,
@@ -1247,15 +1247,15 @@ export function createCli(): Command {
   conductor
     .command('archive')
     .description(
-      '끝나고 기간이 지난 주문을 archive/<YYYY-MM>/<주문 id>/로 옮긴다. 열린 게이트나 멈춘 워커가 남은 주문은 남긴다',
+      '끝나고 기간이 지난 주문을 archive/<YYYY-MM>/<주문 id>/로 옮기고 운영 파일을 정리한다. 끝나고 한 달 지난 달은 .tar.gz로 묶는다. prune을 주면 --before 달보다 앞선 보관소를 지운다',
     )
+    .argument('[action]', 'prune: 끝나고 한 달 지난 달 중 --before보다 앞선 보관소를 지운다')
     .option('--older-than <days>', `끝나고 며칠 지난 주문을 옮길지. 기본 ${DEFAULT_ARCHIVE_DAYS}일`)
-    .option('--dry-run', '옮기지 않고 옮길 주문만 보여준다')
+    .option('--before <YYYY-MM>', 'prune에서 이 달보다 앞선 달을 지운다')
+    .option('--dry-run', '옮기거나 지우지 않고 대상만 보여준다')
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action(async (o) => {
-      await conductorArchiveCommand(o);
-    });
+    .action(async (action: string | undefined, o) => conductorArchiveAction(action, o));
 
   conductor
     .command('status')

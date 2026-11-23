@@ -100,6 +100,28 @@ describe('컨덕터 에이전트 설정', () => {
       process.chdir(cwd);
     }
   });
+  it('tick 자동 보관은 기본 켜짐이고 사용자 전역 파일로만 끈다', () => {
+    expect(loadConfig({}, isolated).conductor.archive).toBeUndefined();
+    const root = resolve(tempStateDir());
+    const home = join(root, 'home');
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    vi.stubEnv('GESTALT_HOME', home);
+    const cwd = process.cwd();
+    try {
+      process.chdir(root);
+      writeFileSync('gestalt.json', JSON.stringify({ conductor: { archive: { enabled: false } } }));
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      expect(loadConfig({}, { skipDotEnv: true }).conductor.archive).toBeUndefined();
+      writeFileSync(
+        join(home, '.gestalt', 'conductor.json'),
+        JSON.stringify({ archive: { enabled: false } }),
+      );
+      expect(loadConfig({}, { skipDotEnv: true }).conductor.archive).toEqual({ enabled: false });
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
   it('인계 effort는 기본 high이고 모델과 함께 사용자 전역 파일로만 바꾼다', () => {
     expect(loadConfig({}, isolated).conductor).toMatchObject({ handoffEffort: 'high' });
     expect(loadConfig({}, isolated).conductor.handoffModel).toBeUndefined();

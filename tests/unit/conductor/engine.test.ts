@@ -11,6 +11,7 @@ import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  acquireLock,
   deliverGateDecision,
   FAILED_REPORTS_DIR,
   inboxDirOf,
@@ -2168,6 +2169,81 @@ describe('파일 겹침', () => {
     store.updateOrder('ord-b', { status: 'running', workerId: 'wrk-b2' });
     await tick(store, d, { force: true });
     expect(store.openGates()).toHaveLength(0);
+  });
+});
+
+describe('tick 끝의 보관', () => {
+  it('잠금을 놓은 뒤 보관을 부르고 결과를 보고에 싣는다', async () => {
+    const { store } = clockedStore();
+    let lockFree = false;
+    const { deps: d } = deps({
+      archive: async () => {
+        const lock = acquireLock(store.dir);
+        lockFree = lock.ok;
+        if (lock.ok) lock.release();
+        return {
+          orders: ['ord-a'],
+          removed: [],
+          gates: 0,
+          blocked: [{ id: 'ord-b', reason: 'ord-b: 열린 게이트가 있어요' }],
+          compressed: [],
+          swept: { prompts: 0, activity: 0, handoffs: 0 },
+          warnings: ['빈 events.jsonl'],
+        };
+      },
+    });
+
+    const r = await tick(store, d);
+
+    expect(lockFree).toBe(true);
+    expect(r.archive?.orders).toEqual(['ord-a']);
+    expect(r.warnings).toContain('보관: 빈 events.jsonl');
+    expect(r.warnings.some((w) => w.includes('못 옮긴 주문 1개: ord-b'))).toBe(true);
+  });
+
+  it('보관이 실패해도 tick 결과는 그대로 두고 오류만 남긴다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-1' }));
+    const { deps: d } = deps({
+      archive: () => Promise.reject(new Error('디스크가 찼어요')),
+    });
+
+    const r = await tick(store, d);
+
+    expect(r.launched).toHaveLength(1);
+    expect(r.errors).toContain('보관 실패: 디스크가 찼어요');
+    expect(r.archive).toBeUndefined();
+  });
+
+  it('보관이 상태를 바꾸고 던져도 store를 다시 읽는다', async () => {
+    const { store } = clockedStore();
+    const { deps: d } = deps({
+      archive: () => {
+        ConductorStore.open(store.dir).addOrder(order({ id: 'ord-late' }));
+        return Promise.reject(new Error('중간에 멈췄어요'));
+      },
+    });
+
+    const r = await tick(store, d);
+
+    expect(r.errors).toContain('보관 실패: 중간에 멈췄어요');
+    expect(store.order('ord-late')).toBeDefined();
+  });
+
+  it('감시 간격 안이라 건너뛴 tick은 보관을 안 부른다', async () => {
+    const { store } = clockedStore();
+    let calls = 0;
+    const { deps: d } = deps({
+      archive: async () => {
+        calls++;
+        return undefined;
+      },
+    });
+    await tick(store, d);
+    const skipped = await tick(store, d);
+
+    expect(skipped.skipped).toBe(true);
+    expect(calls).toBe(1);
   });
 });
 

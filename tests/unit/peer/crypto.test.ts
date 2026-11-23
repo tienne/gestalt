@@ -64,7 +64,9 @@ describe('봉인', () => {
     expect(openBox(bob, alice.id, box)).toBe('비밀 메시지');
     expect(openBox(eve, alice.id, box)).toBeNull();
     expect(openBox(bob, eve.id, box)).toBeNull();
-    const flipped = { ...box, c: box.c.slice(0, -2) + (box.c.endsWith('A') ? 'BA' : 'AA') };
+    const sealed = Buffer.from(box.c, 'base64url');
+    sealed[0] = sealed[0]! ^ 1;
+    const flipped = { ...box, c: sealed.toString('base64url') };
     expect(openBox(bob, alice.id, flipped)).toBeNull();
     expect(openBox(bob, alice.id, { k: 'box' })).toBeNull();
   });

@@ -28,7 +28,7 @@ export const SESSIONS_DIR = 'sessions';
 const COMPACTIONS_FILE = 'compactions';
 const SESSION_FILE = 'session.json';
 const HANDOFF_RECORD = 'handoff.json';
-const HANDOFF_DIR = 'handoffs';
+export const HANDOFF_DIR = 'handoffs';
 
 /** 훅의 SID_RE와 같은 꼴. 디렉토리 이름으로 쓰므로 이 꼴만 받는다 */
 const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
