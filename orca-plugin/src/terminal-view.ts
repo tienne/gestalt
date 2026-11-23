@@ -79,12 +79,7 @@ async function openBrowseNow(orderId: string): Promise<void> {
   state.openNote = null
   try {
     const out = await orca.plugin.request('order.browse', { orderId })
-    if (!out.ok) state.openNote = out.error
-    else if (!orca.shell) state.openNote = `브라우저에서 열어 주세요: ${out.url}`
-    else {
-      const r = await orca.shell.openExternal(out.url)
-      if (!r.opened) state.openNote = `브라우저를 못 열었어요. 주소: ${out.url}`
-    }
+    state.openNote = out.ok ? await openUrl(out.url) : out.error
   } catch (e) {
     state.openNote = `결과 뷰어를 못 열었어요. ${errorText(e)}`
   }
@@ -104,12 +99,7 @@ async function openViewerNow(): Promise<void> {
   state.viewerNote = null
   try {
     const out = await orca.plugin.request('viewer.open')
-    if (!out.ok) state.viewerNote = out.error
-    else if (!orca.shell) state.viewerNote = `브라우저에서 열어 주세요: ${out.url}`
-    else {
-      const r = await orca.shell.openExternal(out.url)
-      if (!r.opened) state.viewerNote = `브라우저를 못 열었어요. 주소: ${out.url}`
-    }
+    state.viewerNote = out.ok ? await openUrl(out.url) : out.error
   } catch (e) {
     state.viewerNote = `결과 뷰어를 못 열었어요. ${errorText(e)}`
   }
@@ -118,6 +108,20 @@ async function openViewerNow(): Promise<void> {
   alertRegion.textContent = ''
   if (state.viewerNote) alertRegion.textContent = state.viewerNote
   else statusRegion.textContent = '결과 페이지를 브라우저에서 열었어요'
+}
+
+/**
+ * 주소를 시스템 브라우저로 열고 못 열었으면 사용자에게 보일 한 줄을 준다.
+ * 뷰어를 띄우는 사이 클릭으로 받은 열기 권한이 끝났을 수 있어서 다시 눌러 달라고 적는다
+ */
+async function openUrl(url: string): Promise<string | null> {
+  if (!orca.shell) return `브라우저에서 열어 주세요: ${url}`
+  try {
+    const r = await orca.shell.openExternal(url)
+    return r.opened ? null : `브라우저를 못 열었어요. 다시 눌러 주세요. 주소: ${url}`
+  } catch {
+    return `브라우저를 못 열었어요. 다시 눌러 주세요. 주소: ${url}`
+  }
 }
 
 function openWorker(orderId: string): Promise<void> {
