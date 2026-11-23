@@ -51,7 +51,10 @@ async function load(): Promise<void> {
 let opening = false
 
 async function once(label: string, run: () => Promise<void>): Promise<void> {
-  if (opening) return
+  if (opening) {
+    statusRegion.textContent = '아직 여는 중이에요'
+    return
+  }
   opening = true
   statusRegion.textContent = label
   try {
@@ -84,6 +87,7 @@ async function openBrowseNow(orderId: string): Promise<void> {
   statusRegion.textContent = ''
   alertRegion.textContent = ''
   if (state.openNote) alertRegion.textContent = state.openNote
+  else statusRegion.textContent = '작업 내용을 브라우저에서 열었어요'
 }
 
 function openWorker(orderId: string): Promise<void> {
@@ -109,7 +113,7 @@ async function openWorkerNow(orderId: string): Promise<void> {
   statusRegion.textContent = ''
   alertRegion.textContent = ''
   if (state.openError) alertRegion.textContent = `워크트리를 못 열었어요. ${state.openError}`
-  else if (state.openNote) statusRegion.textContent = state.openNote
+  else statusRegion.textContent = state.openNote ?? '워커 워크트리로 옮겼어요'
 }
 
 const hasWorkspace = (orderId: string) => Boolean(state.view?.orders.find((o) => o.id === orderId)?.workspaceId)
