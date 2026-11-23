@@ -354,7 +354,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 - 어느 단계에서 죽어도 다시 열면 같은 상태가 나온다. `base.json`을 쓰기 전이면 남은 segment를 처음부터 재생한다. `base.json`은 fsync한 뒤에만 segment를 지운다.
 - 잠금 없이 읽는 쪽은 재생 앞뒤로 `base.json`과 segment 목록을 비교해 바뀌었으면 다시 읽는다. 다섯 번 읽어도 계속 바뀌면 어긋난 상태를 돌려주지 않고 에러를 낸다. 최근 이벤트를 읽을 때도 같다.
 - 결과 보기(`results`, 웹 뷰어)와 최근 이벤트도 같은 순서로 읽는다. 최근 이벤트는 `events.jsonl`에서 모자라면 남은 segment 끝을 이어서 읽는다. 웹 뷰어는 `base.json`과 segment마다의 크기, `events.jsonl`이 바뀌었을 때만 다시 읽는다.
-- 떼어 낸 뒤에는 `base.json`을 모르는 0.153.0 전 gestalt가 이 저장소를 열면 `events.jsonl`만 재생해 상태를 잘못 만든다. `archive`를 처음 부르기 전에 컨덕터 세션과 워커가 쓰는 gestalt를 그 뒤 버전으로 맞춘다.
+- 떼어 낸 뒤에는 `base.json`을 모르는 0.153.0 전 gestalt가 이 저장소를 열면 `events.jsonl`만 재생해 상태를 잘못 만든다. 0.153.0도 `archivedOrders`를 몰라서 보관한 주문의 출처를 다시 받고 PR 감시가 주문을 다시 만든다. `archive`를 처음 부르기 전에 컨덕터 세션과 워커가 쓰는 gestalt를 `archive` 명령이 들어간 버전으로 맞춘다.
 - 반영하면서 이벤트를 주문별로 `order-logs/<주문 id>/`에 옮겨 둔다. segment는 다음 반영 때 지워지므로 나중에 그 주문을 보관할 때 이 파일로 이벤트를 모은다. 주문을 찾는 규칙은 제안서의 [이벤트를 주문에 붙이는 규칙](./proposals/conductor-archive.md#이벤트를-주문에-붙이는-규칙)과 같다. tick과 `tail-repaired`, 주문 없는 게이트, `report` 없이 이름만 있는 옛 `report-applied` 줄은 모으지 않는다. 마지막 것은 `appliedReports`에만 쓰이고 그건 `base.json`에 들어간다. 첫 반영 전 로그는 첫 반영이 처음부터 재생하며 모은다.
 
 | 경로                           | 쓰는 쪽         | 내용                                                                                                                                                                                                                                                                      |
