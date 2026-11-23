@@ -1,7 +1,13 @@
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { join } from 'node:path';
 import { oneLine } from './intake.js';
-import { EVENTS_FILE } from './store.js';
+import {
+  EVENTS_FILE,
+  MAX_REPLAY_ATTEMPTS,
+  SEGMENTS_DIR,
+  listSegments,
+  storeLayout,
+} from './store.js';
 import type { ConductorEvent, ConductorSnapshot } from './types.js';
 
 /**
@@ -23,12 +29,12 @@ export const RECENT_EVENTS_LIMIT = 50;
 export const TAIL_BYTES = 128 * 1024;
 const SUMMARY_MAX = 160;
 
-function readTailLines(path: string, bytes: number): string[] {
+function readTailLines(path: string, bytes: number): { lines: string[]; read: number } {
   let fd: number;
   try {
     fd = openSync(path, 'r');
   } catch {
-    return [];
+    return { lines: [], read: 0 };
   }
   try {
     const size = fstatSync(fd).size;
@@ -38,7 +44,7 @@ function readTailLines(path: string, bytes: number): string[] {
     const buf = Buffer.alloc(size - start);
     readSync(fd, buf, 0, buf.length, start);
     const lines = buf.toString('utf-8').split('\n');
-    return start > 0 ? lines.slice(1) : lines;
+    return { lines: start > 0 ? lines.slice(1) : lines, read: buf.length };
   } finally {
     closeSync(fd);
   }
@@ -113,16 +119,60 @@ function summarize(e: ConductorEvent, s: Readonly<ConductorSnapshot>): RecentEve
 
 /**
  * 이벤트 로그 끝에서 사람이 볼 만한 이벤트를 골라 오래된 것부터 limit개 돌려준다.
- * 지운 주문의 이벤트는 뺀다. 저장 형식은 건드리지 않고 읽기만 한다
+ * 지운 주문의 이벤트는 뺀다. 저장 형식은 건드리지 않고 읽기만 한다.
+ * 떼어 낸 직후라 `events.jsonl`에서 limit개가 안 차면 남아 있는 segment를 최근 것부터 이어서 읽는다.
+ * 읽는 양은 파일을 합쳐 TAIL_BYTES까지다
  */
 export function readRecentEvents(
   dir: string,
   snapshot: Readonly<ConductorSnapshot>,
   limit = RECENT_EVENTS_LIMIT,
+  /** 테스트가 읽기와 비교 사이에 저장소 모양을 바꿔 보는 자리 */
+  hooks: { afterRead?: () => void } = {},
+): RecentEvent[] {
+  // 목록을 뽑고 읽는 사이에 떼어 내기가 끼면 이름이 바뀐 이벤트를 놓친다. 재생과 같은 횟수만큼 다시 읽는다
+  for (let attempt = 1; ; attempt++) {
+    const layout = storeLayout(dir);
+    const out = collectRecent(dir, snapshot, limit);
+    hooks.afterRead?.();
+    if (storeLayout(dir) === layout) return out;
+    if (attempt >= MAX_REPLAY_ATTEMPTS) {
+      throw new Error(
+        `${dir}의 최근 이벤트를 읽는 동안 저장소가 계속 바뀌어요. 잠시 뒤 다시 불러 주세요`,
+      );
+    }
+  }
+}
+
+function collectRecent(
+  dir: string,
+  snapshot: Readonly<ConductorSnapshot>,
+  limit: number,
 ): RecentEvent[] {
   const out: RecentEvent[] = [];
-  const lines = readTailLines(join(dir, EVENTS_FILE), TAIL_BYTES);
-  // 끝에서부터 읽어 limit개가 차면 멈춘다. 앞쪽 줄까지 JSON.parse하지 않는다
+  const files = [
+    join(dir, EVENTS_FILE),
+    ...listSegments(dir)
+      .reverse()
+      .map((n) => join(dir, SEGMENTS_DIR, n)),
+  ];
+  let budget = TAIL_BYTES;
+  for (const file of files) {
+    if (out.length >= limit || budget <= 0) break;
+    const { lines, read } = readTailLines(file, budget);
+    budget -= read;
+    collect(lines, snapshot, limit, out);
+  }
+  return out.reverse();
+}
+
+/** 끝에서부터 읽어 limit개가 차면 멈춘다. 앞쪽 줄까지 JSON.parse하지 않는다 */
+function collect(
+  lines: string[],
+  snapshot: Readonly<ConductorSnapshot>,
+  limit: number,
+  out: RecentEvent[],
+): void {
   for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
     const line = lines[i]!;
     if (!line.trim()) continue;
@@ -137,5 +187,4 @@ export function readRecentEvents(
     if (item.orderId && snapshot.removedOrders[item.orderId]) continue;
     out.push(item);
   }
-  return out.reverse();
 }
