@@ -19,6 +19,10 @@ describe('워커 결과 검증', () => {
     expect(parseWorkerReport({ ...ok, deployRef: ` ${url} ` }, 2000).deployRef).toBe(url);
     expect(() => parseWorkerReport({ ...ok, deployRef: `${url}\nx` }, 2000)).toThrow(/deployRef/);
     expect(() => parseWorkerReport({ ...ok, deployRef: 7 }, 2000)).toThrow(/deployRef/);
+    expect(() => parseWorkerReport({ ...ok, deployRef: 'javascript:alert(1)' }, 2000)).toThrow(
+      /deployRef/,
+    );
+    expect(() => parseWorkerReport({ ...ok, deployRef: 'run 42' }, 2000)).toThrow(/deployRef/);
   });
 
   it('diff, 스택 트레이스, 코드 블록, 긴 로그는 거절한다', () => {

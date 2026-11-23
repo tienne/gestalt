@@ -181,10 +181,12 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
       typeof deployRef === 'string' &&
       deployRef.trim() &&
       deployRef.length <= MAX_REF_CHARS &&
-      !hasControlChar(deployRef)
+      !hasControlChar(deployRef) &&
+      isHttpUrl(deployRef.trim())
     )
       report.deployRef = deployRef.trim();
-    else problems.push('deployRef에는 한 줄짜리 배포 실행 주소만 적어 주세요');
+    else
+      problems.push('deployRef에는 http나 https로 시작하는 한 줄짜리 배포 실행 주소만 적어 주세요');
   }
 
   if (report.status === 'stopped' && !report.stopReason) report.stopReason = 'unknown';
@@ -195,4 +197,13 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
 
   if (problems.length > 0) throw new ReportRejected(problems);
   return report;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === 'https:' || protocol === 'http:';
+  } catch {
+    return false;
+  }
 }
