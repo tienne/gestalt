@@ -201,8 +201,11 @@ export function parseWorkerReport(raw: unknown, maxChars: number): WorkerReport 
 
 function isHttpUrl(value: string): boolean {
   try {
-    const { protocol } = new URL(value);
-    return protocol === 'https:' || protocol === 'http:';
+    const url = new URL(value);
+    // 계정 정보가 든 주소는 대상 주문의 배포 신호와 지라로 그대로 퍼진다
+    return (
+      (url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password
+    );
   } catch {
     return false;
   }

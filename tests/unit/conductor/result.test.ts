@@ -23,6 +23,9 @@ describe('워커 결과 검증', () => {
       /deployRef/,
     );
     expect(() => parseWorkerReport({ ...ok, deployRef: 'run 42' }, 2000)).toThrow(/deployRef/);
+    expect(() =>
+      parseWorkerReport({ ...ok, deployRef: 'https://bot:secret@ci.example.com/run/1' }, 2000),
+    ).toThrow(/deployRef/);
   });
 
   it('diff, 스택 트레이스, 코드 블록, 긴 로그는 거절한다', () => {
