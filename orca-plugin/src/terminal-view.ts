@@ -52,9 +52,11 @@ let opening = false
 
 async function once(label: string, run: () => Promise<void>): Promise<void> {
   if (opening) {
-    // 연달아 눌러도 다시 읽히도록 비웠다가 싣는다
+    // 같은 틱에 비우고 실으면 스크린리더가 바뀐 걸 못 알아채서 다음 틱에 싣는다
     statusRegion.textContent = ''
-    statusRegion.textContent = '아직 여는 중이에요'
+    setTimeout(() => {
+      if (opening) statusRegion.textContent = '아직 여는 중이에요'
+    }, 100)
     return
   }
   opening = true
