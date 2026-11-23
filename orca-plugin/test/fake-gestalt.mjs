@@ -5,13 +5,27 @@ import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const args = process.argv.slice(2)
+// 플러그인이 경로를 기억해 바로 부르는지 보려고 어느 파일로 불렸는지 같이 남긴다
+const via = process.argv[1]
+if (args[0] === 'conductor' && args[1] === 'exec-path') {
+  // 경로 찾기는 --state-dir 없이 상태 폴더를 cwd로 두고 부른다. 그 폴더의 fake-exec-path.json을 답으로 낸다
+  const cwdLog = join(process.cwd(), 'fake-calls.jsonl')
+  if (existsSync(cwdLog)) appendFileSync(cwdLog, JSON.stringify({ args, cwd: process.cwd(), via }) + '\n')
+  const answer = join(process.cwd(), 'fake-exec-path.json')
+  if (!existsSync(answer)) {
+    process.stderr.write("error: unknown command 'exec-path'\n")
+    process.exit(1)
+  }
+  process.stdout.write(readFileSync(answer, 'utf8'))
+  process.exit(0)
+}
 const dir = args.find((a) => a.startsWith('--state-dir='))?.slice('--state-dir='.length)
 if (!dir) {
   process.stderr.write('fake-gestalt: --state-dir가 없어요\n')
   process.exit(2)
 }
 const log = join(dir, 'fake-calls.jsonl')
-if (existsSync(log)) appendFileSync(log, JSON.stringify({ args, cwd: process.cwd() }) + '\n')
+if (existsSync(log)) appendFileSync(log, JSON.stringify({ args, cwd: process.cwd(), via }) + '\n')
 if (existsSync(join(dir, 'fake-no-defer')) && args.includes('--defer-delivery')) {
   // 결정 전달을 tick에 넘기는 플래그가 없는 옛 CLI. commander는 모르는 옵션을 action 전에 거절한다
   process.stderr.write("error: unknown option '--defer-delivery'\n")

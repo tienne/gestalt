@@ -5,7 +5,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, watch, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { CliError, runGestalt } from './cli'
+import { CliError, CliResolver } from './cli'
 import { MobileServer } from './mobile-server'
 import type {
   AgentState,
@@ -147,6 +147,7 @@ class Conductor {
   private activityUnsupported = false
   private activityPoll: ReturnType<typeof setTimeout> | null = null
   private readonly mobile = new MobileServer(() => this.view)
+  private readonly cli = new CliResolver(STATUS_TIMEOUT_MS)
   private mobilePort = 0
 
   constructor(private readonly orca: OrcaWorkerApi) {}
@@ -263,7 +264,7 @@ class Conductor {
 
   private async status(cfg: Config): Promise<string> {
     const run = (withActivity: boolean) =>
-      runGestalt(
+      this.cli.run(
         cfg.command,
         ['conductor', 'status', '--all', '--json', ...(withActivity ? ['--with-activity'] : []), ...this.dirArgs(cfg)],
         { cwd: this.cwd(cfg.stateDir || null), timeoutMs: STATUS_TIMEOUT_MS }
@@ -408,7 +409,7 @@ class Conductor {
       ...this.dirArgs(cfg)
     ]
     const run = (defer: boolean) =>
-      runGestalt(cfg.command, args(defer), {
+      this.cli.run(cfg.command, args(defer), {
         cwd: this.cwd(cfg.stateDir || this.view?.stateDir || null),
         timeoutMs: RESOLVE_TIMEOUT_MS
       })
@@ -445,7 +446,7 @@ class Conductor {
     const cfg = await this.config()
     const args = ['conductor', 'order', 'remove', ...new Set(orderIds), '--json', ...this.dirArgs(cfg)]
     try {
-      const out = await runGestalt(cfg.command, args, {
+      const out = await this.cli.run(cfg.command, args, {
         cwd: this.cwd(cfg.stateDir || this.view?.stateDir || null),
         timeoutMs: STATUS_TIMEOUT_MS
       })
@@ -554,11 +555,18 @@ class Conductor {
     }
   }
 
-  private ensureBrowse(cfg: Config): Promise<string> {
+  private async ensureBrowse(cfg: Config): Promise<string> {
     const cur = this.browse
     if (cur && cur.child.exitCode === null && cur.child.signalCode === null) return cur.url
-    const child = spawn(cfg.command, ['conductor', 'browse', '--no-open', '--port', '0', ...this.dirArgs(cfg)], {
-      cwd: this.cwd(cfg.stateDir || this.view?.stateDir || null),
+    const cwd = this.cwd(cfg.stateDir || this.view?.stateDir || null)
+    const inv = await this.cli.resolve(cfg.command, cwd)
+    if (this.stopped) throw new Error('플러그인 워커가 멈췄어요')
+    // 경로를 찾는 사이에 다른 요청이 뷰어를 먼저 띄웠으면 그걸 쓴다
+    const raced = this.browse
+    if (raced && raced.child.exitCode === null && raced.child.signalCode === null) return raced.url
+    const child = spawn(inv.file, [...inv.prefix, 'conductor', 'browse', '--no-open', '--port', '0', ...this.dirArgs(cfg)], {
+      cwd,
+      ...(Object.keys(inv.env).length > 0 ? { env: { ...process.env, ...inv.env } } : {}),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     })
@@ -593,6 +601,12 @@ class Conductor {
     url.catch(() => undefined)
     this.browse = { child, url }
     return url
+  }
+
+  /** 설정이 바뀌면 gestalt 경로를 다시 찾는다. 명령이 그대로여도 그 뒤의 설치가 바뀌었을 수 있다 */
+  settingsChanged(): Promise<void> {
+    this.cli.invalidate()
+    return this.refresh()
   }
 
   async stop(): Promise<void> {
@@ -631,7 +645,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     const view = await conductor.current()
     return statusBarOf(view).text
   })
-  orca.settings.onDidChange(() => void conductor.refresh())
+  orca.settings.onDidChange(() => void conductor.settingsChanged())
   void conductor.refresh()
 }
 

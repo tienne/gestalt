@@ -28,7 +28,12 @@ declare module 'node:child_process' {
   export function spawn(
     file: string,
     args: readonly string[],
-    options: { cwd?: string; stdio?: readonly ('ignore' | 'pipe')[]; windowsHide?: boolean }
+    options: {
+      cwd?: string
+      env?: Record<string, string | undefined>
+      stdio?: readonly ('ignore' | 'pipe')[]
+      windowsHide?: boolean
+    }
   ): ChildProcess
 }
 
@@ -40,6 +45,7 @@ declare module 'node:fs' {
   export function existsSync(path: string): boolean
   export function watch(path: string, listener: (event: string) => void): FSWatcher
   export function realpathSync(path: string): string
+  export function statSync(path: string): { mtimeMs: number }
   // 아래는 테스트만 쓴다
   export function mkdtempSync(prefix: string): string
   export function writeFileSync(path: string, data: string): void
@@ -59,7 +65,7 @@ declare module 'node:os' {
   export function tmpdir(): string
 }
 
-declare const process: { env: Record<string, string | undefined> }
+declare const process: { env: Record<string, string | undefined>; execPath: string }
 
 declare module 'node:http' {
   export type IncomingMessage = {

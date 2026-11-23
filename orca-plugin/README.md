@@ -27,6 +27,8 @@ Gestalt 컨덕터가 굴리는 주문과 사람 확인을 기다리는 게이트
 | `stateDir` | status JSON의 `stateDir` | status JSON에 `stateDir`을 안 싣는 CLI를 쓰면서 저장소를 기본 위치 밖에 뒀을 때만 같은 경로를 적는다 |
 | `mobilePort` | 0, 꺼짐 | 폰에서 보기 전용 페이지를 보고 싶을 때 남는 포트(예: 8792)를 적는다 |
 
+`gestaltPath`가 비었든 적혀 있든 워커는 처음 한 번 `gestalt conductor exec-path --json`으로 실제 bin 경로를 받아 두고 그 뒤로는 `node <bin>`으로 바로 부른다. 셸 런처(`~/.local/bin/gestalt`)는 부를 때마다 설치 경로를 찾고 npm exec로 bin을 다시 찾아서 2~3초가 더 들기 때문이다. 받아 둔 bin 파일이 없어졌거나 설정이 바뀌었거나 `installed_plugins.json`이 바뀌면(플러그인 업데이트) 다시 받는다. 이 명령이 없는 옛 CLI거나 받기에 실패하면 설정한 명령을 그대로 부르고 위 신호가 올 때까지 다시 받지 않는다.
+
 status JSON에 `stateDir`과 `workerKind`, `worktreeName`을 안 싣는 CLI는 저장소 경로와 워커 워크트리를 알려 주지 않는다. 그때는 저장소가 기본 위치 밖이면 `stateDir` 설정으로 알려 줘야 하고 주문을 눌러 워크트리로 이동할 수도 없다.
 
 위계는 status JSON의 `parentOrderId`, `parentWorktree`, `baseBranch`로 그린다. 이 필드를 안 싣는 CLI에서는 위계 트리 없이 상태별 목록만 나온다.
