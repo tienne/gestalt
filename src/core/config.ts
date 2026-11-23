@@ -468,6 +468,11 @@ const conductorConfigSchema = z.object({
    * 레포 gestalt.json이 켜서 남의 워크트리를 지우게 하면 안 되므로 REPO_CONDUCTOR_KEYS에 넣지 않는다
    */
   removeMergedOrcaWorktrees: z.boolean().default(false),
+  /**
+   * tick이 하루 한 번 끝나고 14일 지난 주문을 보관하고 운영 파일을 정리하고 지난 달 보관소를 묶는다.
+   * 끄면 `conductor archive`를 사람이 부른다. 파일을 지우는 일이라 REPO_CONDUCTOR_KEYS에 넣지 않는다
+   */
+  archive: z.object({ enabled: z.boolean().default(true) }).optional(),
 });
 
 /**
