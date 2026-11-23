@@ -398,11 +398,11 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 `gestalt conductor archive [--older-than <일>] [--dry-run] [--json]`은 끝나고(`updatedAt` 기준) 기간이 지난 주문을 `archive/<YYYY-MM>/<주문 id>/`로 옮기고 상태에서 뺀다. 기간은 기본 14일이고 `YYYY-MM`은 주문이 끝난 달이다. 지금은 사람이 부른다. tick이 하루 한 번 부르는 일은 다음 단계에서 넣는다.
 
 - `events.jsonl`을 떼어 반영하는 일과 한 번에 돈다. tick과 같은 잠금을 잡고 못 잡으면 exit 1로 끝난다. `--dry-run`은 잠금 없이 옮길 주문만 보여 준다.
-- 옮기는 주문은 `order remove`가 받아 주는 주문과 같다. 끝난 주문(done, failed, cancelled, parked) 중 열린 게이트나 멈춘 워커가 남은 주문은 옮기지 않고 이유를 `blocked`에 남긴다.
-- 주문 디렉토리에는 셋을 둔다. `events.jsonl`은 `order-logs/`에 모아 둔 그 주문의 이벤트 줄을 원래 값 그대로 이은 것이다. `order.json`은 `order show --json`과 같은 꼴에 `stateDir` 대신 보관한 시각(`archivedAt`)을 둔다. `refs/`는 `refs/<주문 id>/`를 복사한 것이고 `order.json`의 `refCopies[].path`는 옮긴 자리(`archive/<YYYY-MM>/<주문 id>/refs/...`)로 바꿔 적는다.
+- 옮기는 주문은 `order remove`가 받아 주는 주문과 같다. 끝난 주문(done, failed, cancelled, parked) 중 열린 게이트나 멈춘 워커가 남은 주문은 옮기지 않고 이유를 `blocked`에 남긴다. 여기에 tick이 아직 할 일이 남은 주문도 막는다. 워커가 finished나 failed로 남아 아직 안 거둔 주문, 그 주문 워커의 정리 실패 게이트가 열려 있는 주문, 승인했지만 아직 슬랙에 안 올린 `slack-post`가 있는 주문이다. 옮기면 tick이 그 일을 할 근거가 상태에서 사라진다.
+- 주문 디렉토리에는 셋을 둔다. `events.jsonl`은 `order-logs/`에 모아 둔 그 주문의 이벤트 줄을 원래 값 그대로 이은 것이다. `order.json`은 `order show --json`과 같은 꼴에 `stateDir` 대신 보관한 시각(`archivedAt`)을 둔다. `refs/`는 `refs/<주문 id>/`를 복사한 것이고 `order.json`의 `refCopies[].path`는 옮긴 자리(`archive/<YYYY-MM>/<주문 id>/refs/...`)로 바꿔 적는다. 모아 둔 이벤트가 없으면(손으로 `order-logs/`를 지운 경우) 빈 `events.jsonl`을 쓰고 `warnings`에 남긴다.
 - 상태에서는 `order remove`와 같은 규칙으로 주문과 워커, 체크포인트, 게이트, bypass, 지라 전이, 보고를 빼고 `archivedOrders`에 출처(`sourceRef`), 상위 주문, 보관 시각과 달을 남긴다. 지운 주문처럼 같은 출처를 다시 받지 않는다. 상위 주문이 하위 주문을 몇 개 만들었는지 셀 때도 넣는다. parked 주문이면 사람에게 넘긴 PR을 `humanPr`로 남겨 PR 감시가 그 PR로 주문을 새로 만들지 않는다.
 - `order remove`로 지운 주문은 지운 시각에서 같은 기간이 지나면 모아 둔 이벤트만 `archive/<지운 달>/<주문 id>/events.jsonl`로 옮기고 `removedOrders`의 그 주문에 옮긴 달(`archived`)을 적는다. 모아 둔 이벤트가 없으면 달만 적는다. 한 번 옮긴 지운 주문은 다시 옮기지 않는다.
-- 주문에 안 붙는 컨덕터 게이트는 닫히고 같은 기간이 지나면 상태에서 버린다. 다만 그 게이트가 있어야 도는 일이 남았으면 둔다. `sourceRef`가 있는 게이트(PR 감시와 접수가 같은 질문을 다시 안 여는 근거), 승인했지만 아직 슬랙에 안 올린 `slack-post`, 승인했지만 워커가 아직 released가 아닌 정리 실패 게이트가 그렇다.
+- 주문에 안 붙는 컨덕터 게이트는 닫히고 같은 기간이 지나면 상태에서 버린다. 다만 그 게이트가 있어야 도는 일이 남았으면 둔다. `sourceRef`가 있는 게이트(PR 감시와 접수가 같은 질문을 다시 안 여는 근거), 승인했지만 아직 슬랙에 안 올린 `slack-post`, 승인했지만 워커가 아직 released가 아닌 정리 실패 게이트가 그렇다. `sourceRef`가 있는 게이트는 상한 없이 쌓인다. 상태를 열 때마다 들고 다니는 크기가 그만큼 늘어나므로 출처별 색인으로 줄이는 일을 다음 단계에서 본다.
 - 보관 파일과 refs 사본, 새로 만든 보관 디렉토리와 `base.json`을 다 쓰고 fsync한 뒤에 `order-logs/<주문 id>/`와 `refs/<주문 id>/`를 지운다. 지운 주문도 같다. `base.json`을 쓰기 전에 죽으면 모아 둔 이벤트가 그대로라 다시 불렀을 때 같은 자리에 같은 내용을 덮어쓴다. `base.json`까지 쓰고 죽어 남은 파일은 다음 보관이 보관 기록(`archivedOrders`, `removedOrders`의 `archived`)을 보고 지운다.
 - 옮긴 뒤에 그 주문으로 붙는 줄은 모으지 않고 버린다. 재생할 때도 지우거나 옮긴 주문에 워커, 체크포인트, 게이트, bypass, 지라 전이를 다시 붙이지 않는다. 없는 게이트에 온 `slack-posted`도 버린다. 끝나고 기간이 지났고 도는 워커와 열린 게이트가 없는 주문만 옮기므로 그런 줄은 옮기는 순간에 늦게 쓴 경우뿐이다.
 - `results show`에 보관한 주문 id를 주면 보관소 자리를 알려 준다. 결과 뷰어가 보관소를 읽는 일은 뒤에 따로 한다.

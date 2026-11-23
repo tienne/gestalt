@@ -88,7 +88,7 @@ archive/YYYY-MM/
 | `bypass`, `jira-transition`  | `record.orderId`                                           |
 | `tick`, `tail-repaired`      | 주문에 안 붙는다. `base.json`에 누적 값만 남고 줄은 버린다 |
 
-주문에 안 붙는 컨덕터 게이트는 끝나고 같은 기간이 지나면 버린다. `sourceRef`가 있거나 승인 뒤 할 일(슬랙 게시, 워커 정리 반영)이 남은 게이트는 둔다. 옮긴 주문에 늦게 붙는 줄은 모으지 않고 버린다. `report` 없이 이름만 있는 옛 `report-applied`도 주문에 안 붙는다. 이 줄은 `appliedReports`에만 쓰이고 그건 `base.json`에 남는다.
+주문에 안 붙는 컨덕터 게이트는 끝나고 같은 기간이 지나면 버린다. `sourceRef`가 있거나 승인 뒤 할 일(슬랙 게시, 워커 정리 반영)이 남은 게이트는 둔다. 주문도 같은 이유로 안 거둔 워커나 열린 정리 실패 게이트, 안 올린 슬랙 게시가 남았으면 옮기지 않는다. 옮긴 주문에 늦게 붙는 줄은 모으지 않고 버린다. `report` 없이 이름만 있는 옛 `report-applied`도 주문에 안 붙는다. 이 줄은 `appliedReports`에만 쓰이고 그건 `base.json`에 남는다.
 
 ### 중복 판정
 
