@@ -59,8 +59,7 @@ import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
 import { readRecentEvents, type RecentEvent } from '../../conductor/recent-events.js';
 import { removeOrderRefCopies } from '../../conductor/ref-copy.js';
 import {
-  archiveOrders,
-  compressArchive,
+  archiveAndCompress,
   DEFAULT_ARCHIVE_DAYS,
   PROMPTS_DIR,
   pruneArchive,
@@ -384,20 +383,16 @@ export async function conductorArchiveCommand(opts: ConductorArchiveOptions): Pr
     const days = opts.olderThan === undefined ? DEFAULT_ARCHIVE_DAYS : Number(opts.olderThan);
     if (!Number.isSafeInteger(days))
       throw new Error(`--older-than은 0 이상의 정수(일)로 주세요: ${opts.olderThan}`);
-    const result = await archiveOrders(ctx.store.dir, { days, dryRun: opts.dryRun === true });
+    // 묶기는 보관을 마쳐 잠금을 놓은 뒤 다시 잡는다. 그사이 tick이 잡았으면 다음 보관 때 묶는다
+    const result = await archiveAndCompress(ctx.store.dir, {
+      days,
+      dryRun: opts.dryRun === true,
+      now: () => new Date(),
+    });
     if (result.status === 'locked') throw lockedError(result.holder);
-    // 묶기도 잠금을 따로 잡는다. 그사이 tick이 잡았으면 다음 보관 때 묶는다
-    const compressed =
-      result.status === 'archived' ? compressArchive(ctx.store.dir, new Date()) : undefined;
-    const months = compressed?.status === 'compressed' ? compressed.months : [];
-    const warnings = [
-      ...(result.status === 'archived' ? result.warnings : []),
-      ...(compressed?.status === 'compressed' ? compressed.warnings : []),
-    ];
-    if (opts.json)
-      return print(
-        result.status === 'archived' ? { ...result, compressed: months, warnings } : result,
-      );
+    if (opts.json) return print(result);
+    const months = result.status === 'archived' ? result.compressed : [];
+    const warnings = result.status === 'archived' ? result.warnings : [];
     const verb = result.status === 'dry-run' ? '옮길' : '옮긴';
     console.log(
       `${verb} 주문 ${result.orders.length}개, 지운 주문의 이벤트 ${result.removed.length}개, 버린 컨덕터 게이트 ${result.gates.length}개 (${days}일 기준)`,
@@ -426,6 +421,16 @@ function lockedError(holder: number | undefined): Error {
   );
 }
 
+/** `archive [action]`을 나눈다. 모르는 동작도 다른 오류처럼 exitWithError로 끝낸다 */
+export async function conductorArchiveAction(
+  action: string | undefined,
+  opts: ConductorArchiveOptions,
+): Promise<void> {
+  if (action === undefined) return conductorArchiveCommand(opts);
+  if (action === 'prune') return conductorArchivePruneCommand(opts);
+  exitWithError(new Error(`모르는 동작이에요: ${action}. prune만 받아요`));
+}
+
 /** `before`보다 앞선 달의 보관소를 지운다. 자동으로는 안 돌고 사람이 부른다 */
 export function conductorArchivePruneCommand(opts: ConductorArchiveOptions): void {
   run(() => {
@@ -438,7 +443,7 @@ export function conductorArchivePruneCommand(opts: ConductorArchiveOptions): voi
     if (result.status === 'locked') throw lockedError(result.holder);
     if (opts.json) return print(result);
     const verb = result.status === 'dry-run' ? '지울' : '지운';
-    console.log(`${verb} 달 ${result.months.length}개 (${before} 앞)`);
+    console.log(`${verb} 달 ${result.months.length}개 (${before}보다 앞선 달)`);
     for (const p of result.paths) console.log(`  ${p}`);
   });
 }

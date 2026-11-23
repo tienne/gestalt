@@ -41,8 +41,7 @@ import {
   conductorOrderCancelCommand,
   conductorOrderMarkMergedCommand,
   conductorOrderRemoveCommand,
-  conductorArchiveCommand,
-  conductorArchivePruneCommand,
+  conductorArchiveAction,
   conductorOrderShowCommand,
   conductorOrderTakeOverCommand,
   conductorQueueAddCommand,
@@ -1180,12 +1179,7 @@ export function createCli(): Command {
     .option('--dry-run', '옮기거나 지우지 않고 대상만 보여준다')
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
-    .action(async (action: string | undefined, o) => {
-      if (action === undefined) return conductorArchiveCommand(o);
-      if (action === 'prune') return conductorArchivePruneCommand(o);
-      console.error(`모르는 동작이에요: ${action}. prune만 받아요`);
-      process.exitCode = 1;
-    });
+    .action(async (action: string | undefined, o) => conductorArchiveAction(action, o));
 
   conductor
     .command('status')

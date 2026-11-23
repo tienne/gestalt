@@ -14,6 +14,7 @@ import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  conductorArchiveAction,
   conductorArchiveCommand,
   conductorArchivePruneCommand,
   conductorCheckpointSaveCommand,
@@ -1218,6 +1219,15 @@ describe('주문 상세와 에이전트', () => {
     expect(() =>
       conductorArchivePruneCommand({ stateDir, before: '2000-01', olderThan: '3' }),
     ).toThrow('exit 1');
+  });
+
+  it('archive는 모르는 동작을 다른 오류처럼 exit 1로 끝낸다', async () => {
+    const stateDir = tempStateDir();
+
+    await expect(conductorArchiveAction('purge', { stateDir })).rejects.toThrow('exit 1');
+
+    expect(err.join('\n')).toContain('모르는 동작이에요: purge');
+    expect(existsSync(join(stateDir, 'archive'))).toBe(false);
   });
 
   it('archive prune은 앞선 달의 보관소를 지운다', () => {
