@@ -24,6 +24,7 @@ import {
   findWorkspace,
   isSafeId,
   parseJsonOutput,
+  workspaceForPath,
   parseStatus,
   statusBarOf,
   toView,
@@ -507,6 +508,40 @@ class Conductor {
     }
   }
 
+  /** 컨덕터 세션 id와 같은 에이전트의 터미널로 간다. 못 찾으면 첫 터미널로 물러나지 않는다. 다른 일을 하는 터미널일 수 있다 */
+  async openConductor(): Promise<WorkerOpenResult> {
+    const session = this.view?.conductor?.session
+    if (!session) return { opened: false, error: '최근에 tick을 돌린 컨덕터 세션이 없어요.' }
+    if (!session.cwd) return { opened: false, error: '컨덕터 세션의 작업 디렉토리를 몰라요.' }
+    let workspaces: Workspace[]
+    try {
+      workspaces = (await this.orca.host.call('workspace.list')).workspaces
+    } catch (e) {
+      return { opened: false, error: message(e) }
+    }
+    const ws = workspaceForPath(session.cwd, workspaces)
+    if (!ws) return { opened: false, error: '컨덕터 세션이 도는 폴더를 오르카 워크스페이스에서 못 찾았어요.' }
+    let missed = '이 오르카는 터미널로 옮기는 기능을 지원하지 않아요.'
+    if (this.orca.host.has('terminal.focus') && this.orca.host.has('agents.list')) {
+      try {
+        const agents = (await this.orca.host.call('agents.list', { workspaceId: ws.id })).agents
+        const terminalId = agents.find((a) => a.sessionId === session.id)?.terminalId
+        if (terminalId && (await this.orca.host.call('terminal.focus', { terminalId })).focused) return { opened: true }
+        missed = terminalId
+          ? '터미널로 못 옮겨 갔어요.'
+          : '컨덕터 세션의 터미널을 못 찾았어요. 채팅 탭은 오르카가 바로 열어 주는 기능이 없어서 "🤴 지휘자 세션 🤴" 탭을 직접 골라 주세요.'
+      } catch (e) {
+        missed = `컨덕터 세션의 터미널을 못 찾았어요(${message(e)}).`
+      }
+    }
+    try {
+      await this.orca.host.call('workspace.open', { workspaceId: ws.id })
+      return { opened: true, worktreeOnly: true, error: `${missed} 워크스페이스만 열었어요.` }
+    } catch (e) {
+      return { opened: false, error: message(e) }
+    }
+  }
+
   async workerDetail(orderId: string): Promise<WorkerLive> {
     const ws = await this.workspaceOf(orderId)
     if ('error' in ws) return { found: false, error: ws.error }
@@ -544,12 +579,12 @@ class Conductor {
 
   private browse: { child: ChildProcess; url: Promise<string> } | null = null
 
-  /** 결과 뷰어를 워커가 살아 있는 동안 하나만 띄워 두고 주문의 작업 내용 탭 주소를 준다 */
+  /** 결과 뷰어를 워커가 살아 있는 동안 하나만 띄워 두고 주소를 준다. 주문 id가 있으면 그 주문의 작업 내용 탭이다 */
   async browseUrl(orderId: unknown): Promise<OrderBrowseResult> {
-    if (typeof orderId !== 'string' || !isSafeId(orderId)) return { ok: false, error: '주문 id 꼴이 아니에요' }
+    if (orderId !== undefined && (typeof orderId !== 'string' || !isSafeId(orderId))) return { ok: false, error: '주문 id 꼴이 아니에요' }
     try {
       const base = await this.ensureBrowse(await this.config())
-      return { ok: true, url: `${base}/#order/${encodeURIComponent(orderId)}/work` }
+      return { ok: true, url: orderId === undefined ? `${base}/` : `${base}/#order/${encodeURIComponent(orderId)}/work` }
     } catch (e) {
       return { ok: false, error: `결과 뷰어를 못 띄웠어요. ${message(e)}` }
     }
@@ -639,7 +674,8 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('worker.open', (input) => conductor.openWorker(input.orderId))
   orca.panels.handle('worker.detail', (input) => conductor.workerDetail(input.orderId))
   orca.panels.handle('order.remove', (input) => conductor.removeOrders(input.orderIds))
-  orca.panels.handle('order.browse', (input) => conductor.browseUrl(input.orderId))
+  orca.panels.handle('order.browse', (input) => conductor.browseUrl(input?.orderId))
+  orca.panels.handle('conductor.open', () => conductor.openConductor())
   orca.commands.register('conductor.refresh', async () => {
     await conductor.refresh()
     const view = await conductor.current()

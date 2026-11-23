@@ -1,6 +1,6 @@
 import { assert, test } from 'orca/testing'
 import type { ConductorView, OrderView } from './protocol'
-import { terminalMarkup } from './terminal-markup'
+import { TERMINAL_STYLE, terminalMarkup } from './terminal-markup'
 
 const NOW = Date.parse('2026-11-12T02:00:00.000Z')
 const order = (id: string, extra: Partial<OrderView> = {}): OrderView => ({
@@ -126,7 +126,7 @@ test('웹 페이지는 워커가 쓴 다음 할 일과 대기 사유, bypass, �
   has(web, '대기 ~')
 
   const desk = terminalMarkup(v, { now: NOW, interactive: true, private: true })
-  for (const shown of ['cat /Users/someone/.npmrc', 'ghp_waitTOKEN', 'acct work-acct', 'ghp_reportTOKEN', 'rm -rf /Users/someone/tmp']) has(desk, shown)
+  for (const shown of ['cat /Users/someone/.npmrc', 'ghp_waitTOKEN', '<span class="muted">계정</span><span class="ell">work-acct</span>', 'ghp_reportTOKEN', 'rm -rf /Users/someone/tmp']) has(desk, shown)
 })
 
 test('모르는 이벤트 유형은 Object 원형에서 클래스나 이름을 꺼내지 않는다', () => {
@@ -211,6 +211,10 @@ test('웹 페이지는 고친 파일과 지금 파일만 보여 주고 todo와 �
   lacks(html, 'data-browse')
   const desk = terminalMarkup(view([order('ord-a', { work: WORK })]), { now: NOW, interactive: true, private: true })
   has(desk, 'data-browse="ord-a"')
+  has(desk, 'data-browse-all')
+  has(desk, 'data-copy="ord-a"')
+  lacks(html, 'data-copy')
+  has(html, 'w-ord-a')
 })
 
 test('파일 없이 tool만 있으면 웹 페이지에는 tool 이름을 안 싣는다', () => {
@@ -225,4 +229,34 @@ test('하위 주문 줄도 배포 대기를 상태줄과 같게 그린다', () =
     { now: NOW, interactive: false, private: false }
   )
   has(html, 'ord-c ord-c</span><span>awaiting-deploy')
+})
+
+test('카드는 주문 id를 워커 종류 색 배지로, 제목은 다음 줄에 그리고 길면 줄바꿈한다', () => {
+  const html = terminalMarkup(view([order('ord-a', { title: '아주 긴 작업 제목', workspaceId: 'ws-1' }), order('ord-b')]), { now: NOW, interactive: true, private: true })
+  has(html, '<div class="t"><div class="tid-row"><span class="tid">ord-a</span><button class="copy" data-copy="ord-a"')
+  has(html, 'data-go="ord-a" data-focus="go-head:ord-a"')
+  lacks(html, 'go-head:ord-b')
+  has(html, '<span class="ttl">아주 긴 작업 제목</span></div>')
+  const web = terminalMarkup(view([order('ord-a', { title: '아주 긴 작업 제목' })]), { now: NOW, interactive: false, private: false })
+  has(web, '<div class="tid-row"><span class="tid">ord-a</span></div>')
+  has(TERMINAL_STYLE, '.w .t .ttl { white-space: normal;')
+  has(TERMINAL_STYLE, '.w.orca .t .tid { background: var(--t-orange); }')
+})
+
+test('컨덕터 칸은 세션을 알면 데스크톱에만 세션으로 이동 버튼을 그린다', () => {
+  const v = view([order('ord-a')], { conductor: { session: { id: 'sess-1', cwd: '/w' } } })
+  has(terminalMarkup(v, { now: NOW, interactive: true, private: true }), 'data-go-conductor')
+  lacks(terminalMarkup(v, { now: NOW, interactive: false, private: false }), 'data-go-conductor')
+  lacks(terminalMarkup(view([order('ord-a')]), { now: NOW, interactive: true, private: true }), 'data-go-conductor')
+})
+
+test('카드는 레포별 묶음 안에 들고 묶음 머리에 프로젝트 이름과 개수가 뜬다', () => {
+  const html = terminalMarkup(
+    view([order('ord-a'), order('ord-b', { repo: 'acme/api' }), order('ord-c')], { projects: { 'acme/web': '웹 프론트' } }),
+    { now: NOW, interactive: true, private: true }
+  )
+  has(html, '<section class="rg" data-key="repo:acme/web"><div class="rg-head"><span class="rg-name">웹 프론트</span><span class="rg-count">2</span></div>')
+  has(html, '<span class="rg-name">api</span><span class="rg-count">1</span>')
+  assert.equal(html.indexOf('repo:acme/web') < html.indexOf('repo:acme/api'), true)
+  lacks(html, '<span class="muted">레포</span>')
 })
