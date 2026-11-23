@@ -88,6 +88,7 @@ interface GestaltConfig {
     repoPaths: Record<string, string>; // 레포별 로컬 경로
     prWatchRepos: string[]; // PR 감시할 레포(owner/name), 기본 []
     removeMergedOrcaWorktrees: boolean; // 머지된 주문의 오르카 워크트리까지 지운다, 기본 false
+    archive?: { enabled: boolean }; // tick이 하루 한 번 끝난 주문을 보관하고 운영 파일을 정리한다, 기본 true
     defaultAgent: string; // 기본 오르카 워커 에이전트 (claude)
     repoAgents: Record<string, string>; // 레포별 오르카 워커 에이전트
     humanOwnedPollSec: number; // 사람이 넘겨받은 주문의 PR을 gh로 볼 간격(초), 기본 900
@@ -321,6 +322,7 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 - `repoPaths`는 오르카가 없을 때 git 워크트리를 만들 원본 체크아웃 경로다. 오르카가 있으면 레포를 가리키는 데 쓰고 비어 있으면 레포 이름으로 찾는다. 주문에 부모 워크트리를 주면 그 워크트리가 이 경로와 같은 레포인지도 여기로 확인한다. 비어 있으면 `origin` 주소로 확인한다. PR 감시는 켜지 않는다
 - `prWatchRepos`에 적은 레포만 tick이 열린 PR을 감시해 리뷰 답글과 재리뷰 주문을 만든다. 기본은 빈 배열이라 감시하지 않는다. gh를 그 레포 체크아웃에서 부르므로 `repoPaths`에도 같은 철자의 키로 경로가 있어야 하고 없으면 tick 보고의 `errors`에 이유를 남긴다. `owner/name` 꼴이 아닌 항목도 빼고 `errors`에 남긴다. 자세한 조건은 [PR 감시](./conductor.md#pr-감시)에 있다
 - `removeMergedOrcaWorktrees`(기본 `false`)를 켜면 머지된 주문의 오르카 워커는 정리 단계에서 터미널을 거둔 뒤 워크트리까지 지운다. 끄면 지금처럼 워크트리를 남긴다. 머지 안 된 주문의 워크트리는 켜도 남긴다. 자세한 조건은 [워커 정리](./conductor.md#워커-정리)에 있다
+- `archive.enabled`(기본 `true`)를 끄면 tick이 끝난 주문을 보관하지 않는다. 그때는 `gestalt conductor archive`를 사람이 부른다. 파일을 지우는 일이라 레포 `gestalt.json`의 값은 받지 않는다. 자세한 동작은 [tick이 하루 한 번 보관](./conductor.md#tick이-하루-한-번-보관)에 있다
 - `staleAfterSec`(기본 1800초) 동안 보고도 체크포인트도 없는 워커는 끊긴 것으로 보고 마지막 체크포인트부터 다시 띄운다. 사람 결정을 기다리는 `waiting-gate` 주문의 워커와 `--status waiting`으로 대기를 알린 워커는 이 셈에서 빠진다. CI 대기처럼 15분 넘게 걸릴 수 있는 대기는 워커가 앞뒤로 체크포인트를 남긴다. 오르카 워커는 이 시간이 지나면 터미널을 먼저 확인해서 출력 중이면 그대로 두고 세션 한도 표시가 보이면 재개하지 않는다
 - `rateLimitEscalateAfterSec`(기본 21600초, 600~604800)는 세션 한도에 걸린 오르카 워커를 기다려 주는 상한이다. 넘으면 게이트로 사람에게 올린다. 자세한 흐름은 [오르카 워커의 세션 한도](./conductor.md#오르카-워커의-세션-한도)에 있다
 - `waitingEscalateAfterSec`(기본 21600초, 600~604800)는 `--status waiting`으로 대기를 알린 워커를 기다려 주는 상한이다. 넘거나 워커가 적은 기한이 지나고 `staleAfterSec`만큼 더 소식이 없으면 게이트로 사람에게 올린다
