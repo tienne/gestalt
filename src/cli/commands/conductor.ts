@@ -643,7 +643,8 @@ function checkpointOf(store: ConductorStore, orderId: string): { checkpoint?: ob
 
 /**
  * 컨덕터 자체의 값. 저장소와 설정에서 이미 아는 것만 싣는다.
- * 컴팩트 횟수는 살아 있는 컨덕터 세션을 찾았을 때만 싣는다
+ * 컴팩트 횟수와 세션 id, 작업 디렉토리는 살아 있는 컨덕터 세션을 찾았을 때만 싣는다.
+ * 오르카 플러그인이 세션 id와 디렉토리로 컨덕터 탭을 찾아간다
  */
 function conductorSummary(ctx: Ctx): Record<string, unknown> {
   const { store, config } = ctx;
@@ -664,7 +665,12 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
     queuedOrders: store.queuedOrders().length,
     prWatchRepos: config.prWatchRepos,
     disconnectedWorkers: disconnected,
-    ...(session ? { compactions: readCompactions(store.dir, session.sessionId).count } : {}),
+    ...(session
+      ? {
+          compactions: readCompactions(store.dir, session.sessionId).count,
+          session: { id: session.sessionId, ...(session.cwd ? { cwd: session.cwd } : {}) },
+        }
+      : {}),
   };
 }
 

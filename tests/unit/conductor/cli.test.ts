@@ -306,6 +306,7 @@ describe('gestalt conductor', () => {
       disconnectedWorkers: 0,
     });
     expect(status['conductor']).not.toHaveProperty('compactions');
+    expect(status['conductor']).not.toHaveProperty('session');
   });
 
   it('대기 이벤트는 기한을 문장에 굳히지 않고 주문의 waiting.until과 같은 ISO로 싣는다', () => {
@@ -375,7 +376,11 @@ describe('gestalt conductor', () => {
 
     conductorStatusCommand({ stateDir, json: true });
     const status = last();
-    expect(status['conductor']).toMatchObject({ disconnectedWorkers: 1, compactions: 1 });
+    expect(status['conductor']).toMatchObject({
+      disconnectedWorkers: 1,
+      compactions: 1,
+      session: { id: sid, cwd: '/w' },
+    });
     expect(status['recentEvents']).toEqual([]);
   });
 
