@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.155.0] - 2026-11-23
+
+### Added
+
+- **`gestalt conductor archive`로 끝나고 기간이 지난 주문을 보관소로 옮겨요(#161).** 지금까지는 끝난 주문을 상태에 계속 들고 있어서 `base.json`과 `snapshot.json`이 저장소를 쓰는 만큼 커졌어요.
+  - 끝난 주문(done, failed, cancelled, parked) 중 `updatedAt`이 기간(기본 14일, `--older-than`)보다 오래된 것을 `archive/<YYYY-MM>/<주문 id>/`에 `events.jsonl`과 `order.json`, `refs/`로 옮기고 상태에서 빼요. `--dry-run`은 고른 결과만 보여 줘요.
+  - 반영할 때마다 이벤트를 주문별로 `order-logs/<주문 id>/`에 모아 둬요. segment가 지워진 뒤에도 그 주문의 앞쪽 이벤트가 보관소에 남아요.
+  - 열린 게이트나 멈춘 워커, 안 거둔 워커, 열린 정리 실패 게이트, 승인했지만 안 올린 슬랙 게시가 남은 주문은 옮기지 않고 `blocked`에 이유를 남겨요.
+  - 보관한 주문은 `archivedOrders`에 출처와 상위 주문, parked 주문의 PR을 남겨요. 접수와 하위 주문 상한, PR 감시가 이걸 보고 같은 출처로 주문을 다시 만들지 않아요.
+  - `order remove`로 지운 주문도 같은 기간이 지나면 모아 둔 이벤트를 보관소로 옮겨요. 주문에 안 붙는 컨덕터 게이트는 닫히고 기간이 지나면 버리지만 `sourceRef`가 있거나 승인 뒤 할 일이 남은 게이트는 둬요.
+  - 보관 파일과 `base.json`을 fsync한 뒤에만 원본을 지워요. 어느 단계에서 죽어도 다시 부르면 같은 결과가 나와요.
+- **컨덕터 `status --json`이 머지 뒤 배포를 기다리는 주문에 `awaitingDeploy`를 켜요(#162).** 엔진과 같은 기준 함수(`waitsForDeploy`)를 써요. 오르카 플러그인은 이 주문을 패널과 보드, 터미널, 폰 페이지에서 "배포 대기"로 따로 묶어 그려요. 값이 없는 옛 CLI에서는 전처럼 머지됨으로 보여요.
+
+### 검증 범위
+
+- 보관 PR은 로컬 리뷰를 네 라운드 돌렸어요. high는 1라운드 5건, 2라운드 2건에서 0건으로 줄었고 4라운드에 Pass를 받았어요. 주로 늦게 온 이벤트 거르기와 fsync 순서, 보관 뒤 tick이 할 일을 잃는 경우가 걸렸어요.
+- `~/.gestalt/conductor` 사본에서 `--older-than 7`로 123개를 옮겼고 보관 뒤 `status --json`이 정상으로 열렸어요. 원본은 읽기만 했어요.
+- gate와 GitHub CI 네 건(Ubuntu와 macOS의 Node.js 22와 24)을 모두 통과했어요.
+
+### 남긴 것
+
+- 보관은 아직 사람이 불러요. tick이 하루 한 번 부르는 일과 `prompts/`, `handoffs/`, 워커 `activity/` 파일 정리는 다음 단계에서 넣어요.
+- `sourceRef`가 있는 닫힌 컨덕터 게이트는 상한 없이 쌓여요. 출처별 색인으로 줄이는 일도 다음 단계에서 봐요.
+- 0.155.0 전 gestalt는 `archivedOrders`를 몰라요. `archive`를 처음 부르기 전에 컨덕터 세션과 워커가 쓰는 gestalt를 맞춰야 해요.
+
 ## [0.154.0] - 2026-11-23
 
 ### Added
