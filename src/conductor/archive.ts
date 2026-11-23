@@ -1,5 +1,7 @@
+import { execFileSync } from 'node:child_process';
 import {
   closeSync,
+  copyFileSync,
   cpSync,
   fsyncSync,
   lstatSync,
@@ -7,10 +9,13 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
 } from 'node:fs';
 import { join, sep } from 'node:path';
-import { CLEANUP_FAILED } from './engine.js';
+import { ACTIVITY_DIR, safeId } from './activity.js';
+import { CLEANUP_FAILED, acquireLock } from './engine.js';
+import { HANDOFF_DIR } from './handoff.js';
 import { ORDER_LOGS_DIR, foldEvents, fsyncDir, writeDurable, type FoldResult } from './fold.js';
 import { REFS_DIR, SAFE_ORDER_ID, removeOrderRefCopies } from './ref-copy.js';
 import { ConductorStore, detachOrder, removalBlocker, replayStore } from './store.js';
@@ -26,6 +31,11 @@ import {
 export const ARCHIVE_DIR = 'archive';
 /** 끝나고 이만큼 지난 주문을 옮긴다. 최근 2주 결과는 `order show`로 바로 본다 */
 export const DEFAULT_ARCHIVE_DAYS = 14;
+
+/** 워커 첫 지시 파일 자리. 런처가 `<워커 id>.md`로 쓴다 */
+export const PROMPTS_DIR = 'prompts';
+/** tick이 마지막으로 보관을 돌린 시각. 하루 한 번만 돌리는 데 쓴다 */
+const LAST_RUN_FILE = 'last-run.json';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MONTH = /^\d{4}-\d{2}$/;
@@ -52,9 +62,21 @@ export interface ArchiveOptions {
   settleMs?: number;
 }
 
+/** 지운 운영 파일 수 */
+export interface SweepCounts {
+  prompts: number;
+  activity: number;
+  handoffs: number;
+}
+
 export type ArchiveResult =
   | ({ status: 'dry-run' } & ArchivePlan)
-  | ({ status: 'archived'; fold: FoldResult['status']; warnings: string[] } & ArchivePlan)
+  | ({
+      status: 'archived';
+      fold: FoldResult['status'];
+      swept: SweepCounts;
+      warnings: string[];
+    } & ArchivePlan)
   | { status: 'locked'; holder?: number };
 
 /**
@@ -151,6 +173,7 @@ export async function archiveOrders(
   if (opts.dryRun) return { status: 'dry-run', ...planArchive(replayStore(dir), now(), days) };
 
   let plan: ArchivePlan = { orders: [], removed: [], blocked: [], gates: [] };
+  let swept: SweepCounts = { prompts: 0, activity: 0, handoffs: 0 };
   const warnings: string[] = [];
   const fold = await foldEvents(dir, {
     now,
@@ -158,6 +181,8 @@ export async function archiveOrders(
     beforeWrite: (state) => {
       warnings.push(...cleanupArchived(dir, state));
       const at = now();
+      // 이번에 옮길 주문의 워커는 아직 상태에 남아 있으므로 다음 보관 때 지운다
+      swept = sweepOpsFiles(dir, state, at, days);
       plan = planArchive(state, at, days);
       for (const { id, month } of plan.orders) {
         if (!writeOrderArchive(dir, state, id, month, at.toISOString()))
@@ -200,7 +225,7 @@ export async function archiveOrders(
     },
   });
   if (fold.status === 'locked') return fold;
-  return { status: 'archived', fold: fold.status, ...plan, warnings };
+  return { status: 'archived', fold: fold.status, ...plan, swept, warnings };
 }
 
 /** 모아 둔 이벤트가 있었으면 true. 없으면 빈 events.jsonl을 쓰고 false다 */
@@ -220,6 +245,11 @@ function writeOrderArchive(
   const workers = Object.values(s.workers)
     .filter((w) => w.orderId === id)
     .sort((a, b) => a.attempt - b.attempt);
+  copySummaries(
+    dir,
+    workers.map((w) => w.id),
+    target,
+  );
   const reports = (s.reports[id] ?? []).map((r) => (copied ? movedRefCopies(r, id, month) : r));
   const refs = [...new Set(reports.flatMap((r) => r.refs))];
   const gates = Object.values(s.gates).filter((g) => g.orderId === id);
@@ -270,6 +300,23 @@ function copyRefs(dir: string, id: string, target: string): boolean {
   cpSync(src, dest, { recursive: true, verbatimSymlinks: true });
   fsyncTree(dest);
   return true;
+}
+
+/**
+ * 끝난 워커의 타임라인 요약을 `workers/<워커 id>.summary.json`으로 복사한다. 원본은 워커가 상태에서 빠진 뒤
+ * 다음 보관이 지운다. 원본이 없으면 앞서 복사해 둔 것을 그대로 둔다
+ */
+function copySummaries(dir: string, workerIds: string[], target: string): void {
+  const dest = join(target, 'workers');
+  for (const id of workerIds) {
+    const name = `${safeId(id)}.summary.json`;
+    const src = join(dir, ACTIVITY_DIR, name);
+    if (!lstatSync(src, { throwIfNoEntry: false })?.isFile()) continue;
+    mkdirSync(dest, { recursive: true, mode: 0o700 });
+    copyFileSync(src, join(dest, name));
+    fsyncFile(join(dest, name));
+  }
+  if (lstatSync(dest, { throwIfNoEntry: false })?.isDirectory()) fsyncDir(dest);
 }
 
 /** 복사한 사본은 base.json을 쓴 뒤 원본이 지워지므로 그 전에 디스크에 둔다 */
@@ -343,4 +390,216 @@ function olderThan(iso: string, cutoff: number): boolean {
 function monthOf(iso: string, fallback: Date): string {
   const m = iso.slice(0, 7);
   return MONTH.test(m) ? m : fallback.toISOString().slice(0, 7);
+}
+
+/** 상태에서 빠진 워커의 파일도 이만큼은 둔다. 잠금 밖에서 막 쓴 파일을 지우지 않게 한다 */
+const ORPHAN_GRACE_MS = DAY_MS;
+
+/**
+ * 운영 파일을 지운다. `prompts/`와 `activity/`는 워커가 상태에 없고 하루 넘게 안 바뀐 파일만,
+ * `handoffs/`는 보관 기간보다 오래된 파일만 지운다. 파일 이름에서 워커 id를 읽으므로 심링크나
+ * 디렉토리는 건드리지 않는다
+ */
+function sweepOpsFiles(dir: string, s: ConductorSnapshot, now: Date, days: number): SweepCounts {
+  const known = new Set(Object.keys(s.workers).flatMap((id) => [id, safeId(id)]));
+  const orphan = (name: string, suffix: RegExp) => !known.has(name.replace(suffix, ''));
+  const grace = now.getTime() - ORPHAN_GRACE_MS;
+  return {
+    prompts: removeOldFiles(join(dir, PROMPTS_DIR), grace, (n) => orphan(n, /\.md$/)),
+    // `<워커 id>.json`, `.transcript.json`, `.summary.json`. safeId가 점을 걷으므로 첫 점 앞이 워커 id다
+    activity: removeOldFiles(join(dir, ACTIVITY_DIR), grace, (n) => orphan(n, /\..*$/)),
+    handoffs: removeOldFiles(join(dir, HANDOFF_DIR), now.getTime() - days * DAY_MS, () => true),
+  };
+}
+
+function removeOldFiles(path: string, cutoff: number, pick: (name: string) => boolean): number {
+  let removed = 0;
+  for (const name of listDir(path)) {
+    if (!pick(name)) continue;
+    const st = lstatSync(join(path, name), { throwIfNoEntry: false });
+    if (!st?.isFile() || st.mtimeMs > cutoff) continue;
+    rmSync(join(path, name), { force: true });
+    removed++;
+  }
+  return removed;
+}
+
+/**
+ * 이 달보다 앞선 달은 끝나고 한 달이 지났다. 압축과 지우기는 그 달만 받는다.
+ * 11월 23일이면 `2026-10`을 돌려주고 9월까지가 대상이다
+ */
+export function settledMonthCutoff(now: Date): string {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  return d.toISOString().slice(0, 7);
+}
+
+export type CompressResult =
+  | { status: 'compressed'; months: string[]; warnings: string[] }
+  | { status: 'locked'; holder?: number };
+
+/**
+ * 끝나고 한 달 지난 달의 `archive/<YYYY-MM>/`을 `archive/<YYYY-MM>.tar.gz`로 묶고 디렉토리를 지운다.
+ * 끝난 지 오래된 주문이 늦게 보관되면 묶은 달에 디렉토리가 다시 생긴다. 그때는 묶음을 풀어 합친 뒤
+ * 다시 묶는다. 새 묶음을 fsync하고 이름을 바꾼 뒤에 디렉토리를 지우므로 어디서 죽어도 다시 부르면 끝난다
+ */
+export function compressArchive(dir: string, now: Date): CompressResult {
+  const lock = acquireLock(dir);
+  if (!lock.ok) return { status: 'locked', holder: lock.holder };
+  try {
+    const root = join(dir, ARCHIVE_DIR);
+    const cutoff = settledMonthCutoff(now);
+    const months: string[] = [];
+    const warnings: string[] = [];
+    for (const name of listDir(root)) {
+      if (!MONTH.test(name) || name >= cutoff) continue;
+      if (!lstatSync(join(root, name)).isDirectory()) continue;
+      try {
+        compressMonth(root, name);
+        months.push(name);
+      } catch (e) {
+        warnings.push(`archive/${name}을 못 묶었어요: ${(e as Error).message}`);
+      }
+    }
+    return { status: 'compressed', months: months.sort(), warnings };
+  } finally {
+    lock.release();
+  }
+}
+
+function compressMonth(root: string, month: string): void {
+  const tarball = join(root, `${month}.tar.gz`);
+  const tmp = `${tarball}.tmp`;
+  const merge = join(root, `.${month}.merge`);
+  rmSync(tmp, { force: true });
+  rmSync(merge, { recursive: true, force: true });
+  if (lstatSync(tarball, { throwIfNoEntry: false })?.isFile()) {
+    // 디렉토리에 있는 쪽이 더 새로 쓴 것이라 겹치는 파일은 디렉토리 쪽을 남긴다
+    mkdirSync(merge, { mode: 0o700 });
+    execFileSync('tar', ['-xzf', tarball, '-C', merge], { stdio: 'ignore' });
+    const old = join(merge, month);
+    if (lstatSync(old, { throwIfNoEntry: false })?.isDirectory())
+      cpSync(old, join(root, month), {
+        recursive: true,
+        force: false,
+        errorOnExist: false,
+        verbatimSymlinks: true,
+      });
+    rmSync(merge, { recursive: true, force: true });
+  }
+  execFileSync('tar', ['-czf', tmp, '-C', root, month], { stdio: 'ignore' });
+  fsyncFile(tmp);
+  renameSync(tmp, tarball);
+  fsyncDir(root);
+  rmSync(join(root, month), { recursive: true, force: true });
+  fsyncDir(root);
+}
+
+export type PruneResult =
+  | { status: 'dry-run' | 'pruned'; months: string[]; paths: string[] }
+  | { status: 'locked'; holder?: number };
+
+/**
+ * `before`보다 앞선 달의 보관소를 지운다. 사람이 부르는 자리다. 끝나고 한 달이 안 지난 달은 받지 않는다.
+ * 상태의 보관 기록(`archivedOrders`)은 그대로 둬서 같은 출처를 다시 받지 않는다
+ */
+export function pruneArchive(
+  dir: string,
+  before: string,
+  opts: { now?: Date; dryRun?: boolean } = {},
+): PruneResult {
+  if (!MONTH.test(before)) throw new Error(`--before는 YYYY-MM 꼴로 주세요: ${before}`);
+  const cutoff = settledMonthCutoff(opts.now ?? new Date());
+  if (before > cutoff)
+    throw new Error(`끝나고 한 달이 안 지난 달은 못 지워요. --before는 ${cutoff}까지 받아요`);
+  const root = join(dir, ARCHIVE_DIR);
+  const pick = () => {
+    const months = new Set<string>();
+    const paths: string[] = [];
+    for (const name of listDir(root).sort()) {
+      const month = name.replace(/\.tar\.gz$/, '');
+      if (!MONTH.test(month) || month >= before) continue;
+      months.add(month);
+      paths.push(join(ARCHIVE_DIR, name));
+    }
+    return { months: [...months], paths };
+  };
+  if (opts.dryRun) return { status: 'dry-run', ...pick() };
+  const lock = acquireLock(dir);
+  if (!lock.ok) return { status: 'locked', holder: lock.holder };
+  try {
+    const picked = pick();
+    for (const p of picked.paths) rmSync(join(dir, p), { recursive: true, force: true });
+    fsyncDir(root);
+    return { status: 'pruned', ...picked };
+  } finally {
+    lock.release();
+  }
+}
+
+/** 보관한 주문이 있는 자리. 묶은 달이면 묶음 파일을 가리킨다. 저장소 기준 상대 경로다 */
+export function archiveLocation(dir: string, month: string, id: string): string {
+  const plain = join(ARCHIVE_DIR, month, id);
+  if (lstatSync(join(dir, plain), { throwIfNoEntry: false })?.isDirectory()) return plain;
+  const tarball = join(ARCHIVE_DIR, `${month}.tar.gz`);
+  if (lstatSync(join(dir, tarball), { throwIfNoEntry: false })?.isFile())
+    return `${tarball} 안의 ${month}/${id}`;
+  return plain;
+}
+
+export interface DailyArchiveReport {
+  orders: string[];
+  removed: string[];
+  gates: number;
+  blocked: { id: string; reason: string }[];
+  compressed: string[];
+  swept: SweepCounts;
+  warnings: string[];
+}
+
+/**
+ * tick이 잠금을 놓은 뒤 부른다. 마지막으로 돌린 지 하루가 안 됐거나 잠금을 못 잡으면 아무것도 안 하고
+ * undefined다. 보관과 운영 파일 정리, 지난 달 묶기를 차례로 하고 돌린 시각을 남긴다
+ */
+export async function runDailyArchive(
+  dir: string,
+  opts: { now: Date; days?: number; settleMs?: number },
+): Promise<DailyArchiveReport | undefined> {
+  const last = readLastRun(dir);
+  if (last !== undefined && opts.now.getTime() - last < DAY_MS) return undefined;
+  const result = await archiveOrders(dir, {
+    now: () => opts.now,
+    ...(opts.days !== undefined ? { days: opts.days } : {}),
+    ...(opts.settleMs !== undefined ? { settleMs: opts.settleMs } : {}),
+  });
+  if (result.status !== 'archived') return undefined;
+  const compressed = compressArchive(dir, opts.now);
+  mkdirSync(join(dir, ARCHIVE_DIR), { recursive: true, mode: 0o700 });
+  writeDurable(
+    join(dir, ARCHIVE_DIR, LAST_RUN_FILE),
+    `${JSON.stringify({ at: opts.now.toISOString() })}\n`,
+  );
+  return {
+    orders: result.orders.map((o) => o.id),
+    removed: result.removed.map((r) => r.id),
+    gates: result.gates.length,
+    blocked: result.blocked,
+    compressed: compressed.status === 'compressed' ? compressed.months : [],
+    swept: result.swept,
+    warnings: [
+      ...result.warnings,
+      ...(compressed.status === 'compressed' ? compressed.warnings : []),
+    ],
+  };
+}
+
+function readLastRun(dir: string): number | undefined {
+  try {
+    const raw = JSON.parse(readFileSync(join(dir, ARCHIVE_DIR, LAST_RUN_FILE), 'utf-8')) as {
+      at?: unknown;
+    };
+    const at = typeof raw.at === 'string' ? Date.parse(raw.at) : NaN;
+    return Number.isFinite(at) ? at : undefined;
+  } catch {
+    return undefined;
+  }
 }
