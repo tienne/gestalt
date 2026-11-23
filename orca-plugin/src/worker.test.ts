@@ -413,6 +413,79 @@ test('남은 뷰어 기록의 프로세스가 없으면 새로 띄우고 기록�
   })
 })
 
+/** 고아로 남은 프로세스를 흉내 낸다. 찍은 주소를 받을 때까지 기다린다 */
+async function orphanOf(args: string[]) {
+  const child = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'ignore'] })
+  const url = await new Promise<string>((resolve, reject) => {
+    let out = ''
+    child.stdout?.on('data', (d) => {
+      out += d.toString()
+      const m = /http:\/\/127\.0\.0\.1:\d+/.exec(out)
+      if (m) resolve(m[0])
+    })
+    child.once('exit', (code) => reject(new Error(`주소를 찍기 전에 끝났어요(${String(code)})`)))
+  })
+  return { child, url }
+}
+
+// 첫 화면 HTML만 주고 주문 목록 API는 없는 다른 로컬 서버
+const PLAIN_SERVER = `require('node:http').createServer((req, res) => {
+  res.writeHead(200, { 'content-type': 'text/html' }); res.end('<p>other</p>')
+}).listen(0, '127.0.0.1', function () { console.log('http://127.0.0.1:' + this.address().port) })`
+
+test('설정이 바뀐 뒤의 기록이 실제 결과 뷰어면 그 뷰어를 끄고 새로 띄운다', async () => {
+  const s = store(STATUS)
+  const orphan = await orphanOf([FAKE, 'conductor', 'browse', '--no-open', `--state-dir=${s.dir}`])
+  try {
+    const before = browseCalls(s).length
+    const h = host(s.dir, { resultsViewer: { pid: orphan.child.pid!, url: orphan.url, key: JSON.stringify([FAKE, '/elsewhere']) } })
+    await run(s, h, async (worker) => {
+      const out = await worker.request('viewer.open')
+      assert.equal(out.ok, true)
+      assert.notEqual(out.ok ? out.url : '', orphan.url)
+      assert.equal(browseCalls(s).length, before + 1)
+      await until(() => orphan.child.exitCode !== null || orphan.child.signalCode !== null)
+    })
+  } finally {
+    orphan.child.kill()
+  }
+})
+
+test('기록의 pid가 결과 뷰어가 아닌 서버면 이어받지도 끄지도 않고 기록만 바꾼다', async () => {
+  const s = store(STATUS)
+  const other = await orphanOf(['-e', PLAIN_SERVER])
+  try {
+    const pid = other.child.pid!
+    const h = host(s.dir, { resultsViewer: { pid, url: other.url, key: JSON.stringify([FAKE, s.dir]) } })
+    await run(s, h, async (worker) => {
+      const out = await worker.request('viewer.open')
+      assert.equal(out.ok, true)
+      assert.notEqual(out.ok ? out.url : '', other.url, '다른 서버를 결과 뷰어로 이어받지 않는다')
+      assert.equal(browseCalls(s).length, 1)
+      const rec = h.data().storage['resultsViewer'] as { pid: number }
+      assert.notEqual(rec.pid, pid)
+    })
+    assert.equal(pidAlive(pid), true, '결과 뷰어가 아닌 프로세스는 끄지 않는다')
+  } finally {
+    other.child.kill()
+  }
+})
+
+test('설정이 바뀐 뒤의 기록이 응답 없는 프로세스면 끄지 않는다', async () => {
+  const s = store(STATUS)
+  const other = await orphanOf(['-e', PLAIN_SERVER])
+  try {
+    const pid = other.child.pid!
+    const h = host(s.dir, { resultsViewer: { pid, url: 'http://127.0.0.1:1', key: JSON.stringify([FAKE, '/elsewhere']) } })
+    await run(s, h, async (worker) => {
+      assert.equal((await worker.request('viewer.open')).ok, true)
+    })
+    assert.equal(pidAlive(pid), true)
+  } finally {
+    other.child.kill()
+  }
+})
+
 test('결과 뷰어를 못 띄우면 이유를 돌려준다', async () => {
   const s = store(STATUS)
   writeFileSync(join(s.dir, 'fake-browse-fail'), '결과 뷰어를 못 띄웠어요: listen EADDRINUSE 127.0.0.1:7894\n')

@@ -57,7 +57,12 @@ if (args[1] === 'browse') {
   }
   // 결과 뷰어는 주소를 찍고 멈출 때까지 떠 있다. 플러그인이 남은 뷰어를 이어받기 전에 첫 화면을 받아 보니 실제로 연다
   const { createServer } = await import('node:http')
-  const server = createServer((_req, res) => {
+  const server = createServer((req, res) => {
+    if (req.url === '/api/orders') {
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      res.end('{"orders":[]}')
+      return
+    }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
     res.end('<!doctype html><title>컨덕터 결과</title>')
   })
