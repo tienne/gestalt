@@ -67,7 +67,7 @@ tick은 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이나 살아 있는 워�
 
 오르카 안에서 열면 코드를 고치는 주문이 `orca-worktree` 워커로 뜬다. 진행은 오르카 화면에서 본다. 오르카 밖에서 열면 같은 주문이 `git-worktree` 워커로 뜬다. 이때는 `repoPaths`에 그 레포의 로컬 경로가 있어야 한다. 경로가 없는 레포의 주문은 띄우지 못하고 `repoPaths`에 적어 달라고 알린다. 읽기만 하는 주문은 어느 쪽이든 서브에이전트로 돈다([워커 종류 고르기](#워커-종류-고르기)).
 
-상태 저장소는 레포 안이 아니라 `~/.gestalt/conductor`(`stateDir`로 바꿀 수 있다)에 있다. 그래서 어느 디렉토리에서 세션을 열어도 같은 상태를 본다. 다만 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 잡힌 세션에서는 `tick`, `order add`, `order remove`, `order take-over`, `order cancel`, `order mark-merged`, `queue add`, `gate resolve`, `deploy report`, `wait`가 거절된다. 컨덕터 세션은 워커 밖에서 연다.
+상태 저장소는 레포 안이 아니라 `~/.gestalt/conductor`(`stateDir`로 바꿀 수 있다)에 있다. 그래서 어느 디렉토리에서 세션을 열어도 같은 상태를 본다. 다만 살아 있는 워커의 워크트리 안이거나 `GESTALT_CONDUCTOR_WORKER_ID`가 잡힌 세션에서는 `tick`, `order add`, `order remove`, `order take-over`, `order cancel`, `order mark-merged`, `queue add`, `gate resolve`, `deploy report`, `wait`, `archive`가 거절된다. 컨덕터 세션은 워커 밖에서 연다.
 
 ### 주문 넣기
 
@@ -343,9 +343,9 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 ## 상태 저장소
 
-주문, 워커, 체크포인트, 사람 확인 자리(gate), bypass 기록은 전부 `events.jsonl`에 이벤트로 한 줄씩 덧붙는다. 상태는 `base.json`이 있으면 거기서 시작해 남은 `segments/`와 이 로그를 이어서 재생해 만든다. 없으면 로그를 처음부터 재생한다. 컨덕터 세션이 압축되거나 새로 떠도 같은 저장소를 열면 같은 상태에서 이어 간다. 조회용 `snapshot.json`은 tick이나 `order remove`가 끝날 때 들여쓰기 없이 쓴다.
+주문, 워커, 체크포인트, 사람 확인 자리(gate), bypass 기록은 전부 `events.jsonl`에 이벤트로 한 줄씩 덧붙는다. 상태는 `base.json`이 있으면 거기서 시작해 남은 `segments/`와 이 로그를 이어서 재생해 만든다. 없으면 로그를 처음부터 재생한다. 컨덕터 세션이 압축되거나 새로 떠도 같은 저장소를 열면 같은 상태에서 이어 간다. 조회용 `snapshot.json`은 tick이나 `order remove`, `archive`가 끝날 때 들여쓰기 없이 쓴다.
 
-`events.jsonl`을 떼어 내 `base.json`에 반영하는 함수(`foldEvents`)는 들어가 있지만 아직 부르는 자리가 없다. 끝난 주문 보관을 넣는 다음 단계에서 `archive` 명령과 tick이 부른다. 설계는 [`proposals/conductor-archive.md`](./proposals/conductor-archive.md)에 있다.
+`events.jsonl`을 떼어 내 `base.json`에 반영하는 일은 [끝난 주문 보관](#끝난-주문-보관)(`archive` 명령)이 함께 한다. tick은 아직 부르지 않는다. 설계는 [`proposals/conductor-archive.md`](./proposals/conductor-archive.md)에 있다.
 
 - 워커가 잠금 없이 덧붙이므로 로그를 다시 쓰지 않고 이름만 바꿔 `segments/`로 옮긴다. 이름을 바꾸기 직전에 연 쪽이 옛 파일에 쓰는 줄은 크기가 멈출 때까지 기다렸다 읽는다.
 - 그보다 늦게 붙는 줄도 잃지 않게 반영한 segment를 바로 지우지 않는다. `base.json`의 `foldedSegments`에 이름과 반영한 길이를 적고 읽는 쪽은 그 길이 뒤만 재생한다. 다음 반영이 남은 꼬리를 마저 반영하고 지운다. 그 사이 줄이 또 붙었으면 한 번 더 미룬다. 한 주기가 지나도 끝나지 않은 반쪽 줄은 쓰다 죽은 흔적이라 로그를 남기고 버린다. 줄바꿈 없이 끝났어도 JSON으로 읽히는 마지막 줄은 재생이 적용하는 줄이라 반영 길이에 넣는다.
@@ -354,25 +354,28 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 - 어느 단계에서 죽어도 다시 열면 같은 상태가 나온다. `base.json`을 쓰기 전이면 남은 segment를 처음부터 재생한다. `base.json`은 fsync한 뒤에만 segment를 지운다.
 - 잠금 없이 읽는 쪽은 재생 앞뒤로 `base.json`과 segment 목록을 비교해 바뀌었으면 다시 읽는다. 다섯 번 읽어도 계속 바뀌면 어긋난 상태를 돌려주지 않고 에러를 낸다. 최근 이벤트를 읽을 때도 같다.
 - 결과 보기(`results`, 웹 뷰어)와 최근 이벤트도 같은 순서로 읽는다. 최근 이벤트는 `events.jsonl`에서 모자라면 남은 segment 끝을 이어서 읽는다. 웹 뷰어는 `base.json`과 segment마다의 크기, `events.jsonl`이 바뀌었을 때만 다시 읽는다.
-- 떼어 낸 뒤에는 `base.json`을 모르는 옛 버전 gestalt가 이 저장소를 열면 `events.jsonl`만 재생해 상태를 잘못 만든다. 그래서 부르는 자리를 넣을 때 워커가 쓰는 gestalt 버전도 함께 맞춘다.
+- 떼어 낸 뒤에는 `base.json`을 모르는 0.153.0 전 gestalt가 이 저장소를 열면 `events.jsonl`만 재생해 상태를 잘못 만든다. `archive`를 처음 부르기 전에 컨덕터 세션과 워커가 쓰는 gestalt를 그 뒤 버전으로 맞춘다.
+- 반영하면서 이벤트를 주문별로 `order-logs/<주문 id>/`에 옮겨 둔다. segment는 다음 반영 때 지워지므로 나중에 그 주문을 보관할 때 이 파일로 이벤트를 모은다. 주문을 찾는 규칙은 제안서의 [이벤트를 주문에 붙이는 규칙](./proposals/conductor-archive.md#이벤트를-주문에-붙이는-규칙)과 같다. tick과 `tail-repaired`, 주문 없는 게이트의 줄은 모으지 않는다. 첫 반영 전 로그는 첫 반영이 처음부터 재생하며 모은다.
 
-| 경로                        | 쓰는 쪽         | 내용                                                                                                                                                                                                                                                                      |
-| --------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `events.jsonl`              | tick, CLI 명령  | 상태 이벤트와 실제 워커 에이전트, 보고 이력. `report-applied`에 workerId, status, summary, refs, skill, prRef, merged, stopReason, need, refCopies를 보존하며 진행 보고도 포함한다. 하위 주문 요청(`spawnRequest`)은 주문 이벤트로 옮겨지므로 보고에는 다시 남기지 않는다 |
-| `base.json`                 | 떼어 내기       | 떼어 낸 로그를 반영한 기준점 상태와 반영한 segment의 이름과 길이(`foldedSegments`). 재생은 여기서 시작한다                                                                                                                                                                         |
-| `segments/`                 | 떼어 내기       | `events.jsonl`에서 떼어 낸 로그. 반영한 뒤에도 다음 반영 때까지 남겨 두고 그때 지운다                                                                                                                                                                                     |
-| `inbox/`                    | 워커            | `worker report`가 남긴 결과 파일. 다음 tick이 상태와 보고 본문을 이벤트에 기록한 뒤 지운다. 적용하다 실패한 원문은 `inbox/failed/`로 옮긴다                                                                                                                               |
-| `inbox/unrecorded/`         | tick            | 적용은 끝났는데 `report-applied` 기록만 실패한 결과 파일. 다음 tick이 다시 적용하지 않고 기록만 남긴 뒤 지운다. 다시 적용하면 bypass와 워커에 전하기, 하위 주문이 한 번 더 돌기 때문이다                                                                                  |
-| `refs/<주문 id>/`           | tick            | 보고 refs 중 저장소 밖 텍스트 파일의 사본. 규칙은 아래 [refs 사본](#refs-사본)에 있다                                                                                                                                                                                     |
-| `prompts/`                  | tick            | 워커 첫 지시 파일                                                                                                                                                                                                                                                         |
-| `worktrees/`                | tick            | 오르카가 없을 때 만든 git 워크트리                                                                                                                                                                                                                                        |
-| `deploy/`                   | 호스트          | `deploy report`가 남긴 배포 결과                                                                                                                                                                                                                                          |
-| `queue/`                    | 외부 시스템     | 외부 큐 메시지. 다음 tick이 읽고 지운다. 못 읽은 파일은 `queue/failed/`로 옮긴다                                                                                                                                                                                          |
-| `slack/`                    | 호스트          | 슬랙 초안 본문                                                                                                                                                                                                                                                            |
-| `context/<owner>/<name>.md` | 컨덕터 세션     | 레포 공통 맥락. 워커 지시에 경로가 실린다                                                                                                                                                                                                                                 |
-| `sessions/<세션 id>/`       | tick, 컴팩트 훅 | 등록한 컨덕터 세션. `session.json`은 tick이, `compactions`(횟수와 트랜스크립트 경로)는 훅이, `handoff.json`(인계 기록)은 `handoff` 명령이 쓰고 이전 탭을 닫은 결과(`close`)와 `close-claim`은 새 세션의 tick이 쓴다                                                       |
-| `handoffs/`                 | `handoff` 명령  | 새 컨덕터 세션에 넘긴 인계 파일                                                                                                                                                                                                                                           |
-| `tick.lock`                 | tick            | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다                                                                                                                                                                   |
+| 경로                           | 쓰는 쪽         | 내용                                                                                                                                                                                                                                                                      |
+| ------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `events.jsonl`                 | tick, CLI 명령  | 상태 이벤트와 실제 워커 에이전트, 보고 이력. `report-applied`에 workerId, status, summary, refs, skill, prRef, merged, stopReason, need, refCopies를 보존하며 진행 보고도 포함한다. 하위 주문 요청(`spawnRequest`)은 주문 이벤트로 옮겨지므로 보고에는 다시 남기지 않는다 |
+| `base.json`                    | 떼어 내기       | 떼어 낸 로그를 반영한 기준점 상태와 반영한 segment의 이름과 길이(`foldedSegments`). 재생은 여기서 시작한다                                                                                                                                                                |
+| `segments/`                    | 떼어 내기       | `events.jsonl`에서 떼어 낸 로그. 반영한 뒤에도 다음 반영 때까지 남겨 두고 그때 지운다                                                                                                                                                                                     |
+| `order-logs/<주문 id>/`        | 떼어 내기       | 반영한 이벤트를 주문별로 옮겨 둔 것. 그 주문을 보관할 때 `archive/`로 옮기고 지운다                                                                                                                                                                                       |
+| `archive/<YYYY-MM>/<주문 id>/` | `archive` 명령  | 보관한 주문의 이벤트(`events.jsonl`), 끝 상태(`order.json`), refs 사본(`refs/`). 아래 [끝난 주문 보관](#끝난-주문-보관)에 있다                                                                                                                                            |
+| `inbox/`                       | 워커            | `worker report`가 남긴 결과 파일. 다음 tick이 상태와 보고 본문을 이벤트에 기록한 뒤 지운다. 적용하다 실패한 원문은 `inbox/failed/`로 옮긴다                                                                                                                               |
+| `inbox/unrecorded/`            | tick            | 적용은 끝났는데 `report-applied` 기록만 실패한 결과 파일. 다음 tick이 다시 적용하지 않고 기록만 남긴 뒤 지운다. 다시 적용하면 bypass와 워커에 전하기, 하위 주문이 한 번 더 돌기 때문이다                                                                                  |
+| `refs/<주문 id>/`              | tick            | 보고 refs 중 저장소 밖 텍스트 파일의 사본. 규칙은 아래 [refs 사본](#refs-사본)에 있다                                                                                                                                                                                     |
+| `prompts/`                     | tick            | 워커 첫 지시 파일                                                                                                                                                                                                                                                         |
+| `worktrees/`                   | tick            | 오르카가 없을 때 만든 git 워크트리                                                                                                                                                                                                                                        |
+| `deploy/`                      | 호스트          | `deploy report`가 남긴 배포 결과                                                                                                                                                                                                                                          |
+| `queue/`                       | 외부 시스템     | 외부 큐 메시지. 다음 tick이 읽고 지운다. 못 읽은 파일은 `queue/failed/`로 옮긴다                                                                                                                                                                                          |
+| `slack/`                       | 호스트          | 슬랙 초안 본문                                                                                                                                                                                                                                                            |
+| `context/<owner>/<name>.md`    | 컨덕터 세션     | 레포 공통 맥락. 워커 지시에 경로가 실린다                                                                                                                                                                                                                                 |
+| `sessions/<세션 id>/`          | tick, 컴팩트 훅 | 등록한 컨덕터 세션. `session.json`은 tick이, `compactions`(횟수와 트랜스크립트 경로)는 훅이, `handoff.json`(인계 기록)은 `handoff` 명령이 쓰고 이전 탭을 닫은 결과(`close`)와 `close-claim`은 새 세션의 tick이 쓴다                                                       |
+| `handoffs/`                    | `handoff` 명령  | 새 컨덕터 세션에 넘긴 인계 파일                                                                                                                                                                                                                                           |
+| `tick.lock`                    | tick            | 겹쳐 도는 tick을 막는 잠금. 낡은 잠금을 걷을 때와 풀 때는 `tick.lock.steal`을 잡아 한 프로세스씩 지운다                                                                                                                                                                   |
 
 ### refs 사본
 
@@ -389,6 +392,18 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 이벤트의 `refs`는 워커가 보낸 값 그대로 두고 사본 결과는 `refCopies`에 따로 남긴다. 항목마다 원래 값(`ref`)과 저장소 기준 사본 경로(`path`)가 있고 앞부분만 남겼으면 `truncated`와 원래 크기(`size`), 복사하지 않았으면 `skipped`(`report-limit`, `denied`, `error` 중 하나)가 붙는다. 복사 대상이 아닌 ref는 비밀 자리나 이름으로 거부한 경우만 `refCopies`에 `denied`로 있다. 컨덕터 스킬은 값의 꼴이 아니라 하는 일로 가른다. 사본이 없는 ref로 파일 본문을 읽으려는데 상대 경로이거나 `..` 칸이 있으면 기록과 상관없이 `denied`처럼 다룬다. 커밋 SHA나 브랜치 이름 ref로는 메타데이터만 보고 본문이나 diff(`git show`, `git diff`, `git log -p`)를 읽는 일은 `denied`처럼 다룬다. 주소, PR 약칭, 지라 키는 그 서비스에서 상태를 보는 데만 쓴다. `path`는 저장소 기준이라 `order show --json`의 `stateDir` 아래에 붙여 읽는다. 컨덕터 스킬은 사본이 있으면 원래 경로보다 사본을 먼저 읽는다. 같은 PR에 리뷰 주문이 두 번 생기면 워커가 같은 경로에 결과를 덮어써서 원래 경로가 뒤 주문의 본문을 가리킬 수 있어서다. `truncated`면 원래 파일 크기가 `size`와 같을 때만 나머지를 원래 경로에서 읽는다. `skipped`가 `denied`인 ref는 원래 경로를 바로 읽지 않고 사용자에게 알린 뒤 사용자가 지시할 때만 읽는다. 컨덕터 세션의 작업 디렉토리는 저장소가 아니다. 이 칸이 없는 옛 이벤트도 그대로 재생된다.
 
 위치는 `--state-dir`, `GESTALT_CONDUCTOR_STATE_DIR`, `~/.gestalt/conductor.json`의 `stateDir`, 기본값 `~/.gestalt/conductor` 순서로 정한다. 워커는 다른 레포에서 돌아 그쪽 `gestalt.json`을 읽기 때문에 워커 지시에는 저장소 절대 경로를 `--state-dir`로 박아 둔다.
+
+### 끝난 주문 보관
+
+`gestalt conductor archive [--older-than <일>] [--dry-run] [--json]`은 끝나고(`updatedAt` 기준) 기간이 지난 주문을 `archive/<YYYY-MM>/<주문 id>/`로 옮기고 상태에서 뺀다. 기간은 기본 14일이고 `YYYY-MM`은 주문이 끝난 달이다. 지금은 사람이 부른다. tick이 하루 한 번 부르는 일은 다음 단계에서 넣는다.
+
+- `events.jsonl`을 떼어 반영하는 일과 한 번에 돈다. tick과 같은 잠금을 잡고 못 잡으면 exit 1로 끝난다. `--dry-run`은 잠금 없이 옮길 주문만 보여 준다.
+- 옮기는 주문은 `order remove`가 받아 주는 주문과 같다. 끝난 주문(done, failed, cancelled, parked) 중 열린 게이트나 멈춘 워커가 남은 주문은 옮기지 않고 이유를 `blocked`에 남긴다.
+- 주문 디렉토리에는 셋을 둔다. `events.jsonl`은 `order-logs/`에 모아 둔 그 주문의 이벤트 줄을 원래 값 그대로 이은 것이다. `order.json`은 `order show --json`과 같은 꼴에 `stateDir` 대신 보관한 시각(`archivedAt`)을 둔다. `refs/`는 `refs/<주문 id>/`를 복사한 것이고 `order.json`의 `refCopies[].path`는 옮긴 자리(`archive/<YYYY-MM>/<주문 id>/refs/...`)로 바꿔 적는다.
+- 상태에서는 `order remove`와 같은 규칙으로 주문과 워커, 체크포인트, 게이트, bypass, 지라 전이, 보고를 빼고 `archivedOrders`에 출처(`sourceRef`), 상위 주문, 보관 시각과 달을 남긴다. 지운 주문처럼 같은 출처를 다시 받지 않고 하위 주문 상한에도 센다. parked 주문이면 사람에게 넘긴 PR을 `humanPr`로 남겨 PR 감시가 그 PR로 주문을 새로 만들지 않는다.
+- `order remove`로 지운 주문은 지운 시각에서 같은 기간이 지나면 모아 둔 이벤트만 `archive/<지운 달>/<주문 id>/events.jsonl`로 옮긴다. `removedOrders` 기록은 그대로 둔다.
+- 보관 파일과 상태에서 뺀 `base.json`을 다 쓰고 fsync한 뒤에 `order-logs/<주문 id>/`와 `refs/<주문 id>/`를 지운다. 보관 파일은 주문 id 자리에 덮어써서 중간에 죽고 다시 불러도 겹치지 않는다. `base.json`까지 쓰고 죽어 남은 파일은 다음 보관이 `archivedOrders`를 보고 지운다.
+- `results show`에 보관한 주문 id를 주면 보관소 자리를 알려 준다. 결과 뷰어가 보관소를 읽는 일은 뒤에 따로 한다.
 
 ## tick 한 번
 
@@ -642,13 +657,13 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 
 세션 한도에 걸린 오르카 워커는 보고 없이 멈춘다. 이걸 끊김으로 보고 새 워커를 띄우면 한도가 풀린 앞 워커가 다시 움직여서 한 주문을 둘이 진행한다. 그래서 오르카 워커(부모 워크트리 아래 하위 워커 포함)는 `staleAfterSec`이 지나도 바로 끊김으로 바꾸지 않고 `orca orchestration worker-show`와 `worker-read`로 터미널을 먼저 본다.
 
-| 터미널 상태                                  | 처리                                                                                             |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| 에이전트가 아직 출력 중(`activity: working`) | 끊긴 게 아니라 그대로 둔다                                                                       |
-| 끝 메시지에 세션 한도나 사용량 한도 표시     | `stopReason: rate-limit`으로 멈춤만 표시하고 재개하지 않는다                                     |
-| 터미널이 없거나 프로세스가 끝남              | `disconnected`로 보고 재개한다                                                                   |
+| 터미널 상태                                  | 처리                                                                                                      |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 에이전트가 아직 출력 중(`activity: working`) | 끊긴 게 아니라 그대로 둔다                                                                                |
+| 끝 메시지에 세션 한도나 사용량 한도 표시     | `stopReason: rate-limit`으로 멈춤만 표시하고 재개하지 않는다                                              |
+| 터미널이 없거나 프로세스가 끝남              | `disconnected`로 보고 재개한다                                                                            |
 | 살아 있지만 조용함                           | `disconnected`로 보고 재개를 시도한다. 앞 터미널이 살아 있으면 새 워커는 대기하고 release를 다시 시도한다 |
-| 확인 실패(오르카 응답 없음 등)               | 위와 같이 재개를 시도하고 tick 보고 `warnings`에 남긴다                                          |
+| 확인 실패(오르카 응답 없음 등)               | 위와 같이 재개를 시도하고 tick 보고 `warnings`에 남긴다                                                   |
 
 한도는 오르카가 남기는 `failure.kind: "usageLimitReached"` 표식을 먼저 보고 표식이 없으면 출력 문구로 가른다. 문구로 가른 한도는 워커가 다루는 글에 섞인 문구에 잘못 걸렸을 수 있어서 `conductor status`에 `출력 문구로 판단`을 붙여 보인다.
 

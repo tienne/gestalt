@@ -30,13 +30,13 @@
 
 ### 결정 요약
 
-| 항목 | 결정 | 근거 |
-| --- | --- | --- |
-| 재생 기준점 | `base.json`(상태 스냅샷)에서 시작해 남은 segment의 반영 길이 뒤와 `events.jsonl`을 이어서 재생한다 | 로그를 잘라도 같은 상태를 만든다 |
-| 자르는 방식 | `events.jsonl`을 `segments/`로 이름 바꿔 떼어 내고 새 파일에 이어 쓴다 | 워커 프로세스가 잠금 없이 덧붙이므로 파일을 다시 쓰지 않는다 |
-| 잠금 | tick과 같은 `tick.lock`을 잡는다 | tick, `order remove`와 겹치지 않는다 |
-| 중복 판정 | 보관한 주문의 출처를 `base.json`의 `archivedOrders`에 남긴다 | `removedOrders`와 같은 방식이다 |
-| 보관 대상 | 아래 [열린 질문](#열린-질문)의 제안 값으로 정했다(2026-11-22) | |
+| 항목        | 결정                                                                                               | 근거                                                         |
+| ----------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| 재생 기준점 | `base.json`(상태 스냅샷)에서 시작해 남은 segment의 반영 길이 뒤와 `events.jsonl`을 이어서 재생한다 | 로그를 잘라도 같은 상태를 만든다                             |
+| 자르는 방식 | `events.jsonl`을 `segments/`로 이름 바꿔 떼어 내고 새 파일에 이어 쓴다                             | 워커 프로세스가 잠금 없이 덧붙이므로 파일을 다시 쓰지 않는다 |
+| 잠금        | tick과 같은 `tick.lock`을 잡는다                                                                   | tick, `order remove`와 겹치지 않는다                         |
+| 중복 판정   | 보관한 주문의 출처를 `base.json`의 `archivedOrders`에 남긴다                                       | `removedOrders`와 같은 방식이다                              |
+| 보관 대상   | 아래 [열린 질문](#열린-질문)의 제안 값으로 정했다(2026-11-22)                                      |                                                              |
 
 ### 저장소 구성
 
@@ -70,7 +70,7 @@ archive/YYYY-MM/
 1. `tick.lock`을 잡는다. 못 잡으면 이번엔 넘긴다.
 2. `events.jsonl`을 `segments/<순번>-<시각>.jsonl`로 이름을 바꾼다. 이 순간부터 덧붙는 이벤트는 새 `events.jsonl`로 간다.
 3. 이름을 바꾸기 직전에 파일을 연 워커가 옛 파일에 한 줄을 쓸 수 있다. 1초 기다린 뒤 segment 크기가 더 늘지 않는 걸 확인하고 읽는다.
-4. `base.json` + segment를 재생해 상태를 만들고 보관할 주문을 고른다. 고른 주문의 이벤트를 segment에서 골라 `archive/YYYY-MM/<주문 id>/events.jsonl`로 쓰고 `order.json`을 쓴다. `refs/<주문 id>/`는 `archive/YYYY-MM/<주문 id>/refs/`로 옮긴다. `order.json`의 `refCopies[].path`는 옮긴 자리로 바꿔 적고 `events.jsonl`은 원래 값 그대로 둔다.
+4. `base.json` + segment를 재생해 상태를 만들고 재생한 이벤트를 주문별로 `order-logs/<주문 id>/`에 옮겨 둔다. 보관할 주문을 고르고 그 주문의 `order-logs/`를 이어 `archive/YYYY-MM/<주문 id>/events.jsonl`로 쓰고 `order.json`을 쓴다. `refs/<주문 id>/`는 `archive/YYYY-MM/<주문 id>/refs/`로 옮긴다. `order.json`의 `refCopies[].path`는 옮긴 자리로 바꿔 적고 `events.jsonl`은 원래 값 그대로 둔다.
 5. 상태에서 보관한 주문을 `removeFromSnapshot`과 같은 규칙으로 빼고 `archivedOrders`에 출처를 남긴 뒤 `base.json`을 원자적으로 쓴다. `foldedSegments`는 디스크에 남은 segment 전부의 이름과 반영한 길이로 다시 쓴다.
 6. 지난 반영에서 남겨 둔 segment를 지운다(또는 압축해 둔다. 열린 질문 3). 이번에 떼어 낸 segment는 늦게 붙는 줄을 받으려고 다음 반영까지 남긴다.
 7. 잠금을 푼다.
@@ -79,14 +79,14 @@ archive/YYYY-MM/
 
 ### 이벤트를 주문에 붙이는 규칙
 
-| 이벤트 | 주문을 찾는 칸 |
-| --- | --- |
-| `order-*` | `orderId`, `order.id` |
-| `worker-*`, `report-applied` | `workerId`로 워커를 찾아 `orderId` |
-| `checkpoint-saved` | `checkpoint.orderId` |
-| `gate-*` | `gate.orderId`, `gateId`로 게이트를 찾아 `orderId` |
-| `bypass`, `jira-transition` | `record.orderId` |
-| `tick`, `tail-repaired` | 주문에 안 붙는다. `base.json`에 누적 값만 남고 줄은 버린다 |
+| 이벤트                       | 주문을 찾는 칸                                             |
+| ---------------------------- | ---------------------------------------------------------- |
+| `order-*`                    | `orderId`, `order.id`                                      |
+| `worker-*`, `report-applied` | `workerId`로 워커를 찾아 `orderId`                         |
+| `checkpoint-saved`           | `checkpoint.orderId`                                       |
+| `gate-*`                     | `gate.orderId`, `gateId`로 게이트를 찾아 `orderId`         |
+| `bypass`, `jira-transition`  | `record.orderId`                                           |
+| `tick`, `tail-repaired`      | 주문에 안 붙는다. `base.json`에 누적 값만 남고 줄은 버린다 |
 
 주문에 안 붙는 게이트(`review-manual-switch` 같은 컨덕터 게이트)는 끝나고 같은 기간이 지나면 버린다.
 
@@ -98,12 +98,12 @@ archive/YYYY-MM/
 
 ### 운영 파일 정리
 
-| 파일 | 보관할 때 |
-| --- | --- |
-| `prompts/<워커 id>.md` | 그 주문의 워커 것을 지운다(열린 질문 4) |
-| `handoffs/` | 주문이 아니라 컨덕터 세션에 붙는다. 같은 기간이 지난 파일을 지운다(열린 질문 4) |
-| `inbox/failed/` | 그대로 둔다. 사람이 볼 자리다 |
-| `snapshot.json` | `base.json`과 별개다. 보관한 주문이 빠지므로 저절로 작아진다 |
+| 파일                   | 보관할 때                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| `prompts/<워커 id>.md` | 그 주문의 워커 것을 지운다(열린 질문 4)                                         |
+| `handoffs/`            | 주문이 아니라 컨덕터 세션에 붙는다. 같은 기간이 지난 파일을 지운다(열린 질문 4) |
+| `inbox/failed/`        | 그대로 둔다. 사람이 볼 자리다                                                   |
+| `snapshot.json`        | `base.json`과 별개다. 보관한 주문이 빠지므로 저절로 작아진다                    |
 
 ## 열린 질문
 
@@ -122,7 +122,7 @@ archive/YYYY-MM/
 
 ## 순서
 
-1. `base.json`과 segment 재생. 보관 없이 "떼어 내고 base.json에 반영하기"만 넣고 재생 결과가 같은지 확인한다.
-2. 주문 보관과 `archivedOrders`, `archive` 명령. 1~4번 결정을 반영한다.
-3. 운영 파일 정리와 tick 자동 실행.
+1. `base.json`과 segment 재생. 보관 없이 "떼어 내고 base.json에 반영하기"만 넣고 재생 결과가 같은지 확인한다. (0.153.0)
+2. 주문 보관과 `archivedOrders`, `archive` 명령. 1, 2번 결정을 반영한다. 반영할 때 이벤트를 주문별로 `order-logs/`에 옮겨 두고 보관할 때 거기서 모은다. segment는 다음 반영 때 지워지므로 보관할 때 segment에서 고르면 앞쪽 이벤트가 빠진다.
+3. 운영 파일 정리(3, 4번 결정)와 tick 자동 실행(5번 결정).
 4. 뷰어가 머지된 뒤 뷰어가 보관소를 읽게 한다.
