@@ -69,6 +69,7 @@ export function emptySnapshot(): ConductorSnapshot {
   return {
     orders: {},
     removedOrders: {},
+    archivedOrders: {},
     workers: {},
     checkpoints: {},
     gates: {},
@@ -192,7 +193,7 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
  * 주문을 못 지우는 이유를 준다. 지울 수 있으면 undefined.
  * 멈춘 워커도 막는다. 그 워크트리가 남아 있을 수 있어서 워커 기록을 지우면 workerAt 가드가 풀린다
  */
-function removalBlocker(s: ConductorSnapshot, orderId: string): string | undefined {
+export function removalBlocker(s: ConductorSnapshot, orderId: string): string | undefined {
   const o = s.orders[orderId];
   if (!o) return `모르는 주문이에요: ${orderId}`;
   if (!TERMINAL_ORDER_STATUSES.has(o.status))
@@ -210,13 +211,18 @@ function removalBlocker(s: ConductorSnapshot, orderId: string): string | undefin
 function removeFromSnapshot(s: ConductorSnapshot, orderId: string, at: string): void {
   // 재생은 validate를 안 거친다. 다른 프로세스가 지우기와 경합해 게이트나 워커를 붙였으면 무시한다
   if (removalBlocker(s, orderId) !== undefined) return;
-  const o = s.orders[orderId]!;
-  delete s.orders[orderId];
+  const o = detachOrder(s, orderId);
   s.removedOrders[orderId] = {
     sourceRef: o.sourceRef,
     ...(o.parentOrderId ? { parentOrderId: o.parentOrderId } : {}),
     removedAt: at,
   };
+}
+
+/** 주문과 거기 붙은 워커, 체크포인트, 게이트, 기록을 상태에서 뺀다. 지우기와 보관이 같은 규칙을 쓴다 */
+export function detachOrder(s: ConductorSnapshot, orderId: string): Order {
+  const o = s.orders[orderId]!;
+  delete s.orders[orderId];
   for (const w of Object.values(s.workers)) if (w.orderId === orderId) delete s.workers[w.id];
   delete s.checkpoints[orderId];
   for (const g of Object.values(s.gates)) {
@@ -227,6 +233,42 @@ function removeFromSnapshot(s: ConductorSnapshot, orderId: string, at: string): 
   s.bypasses = s.bypasses.filter((b) => b.orderId !== orderId);
   s.jiraTransitions = s.jiraTransitions.filter((t) => t.orderId !== orderId);
   delete s.reports[orderId];
+  return o;
+}
+
+/**
+ * 이벤트가 붙는 주문. 적용하기 전 상태로 찾는다. 워커와 게이트 이벤트는 id만 들고 있어 그 시점 상태에서 주문을 찾는다.
+ * tick과 tail-repaired, 주문 없는 컨덕터 게이트는 주문에 안 붙는다
+ */
+export function orderOfEvent(e: ConductorEvent, s: ConductorSnapshot): string | undefined {
+  switch (e.type) {
+    case 'order-added':
+      return e.order.id;
+    case 'order-updated':
+    case 'order-removed':
+      return e.orderId;
+    case 'worker-started':
+      return e.worker.orderId;
+    case 'worker-updated':
+      return s.workers[e.workerId]?.orderId;
+    case 'report-applied':
+      return e.report ? s.workers[e.report.workerId]?.orderId : undefined;
+    case 'checkpoint-saved':
+      return e.checkpoint.orderId;
+    case 'gate-opened':
+      return e.gate.orderId;
+    case 'gate-updated':
+    case 'gate-resolved':
+    case 'gate-delivery':
+    case 'slack-posted':
+      return s.gates[e.gateId]?.orderId;
+    case 'bypass':
+    case 'jira-transition':
+      return e.record.orderId;
+    case 'tick':
+    case 'tail-repaired':
+      return undefined;
+  }
 }
 
 export function newId(prefix: 'ord' | 'wrk' | 'gate'): string {
@@ -241,7 +283,8 @@ export class ConductorStore {
   private removedIndex?: {
     state: ConductorSnapshot;
     size: number;
-    bySource: Map<string, string>;
+    removed: Map<string, string>;
+    archived: Map<string, string>;
   };
 
   private constructor(dir: string, state: ConductorSnapshot, now: () => Date) {
@@ -377,24 +420,52 @@ export class ConductorStore {
 
   /** 지운 주문의 출처면 지운 시각을 준다. 접수가 이걸 보고 같은 출처를 다시 받지 않는다 */
   removedAtOf(sourceRef: string): string | undefined {
-    // poll마다 티켓별로 불려서 출처 색인을 둔다. removedOrders는 늘기만 해서 크기로 낡았는지 본다
-    const removed = this.state.removedOrders;
-    const size = Object.keys(removed).length;
-    if (this.removedIndex?.state !== this.state || this.removedIndex.size !== size) {
-      const bySource = new Map<string, string>();
-      for (const r of Object.values(removed))
-        if (!bySource.has(r.sourceRef)) bySource.set(r.sourceRef, r.removedAt);
-      this.removedIndex = { state: this.state, size, bySource };
-    }
-    return this.removedIndex.bySource.get(sourceRef);
+    return this.retiredIndex().removed.get(sourceRef);
   }
 
-  /** 받은 적 있는 출처인지 본다. 지운 주문도 받은 것으로 친다 */
+  /** 보관한 주문의 출처면 보관한 시각을 준다. 지운 주문과 같게 다시 받지 않는다 */
+  archivedAtOf(sourceRef: string): string | undefined {
+    return this.retiredIndex().archived.get(sourceRef);
+  }
+
+  /** 받은 적 있는 출처인지 본다. 지우거나 보관한 주문도 받은 것으로 친다 */
   hasSourceRef(sourceRef: string): boolean {
     return (
       this.findOrderBySourceRef(sourceRef) !== undefined ||
-      this.removedAtOf(sourceRef) !== undefined
+      this.removedAtOf(sourceRef) !== undefined ||
+      this.archivedAtOf(sourceRef) !== undefined
     );
+  }
+
+  /** 지우거나 보관한 하위 주문까지 센다. 안 그러면 끝난 하위 주문을 치울 때마다 상한이 다시 열린다 */
+  childOrderCount(parentOrderId: string): number {
+    const { orders, removedOrders, archivedOrders } = this.state;
+    return [
+      ...Object.values(orders),
+      ...Object.values(removedOrders),
+      ...Object.values(archivedOrders),
+    ].filter((o) => o.parentOrderId === parentOrderId).length;
+  }
+
+  /** 사람에게 넘긴 채 보관한 주문의 PR. PR 감시가 그 PR로 주문을 다시 만들지 않게 한다 */
+  archivedHumanPrs(): string[] {
+    return Object.values(this.state.archivedOrders).flatMap((a) => (a.humanPr ? [a.humanPr] : []));
+  }
+
+  private retiredIndex(): { removed: Map<string, string>; archived: Map<string, string> } {
+    // poll마다 티켓별로 불려서 출처 색인을 둔다. 두 기록은 늘기만 해서 크기로 낡았는지 본다
+    const { removedOrders, archivedOrders } = this.state;
+    const size = Object.keys(removedOrders).length + Object.keys(archivedOrders).length;
+    if (this.removedIndex?.state !== this.state || this.removedIndex.size !== size) {
+      const removed = new Map<string, string>();
+      for (const r of Object.values(removedOrders))
+        if (!removed.has(r.sourceRef)) removed.set(r.sourceRef, r.removedAt);
+      const archived = new Map<string, string>();
+      for (const a of Object.values(archivedOrders))
+        if (!archived.has(a.sourceRef)) archived.set(a.sourceRef, a.archivedAt);
+      this.removedIndex = { state: this.state, size, removed, archived };
+    }
+    return this.removedIndex;
   }
 
   workersOf(orderId: string): Worker[] {
@@ -464,6 +535,8 @@ export function replay(
   path: string,
   s: ConductorSnapshot = emptySnapshot(),
   range: { from?: number; to?: number } = {},
+  /** 이벤트를 적용하기 직전에 부른다. 반영이 이벤트를 주문별로 모으는 자리다 */
+  onEvent?: (event: ConductorEvent, line: string, before: ConductorSnapshot) => void,
 ): ConductorSnapshot {
   let buf: Buffer;
   try {
@@ -492,6 +565,7 @@ export function replay(
       }
       throw new Error(`${path} ${i + 1}번째 줄을 못 읽어요. 저장소가 깨졌어요`);
     }
+    onEvent?.(event, line, s);
     applyEvent(s, event);
   }
   return s;
@@ -570,6 +644,8 @@ export function readBase(dir: string): BaseFile | undefined {
     parsed = undefined;
   }
   if (!isBaseFile(parsed)) throw new Error(`${path}를 못 읽어요. 저장소가 깨졌어요`);
+  // 보관이 들어가기 전에 쓴 base.json에는 이 칸이 없다
+  if (!isPlainObject(parsed.state.archivedOrders)) parsed.state.archivedOrders = {};
   return parsed;
 }
 

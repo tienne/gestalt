@@ -184,7 +184,11 @@ function collect(
     }
     const item = summarize(event, snapshot);
     if (!item) continue;
-    if (item.orderId && snapshot.removedOrders[item.orderId]) continue;
+    if (
+      item.orderId &&
+      (snapshot.removedOrders[item.orderId] || snapshot.archivedOrders[item.orderId])
+    )
+      continue;
     out.push(item);
   }
 }
