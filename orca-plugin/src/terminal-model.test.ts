@@ -1,6 +1,6 @@
 import { assert, test } from 'orca/testing'
 import type { ConductorView, OrderView } from './protocol'
-import { chainChips, clock, duration, eventText, groupByRepo, metaOf, progressOf, stateLine, terminalModel, workerEnded } from './terminal-model'
+import { canReachWorker, chainChips, clock, duration, eventText, groupByRepo, metaOf, progressOf, stateLine, terminalModel, workerEnded } from './terminal-model'
 
 const base: OrderView = { id: 'o1', status: 'running', scope: 'pr', repo: 'acme/web', title: 't', bypasses: [] }
 const cp = (over: Partial<NonNullable<OrderView['checkpoint']>> = {}) => ({
@@ -43,6 +43,11 @@ test('머지됐거나 끝난 주문은 체크포인트와 상관없이 체인을
     ])
     assert.equal(progressOf(o), 1)
   }
+  // 배포를 기다리는 주문도 배포는 체인의 스킬이 아니라 체인은 다 돈 것이다
+  const deploying = { ...base, status: 'merged', awaitingDeploy: true, skillChain: ['solve', 'ship'], checkpoint: stale }
+  assert.deepEqual(chainChips(deploying).map((c) => c.state), ['done', 'done'])
+  assert.equal(progressOf(deploying), 1)
+  assert.deepEqual(chainChips({ ...base, status: 'merged', skillChain: [] }), [])
   assert.equal(progressOf({ ...base, status: 'merged', skillChain: [] }), null)
 })
 
@@ -60,6 +65,9 @@ test('workerEnded는 해제됐거나 끝난 워커만 고른다', () => {
   assert.equal(workerEnded({ workerStatus: 'finished' }), true)
   assert.equal(workerEnded({ workerStatus: 'running' }), false)
   assert.equal(workerEnded({}), false)
+  assert.equal(canReachWorker({ workspaceId: 'ws', workerStatus: 'running' }), true)
+  assert.equal(canReachWorker({ workspaceId: 'ws', workerStatus: 'released' }), false)
+  assert.equal(canReachWorker({ workerStatus: 'running' }), false)
 })
 
 test('stateLine은 한도, 게이트, 대기, 그 밖 순으로 고른다', () => {

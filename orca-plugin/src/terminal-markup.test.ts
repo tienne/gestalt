@@ -170,6 +170,8 @@ test('해제된 워커의 상세는 터미널 안내와 이동 버튼 없이 워
     lacks(html, '못 읽었어요')
     lacks(html, '터미널로 이동')
     lacks(html, 'data-open')
+    has(html, 'aria-label="ord-a')
+    has(html, ' · 워커 종료"')
   }
 })
 
