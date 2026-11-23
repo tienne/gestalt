@@ -425,7 +425,8 @@ function checkFileOverlaps(
   const note = (w: Worker, orderId: string, files: string[]) =>
     byWorker.set(w.id, [...(byWorker.get(w.id) ?? []), { orderId, files }]);
   const limit = deps.config.overlapGateFiles ?? 5;
-  const { asked, waiting } = overlapGateHistory(store);
+  // 게이트 기록은 문턱을 넘는 겹침이 있을 때만 훑는다. 겹침이 없는 tick이 대부분이라서다
+  let history: ReturnType<typeof overlapGateHistory> | undefined;
   for (const { first, later, files } of overlaps) {
     note(first, later.orderId, files);
     note(later, first.orderId, files);
@@ -435,6 +436,8 @@ function checkFileOverlaps(
     if (files.length <= limit) continue;
     const key = `${later.orderId}\0${first.orderId}`;
     // openOrReuse는 같은 주문의 열린 게이트를 재사용하며 payload를 안 바꿔서 상대가 둘이면 이력이 한쪽만 남는다
+    history ??= overlapGateHistory(store);
+    const { asked, waiting } = history;
     if (asked.has(key) || waiting.has(later.orderId)) continue;
     openOrReuse(store, {
       orderId: later.orderId,
