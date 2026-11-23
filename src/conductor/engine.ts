@@ -406,7 +406,8 @@ async function runTick(
 
 /**
  * 같은 레포 워커끼리 고친 파일이 겹치면 경고를 남기고 워커 작업 내용에 겹친 파일을 적는다.
- * 겹친 파일이 overlapGateFiles를 넘으면 뒤에 뜬 주문에 게이트를 연다. 상대 주문마다 한 번만 연다
+ * 겹친 파일이 overlapGateFiles를 넘으면 뒤에 뜬 주문에 게이트를 연다. 상대 주문마다 한 번만 열고
+ * 열린 게이트가 있으면 답을 받은 뒤 다음 상대를 묻는다
  */
 function checkFileOverlaps(
   store: ConductorStore,
@@ -424,6 +425,7 @@ function checkFileOverlaps(
   const note = (w: Worker, orderId: string, files: string[]) =>
     byWorker.set(w.id, [...(byWorker.get(w.id) ?? []), { orderId, files }]);
   const limit = deps.config.overlapGateFiles ?? 5;
+  const { asked, waiting } = overlapGateHistory(store);
   for (const { first, later, files } of overlaps) {
     note(first, later.orderId, files);
     note(later, first.orderId, files);
@@ -431,7 +433,9 @@ function checkFileOverlaps(
       `${first.orderId}와 ${later.orderId}가 같은 파일 ${files.length}개를 고치고 있어요`,
     );
     if (files.length <= limit) continue;
-    if (overlapGateOpened(store, later.orderId, first.orderId)) continue;
+    const key = `${later.orderId}\0${first.orderId}`;
+    // openOrReuse는 같은 주문의 열린 게이트를 재사용하며 payload를 안 바꿔서 상대가 둘이면 이력이 한쪽만 남는다
+    if (asked.has(key) || waiting.has(later.orderId)) continue;
     openOrReuse(store, {
       orderId: later.orderId,
       type: 'file-overlap',
@@ -439,6 +443,8 @@ function checkFileOverlaps(
       refs: files.slice(0, 20),
       payload: { overlapWith: first.orderId },
     });
+    asked.add(key);
+    waiting.add(later.orderId);
   }
   for (const w of workers) {
     const next = byWorker.get(w.id) ?? [];
@@ -449,13 +455,16 @@ function checkFileOverlaps(
 }
 
 /** 재개로 워커 id가 바뀌어도 사람이 한 번 답한 상대로 다시 묻지 않게 주문의 게이트 이력으로 본다 */
-function overlapGateOpened(store: ConductorStore, orderId: string, otherOrderId: string): boolean {
-  return Object.values(store.snapshot.gates).some(
-    (g) =>
-      g.orderId === orderId &&
-      g.type === 'file-overlap' &&
-      g.payload?.['overlapWith'] === otherOrderId,
-  );
+function overlapGateHistory(store: ConductorStore): { asked: Set<string>; waiting: Set<string> } {
+  const asked = new Set<string>();
+  const waiting = new Set<string>();
+  for (const g of Object.values(store.snapshot.gates)) {
+    if (g.type !== 'file-overlap' || !g.orderId) continue;
+    const other = g.payload?.['overlapWith'];
+    if (other) asked.add(`${g.orderId}\0${other}`);
+    if (g.status === 'open') waiting.add(g.orderId);
+  }
+  return { asked, waiting };
 }
 
 /** 백그라운드 gate 뒤 멈춘 워커에 포그라운드 재실행을 한 번 보낸다. 보낸 뒤엔 같은 워커에 다시 안 보낸다 */

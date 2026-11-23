@@ -39,7 +39,7 @@ export interface WorkerActivityInfo {
   overlaps?: { orderId: string; files: string[] }[];
   /** 백그라운드 gate 뒤 멈춤 알림을 보낸 시각. 한 워커에 한 번만 보낸다 */
   gateStallNotifiedAt?: string;
-  /** 끝난 워커 요약을 만들려다 트랜스크립트를 못 찾은 마지막 시각과 횟수. 한 시간 간격으로 세 번까지만 다시 찾는다 */
+  /** 끝난 워커 요약을 만들려다 트랜스크립트를 못 찾은 마지막 시각과 횟수. 처음까지 합쳐 세 번만 찾고 못 찾을 때마다 한 시간을 기다린다 */
   summaryMissAt?: string;
   summaryMisses?: number;
 }

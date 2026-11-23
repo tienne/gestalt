@@ -7,6 +7,7 @@ import {
   readSync,
   realpathSync,
   statSync,
+  type Stats,
 } from 'node:fs';
 import { maskSecrets } from '../architecture/secret-mask.js';
 import { homedir } from 'node:os';
@@ -221,16 +222,16 @@ export function locateWorkerTranscript(opts: LocateOptions): string | undefined 
     for (const name of names) {
       if (!name.endsWith('.jsonl')) continue;
       const file = join(d, name);
-      let mtime: number;
+      let st: Stats;
       try {
-        const st = statSync(file);
-        if (!st.isFile()) continue;
-        mtime = st.mtimeMs;
+        st = statSync(file);
       } catch {
         continue;
       }
+      if (!st.isFile()) continue;
+      const mtime = st.mtimeMs;
       if (mtime < startMs - START_SLACK_MS) continue;
-      const began = sessionStartMs(file);
+      const began = sessionStartMs(file, st.size);
       if (began === undefined || began < startMs - START_SLACK_MS || began >= endMs) continue;
       // 끝이 정해진 회차는 다음 회차 세션이 일찍 떠 후보에 섞일 수 있어 시작 기록에 가장 가까운 세션을 고른다
       const gap = Math.abs(began - startMs);
@@ -245,24 +246,31 @@ export function locateWorkerTranscript(opts: LocateOptions): string | undefined 
 const startCache = new Map<string, number>();
 const START_CACHE_MAX = 512;
 
-function sessionStartMs(file: string): number | undefined {
+function sessionStartMs(file: string, size: number): number | undefined {
   const hit = startCache.get(file);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined) return Number.isNaN(hit) ? undefined : hit;
   const v = readSessionStartMs(file);
-  if (v !== undefined) {
-    startCache.set(file, v);
-    while (startCache.size > START_CACHE_MAX) startCache.delete(startCache.keys().next().value!);
+  if (v === null) return undefined;
+  // 앞부분을 다 채운 파일은 뒤에 더 써도 시각이 안 생기니 없다는 것도 기억한다. NaN이 그 표시다
+  if (v !== undefined || size >= HEAD_BYTES) {
+    startCache.set(file, v ?? Number.NaN);
+    evictOldest(startCache, START_CACHE_MAX);
   }
   return v;
 }
 
-/** 파일 앞부분에서 시각이 있는 첫 줄의 시각 */
-function readSessionStartMs(file: string): number | undefined {
+/** 크기 상한을 넘으면 먼저 넣은 것부터 지운다 */
+export function evictOldest(items: Map<string, unknown> | Set<string>, max: number): void {
+  while (items.size > max) items.delete(items.keys().next().value!);
+}
+
+/** 파일 앞부분에서 시각이 있는 첫 줄의 시각. 못 읽었으면 null */
+function readSessionStartMs(file: string): number | null | undefined {
   let head: string;
   try {
     head = readRange(file, 0, HEAD_BYTES);
   } catch {
-    return undefined;
+    return null;
   }
   const lines = head.split('\n');
   // 끝 줄은 잘렸을 수 있다
@@ -519,7 +527,8 @@ function pushBounded<T>(list: T[], item: T, max: number): void {
 }
 
 function pushText(digest: TranscriptDigest, at: string, text: unknown): void {
-  const t = clean(text, TEXT_MAX);
+  // 본문에 붙여 넣은 토큰도 작업 내용 탭으로 나가서 도구 인자처럼 자르기 전에 가린다
+  const t = clean(typeof text === 'string' ? maskSecrets(text).text : text, TEXT_MAX);
   if (!t) return;
   pushBounded((digest.texts ??= []), { at, text: t }, MAX_TEXTS);
 }

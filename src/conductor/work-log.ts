@@ -10,7 +10,13 @@ import {
   updateWorkerInfo,
   type WorkerActivityInfo,
 } from './activity.js';
-import { clean, type TextEntry, type ToolEvent, type TranscriptState } from './transcript.js';
+import {
+  clean,
+  evictOldest,
+  type TextEntry,
+  type ToolEvent,
+  type TranscriptState,
+} from './transcript.js';
 import { ACTIVE_WORKER_STATUSES, type Worker } from './types.js';
 
 /**
@@ -92,6 +98,10 @@ function writeSummary(stateDir: string, summary: WorkSummary): void {
 
 const SUMMARY_MAX_MISSES = 3;
 const SUMMARY_RETRY_MS = 60 * 60 * 1000;
+const SETTLED_MAX = 4096;
+
+/** 요약을 남겼거나 끝내 못 찾은 워커. tick마다 파일을 다시 열지 않게 프로세스 안에서만 기억한다 */
+const settled = new Set<string>();
 
 function summaryRetryDue(info: WorkerActivityInfo, now: string): boolean {
   if (!info.summaryMissAt) return true;
@@ -111,8 +121,21 @@ export function saveFinishedSummaries(
   const saved: string[] = [];
   for (const w of workers) {
     if (ACTIVE_WORKER_STATUSES.has(w.status) || !readsClaudeTranscript(w)) continue;
-    if (existsSync(summaryPath(stateDir, w.id))) continue;
+    const key = `${stateDir}\0${w.id}`;
+    if (settled.has(key)) continue;
+    const settle = () => {
+      settled.add(key);
+      evictOldest(settled, SETTLED_MAX);
+    };
+    if (existsSync(summaryPath(stateDir, w.id))) {
+      settle();
+      continue;
+    }
     const info = readWorkerInfo(stateDir, w.id);
+    if ((info.summaryMisses ?? 0) >= SUMMARY_MAX_MISSES) {
+      settle();
+      continue;
+    }
     if (!info.worktreePath || !summaryRetryDue(info, opts.now)) continue;
     const endedAt = opts.nextStartOf?.(w);
     const state = refreshTranscript(stateDir, w, info, {
@@ -121,15 +144,18 @@ export function saveFinishedSummaries(
     });
     if (!state) {
       // 트랜스크립트가 늦게 잡힐 수 있어 바로 포기하진 않되 tick마다 다시 뒤지지는 않는다
-      updateWorkerInfo(stateDir, w.id, {
-        summaryMissAt: opts.now,
-        summaryMisses: (info.summaryMisses ?? 0) + 1,
-      });
+      const misses = (info.summaryMisses ?? 0) + 1;
+      updateWorkerInfo(stateDir, w.id, { summaryMissAt: opts.now, summaryMisses: misses });
+      if (misses >= SUMMARY_MAX_MISSES) {
+        settle();
+        log(`conductor summary ${w.id}: 트랜스크립트를 ${misses}번 못 찾아 요약을 남기지 않아요`);
+      }
       continue;
     }
     try {
       writeSummary(stateDir, summaryOf(w, state, info, opts.now));
       saved.push(w.id);
+      settle();
     } catch (err) {
       // 요약은 보여 주기용이라 못 써도 tick은 계속 돈다
       log(`conductor summary ${w.id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -212,15 +238,16 @@ export function orderWork(
           ...(endedAt ? { endedAt } : {}),
         });
     if (!state && !skip && !cache.has(w.id)) {
-      opts.misses?.set(w.id, now);
-      while (opts.misses && opts.misses.size > MAX_CACHED_READERS)
-        opts.misses.delete(opts.misses.keys().next().value!);
+      if (opts.misses) {
+        opts.misses.set(w.id, now);
+        evictOldest(opts.misses, MAX_CACHED_READERS);
+      }
     }
     if (state) {
       opts.misses?.delete(w.id);
       cache.delete(w.id);
       cache.set(w.id, state);
-      while (cache.size > MAX_CACHED_READERS) cache.delete(cache.keys().next().value!);
+      evictOldest(cache, MAX_CACHED_READERS);
       const d = state.digest;
       return {
         ...base,
