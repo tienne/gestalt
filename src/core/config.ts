@@ -468,6 +468,11 @@ const conductorConfigSchema = z.object({
    * 레포 gestalt.json이 켜서 남의 워크트리를 지우게 하면 안 되므로 REPO_CONDUCTOR_KEYS에 넣지 않는다
    */
   removeMergedOrcaWorktrees: z.boolean().default(false),
+  /**
+   * 머지 없이 done으로 끝난 주문(리뷰 답글, 읽기 주문 등)의 오르카 워커 워크트리를 정리 단계에서 지운다.
+   * 머지 확인이 없어 브랜치는 남긴다. REPO_CONDUCTOR_KEYS에 넣지 않는 이유는 removeMergedOrcaWorktrees와 같다
+   */
+  removeDoneOrcaWorktrees: z.boolean().default(false),
 });
 
 /**

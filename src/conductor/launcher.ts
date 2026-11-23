@@ -138,8 +138,10 @@ export interface Launcher {
 export class OrcaReleaseLiveError extends Error {}
 
 export interface ReleaseOptions {
-  /** 워커 워크트리까지 지운다. 컨덕터는 머지된 주문의 오르카 워커에만 켠다 */
+  /** 워커 워크트리까지 지운다. 컨덕터는 머지됐거나 머지 없이 done으로 끝난 주문의 오르카 워커에만 켠다 */
   removeWorktree?: boolean;
+  /** 워크트리를 지울 때 브랜치는 남긴다. 머지를 확인 못 한 주문이라 브랜치에만 남은 커밋이 있을 수 있다 */
+  keepBranch?: boolean;
   /** 주문의 부모 워크트리. 이 워크트리와 그 위 경로는 지우지 않는다 */
   parentWorktree?: string;
   /**
@@ -1308,7 +1310,8 @@ export class OrcaLauncher implements Launcher {
    *
    * 워크트리는 `--force` 없이 지운다. 커밋 안 한 변경이 있으면 오르카가 거절하고 그 실패가
    * 컨덕터의 정리 실패 게이트로 올라간다. 브랜치는 `--delete-branch`로 오르카가 머지됐다고
-   * 확인한 것만 지운다. 스쿼시 머지처럼 확인 못 하는 브랜치는 오르카가 남긴다
+   * 확인한 것만 지운다. 스쿼시 머지처럼 확인 못 하는 브랜치는 오르카가 남긴다. keepBranch면
+   * `--delete-branch`를 빼서 브랜치를 그대로 둔다
    */
   async release(worker: Worker, opts: ReleaseOptions = {}): Promise<void> {
     if (!worker.handle) {
@@ -1321,7 +1324,8 @@ export class OrcaLauncher implements Launcher {
     const workspace = opts.removeWorktree ? await this.workspaceOf(worker) : undefined;
     const out = await this.releaseTerminal(worker);
     await this.assertClosed(worker, out, opts.requireClosed === true);
-    if (workspace) await this.removeWorktree(worker, workspace, opts.parentWorktree);
+    if (workspace)
+      await this.removeWorktree(worker, workspace, opts.parentWorktree, opts.keepBranch === true);
   }
 
   /**
@@ -1488,6 +1492,7 @@ export class OrcaLauncher implements Launcher {
     worker: Worker,
     workspace: Workspace,
     parentWorktree: string | undefined,
+    keepBranch: boolean,
   ): Promise<void> {
     const { path } = workspace;
     const name = orcaWorktreeName(worker);
@@ -1512,12 +1517,19 @@ export class OrcaLauncher implements Launcher {
     if (refusal) throw new Error(`${worker.id}의 워크트리(${path})가 ${refusal} 지우지 않았어요`);
     const r = await this.runner(
       this.opts.orcaCommand,
-      ['worktree', 'rm', '--worktree', workspace.selector, '--delete-branch', '--json'],
+      [
+        'worktree',
+        'rm',
+        '--worktree',
+        workspace.selector,
+        ...(keepBranch ? [] : ['--delete-branch']),
+        '--json',
+      ],
       { timeoutMs: ORCA_TIMEOUT_MS },
     );
     if (r.code === 0 || errorCode(r.stdout) === 'selector_not_found') return;
     throw new Error(
-      `${this.opts.orcaCommand} worktree rm 실패(${r.code}): ${outputHead(r)}. 커밋 안 한 변경이 있는지 확인하고 ${rmCommand(workspace.selector, true)}로 지워 주세요`,
+      `${this.opts.orcaCommand} worktree rm 실패(${r.code}): ${outputHead(r)}. 커밋 안 한 변경이 있는지 확인하고 ${rmCommand(workspace.selector, !keepBranch)}로 지워 주세요`,
     );
   }
 }

@@ -739,6 +739,42 @@ describe('컨덕터 tick', () => {
       expect(store.worker('wrk-1')!.status).toBe('released');
     });
 
+    it('removeDoneOrcaWorktrees를 켜면 머지 없이 done인 주문은 브랜치를 남기고 워크트리를 지운다', async () => {
+      const { store } = clockedStore();
+      store.addOrder(order({ id: 'ord-1', status: 'done', workerId: 'wrk-2' }));
+      store.addOrder(order({ id: 'ord-2', status: 'failed' }));
+      store.addOrder(order({ id: 'ord-3', status: 'cancelled' }));
+      addWorker(store, { id: 'wrk-1', attempt: 1, status: 'stopped' });
+      addWorker(store, { id: 'wrk-2', attempt: 2, status: 'finished' });
+      addWorker(store, { id: 'wrk-3', orderId: 'ord-2', status: 'failed' });
+      addWorker(store, { id: 'wrk-4', orderId: 'ord-3', status: 'stopped' });
+      const orca = orcaRelease();
+      const { deps: d } = deps({
+        config: { ...config, removeDoneOrcaWorktrees: true },
+        launchers: { 'orca-worktree': orca.launcher },
+      });
+      await tick(store, d, { force: true });
+      expect(orca.calls.sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+        { id: 'wrk-1', opts: { removeWorktree: true, keepBranch: true } },
+        { id: 'wrk-2', opts: { removeWorktree: true, keepBranch: true } },
+        { id: 'wrk-3', opts: {} },
+        { id: 'wrk-4', opts: {} },
+      ]);
+    });
+
+    it('removeDoneOrcaWorktrees만 켜면 머지된 주문의 워크트리는 남긴다', async () => {
+      const { store } = clockedStore();
+      store.addOrder(order({ id: 'ord-1', status: 'done', mergedAt: '2026-01-01T00:00:00.000Z' }));
+      addWorker(store, { id: 'wrk-1', status: 'finished' });
+      const orca = orcaRelease();
+      const { deps: d } = deps({
+        config: { ...config, removeDoneOrcaWorktrees: true },
+        launchers: { 'orca-worktree': orca.launcher },
+      });
+      await tick(store, d, { force: true });
+      expect(orca.calls).toEqual([{ id: 'wrk-1', opts: {} }]);
+    });
+
     it('머지 안 된 주문은 옵션을 켜도 워크트리를 남긴다', async () => {
       const { store } = clockedStore();
       store.addOrder(order({ id: 'ord-1', status: 'failed' }));

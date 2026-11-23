@@ -1284,13 +1284,30 @@ function isCleanupTarget(w: Worker, order: Order | undefined, removeWorktree: bo
 }
 
 /**
+ * 오르카 워커의 워크트리까지 지울지와 브랜치를 남길지. 머지된 주문은 removeMergedOrcaWorktrees로,
+ * 머지 없이 done으로 끝난 주문은 removeDoneOrcaWorktrees로 켠다. 뒤쪽은 머지를 확인 못 해 브랜치를 남긴다.
+ * failed, cancelled, parked 주문은 확인할 거리가 남았을 수 있어 어느 쪽도 지우지 않는다
+ */
+function worktreeRemoval(
+  w: Worker,
+  order: Order | undefined,
+  config: EngineDeps['config'],
+): 'delete-branch' | 'keep-branch' | undefined {
+  if (w.kind !== 'orca-worktree' || !order) return undefined;
+  if (order.mergedAt !== undefined)
+    return config.removeMergedOrcaWorktrees === true ? 'delete-branch' : undefined;
+  if (order.status === 'done' && config.removeDoneOrcaWorktrees === true) return 'keep-branch';
+  return undefined;
+}
+
+/**
  * 끝난 워커의 자원을 정리한다. 멈춘 워커는 재개가 그 dispatch id나 워크트리를 다시 쓸 수 있어 남긴다.
  * 다만 주문이 done, failed, cancelled면 재개될 일이 없어 finished 워커와 같은 방식으로 거둔다. 안 거두면
  * order remove가 멈춘 워커 때문에 계속 거절한다.
  *
  * removeMergedOrcaWorktrees를 켜면 머지된 주문의 오르카 워커는 워크트리까지 지운다. 재개로 갈린
- * 앞 회차는 stopped로 남는데 주문이 머지되면 다시 쓸 일이 없어 같이 거둔다. 머지 안 된 주문의
- * 워크트리는 확인할 거리가 남았을 수 있어 그대로 둔다.
+ * 앞 회차는 stopped로 남는데 주문이 머지되면 다시 쓸 일이 없어 같이 거둔다. removeDoneOrcaWorktrees를
+ * 켜면 머지 없이 done으로 끝난 주문도 브랜치는 남기고 워크트리만 지운다. 그 밖의 주문은 그대로 둔다.
  *
  * 정리가 실패하면 주문 없는 게이트로 올린다. 주문에 붙이면 주문이 waiting-gate로 바뀌어 머지 뒤
  * 정산까지 멈추는데 정리는 주문 진행과 무관하다. 그 게이트가 열린 동안은 다시 시도하지 않는다.
@@ -1307,10 +1324,8 @@ async function cleanupWorkers(
   const targets: { worker: Worker; opts: ReleaseOptions }[] = [];
   for (const w of store.workers()) {
     const order = store.order(w.orderId);
-    const removeWorktree =
-      deps.config.removeMergedOrcaWorktrees === true &&
-      w.kind === 'orca-worktree' &&
-      order?.mergedAt !== undefined;
+    const mode = worktreeRemoval(w, order, deps.config);
+    const removeWorktree = mode !== undefined;
     if (!isCleanupTarget(w, order, removeWorktree)) continue;
     const mine = cleanupGates.filter((g) => g.payload?.workerId === w.id);
     if (mine.some((g) => g.status === 'open')) continue;
@@ -1326,6 +1341,7 @@ async function cleanupWorkers(
       opts: removeWorktree
         ? {
             removeWorktree,
+            ...(mode === 'keep-branch' ? { keepBranch: true } : {}),
             ...(order?.parentWorktree ? { parentWorktree: order.parentWorktree } : {}),
           }
         : {},
