@@ -188,6 +188,23 @@ gestalt conductor status --json
 
 Orca의 `bot new-chat`은 기존 홈을 닫는다. 운영을 이어가면서 홈을 교체하려면 별도 채팅으로 먼저 운영권을 넘긴다. 새 홈이 열려 준비된 뒤 별도 채팅에서 다시 운영권을 넘긴다.
 
+#### 봇 채팅에서 머지 승인
+
+`gestalt conductor bot gate <게이트-ID>`는 레포, 주문과 게이트, PR 주소, GitHub에서 확인한 HEAD와 검사 결과, 승인과 거절에 필요한 서명 문자열을 반환한다. 운영 봇은 채팅으로 이를 보여 준다. 승인자는 본인 기기에서 해당 문자열에 서명해 채팅으로 보낸다.
+
+```sh
+gestalt conductor bot decide <게이트-ID> --decision approved --signer <승인자-ID> --signature <base64>
+```
+
+상태 저장소의 `bot-policy.json`에 레포별 Ed25519 공개키를 PEM SPKI 형식으로 등록한다. 개인키는 승인자가 보관한다. OpenSSL 3에서 `openssl genpkey -algorithm Ed25519 -out approver.key`와 `openssl pkey -in approver.key -pubout`으로 키를 만들 수 있다. 승인 또는 거절에 해당하는 문자열을 개행 없이 파일에 저장해 서명한다.
+
+```sh
+jq -jr .messages.approved gate.json > decision.txt
+openssl pkeyutl -sign -rawin -inkey approver.key -in decision.txt | openssl base64 -A
+```
+
+거절할 때는 `messages.rejected`와 `--decision rejected`를 사용한다. 게이트 내용이나 PR HEAD가 바뀌면 새 문자열에 서명한다. 승인된 HEAD는 워커에게 전달된다. 패널에서 먼저 처리했거나 답을 다시 보냈으면 이미 기록된 결정을 보여 준다. 결정과 별도로 전달 상태가 표시된다. `pending`은 다음 tick에 전달 대기, `delivered`는 런처 전송 성공, `failed`는 전송 실패, `host-action`은 호스트에 전달 위임, `no-worker`는 전달할 워커 없음, `unknown`은 과거 기록에 전달 결과가 없다는 뜻이다. 다른 게이트와 배포 결정은 운영자 터미널이나 패널에서 처리한다.
+
 ### 세션 인계
 
 컨덕터 세션은 컴팩트를 한 번까지만 허용한다. 두 번째 컴팩트가 오기 전에 새 세션을 띄워 대화에만 있던 맥락을 넘기고 기존 세션은 감시(wait나 반복)를 멈춘다. 진행 상태는 이미 저장소에 들어 있으니 다시 쓰지 않는다.

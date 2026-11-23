@@ -30,6 +30,8 @@ import {
 } from './commands/ship.js';
 import {
   conductorBotBindCommand,
+  conductorBotDecideCommand,
+  conductorBotGateCommand,
   conductorBotReleaseCommand,
   conductorCheckpointSaveCommand,
   conductorContextPathCommand,
@@ -1086,6 +1088,19 @@ export function createCli(): Command {
     .option('--json')
     .action(conductorBotReleaseCommand);
 
+  bot
+    .command('gate <gateId>')
+    .description('머지 승인 게이트와 GitHub에서 확인한 검증 결과를 보여준다')
+    .addOption(stateDir())
+    .action(conductorBotGateCommand);
+  bot
+    .command('decide <gateId>')
+    .description('레포 승인자의 서명을 확인해 머지 게이트를 종료한다')
+    .requiredOption('--decision <decision>', 'approved 또는 rejected')
+    .requiredOption('--signer <id>', '레포 승인자 ID')
+    .requiredOption('--signature <base64>', 'Ed25519 결정 서명')
+    .addOption(stateDir())
+    .action(conductorBotDecideCommand);
 
   const conductorOrder = conductor.command('order').description('주문을 다룬다');
   conductorOrder

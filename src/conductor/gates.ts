@@ -208,6 +208,7 @@ export function resolveGate(
   gateId: string,
   decision: 'approved' | 'rejected',
   answer?: string,
+  options: { deliveryPending?: boolean; decisionBy?: string } = {},
 ): Gate {
   store.append({
     type: 'gate-resolved',
@@ -215,6 +216,7 @@ export function resolveGate(
     gateId,
     decision,
     ...(answer !== undefined ? { answer } : {}),
+    ...options,
   });
   const gate = store.snapshot.gates[gateId]!;
   const order = gate.orderId ? store.order(gate.orderId) : undefined;

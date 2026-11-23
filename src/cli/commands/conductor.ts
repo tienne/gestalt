@@ -3,6 +3,13 @@ import { mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
+  approvalMessage,
+  matchMergeGate,
+  readBotPolicy,
+  readMergeEvidence,
+  verifyMergeApproval,
+} from '../../conductor/bot-approval.js';
+import {
   assertBotOwner,
   changeBotOwner,
   currentBotOwner,
@@ -31,6 +38,7 @@ import {
   afterHumanMerge,
   rateLimitEntries,
   deliverGateDecision,
+  recordGateDelivery,
   inboxDirOf,
   tick,
   staleTickWarning,
@@ -135,6 +143,7 @@ import {
   type IntakeKind,
   type IssueType,
   type JiraStatus,
+  type Gate,
   type OrderScope,
   type WorkerKind,
 } from '../../conductor/types.js';
@@ -1274,31 +1283,48 @@ export async function conductorGateResolveCommand(
     if (picked !== 1) throw new Error('--approve, --reject, --take-over 중 하나만 주세요');
     const ctx = open(opts);
     assertConductorSession(ctx, 'gate resolve');
-    const gate = ctx.store.snapshot.gates[gateId];
-    if (!gate) throw new Error(`모르는 게이트예요: ${gateId}`);
-    if (gate.status !== 'open') throw new Error(`이미 종료된 게이트예요: ${gateId}`);
-    if (opts.takeOver) {
-      if (!gate.orderId) throw new Error(`${gateId}는 주문이 없는 게이트라 넘겨받을 주문이 없어요`);
-      const r = await takeOver(ctx.store, gate.orderId, launchersFor(ctx, process.env).launchers, {
+    if (await tickBotCaller(ctx))
+      throw new Error('봇 채팅에서는 서명한 결정만 bot decide로 접수해요');
+    const lock = acquireLock(ctx.store.dir);
+    if (!lock.ok)
+      throw new Error('컨덕터가 상태를 갱신 중이에요. 잠시 뒤 게이트를 다시 확인해 주세요');
+    try {
+      ctx.store.reload();
+      const gate = ctx.store.snapshot.gates[gateId];
+      if (!gate) throw new Error(`모르는 게이트예요: ${gateId}`);
+      if (gate.status !== 'open') throw new Error(`이미 종료된 게이트예요: ${gateId}`);
+      if (opts.takeOver) {
+        if (!gate.orderId)
+          throw new Error(`${gateId}는 주문이 없는 게이트라 넘겨받을 주문이 없어요`);
+        const r = await takeOver(
+          ctx.store,
+          gate.orderId,
+          launchersFor(ctx, process.env).launchers,
+          {
+            gateId,
+            ...(opts.answer ? { answer: opts.answer } : {}),
+          },
+        );
+        return printOwnership(opts, r, `${gateId}를 닫고 ${r.order.id}를 사람이 넘겨받았어요`);
+      }
+      const { closed, delivered } = await closeAndDeliver(
+        ctx,
         gateId,
-        ...(opts.answer ? { answer: opts.answer } : {}),
-      });
-      return printOwnership(opts, r, `${gateId}를 닫고 ${r.order.id}를 사람이 넘겨받았어요`);
+        opts.approve ? 'approved' : 'rejected',
+        {
+          ...(opts.answer !== undefined ? { answer: opts.answer } : {}),
+          defer: opts.deferDelivery === true,
+        },
+      );
+      if (opts.json)
+        return print({ gate: ctx.store.snapshot.gates[gateId] ?? closed, ...delivered });
+      console.log(`${gateId}를 ${closed.decision === 'approved' ? '승인' : '거절'}했어요`);
+      if (delivered.deferred) console.log('결정은 다음 tick이 워커에 전해요');
+      for (const a of delivered.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
+      for (const e of delivered.errors) console.log(`오류: ${e}`);
+    } finally {
+      lock.release();
     }
-    const closed = resolveGate(
-      ctx.store,
-      gateId,
-      opts.approve ? 'approved' : 'rejected',
-      opts.answer,
-    );
-    const delivered = await deliverGateDecision(ctx.store, closed, launchersFor(ctx, process.env), {
-      defer: opts.deferDelivery === true,
-    });
-    if (opts.json) return print({ gate: ctx.store.snapshot.gates[gateId] ?? closed, ...delivered });
-    console.log(`${gateId}를 ${closed.decision === 'approved' ? '승인' : '거절'}했어요`);
-    if (delivered.deferred) console.log('결정은 다음 tick이 워커에 전해요');
-    for (const a of delivered.hostActions) console.log(`할 일: ${JSON.stringify(a)}`);
-    for (const e of delivered.errors) console.log(`오류: ${e}`);
   } catch (e) {
     exitWithError(e);
   }
@@ -1330,8 +1356,14 @@ export async function conductorOrderTakeOverCommand(
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'order take-over');
-    const r = await takeOver(ctx.store, id, launchersFor(ctx, process.env).launchers);
-    printOwnership(opts, r, `${id}를 사람이 넘겨받았어요. tick이 PR 머지를 지켜봐요`);
+    const lock = acquireDecisionLock(ctx);
+    try {
+      ctx.store.reload();
+      const r = await takeOver(ctx.store, id, launchersFor(ctx, process.env).launchers);
+      printOwnership(opts, r, `${id}를 사람이 넘겨받았어요. tick이 PR 머지를 지켜봐요`);
+    } finally {
+      lock.release();
+    }
   } catch (e) {
     exitWithError(e);
   }
@@ -1348,9 +1380,15 @@ export async function conductorOrderCancelCommand(
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'order cancel');
-    const reason = opts.reason ? oneLine(opts.reason, 300) : undefined;
-    const r = await cancelOrder(ctx.store, id, launchersFor(ctx, process.env).launchers, reason);
-    printOwnership(opts, r, `${id}를 취소했어요`);
+    const lock = acquireDecisionLock(ctx);
+    try {
+      ctx.store.reload();
+      const reason = opts.reason ? oneLine(opts.reason, 300) : undefined;
+      const r = await cancelOrder(ctx.store, id, launchersFor(ctx, process.env).launchers, reason);
+      printOwnership(opts, r, `${id}를 취소했어요`);
+    } finally {
+      lock.release();
+    }
   } catch (e) {
     exitWithError(e);
   }
@@ -1629,6 +1667,138 @@ export async function conductorBotReleaseCommand(
     changeBotOwner(ctx.store.dir, opts.fromChat);
     if (opts.json) return print({ released: opts.fromChat });
     console.log('봇의 운영권을 종료했어요');
+  } catch (error) {
+    exitWithError(error);
+  }
+}
+
+function acquireDecisionLock(ctx: Ctx) {
+  const lock = acquireLock(ctx.store.dir);
+  if (!lock.ok)
+    throw new Error('컨덕터가 상태를 갱신 중이에요. 잠시 뒤 게이트를 다시 확인해 주세요');
+  return lock;
+}
+
+async function closeAndDeliver(
+  ctx: Ctx,
+  gateId: string,
+  decision: 'approved' | 'rejected',
+  options: { defer: boolean; answer?: string; signer?: string },
+) {
+  const { store } = ctx;
+  const closed = resolveGate(store, gateId, decision, options.answer, {
+    deliveryPending: options.defer,
+    ...(options.signer ? { decisionBy: options.signer } : {}),
+  });
+  const delivered = await deliverGateDecision(store, closed, launchersFor(ctx, process.env), {
+    defer: options.defer,
+  });
+  if (delivered.outcome) recordGateDelivery(store, gateId, delivered.outcome);
+  return { closed, delivered };
+}
+
+async function requireBotOperator(ctx: Ctx): Promise<BotOwner> {
+  assertConductorSession(ctx, 'bot 게이트');
+  const caller = await currentBotOwner();
+  if (!caller) throw new Error('Orca 운영 봇 채팅에서 실행해 주세요');
+  assertBotOwner(ctx.store.dir, caller);
+  return caller;
+}
+
+function botDecisionStatus(gate: Gate) {
+  return {
+    gateId: gate.id,
+    decision: gate.decision ?? 'open',
+    ...(gate.decisionBy ? { signer: gate.decisionBy } : {}),
+    delivery: gate.deliveryPending ? 'pending' : (gate.deliveryOutcome ?? 'unknown'),
+    ...(gate.deliveryAttempts ? { failedAttempts: gate.deliveryAttempts } : {}),
+  };
+}
+
+export async function conductorBotGateCommand(
+  gateId: string,
+  opts: ConductorCommonOptions,
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    await requireBotOperator(ctx);
+    const { gate, order, ref, url } = matchMergeGate(ctx.store, gateId);
+    const base = {
+      ...botDecisionStatus(gate),
+      repo: order.repo,
+      title: order.title,
+      pr: url,
+      request: '머지 승인 또는 거절',
+      reason: gate.reason,
+    };
+    if (gate.status === 'resolved') return print(base);
+    const evidence = await readMergeEvidence(ref, new GhAccounts(ctx.config.accounts));
+    print({
+      ...base,
+      evidence,
+      messages: {
+        approved: approvalMessage(gate, ref, evidence.head, 'approved'),
+        rejected: approvalMessage(gate, ref, evidence.head, 'rejected'),
+      },
+    });
+  } catch (error) {
+    exitWithError(error);
+  }
+}
+
+export async function conductorBotDecideCommand(
+  gateId: string,
+  opts: ConductorCommonOptions & { decision: string; signer: string; signature: string },
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    const caller = await requireBotOperator(ctx);
+    const decision = oneOf<'approved' | 'rejected'>(
+      opts.decision,
+      ['approved', 'rejected'],
+      '--decision',
+    );
+    const { gate, ref } = matchMergeGate(ctx.store, gateId);
+    const evidence =
+      gate.status === 'open'
+        ? await readMergeEvidence(ref, new GhAccounts(ctx.config.accounts))
+        : undefined;
+    const lock = acquireLock(ctx.store.dir);
+    if (!lock.ok)
+      throw new Error('컨덕터가 상태를 갱신 중이에요. 잠시 뒤 게이트를 다시 확인해 주세요');
+    try {
+      assertBotOwner(ctx.store.dir, caller);
+      ctx.store.reload();
+      const current = matchMergeGate(ctx.store, gateId);
+      if (current.gate.status === 'resolved')
+        return print({ ...botDecisionStatus(current.gate), alreadyResolved: true });
+      if (!evidence || current.ref !== ref)
+        throw new Error('게이트나 PR이 바뀌었어요. 다시 확인해 주세요');
+      if (decision === 'approved' && (evidence.state !== 'OPEN' || evidence.draft))
+        throw new Error('리뷰 준비가 끝난 열린 PR만 머지 승인할 수 있어요');
+      verifyMergeApproval(
+        readBotPolicy(ctx.store.dir),
+        current.order.repo,
+        opts.signer,
+        approvalMessage(current.gate, ref, evidence.head, decision),
+        opts.signature,
+      );
+      const result = await closeAndDeliver(ctx, gateId, decision, {
+        defer: true,
+        signer: opts.signer,
+        ...(decision === 'approved'
+          ? {
+              answer: `승인된 PR HEAD는 ${evidence.head}입니다. 머지는 반드시 --match-head-commit ${evidence.head}로 제한하세요. HEAD가 바뀌면 새 승인을 요청하세요.`,
+            }
+          : {}),
+      });
+      print({
+        ...botDecisionStatus(ctx.store.snapshot.gates[gateId] ?? result.closed),
+        errors: result.delivered.errors,
+      });
+    } finally {
+      lock.release();
+    }
   } catch (error) {
     exitWithError(error);
   }
