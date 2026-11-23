@@ -88,11 +88,11 @@ archive/YYYY-MM/
 | `bypass`, `jira-transition`  | `record.orderId`                                           |
 | `tick`, `tail-repaired`      | 주문에 안 붙는다. `base.json`에 누적 값만 남고 줄은 버린다 |
 
-주문에 안 붙는 게이트(`review-manual-switch` 같은 컨덕터 게이트)는 끝나고 같은 기간이 지나면 버린다. `report` 없이 이름만 있는 옛 `report-applied`도 주문에 안 붙는다. 이 줄은 `appliedReports`에만 쓰이고 그건 `base.json`에 남는다.
+주문에 안 붙는 컨덕터 게이트는 끝나고 같은 기간이 지나면 버린다. `sourceRef`가 있거나 승인 뒤 할 일(슬랙 게시, 워커 정리 반영)이 남은 게이트는 둔다. 옮긴 주문에 늦게 붙는 줄은 모으지 않고 버린다. `report` 없이 이름만 있는 옛 `report-applied`도 주문에 안 붙는다. 이 줄은 `appliedReports`에만 쓰이고 그건 `base.json`에 남는다.
 
 ### 중복 판정
 
-지라 소스와 PR 감시는 `sourceRef`로 이미 받은 주문인지 본다. 지운 주문은 `removedOrders`가 막는다. 보관한 주문은 `archivedOrders`(`sourceRef`, `parentOrderId`, `archivedAt`, parked 주문이면 사람에게 넘긴 PR `humanPr`)가 같은 일을 한다. `removedAtOf`가 두 곳을 같이 본다. 하위 주문 상한(`MAX_SPAWN_PER_ORDER`)도 `parentOrderId`로 보관한 하위 주문을 센다.
+지라 소스와 PR 감시는 `sourceRef`로 이미 받은 주문인지 본다. 지운 주문은 `removedOrders`가 막는다. 보관한 주문은 `archivedOrders`(`sourceRef`, `parentOrderId`, `archivedAt`, parked 주문이면 사람에게 넘긴 PR `humanPr`)가 같은 일을 한다. 접수와 `hasSourceRef`가 `removedAtOf`와 `archivedAtOf`를 둘 다 본다. 하위 주문 상한(`MAX_SPAWN_PER_ORDER`)도 `parentOrderId`로 보관한 하위 주문을 센다.
 
 `archivedOrders`도 늘기만 한다. 한 줄이 100바이트쯤이라 1년에 주문 1.5만 개가 쌓여도 1.5MB라 지금은 그대로 둔다.
 
@@ -113,9 +113,9 @@ archive/YYYY-MM/
 2. **상태별로 어떻게 다룰까.**
    - `parked`(사람이 넘겨받은 뒤 오래 안 움직인 주문): PR이 아직 열려 있을 수 있다. (보관하되 `archivedOrders`에 `humanPr`를 남겨 PR 감시가 그 PR로 주문을 새로 만들지 않게 한다. 보관 대상에서 빼는 안도 있었지만 이 안으로 정했다)
    - `human-owned`: 끝 상태가 아니라 대상이 아니다.
-   - 열린 gate가 남은 채 끝난 주문: (옮기지 않는다. 사람이 gate를 처리하거나 `order remove`처럼 거절하고 tick 보고에 경고로 남긴다)
+   - 열린 gate가 남은 채 끝난 주문: (옮기지 않는다. 사람이 gate를 처리하거나 `order remove`처럼 거절한다. 지금은 보관 결과의 `blocked`에 이유가 나오고 tick 보고에 싣는 일은 3단계다)
    - 멈춘 워커가 남은 주문: (옮기지 않는다. `order remove`와 같은 이유다)
-   - `order remove`로 지운 주문: 이벤트가 로그에 남아 있다. (지운 시각 기준 같은 기간 뒤 이벤트를 보관소로 옮기고 `removedOrders` 기록은 그대로 둔다)
+   - `order remove`로 지운 주문: 이벤트가 로그에 남아 있다. (지운 시각 기준 같은 기간 뒤 이벤트를 보관소로 옮기고 `removedOrders` 기록은 그대로 둔다) 구현에서는 그 기록에 옮긴 달(`archived`)을 보탰다. 모아 둔 이벤트가 없으면 달만 적고 한 번 옮긴 주문은 다시 옮기지 않는다.
 3. **보관소를 압축할까, 언제 지울까.** (주문 디렉토리는 그대로 두고 달이 끝나고 한 달 지난 `archive/YYYY-MM/`을 `.tar.gz`로 묶는다. 지우기는 자동으로 하지 않고 `gestalt conductor archive prune --before YYYY-MM`으로 사람이 부른다)
 4. **`prompts/`와 `handoffs/`.** (`prompts/`는 보관할 때 지운다. 워커 첫 지시라 결과를 읽는 데 필요 없고 주문 설명과 스킬 체인은 `order.json`에 남는다. `handoffs/`는 1번과 같은 기간이 지나면 지운다)
 5. **tick이 자동으로 돌릴까.** (하루 한 번 자동. 끄는 설정 `archive.enabled`를 둔다)
