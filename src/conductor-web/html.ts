@@ -96,6 +96,7 @@ section > h2 { font-size:16px; border-bottom:1px solid var(--line); padding-bott
 .card { border:1px solid var(--line); border-radius:8px; margin:8px 0; }
 .card > summary { padding:8px 12px; cursor:pointer; overflow-wrap:anywhere; }
 .card.focus { outline:2px solid #3b82f6; }
+.work-box:focus { outline:none; }
 .card .body { padding:4px 16px 12px; border-top:1px solid var(--line); overflow-wrap:anywhere; }
 .body pre { background:var(--code); padding:10px; border-radius:6px; overflow:auto; }
 .body code { background:var(--code); padding:0 3px; border-radius:3px; }
@@ -327,7 +328,7 @@ function showOrder(id, focus) {
     add(tabs, t1, t2);
     nodes.push(tabs);
     if (onWork) {
-      var box = el('div');
+      var box = el('div', 'work-box');
       // 다시 읽기 버튼이 지워질 때 키보드 포커스를 받을 자리다
       box.tabIndex = -1;
       box.appendChild(el('p', 'muted', '읽는 중…'));
