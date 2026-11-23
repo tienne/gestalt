@@ -27,7 +27,7 @@ Gestalt 컨덕터가 굴리는 주문과 사람 확인을 기다리는 게이트
 | `stateDir` | status JSON의 `stateDir` | status JSON에 `stateDir`을 안 싣는 CLI를 쓰면서 저장소를 기본 위치 밖에 뒀을 때만 같은 경로를 적는다 |
 | `mobilePort` | 0, 꺼짐 | 폰에서 보기 전용 페이지를 보고 싶을 때 남는 포트(예: 8792)를 적는다 |
 
-`gestaltPath`가 비었든 적혀 있든 워커는 처음 한 번 `gestalt conductor exec-path --json`으로 실제 bin 경로를 받아 두고 그 뒤로는 `node <bin>`으로 바로 부른다. 셸 런처(`~/.local/bin/gestalt`)는 부를 때마다 설치 경로를 찾고 npm exec로 bin을 다시 찾아서 2~3초가 더 들기 때문이다. 받아 둔 node나 bin 파일이 없어졌거나 설정이 바뀌었거나 Claude의 `installed_plugins.json`이 바뀌면(플러그인 업데이트) 다시 받는다. 같은 경로의 bin 내용만 바뀐 업그레이드는 부를 때마다 node가 새로 읽으니 다시 받지 않아도 반영된다. Codex 플러그인 업데이트나 Claude `settings.json`에서 플러그인을 끄고 켜는 일은 알아채지 못한다. 그래서 받아 둔 bin이 없어지거나 설정을 바꿀 때까지 이전 bin을 쓴다. 이 명령이 없는 옛 CLI면 설정한 명령을 그대로 부르고 위 조건이 생길 때까지 다시 받지 않는다. 받기가 제한 시간을 넘겼거나 런처가 안 떴으면 1분 뒤에 다시 받는다. 받아 둔 경로로 부른 프로세스가 아예 안 떴을 때만 다시 받아 한 번 더 부른다. 한 번이라도 뜬 명령이 실패하면 다시 부르지 않는다.
+`gestaltPath`가 비었든 적혀 있든 워커는 처음 한 번 `gestalt conductor exec-path --json`으로 실제 bin 경로를 받아 두고 그 뒤로는 `node <bin>`으로 바로 부른다. 셸 런처(`~/.local/bin/gestalt`)는 부를 때마다 설치 경로를 찾고 npm exec로 bin을 다시 찾아서 2~3초가 더 들기 때문이다. 받아 둔 node나 bin 파일이 없어졌거나 설정이 바뀌었거나 Claude의 `installed_plugins.json`이 바뀌면(플러그인 업데이트) 다시 받는다. 같은 경로의 bin 내용만 바뀐 업그레이드는 부를 때마다 node가 새로 읽으니 다시 받지 않아도 반영된다. Codex 플러그인 업데이트나 Claude `settings.json`에서 플러그인을 끄고 켜는 일은 알아채지 못한다. 그래서 받아 둔 bin이 없어지거나 설정을 바꿀 때까지 이전 bin을 쓴다. 이 명령이 없는 옛 CLI면 설정한 명령을 그대로 부르고 위 조건이 생길 때까지 다시 받지 않는다. 그 밖의 이유로 받기에 실패하면 1분 뒤에 다시 받는다. 받아 둔 경로로 부른 프로세스가 아예 안 떴을 때만 다시 받아 한 번 더 부른다. 한 번이라도 뜬 명령이 실패하면 다시 부르지 않는다.
 
 status JSON에 `stateDir`과 `workerKind`, `worktreeName`을 안 싣는 CLI는 저장소 경로와 워커 워크트리를 알려 주지 않는다. 그때는 저장소가 기본 위치 밖이면 `stateDir` 설정으로 알려 줘야 하고 주문을 눌러 워크트리로 이동할 수도 없다.
 

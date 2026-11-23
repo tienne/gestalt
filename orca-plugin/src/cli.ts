@@ -57,7 +57,7 @@ const entry = (inv: Invocation): string => inv.prefix.at(-1)!
 
 // exec-path가 실제로 내는 env 키만 받는다. NODE_OPTIONS 같은 키가 섞여 와도 이후 모든 호출에 실리지 않게 한다
 const ENV_KEYS = new Set(['TSX_TSCONFIG_PATH'])
-// 런처가 제한 시간을 넘기거나 안 뜬 건 부하 탓일 수 있어서 이만큼 지나면 다시 찾는다
+// 옛 CLI가 아닌 실패는 부하나 일시 오류일 수 있어서 이만큼 지나면 다시 찾는다
 const RETRY_AFTER_MS = 60_000
 
 /**
@@ -68,7 +68,7 @@ const RETRY_AFTER_MS = 60_000
  * 호출마다 node가 새로 읽으니 따로 찾지 않아도 된다. Codex 플러그인 업데이트나 settings.json에서
  * 플러그인을 끄고 켜는 일은 이 신호로 못 잡는다. 그때는 받아 둔 bin이 없어지거나 설정을 바꿀 때까지 이전 bin을 쓴다.
  * 옛 CLI라 명령이 없으면 설정한 명령을 그대로 쓰고 위 신호가 올 때까지 다시 찾지 않는다.
- * 제한 시간을 넘겼거나 런처가 안 떴으면 RETRY_AFTER_MS 뒤에 다시 찾는다
+ * 그 밖의 이유로 찾기에 실패하면 RETRY_AFTER_MS 뒤에 다시 찾는다
  */
 export class CliResolver {
   private known: { command: string; stamp: string; inv: Invocation | null; retryAt: number } | null = null
@@ -129,15 +129,16 @@ export class CliResolver {
     try {
       out = await runGestalt(command, ['conductor', 'exec-path', '--json'], { cwd, timeoutMs: this.timeoutMs })
     } catch (e) {
-      // 종료 코드로 끝났으면 exec-path가 없는 옛 CLI다. 지금처럼 설정한 명령을 그대로 부른다
-      const transient = e instanceof CliError && (e.timedOut || e.notStarted)
-      return transient ? { inv: null, retryAt: this.now() + RETRY_AFTER_MS } : never
+      // exec-path를 모르는 옛 CLI면 설정한 명령을 그대로 부른다. 다른 실패는 잠시 뒤 다시 찾는다
+      const oldCli = e instanceof CliError && e.message.includes("unknown command 'exec-path'")
+      return oldCli ? never : { inv: null, retryAt: this.now() + RETRY_AFTER_MS }
     }
     try {
       const parsed = JSON.parse(out) as { node?: unknown; args?: unknown; env?: unknown }
       const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string')
       if (typeof parsed.node !== 'string' || !strings(parsed.args) || parsed.args.length === 0) return never
-      if (!isAbsolute(parsed.node) || !existsSync(parsed.node) || !existsSync(parsed.args.at(-1)!)) return never
+      const bin = parsed.args.at(-1)!
+      if (![parsed.node, bin].every((f) => isAbsolute(f) && existsSync(f))) return never
       const env: Record<string, string> = {}
       if (parsed.env && typeof parsed.env === 'object')
         for (const [k, v] of Object.entries(parsed.env)) if (ENV_KEYS.has(k) && typeof v === 'string') env[k] = v

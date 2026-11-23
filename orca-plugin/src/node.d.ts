@@ -60,6 +60,7 @@ declare module 'node:path' {
   export function basename(path: string): string
   export function resolve(...parts: string[]): string
   export function isAbsolute(path: string): boolean
+  export function relative(from: string, to: string): string
 }
 
 declare module 'node:os' {
@@ -67,7 +68,7 @@ declare module 'node:os' {
   export function tmpdir(): string
 }
 
-declare const process: { env: Record<string, string | undefined>; execPath: string }
+declare const process: { env: Record<string, string | undefined>; execPath: string; cwd(): string }
 
 declare module 'node:http' {
   export type IncomingMessage = {

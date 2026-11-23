@@ -13,6 +13,10 @@ if (args[0] === 'conductor' && args[1] === 'exec-path') {
   if (existsSync(cwdLog)) appendFileSync(cwdLog, JSON.stringify({ args, cwd: process.cwd(), via }) + '\n')
   // 부하로 런처가 제한 시간을 넘기는 경우를 흉내 낸다
   if (existsSync(join(process.cwd(), 'fake-exec-path-slow'))) await new Promise((r) => setTimeout(r, 5_000))
+  if (existsSync(join(process.cwd(), 'fake-exec-path-fail'))) {
+    process.stderr.write('error: launcher failed\n')
+    process.exit(1)
+  }
   const answer = join(process.cwd(), 'fake-exec-path.json')
   if (!existsSync(answer)) {
     process.stderr.write("error: unknown command 'exec-path'\n")

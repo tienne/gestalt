@@ -2,7 +2,7 @@
 import { assert, test } from 'orca/testing'
 import { mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { CliError, CliResolver } from './cli'
 
 const FAKE = decodeURIComponent(new URL('../test/fake-gestalt.mjs', import.meta.url).pathname)
@@ -138,7 +138,25 @@ test('찾기가 제한 시간을 넘기면 잠시 뒤 다시 찾는다', () =>
     assert.equal(s.lookups(), 2)
   }))
 
-test('exec-path 답의 env는 정해 둔 키만 받고 상대 경로 node는 버린다', () =>
+test('옛 CLI가 아닌 이유로 찾기에 실패하면 잠시 뒤 다시 찾는다', () =>
+  withSetup(async (s) => {
+    writeFileSync(join(s.dir, 'fake-exec-path-fail'), '')
+    let now = 0
+    const cli = new CliResolver(
+      TIMEOUT_MS,
+      () => 'a',
+      () => now
+    )
+    assert.equal((await cli.resolve(FAKE, s.dir)).file, FAKE)
+    assert.equal((await cli.resolve(FAKE, s.dir)).file, FAKE)
+    assert.equal(s.lookups(), 1)
+    rmSync(join(s.dir, 'fake-exec-path-fail'))
+    now = 61_000
+    assert.equal((await cli.resolve(FAKE, s.dir)).file, process.execPath)
+    assert.equal(s.lookups(), 2)
+  }))
+
+test('exec-path 답의 env는 정해 둔 키만 받고 상대 경로 node나 진입 파일은 버린다', () =>
   withSetup(async (s) => {
     s.answer({
       node: process.execPath,
@@ -148,6 +166,9 @@ test('exec-path 답의 env는 정해 둔 키만 받고 상대 경로 node는 버
     const cli = new CliResolver(TIMEOUT_MS, () => 'a')
     assert.deepEqual((await cli.resolve(FAKE, s.dir)).env, { TSX_TSCONFIG_PATH: '/x' })
     s.answer({ node: 'node', args: [s.bin], env: {} })
+    cli.invalidate()
+    assert.equal((await cli.resolve(FAKE, s.dir)).file, FAKE)
+    s.answer({ node: process.execPath, args: [relative(process.cwd(), s.bin)], env: {} })
     cli.invalidate()
     assert.equal((await cli.resolve(FAKE, s.dir)).file, FAKE)
   }))
