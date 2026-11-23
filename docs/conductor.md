@@ -727,6 +727,10 @@ ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴
 
 주문에 `jiraStatus`가 있으면 사용자가 정한 값이라 기본 규칙보다 먼저다. 배포는 머지 뒤 파이프라인 성공으로 판단한다. 호스트가 결과를 확인해 `gestalt conductor deploy report`로 남기고 tick이 읽는다. 배포가 실패하면 그 주문만 사람에게 올린다. 배포가 `deployWaitMaxSec`(기본 24시간)까지 대기 중이면 지라 이동 없이 주문을 `done`으로 바꾸고 tick에 경고를 남긴다. 기한은 `mergedAt`부터 센다. 예전 주문에 이 값이 없으면 `updatedAt`부터 센다.
 
+배포 파이프라인이 자동으로 안 도는 브랜치는 "dev, stage 배포" 같은 배포 주문을 따로 넣는다. 이때 `order add --deploys <orderId...>`로 그 배포에 들어가는 주문을 같이 적어 두면 손으로 주문마다 `deploy report`를 남기지 않아도 된다. 접수할 때 대상이 있는 주문인지, 배포 주문과 같은 레포인지 확인하고 틀리면 거절한다. 대상은 `order show --json`과 `status --json`의 `deploys`에 보인다.
+
+배포 워커가 done으로 보고하면 다음 tick이 대상 주문마다 `deploy report --status success`와 같은 신호 파일을 `deploy/`에 쓴다. ref는 워커가 `worker report --deploy-ref <url>`로 실은 배포 실행 주소이고 없으면 배포 주문 id다. 신호를 쓴 뒤에는 같은 tick의 머지 뒤 정산이 평소처럼 지라를 In-QA로 옮기고 주문을 `done`으로 끝낸다. 대상이 이미 `done`이거나 배포를 안 기다리는 유형이면 건너뛰고 tick 결과의 `deployTargets`에 남긴다. 호스트가 이미 배포 실패 신호를 남긴 대상도 성공으로 덮지 않고 건너뛴다. 머지되지 않은 대상은 이 배포에 안 들어간 것이라 기록하지 않고 warnings에 남긴다. 이 배포 주문으로는 그 대상을 다시 안 보므로, 나중에 머지돼 배포됐으면 다음 배포 주문의 `--deploys`에 넣거나 `deploy report`로 남긴다. 배포 주문당 한 번만 돌고 그 시각을 `deploysRecordedAt`에 남긴다. 배포 워커가 실패하거나 주문이 취소되면 대상에는 아무것도 남기지 않고 `deployWaitMaxSec` 기한도 그대로 흐른다.
+
 ## PR 감시
 
 `~/.gestalt/conductor.json`의 `prWatchRepos`에 적은 레포만 열린 PR을 gh로 읽는다. 기본은 빈 배열이라 적지 않으면 감시하지 않는다. 본문은 안 싣고 누가 언제 남겼는지만 본다.

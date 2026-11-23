@@ -4,7 +4,7 @@
 import { esc } from './html'
 import { displayStatus, ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
 import type { AgentState, ConductorView, EventView, WorkerLive, WorkView } from './protocol'
-import { clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, terminalModel, waitText, type Card, type TerminalModel } from './terminal-model'
+import { canReachWorker, clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, terminalModel, waitText, workerEnded, type Card, type TerminalModel } from './terminal-model'
 
 export type TerminalMarkupOptions = {
   now: number
@@ -74,6 +74,7 @@ function copyOrderButton(orderId: string): string {
 const AGENT_STATE: Record<AgentState, string> = { working: '작업 중', blocked: '권한 대기', waiting: '입력 대기', done: '끝남' }
 
 function liveBlock(o: Card['order'], live: WorkerLive | 'loading' | undefined, now: number): string {
+  if (workerEnded(o)) return div('muted', '워커 종료')
   if (!o.workspaceId) return div('muted', '오르카 워크트리 워커가 아니라 터미널을 못 읽어요.')
   if (!live || live === 'loading') return div('muted', '워커 터미널을 읽는 중')
   if (!live.found) return div('muted', esc(live.error ?? '이 주문의 워크트리를 오르카에서 못 찾았어요.'))
@@ -200,10 +201,10 @@ function repoGroups(m: TerminalModel, v: ConductorView, opts: TerminalMarkupOpti
 function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
   const o = c.order
   const interactive = opts.interactive
-  const canOpen = interactive && Boolean(o.workspaceId)
+  const canOpen = interactive && canReachWorker(o)
   const pct = c.progress === null ? null : Math.round(c.progress * 100)
   const attrs = interactive
-    ? ` data-order="${esc(o.id)}" data-focus="${esc(`card:${o.id}`)}" tabindex="0" role="group" aria-label="${esc(`${o.id} ${o.title}`)}"${
+    ? ` data-order="${esc(o.id)}" data-focus="${esc(`card:${o.id}`)}" tabindex="0" role="group" aria-label="${esc(`${o.id} ${o.title}${workerEnded(o) ? ' · 워커 종료' : ''}`)}"${
         canOpen ? ' data-open aria-keyshortcuts="Enter" title="두 번 누르거나 Enter를 누르면 워커 터미널로 가요"' : ''
       }`
     : ''
