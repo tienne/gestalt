@@ -19,15 +19,22 @@ import {
   type ResultFilters,
 } from '../conductor/results.js';
 import { storeStamp } from '../conductor/store.js';
+import { orderWork, type WorkReaderCache } from '../conductor/work-log.js';
 import { ORDER_STATUSES } from '../conductor/types.js';
 import { renderBrowsePage } from './html.js';
 
 const ORDER_PATH = /^\/api\/orders\/([^/]+)$/;
 const REF_PATH = /^\/api\/orders\/([^/]+)\/refs\/(\d{1,4})$/;
+const WORK_PATH = /^\/api\/orders\/([^/]+)\/work$/;
 /** 웹 검색 결과 상한. 화면이 한 번에 그릴 만큼만 보낸다 */
 const SEARCH_LIMIT = 200;
 
 class BadRequest extends Error {}
+
+export interface WebServerOptions extends LoadOptions {
+  /** 트랜스크립트를 찾을 projects 폴더. 테스트만 넘기고 평소엔 CLAUDE_CONFIG_DIR와 ~/.claude 아래를 본다 */
+  transcriptRoots?: string[];
+}
 
 /**
  * 컨덕터 결과를 브라우저에서 읽는 HTTP 서버. 읽기 전용이고 127.0.0.1에만 붙는다.
@@ -44,6 +51,7 @@ class BadRequest extends Error {}
  *   GET /api/orders                → 주문 목록 (repo, status, since, issue, q)
  *   GET /api/orders/:id            → 주문 상세
  *   GET /api/orders/:id/refs/:i    → refs i번째 본문 (디렉토리면 ?entry=n)
+ *   GET /api/orders/:id/work       → 워커 작업 내용 (재개 회차별 tool 타임라인, assistant 글, todo, 파일)
  *   GET /api/search?q=             → 검색 (repo, status, since, issue, body=0)
  *   GET /api/unlinked              → 주문 없는 파일 목록
  *   GET /api/file?id=<키>          → 저장소 파일 본문
@@ -54,8 +62,10 @@ export class ConductorWebServer {
   private cache: { results: LoadedResults; stamp: string } | null = null;
   // 저장소가 바뀔 때마다 결과를 다시 로드해도 이미 읽은 본문은 다시 읽지 않는다
   private readonly bodies = new BodyCache();
+  private readonly readers: WorkReaderCache = new Map();
+  private readonly readerMisses = new Map<string, number>();
 
-  constructor(private readonly opts: LoadOptions) {}
+  constructor(private readonly opts: WebServerOptions) {}
 
   /** 시작 전에 저장소를 한 번 읽는다. 저장소가 없으면 여기서 던져 서버를 안 띄운다 */
   start(port: number): Promise<void> {
@@ -163,6 +173,20 @@ export class ConductorWebServer {
       const body = file ? readResultFile(results, key) : null;
       if (!file || !body) return this.notFound(res);
       return this.json(res, { ...publicFile(file), ...renderBody(file.path, body) });
+    }
+
+    const work = WORK_PATH.exec(rawPath);
+    if (work) {
+      // 트랜스크립트는 주문 id로 고른 워커의 워크트리와 시작 시각으로만 찾는다. 요청이 경로를 정하지 않는다
+      const detail = getOrderDetail(this.results(), ConductorWebServer.safeDecode(work[1]!)!);
+      if (!detail) return this.notFound(res);
+      return this.json(
+        res,
+        orderWork(this.opts.stateDir, detail.workers, this.readers, {
+          misses: this.readerMisses,
+          ...(this.opts.transcriptRoots ? { roots: this.opts.transcriptRoots } : {}),
+        }),
+      );
     }
 
     const ref = REF_PATH.exec(rawPath);

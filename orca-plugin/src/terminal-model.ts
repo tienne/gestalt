@@ -49,12 +49,36 @@ export function progressOf(o: OrderView): number | null {
   return chain.filter((s) => done.has(s)).length / chain.length
 }
 
+export type TodoLayer = { done: number; total: number } | 'unknown'
+
+/** todo 막대. 작업 내용이 없는 옛 CLI면 undefined라 스킬 체인 막대를 그린다. 시간으로 퍼센트를 짐작하지 않는다 */
+export function todoOf(o: OrderView): TodoLayer | undefined {
+  if (!o.work) return undefined
+  const t = o.work.tasks
+  return t ? { done: t.done, total: t.total } : 'unknown'
+}
+
+/** 지금 고치는 파일과 경과. 파일이 없으면 tool 이름을 쓰는데 그건 데스크톱에서만 보여 준다 */
+export function nowLine(o: OrderView, now: number, showPrivate: boolean): string | undefined {
+  const a = o.work?.activity
+  if (!a) return undefined
+  const since = duration(ms(a.at), now)
+  if (a.file) return `✎ ${a.file} · ${since}`
+  return showPrivate ? `▸ ${a.tool} · ${since}` : `▸ ${since} 전 활동`
+}
+
+/** 아직 안 끝난 서브에이전트 수. 백그라운드로 띄우고 완료 알림을 못 받은 것도 센다 */
+export function runningSubagents(o: OrderView): number {
+  return (o.work?.subagents ?? []).filter((s) => s.state !== 'done').length
+}
+
 export const GATE_LABEL: Record<string, string> = {
   merge: '머지 승인',
   'slack-post': '슬랙 게시',
   interview: '인터뷰 답',
   'review-manual-switch': '리뷰 수동 전환',
-  'no-procedure': '처리 절차 없음'
+  'no-procedure': '처리 절차 없음',
+  'file-overlap': '파일 겹침 확인'
 }
 
 /** 이벤트 유형처럼 바깥에서 온 키로 표를 찾는다. constructor 같은 이름이 Object 원형의 함수를 꺼내지 않게 제 키만 본다 */
@@ -137,6 +161,10 @@ export type Card = {
   meta: string[]
   chips: Chip[]
   progress: number | null
+  /** 작업 내용을 아는 CLI면 todo 막대가 스킬 체인 막대 자리에 들어간다 */
+  todo?: TodoLayer
+  now?: string
+  subagents: number
   state: StateLine
   next?: string
   bypass?: string
@@ -174,12 +202,17 @@ export function terminalModel(v: ConductorView, now: number, showPrivate = true)
     )
   const cards = roots.map((o): Card => {
     const last = o.bypasses.at(-1)
+    const todo = todoOf(o)
+    const line = nowLine(o, now, showPrivate)
     return {
       order: o,
       kind: o.worker ? kindKey(o.workerKind) : 'none',
       meta: metaOf(o, showPrivate),
       chips: chainChips(o),
       progress: progressOf(o),
+      ...(todo ? { todo } : {}),
+      ...(line ? { now: line } : {}),
+      subagents: runningSubagents(o),
       state: stateLine(o, v.gates, now, showPrivate),
       ...(showPrivate && o.checkpoint?.next ? { next: o.checkpoint.next } : {}),
       ...(showPrivate && last ? { bypass: last.action } : {}),

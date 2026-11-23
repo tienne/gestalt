@@ -16,6 +16,15 @@ import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
 import { log } from '../core/log.js';
 import { isAccountName } from './account-name.js';
+import {
+  fileOverlaps,
+  GATE_STALL_MESSAGE,
+  gateStalled,
+  refreshWorkerActivity,
+  type WorkerActivitySnapshot,
+} from './activity-tick.js';
+import { updateWorkerInfo } from './activity.js';
+import { saveFinishedSummaries } from './work-log.js';
 import { existingRepoContext } from './context.js';
 import { handleNeed, openOrReuse, type BypassHandlers } from './gates.js';
 import {
@@ -31,8 +40,10 @@ import {
   buildWorkerPrompt,
   chooseWorkerKind,
   ensureAccount,
+  execRunner,
   OrcaReleaseLiveError,
   type AccountSwitcher,
+  type CommandRunner,
   type HostAction,
   type LauncherSet,
   type ReleaseOptions,
@@ -97,6 +108,10 @@ export interface EngineDeps {
   bypass?: BypassHandlers;
   readShip?: ShipReader;
   env?: NodeJS.ProcessEnv;
+  /** 워크트리에서 고친 파일을 구할 때 쓰는 git 실행기. 테스트가 바꿔 끼운다 */
+  gitRunner?: CommandRunner;
+  /** 워커 트랜스크립트를 찾을 projects 폴더. 테스트가 바꿔 끼운다 */
+  transcriptRoots?: string[];
 }
 
 export interface TickReport {
@@ -307,6 +322,29 @@ async function runTick(
   const quietSinceLastTick = store.snapshot.lastTickEventCount === eventsBefore;
   await step(report, () => ingestReports(store, deps, report).then((c) => (cleared = c)));
   await step(report, () => intake(store, deps, report).then((n) => (unanswered = n)));
+  let activity = new Map<string, WorkerActivitySnapshot>();
+  await step(report, async () => {
+    activity = await refreshWorkerActivity(store.activeWorkers(), (w) => store.order(w.orderId), {
+      stateDir: store.dir,
+      runner: deps.gitRunner ?? execRunner,
+      launchers: deps.launchers,
+      now: new Date(report.at),
+      ...(deps.transcriptRoots ? { transcriptRoots: deps.transcriptRoots } : {}),
+    });
+  });
+  await step(report, () => nudgeStalledGates(store, deps, report, activity));
+  await step(report, async () => checkFileOverlaps(store, deps, report, activity));
+  await step(report, async () => {
+    saveFinishedSummaries(store.dir, store.workers(), {
+      now: report.at,
+      ...(deps.transcriptRoots ? { roots: deps.transcriptRoots } : {}),
+      nextStartOf: (w) =>
+        store
+          .workersOf(w.orderId)
+          .filter((n) => n.attempt > w.attempt)
+          .sort((a, b) => a.attempt - b.attempt)[0]?.startedAt,
+    });
+  });
   await step(report, async () => {
     const orca = deps.launchers['orca-worktree'];
     const stale = await detectStale(store, {
@@ -316,6 +354,7 @@ async function runTick(
       rateLimitEscalateAfterMs: deps.config.rateLimitEscalateAfterSec * 1000,
       ...(orca?.probe ? { probe: (w: Worker) => orca.probe!(w) } : {}),
       ...(orca?.peek ? { peek: (w: Worker) => orca.peek!(w) } : {}),
+      activityAt: (w: Worker) => activity.get(w.id)?.lastEventAt,
     });
     report.warnings.push(...stale.warnings);
     report.escalated.push(...stale.escalated.map((g) => g.id));
@@ -363,6 +402,89 @@ async function runTick(
     idleTicks: store.snapshot.idleTicks ?? 0,
     counts: counts(store, unanswered),
   };
+}
+
+/**
+ * 같은 레포 워커끼리 고친 파일이 겹치면 경고를 남기고 워커 작업 내용에 겹친 파일을 적는다.
+ * 겹친 파일이 overlapGateFiles를 넘으면 뒤에 뜬 주문에 게이트를 연다. 상대 주문마다 한 번만 열고
+ * 열린 게이트가 있으면 답을 받은 뒤 다음 상대를 묻는다
+ */
+function checkFileOverlaps(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+  activity: Map<string, WorkerActivitySnapshot>,
+): void {
+  const workers = store.activeWorkers().filter((w) => activity.has(w.id));
+  const overlaps = fileOverlaps(
+    workers,
+    (w) => store.order(w.orderId)?.repo,
+    (w) => activity.get(w.id)?.info.changedFiles,
+  );
+  const byWorker = new Map<string, { orderId: string; files: string[] }[]>();
+  const note = (w: Worker, orderId: string, files: string[]) =>
+    byWorker.set(w.id, [...(byWorker.get(w.id) ?? []), { orderId, files }]);
+  const limit = deps.config.overlapGateFiles ?? 5;
+  // 게이트 기록은 문턱을 넘는 겹침이 있을 때만 훑는다. 겹침이 없는 tick이 대부분이라서다
+  let history: ReturnType<typeof overlapGateHistory> | undefined;
+  for (const { first, later, files } of overlaps) {
+    note(first, later.orderId, files);
+    note(later, first.orderId, files);
+    report.warnings.push(
+      `${first.orderId}와 ${later.orderId}가 같은 파일 ${files.length}개를 고치고 있어요`,
+    );
+    if (files.length <= limit) continue;
+    const key = `${later.orderId}\0${first.orderId}`;
+    // openOrReuse는 같은 주문의 열린 게이트를 재사용하며 payload를 안 바꿔서 상대가 둘이면 이력이 한쪽만 남는다
+    history ??= overlapGateHistory(store);
+    const { asked, waiting } = history;
+    if (asked.has(key) || waiting.has(later.orderId)) continue;
+    openOrReuse(store, {
+      orderId: later.orderId,
+      type: 'file-overlap',
+      reason: `${first.orderId}와 같은 파일 ${files.length}개를 고치고 있어요(기준 ${limit}개). 이어서 할지 정해 주세요`,
+      refs: files.slice(0, 20),
+      payload: { overlapWith: first.orderId },
+    });
+    asked.add(key);
+    waiting.add(later.orderId);
+  }
+  for (const w of workers) {
+    const next = byWorker.get(w.id) ?? [];
+    const prev = activity.get(w.id)!.info.overlaps ?? [];
+    if (JSON.stringify(prev) !== JSON.stringify(next))
+      updateWorkerInfo(store.dir, w.id, { overlaps: next });
+  }
+}
+
+/** 재개로 워커 id가 바뀌어도 사람이 한 번 답한 상대로 다시 묻지 않게 주문의 게이트 이력으로 본다 */
+function overlapGateHistory(store: ConductorStore): { asked: Set<string>; waiting: Set<string> } {
+  const asked = new Set<string>();
+  const waiting = new Set<string>();
+  for (const g of Object.values(store.snapshot.gates)) {
+    if (g.type !== 'file-overlap' || !g.orderId) continue;
+    const other = g.payload?.['overlapWith'];
+    if (other) asked.add(`${g.orderId}\0${other}`);
+    if (g.status === 'open') waiting.add(g.orderId);
+  }
+  return { asked, waiting };
+}
+
+/** 백그라운드 gate 뒤 멈춘 워커에 포그라운드 재실행을 한 번 보낸다. 보낸 뒤엔 같은 워커에 다시 안 보낸다 */
+async function nudgeStalledGates(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+  activity: ReadonlyMap<string, WorkerActivitySnapshot>,
+): Promise<void> {
+  const now = new Date(report.at);
+  for (const w of store.activeWorkers()) {
+    if (!gateStalled(activity.get(w.id), now, (deps.config.gateStallAfterSec ?? 900) * 1000))
+      continue;
+    if ((await sendTo(deps, report, w, GATE_STALL_MESSAGE)) !== 'sent') continue;
+    updateWorkerInfo(store.dir, w.id, { gateStallNotifiedAt: report.at });
+    report.warnings.push(`${w.orderId}: 백그라운드 gate 뒤 멈춰 포그라운드 재실행을 보냈어요`);
+  }
 }
 
 /**
@@ -824,6 +946,10 @@ export function decisionMessage(gate: Gate): string {
       return `인터뷰 답${note || ': (빈 답)'}`;
     case 'review-manual-switch':
       return ok ? `사람이 확인했어요${note}. 다음 라운드로 진행하세요` : `여기서 멈추세요${note}`;
+    case 'file-overlap':
+      return ok
+        ? `다른 주문과 파일이 겹치는 걸 사람이 확인했어요${note}. 이어서 진행하세요`
+        : `다른 주문과 같은 파일을 고치고 있어 여기서 멈추세요${note}. 고친 내용은 그대로 두고 --status done으로 보고하세요`;
     default:
       return ok ? `사람이 처리했어요${note}. 이어서 진행하세요` : `중단하세요${note}`;
   }
@@ -955,6 +1081,7 @@ async function launchQueued(
         ...worker,
         handle: started.handle,
         ...(started.branch ? { branch: started.branch } : {}),
+        ...(started.sessionId ? { sessionId: started.sessionId } : {}),
         status: started.hostAction ? 'starting' : 'running',
       });
       store.updateOrder(order.id, { status: 'running', workerId: worker.id });

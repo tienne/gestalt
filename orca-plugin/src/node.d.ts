@@ -15,6 +15,21 @@ declare module 'node:child_process' {
     options: ExecFileOptions,
     callback: (error: ExecFileError | null, stdout: string, stderr: string) => void
   ): unknown
+  type Readable = { on(event: 'data', listener: (chunk: { toString(): string }) => void): unknown }
+  export type ChildProcess = {
+    readonly exitCode: number | null
+    readonly signalCode: string | null
+    readonly stdout: Readable | null
+    readonly stderr: Readable | null
+    kill(): boolean
+    once(event: 'error', listener: (error: Error) => void): ChildProcess
+    once(event: 'exit', listener: (code: number | null) => void): ChildProcess
+  }
+  export function spawn(
+    file: string,
+    args: readonly string[],
+    options: { cwd?: string; stdio?: readonly ('ignore' | 'pipe')[]; windowsHide?: boolean }
+  ): ChildProcess
 }
 
 declare module 'node:fs' {

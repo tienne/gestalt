@@ -155,3 +155,60 @@ describe('끊김 감지와 재개', () => {
     });
   });
 });
+
+describe('트랜스크립트로 본 생존 판단', () => {
+  it('마지막 활동이 staleAfter 안이면 끊김으로 안 보고 본 시각을 활동 시각으로 당긴다', async () => {
+    const c = running();
+    c.advance(400_000);
+    const activeAt = new Date(c.now().getTime() - 60_000).toISOString();
+    let probed = 0;
+    const r = await detectStale(c.store, {
+      now: c.now(),
+      staleAfterMs: 300_000,
+      activityAt: () => activeAt,
+      probe: async () => {
+        probed++;
+        return { state: 'gone' };
+      },
+    });
+    expect(r.stopped).toEqual([]);
+    expect(probed).toBe(0);
+    expect(c.store.worker('wrk-1')?.lastSeenAt).toBe(activeAt);
+  });
+
+  it('활동도 오래됐거나 못 읽었으면 지금 판단대로 끊김으로 본다', async () => {
+    for (const activityAt of [() => '2020-01-01T00:00:00.000Z', () => undefined]) {
+      const c = running();
+      c.advance(400_000);
+      const r = await detectStale(c.store, { now: c.now(), staleAfterMs: 300_000, activityAt });
+      expect(r.stopped.map((w) => w.id)).toEqual(['wrk-1']);
+      cleanupStateDirs();
+    }
+  });
+
+  it('활동 시각이 1분 넘게 앞서 있으면 믿지 않고 끊김 판단으로 넘긴다', async () => {
+    const c = running();
+    c.advance(400_000);
+    const future = new Date(c.now().getTime() + 10 * 60_000).toISOString();
+    const r = await detectStale(c.store, {
+      now: c.now(),
+      staleAfterMs: 300_000,
+      activityAt: () => future,
+    });
+    expect(r.stopped.map((w) => w.id)).toEqual(['wrk-1']);
+    expect(Date.parse(c.store.worker('wrk-1')!.lastSeenAt)).toBeLessThanOrEqual(c.now().getTime());
+  });
+
+  it('시계가 조금 앞선 활동 시각은 받되 본 시각은 지금으로 자른다', async () => {
+    const c = running();
+    c.advance(400_000);
+    const ahead = new Date(c.now().getTime() + 30_000).toISOString();
+    const r = await detectStale(c.store, {
+      now: c.now(),
+      staleAfterMs: 300_000,
+      activityAt: () => ahead,
+    });
+    expect(r.stopped).toEqual([]);
+    expect(c.store.worker('wrk-1')?.lastSeenAt).toBe(c.now().toISOString());
+  });
+});

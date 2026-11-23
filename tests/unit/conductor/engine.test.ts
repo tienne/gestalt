@@ -23,6 +23,7 @@ import {
   writeReport,
   type EngineDeps,
 } from '../../../src/conductor/engine.js';
+import { readWorkerInfo } from '../../../src/conductor/activity.js';
 import { resolveGate } from '../../../src/conductor/gates.js';
 import { saveSkillCheckpoint } from '../../../src/conductor/resume.js';
 import type { DeploySignal, JiraClient } from '../../../src/conductor/jira.js';
@@ -1977,5 +1978,157 @@ describe('워커 에이전트와 보고 보존', () => {
     expect(stored!.refCopies).toHaveLength(1);
     expect(readFileSync(join(store.dir, stored!.refCopies![0]!.path!), 'utf-8')).toBe('# 결과');
     expect(readdirSync(join(store.dir, 'refs', o.id))).toHaveLength(1);
+  });
+});
+
+describe('백그라운드 gate 멈춤', () => {
+  it('gate를 백그라운드로 띄우고 턴을 끝낸 워커에 포그라운드 재실행을 한 번만 보낸다', async () => {
+    const { store, advance } = clockedStore();
+    const wt = resolve(tempStateDir());
+    const roots = [resolve(tempStateDir(), 'projects')];
+    const dir = join(roots[0]!, wt.replace(/[^A-Za-z0-9-]/g, '-'));
+    mkdirSync(dir, { recursive: true });
+    const rows = [
+      {
+        type: 'user',
+        timestamp: '2026-11-01T00:00:01.000Z',
+        message: { role: 'user', content: '시작' },
+      },
+      {
+        type: 'assistant',
+        timestamp: '2026-11-01T00:00:02.000Z',
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 'g1',
+              name: 'Bash',
+              input: { command: 'pnpm gate', run_in_background: true },
+            },
+          ],
+        },
+      },
+      {
+        type: 'assistant',
+        timestamp: '2026-11-01T00:00:03.000Z',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: '기다려요' }],
+          stop_reason: 'end_turn',
+        },
+      },
+    ];
+    writeFileSync(join(dir, 's.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+    store.addOrder(order({ id: 'ord-g', status: 'running', workerId: 'wrk-g' }));
+    store.startWorker(
+      worker('ord-g', {
+        id: 'wrk-g',
+        kind: 'git-worktree',
+        handle: wt,
+        startedAt: '2026-11-01T00:00:00.000Z',
+        lastSeenAt: '2026-11-01T00:00:00.000Z',
+      }),
+    );
+    const noGit: CommandRunner = async () => ({ code: 1, stdout: '', stderr: '' });
+    const { deps: d, git } = deps({ transcriptRoots: roots, gitRunner: noGit });
+    advance(10 * 60_000);
+    await tick(store, d, { force: true });
+    expect(git.sent).toHaveLength(0);
+    advance(10 * 60_000);
+    await tick(store, d, { force: true });
+    advance(60_000);
+    await tick(store, d, { force: true });
+    expect(git.sent.filter((s) => s.message.includes('포그라운드'))).toHaveLength(1);
+  });
+});
+
+describe('파일 겹침', () => {
+  function overlapSetup(...lists: string[][]) {
+    const { store, advance } = clockedStore();
+    const files: Record<string, string[]> = {};
+    const runner: CommandRunner = async (_cmd, args, opts) => {
+      if (args[0] === 'merge-base') return { code: 0, stdout: 'abcdef1\n', stderr: '' };
+      if (args[0] === 'diff')
+        return { code: 0, stdout: (files[opts?.cwd ?? ''] ?? []).join('\n'), stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    for (const [i, list] of lists.entries()) {
+      const id = String.fromCharCode(97 + i);
+      const handle = resolve(tempStateDir());
+      files[handle] = list;
+      const at = new Date(Date.parse('2026-11-01T00:00:00.000Z') + i * 300_000).toISOString();
+      store.addOrder(order({ id: `ord-${id}`, status: 'running', workerId: `wrk-${id}` }));
+      store.startWorker(
+        worker(`ord-${id}`, {
+          id: `wrk-${id}`,
+          kind: 'git-worktree',
+          handle,
+          startedAt: at,
+          lastSeenAt: at,
+        }),
+      );
+    }
+    const { deps: d } = deps({ gitRunner: runner, transcriptRoots: [] });
+    return { store, advance, d };
+  }
+
+  it('겹치면 경고 한 줄과 겹친 파일을 남기고 기준 이하면 게이트는 안 연다', async () => {
+    const { store, d } = overlapSetup(['a.ts', 'b.ts', 'c.ts'], ['b.ts', 'c.ts', 'd.ts']);
+    const r = await tick(store, d, { force: true });
+    expect(r.warnings.filter((w) => w.includes('같은 파일'))).toEqual([
+      'ord-a와 ord-b가 같은 파일 2개를 고치고 있어요',
+    ]);
+    expect(store.openGates()).toHaveLength(0);
+    expect(readWorkerInfo(store.dir, 'wrk-b').overlaps).toEqual([
+      { orderId: 'ord-a', files: ['b.ts', 'c.ts'] },
+    ]);
+  });
+
+  it('기준을 넘으면 뒤에 뜬 주문에 게이트를 한 번만 연다', async () => {
+    const many = ['1', '2', '3', '4', '5', '6'].map((n) => `f${n}.ts`);
+    const { store, d } = overlapSetup(many, many);
+    await tick(store, d, { force: true });
+    const gates = store.openGates();
+    expect(gates.map((g) => [g.orderId, g.type])).toEqual([['ord-b', 'file-overlap']]);
+    expect(store.order('ord-b')!.status).toBe('waiting-gate');
+    resolveGate(store, gates[0]!.id, 'approved');
+    await tick(store, d, { force: true });
+    expect(store.openGates()).toHaveLength(0);
+  });
+
+  it('앞 주문 둘과 겹치면 한 상대씩 묻고 답을 받은 뒤 다음 상대를 묻는다', async () => {
+    const many = ['1', '2', '3', '4', '5', '6'].map((n) => `f${n}.ts`);
+    const { store, d } = overlapSetup(many, many, many);
+    await tick(store, d, { force: true });
+    const first = store.openGates('ord-c');
+    expect(first).toHaveLength(1);
+    const partner = first[0]!.payload?.['overlapWith'];
+    const reason = first[0]!.reason;
+    await tick(store, d, { force: true });
+    expect(store.openGates('ord-c').map((g) => [g.payload?.['overlapWith'], g.reason])).toEqual([
+      [partner, reason],
+    ]);
+    resolveGate(store, first[0]!.id, 'approved');
+    await tick(store, d, { force: true });
+    const second = store.openGates('ord-c');
+    expect(second).toHaveLength(1);
+    expect(second[0]!.payload?.['overlapWith']).not.toBe(partner);
+    resolveGate(store, second[0]!.id, 'approved');
+    await tick(store, d, { force: true });
+    expect(store.openGates('ord-c')).toHaveLength(0);
+  });
+
+  it('뒤 주문 워커가 재개돼 id가 바뀌어도 같은 상대로 게이트를 다시 열지 않는다', async () => {
+    const many = ['1', '2', '3', '4', '5', '6'].map((n) => `f${n}.ts`);
+    const { store, d } = overlapSetup(many, many);
+    await tick(store, d, { force: true });
+    resolveGate(store, store.openGates()[0]!.id, 'approved');
+    const prev = store.worker('wrk-b')!;
+    store.updateWorker('wrk-b', { status: 'stopped' });
+    store.startWorker({ ...prev, id: 'wrk-b2', attempt: prev.attempt + 1 });
+    store.updateOrder('ord-b', { status: 'running', workerId: 'wrk-b2' });
+    await tick(store, d, { force: true });
+    expect(store.openGates()).toHaveLength(0);
   });
 });

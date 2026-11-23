@@ -77,6 +77,8 @@ interface GestaltConfig {
     staleAfterSec: number; // 소식이 이만큼(초) 없으면 끊긴 워커로 본다, 기본 1800
     rateLimitEscalateAfterSec: number; // 오르카 워커가 세션 한도에 걸린 채 이만큼(초) 지나면 사람에게 올린다, 기본 21600
     waitingEscalateAfterSec: number; // 대기를 알린 워커가 이만큼(초) 넘게 기다리면 사람에게 올린다, 기본 21600
+    gateStallAfterSec: number; // 백그라운드 gate 뒤 턴을 끝낸 워커에 이만큼(초) 지나면 포그라운드 재실행을 알린다, 기본 900
+    overlapGateFiles: number; // 같은 레포 워커끼리 겹친 파일이 이 개수를 넘으면 뒤에 뜬 주문에 게이트를 연다, 기본 5
     deployWaitMaxSec: number; // 머지 뒤 배포 신호를 기다리는 상한(초), 기본 86400
     orcaReleaseRetryMaxSec: number; // 살아 있는 오르카 워커의 release 재시도 상한(초), 기본 7200
     defaultScope: 'merge-through' | 'approval' | 'interview-first'; // 기본 approval
@@ -281,6 +283,8 @@ Desktop/IDE의 이름은 캡처하지 않았다.
     "staleAfterSec": 1800,
     "rateLimitEscalateAfterSec": 21600,
     "waitingEscalateAfterSec": 21600,
+    "gateStallAfterSec": 900,
+    "overlapGateFiles": 5,
     "resultMaxChars": 2000,
     "humanOwnedPollSec": 900,
     "humanOwnedParkAfterSec": 86400,
@@ -320,6 +324,8 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 - `staleAfterSec`(기본 1800초) 동안 보고도 체크포인트도 없는 워커는 끊긴 것으로 보고 마지막 체크포인트부터 다시 띄운다. 사람 결정을 기다리는 `waiting-gate` 주문의 워커와 `--status waiting`으로 대기를 알린 워커는 이 셈에서 빠진다. CI 대기처럼 15분 넘게 걸릴 수 있는 대기는 워커가 앞뒤로 체크포인트를 남긴다. 오르카 워커는 이 시간이 지나면 터미널을 먼저 확인해서 출력 중이면 그대로 두고 세션 한도 표시가 보이면 재개하지 않는다
 - `rateLimitEscalateAfterSec`(기본 21600초, 600~604800)는 세션 한도에 걸린 오르카 워커를 기다려 주는 상한이다. 넘으면 게이트로 사람에게 올린다. 자세한 흐름은 [오르카 워커의 세션 한도](./conductor.md#오르카-워커의-세션-한도)에 있다
 - `waitingEscalateAfterSec`(기본 21600초, 600~604800)는 `--status waiting`으로 대기를 알린 워커를 기다려 주는 상한이다. 넘거나 워커가 적은 기한이 지나고 `staleAfterSec`만큼 더 소식이 없으면 게이트로 사람에게 올린다
+- `gateStallAfterSec`(기본 900초, 60~86400)는 워커가 gate를 백그라운드로 띄우고 턴을 끝낸 채 멈춰 있을 때 알리기까지 기다리는 시간이다. 트랜스크립트로 그 상태를 보고 넘으면 포그라운드로 다시 돌리라는 말을 워커당 한 번 보낸다
+- `overlapGateFiles`(기본 5개, 1~10000)는 같은 레포에서 도는 워커 둘이 함께 고친 파일 수의 상한이다. 겹치기만 하면 tick `warnings`에 한 줄이 남고 이 수를 넘으면 뒤에 뜬 주문에 파일 겹침 확인 게이트를 연다.
 - `deployWaitMaxSec`(기본 86400초, 양의 정수)는 머지 뒤 배포 신호를 기다리는 상한이다. `mergedAt`을 기준으로 센다. 그 값이 없는 주문은 `updatedAt`을 쓴다. 기한에 배포가 여전히 대기 중이면 지라 이동 없이 주문을 `done`으로 바꾸고 tick에 경고를 남긴다
 - `orcaReleaseRetryMaxSec`(기본 7200초, 양의 정수)는 살아 있는 오르카 워커의 release가 처음 거절된 때부터 재시도를 이어가는 상한이다. 그때까지 거절이 이어지면 게이트를 연다. 오르카가 생존 여부를 확인하지 못하면 바로 게이트를 연다
 - `humanOwnedPollSec`(기본 900초, 60~86400)는 사람이 넘겨받은 `human-owned` 주문의 PR을 tick이 gh로 다시 볼 간격이다. 주문마다 따로 센다. `humanOwnedParkAfterSec`(기본 86400초, 600~2592000)가 지나도 머지나 닫힘이 없으면 `parked`로 내리고 더 안 본다. 자세한 전이는 [주문 상태](./conductor.md#주문-상태)에 있다

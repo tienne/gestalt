@@ -1,12 +1,23 @@
 // 컨덕터 저장소를 지켜보다 바뀌면 `gestalt conductor status`를 다시 읽어 패널과 상태 표시줄에 알린다.
 // 이벤트 로그를 직접 재생하지 않는다. 저장소 꼴이 바뀌어도 CLI 하나만 따라가면 되게 하려는 것이다.
 import type { OrcaWorkerApi } from 'orca/worker'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, watch, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CliError, runGestalt } from './cli'
 import { MobileServer } from './mobile-server'
-import type { AgentState, ConductorView, GateResolveInput, GateResolveResult, GateView, OrderRemoveResult, WorkerLive, WorkerOpenResult } from './protocol'
+import type {
+  AgentState,
+  ConductorView,
+  GateResolveInput,
+  GateResolveResult,
+  GateView,
+  OrderBrowseResult,
+  OrderRemoveResult,
+  WorkerLive,
+  WorkerOpenResult
+} from './protocol'
 import {
   diffGates,
   emptyView,
@@ -27,6 +38,13 @@ const DEBOUNCE_MS = 300
 /** 쓰기가 300ms보다 촘촘히 이어져도 이만큼 지나면 한 번은 다시 읽는다 */
 const DEBOUNCE_MAX_MS = 2000
 const RETRY_MS = 5000
+/**
+ * 워커 작업 내용은 트랜스크립트가 바뀌어도 events.jsonl이 안 바뀌어서 감시로 못 잡는다.
+ * 도는 주문이 있을 때만 이 간격으로 다시 읽는다
+ */
+const ACTIVITY_POLL_MS = 10_000
+/** 결과 뷰어가 주소를 찍을 때까지 기다리는 시간 */
+const BROWSE_START_MS = 10_000
 const STATUS_TIMEOUT_MS = 20_000
 const RESOLVE_TIMEOUT_MS = 100_000
 const MAX_ANSWER = 4000
@@ -125,6 +143,9 @@ class Conductor {
   private debounce: ReturnType<typeof setTimeout> | null = null
   private debounceSince: number | null = null
   private stopped = false
+  /** 옛 CLI가 --with-activity를 몰랐다. 워커가 다시 뜰 때까지 플래그 없이 부른다 */
+  private activityUnsupported = false
+  private activityPoll: ReturnType<typeof setTimeout> | null = null
   private readonly mobile = new MobileServer(() => this.view)
   private mobilePort = 0
 
@@ -216,11 +237,7 @@ class Conductor {
       view = emptyView('missing', cfg.stateDir, now)
     } else {
       try {
-        const out = await runGestalt(
-          cfg.command,
-          ['conductor', 'status', '--all', '--json', ...this.dirArgs(cfg)],
-          { cwd: this.cwd(cfg.stateDir || null), timeoutMs: STATUS_TIMEOUT_MS }
-        )
+        const out = await this.status(cfg)
         const raw = parseStatus(parseJsonOutput(out))
         const dir = cfg.stateDir || raw.stateDir || defaultStateDir()
         if (!existsSync(join(dir, EVENTS_FILE))) {
@@ -241,6 +258,35 @@ class Conductor {
     await this.paintStatusBar(view)
     if (view.state === 'ok') await this.notify(view.gates)
     this.arm(view.stateDir)
+    this.armActivityPoll(view)
+  }
+
+  private async status(cfg: Config): Promise<string> {
+    const run = (withActivity: boolean) =>
+      runGestalt(
+        cfg.command,
+        ['conductor', 'status', '--all', '--json', ...(withActivity ? ['--with-activity'] : []), ...this.dirArgs(cfg)],
+        { cwd: this.cwd(cfg.stateDir || null), timeoutMs: STATUS_TIMEOUT_MS }
+      )
+    if (this.activityUnsupported) return run(false)
+    try {
+      return await run(true)
+    } catch (e) {
+      if (!/unknown option.*--with-activity/.test(message(e))) throw e
+      this.activityUnsupported = true
+      return run(false)
+    }
+  }
+
+  private armActivityPoll(view: ConductorView): void {
+    if (this.activityPoll) clearTimeout(this.activityPoll)
+    this.activityPoll = null
+    if (this.stopped || this.activityUnsupported) return
+    if (!view.orders.some((o) => o.status === 'running' && o.work)) return
+    this.activityPoll = setTimeout(() => {
+      this.activityPoll = null
+      this.schedule()
+    }, ACTIVITY_POLL_MS)
   }
 
   private async workspaces(raw: RawStatus): Promise<Workspace[]> {
@@ -495,10 +541,68 @@ class Conductor {
     this.retry = null
   }
 
+  private browse: { child: ChildProcess; url: Promise<string> } | null = null
+
+  /** 결과 뷰어를 워커가 살아 있는 동안 하나만 띄워 두고 주문의 작업 내용 탭 주소를 준다 */
+  async browseUrl(orderId: unknown): Promise<OrderBrowseResult> {
+    if (typeof orderId !== 'string' || !isSafeId(orderId)) return { ok: false, error: '주문 id 꼴이 아니에요' }
+    try {
+      const base = await this.ensureBrowse(await this.config())
+      return { ok: true, url: `${base}/#order/${encodeURIComponent(orderId)}/work` }
+    } catch (e) {
+      return { ok: false, error: `결과 뷰어를 못 띄웠어요. ${message(e)}` }
+    }
+  }
+
+  private ensureBrowse(cfg: Config): Promise<string> {
+    const cur = this.browse
+    if (cur && cur.child.exitCode === null && cur.child.signalCode === null) return cur.url
+    const child = spawn(cfg.command, ['conductor', 'browse', '--no-open', '--port', '0', ...this.dirArgs(cfg)], {
+      cwd: this.cwd(cfg.stateDir || this.view?.stateDir || null),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    })
+    const url = new Promise<string>((resolve, reject) => {
+      let out = ''
+      let err = ''
+      const timer = setTimeout(() => {
+        reject(new Error(`${BROWSE_START_MS / 1000}초 안에 주소를 못 받았어요`))
+        child.kill()
+      }, BROWSE_START_MS)
+      child.stdout?.on('data', (d) => {
+        out = (out + d.toString()).slice(-4000)
+        const m = /http:\/\/127\.0\.0\.1:\d{1,5}/.exec(out)
+        if (!m) return
+        clearTimeout(timer)
+        resolve(m[0])
+      })
+      child.stderr?.on('data', (d) => {
+        err = (err + d.toString()).slice(-1000)
+      })
+      child.once('error', (e) => {
+        clearTimeout(timer)
+        reject(e)
+      })
+      child.once('exit', (code) => {
+        clearTimeout(timer)
+        if (this.browse?.child === child) this.browse = null
+        reject(new Error(err.trim() || `뷰어가 끝났어요(종료 코드 ${String(code)})`))
+      })
+    })
+    // 아무도 기다리지 않는 사이에 뷰어가 끝나도 처리 안 된 거절로 남지 않게 한다
+    url.catch(() => undefined)
+    this.browse = { child, url }
+    return url
+  }
+
   async stop(): Promise<void> {
+    this.browse?.child.kill()
+    this.browse = null
     this.stopped = true
     this.closeWatcher()
     this.clearRetry()
+    if (this.activityPoll) clearTimeout(this.activityPoll)
+    this.activityPoll = null
     if (this.debounce) clearTimeout(this.debounce)
     this.debounce = null
     this.debounceSince = null
@@ -521,6 +625,7 @@ export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('worker.open', (input) => conductor.openWorker(input.orderId))
   orca.panels.handle('worker.detail', (input) => conductor.workerDetail(input.orderId))
   orca.panels.handle('order.remove', (input) => conductor.removeOrders(input.orderIds))
+  orca.panels.handle('order.browse', (input) => conductor.browseUrl(input.orderId))
   orca.commands.register('conductor.refresh', async () => {
     await conductor.refresh()
     const view = await conductor.current()

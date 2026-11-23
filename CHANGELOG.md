@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.154.0] - 2026-11-23
+
+### Added
+
+- **컨덕터가 워커의 Claude Code 트랜스크립트를 끝에서부터 이어 읽어 지금 하는 일을 봐요(#159).** 지금까지는 체크포인트와 보고 요약, 터미널 마지막 줄만 봐서 워커가 보고하기 전에는 무엇을 하는지 몰랐어요.
+  - tick이 워커마다 지금 tool과 고친 파일, todo, 서브에이전트, 최근 tool을 `activity/`에 저장해요. 디렉토리는 0700, 파일은 0600이에요.
+  - `status --json --with-activity`를 붙이면 주문마다 이 값을 더 실어요. 플래그 없는 `status`와 tick 출력에는 안 실려서 컨덕터 세션 토큰은 그대로예요.
+  - `browse`에 재개 회차별 "작업 내용" 탭을 붙였어요. tool 타임라인과 assistant 글을 시간순으로 섞어 보여 주고 도는 워커가 있으면 5초마다 이어 읽어요. 끝난 워커는 `activity/<워커 id>.summary.json`에 남긴 타임라인 요약으로 그려요.
+- **오르카 플러그인의 컨덕터 터미널 카드와 데스크톱 상세가 작업 내용을 그려요.** 카드에는 지금 tool과 고친 파일 수, todo 진행, 서브에이전트 수를 그리고 데스크톱 상세의 "전체 보기"는 `browse`의 작업 내용 탭을 열어요. 플래그를 모르는 옛 CLI면 작업 내용 칸만 비워요.
+- **같은 레포 워커끼리 고친 파일이 겹치면 tick `warnings`에 한 줄 남겨요.** 겹친 파일이 `overlapGateFiles`(기본 5개)를 넘으면 뒤에 뜬 주문에 `file-overlap` 게이트를 열어요. 승인이면 이어서 진행하고 거절이면 고친 내용을 그대로 두고 done으로 보고해요. 상대 주문이 여럿이면 하나씩 답을 받은 뒤 다음 상대를 물어요.
+- **백그라운드로 gate를 띄우고 턴을 끝낸 채 `gateStallAfterSec`(기본 900초)를 넘긴 워커에 포그라운드로 다시 돌리라는 말을 워커당 한 번 보내요.**
+
+### Changed
+
+- **끊김 판단 순서를 트랜스크립트 리더, 터미널 probe, 끊김 순으로 바꿨어요.** `staleAfterSec` 안에 리더가 활동을 봤으면 살아 있는 것으로 보고 `lastSeenAt`을 당겨요.
+- **컨덕터 스킬 4절에 `file-overlap` 확인 자리를 넣었어요(#160).** #159는 이 게이트를 문서에만 적어서 게이트가 열려도 컨덕터 세션이 무엇을 보여 주고 어떻게 물어야 하는지 몰랐어요. 2절에는 tick이 보낸 gate 재실행 알림을 컨덕터가 다시 보내지 않도록 적었어요.
+
+### 검증 범위
+
+- 작업 내용 탭은 요청이 경로를 정하지 않아요. `/api/orders/<id>/work`는 주문 id만 받고 서버가 워커 기록으로 트랜스크립트를 찾아요. tool 결과는 탭에도 요약에도 싣지 않고 어시스턴트 본문과 명령 앞부분은 비밀 값을 가린 뒤 실어요.
+- gate와 GitHub CI 네 건(Ubuntu와 macOS의 Node.js 22와 24)을 모두 통과했어요.
+
+### 남긴 것
+
+- Codex 워커는 트랜스크립트를 읽지 않아서 activity와 tasks, subagents 칸이 비어요. #159에서 일부러 범위에서 뺐어요.
+- 서브에이전트 트랜스크립트는 읽지 않고 부모 세션의 tool 호출로만 세요.
+
 ## [0.153.0] - 2026-11-23
 
 ### Added

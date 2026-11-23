@@ -29,6 +29,7 @@ import {
   type EngineDeps,
   type RateLimitedEntry,
 } from '../../conductor/engine.js';
+import { orderActivity } from '../../conductor/activity.js';
 import { existingRepoContext, repoContextPath } from '../../conductor/context.js';
 import {
   currentSessionId,
@@ -488,6 +489,8 @@ export function conductorContextPathCommand(opts: ConductorContextPathOptions): 
 export interface ConductorStatusOptions extends ConductorCommonOptions {
   /** 끝난 주문도 보여준다. bypass로 넘긴 일을 사후 보고할 때 쓴다 */
   all?: boolean;
+  /** JSON 주문마다 작업 내용(지금 tool, 고친 파일, todo, 서브에이전트)을 싣는다. 기본 출력은 그대로 둔다 */
+  withActivity?: boolean;
 }
 
 export function conductorStatusCommand(opts: ConductorStatusOptions): void {
@@ -540,6 +543,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
               ? { lastSummary: store.snapshot.reports[o.id]?.at(-1)?.summary ?? null }
               : {}),
             bypasses: bypassesOf.get(o.id) ?? [],
+            ...(opts.withActivity ? orderActivity(store.dir, o, w, { readOnly: true }) : {}),
           };
         }),
         unassignedBypasses: bypassesOf.get('') ?? [],

@@ -1178,6 +1178,10 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--all', '끝난 주문까지 보여준다 (bypass 사후 보고용)')
     .option('--json', '에이전트가 파싱할 JSON으로')
+    .option(
+      '--with-activity',
+      'JSON 주문마다 작업 내용(지금 tool, 고친 파일, todo, 서브에이전트)을 싣는다. --json과 같이 쓴다',
+    )
     .action((o) => conductorStatusCommand(o));
 
   const results = conductor
