@@ -14,6 +14,7 @@ import {
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { log } from '../core/log.js';
 import { isAccountName } from './account-name.js';
 import {
@@ -73,6 +74,7 @@ import {
 import type { ConductorConfig } from './scheduler.js';
 import { planSlots } from './scheduler.js';
 import { publishApprovedSlack, type SlackClient } from './slack.js';
+import { orderHasPendingSlack } from './slack-state.js';
 import { newId, type ConductorStore } from './store.js';
 import { CLEANUP_FAILED, CLEANUP_ORDER_STATUSES } from './worker-completion.js';
 import type {
@@ -1491,6 +1493,10 @@ async function cleanupWorkers(
       continue;
     }
     const latest = mine.at(-1);
+    if (orderHasPendingSlack(store.snapshot, w.orderId)) {
+      report.warnings.push(`${w.id} 워커 정리 보류: Slack 게시가 남아 있어요`);
+      continue;
+    }
     if (latest?.decision === 'approved') {
       if (w.kind === 'orca-worktree') {
         if (!latest.completion)
@@ -1523,11 +1529,22 @@ async function cleanupWorkers(
   }
   // release마다 외부 명령 타임아웃이 걸려 있어 차례로 기다리면 tick이 워커 수만큼 길어진다.
   // 워크트리 삭제만은 같은 레포의 git 락이 겹치지 않게 레포마다 차례로 돌린다. git 워커는 늘 워크트리를 지운다
-  const repoChains = new Map<string, Promise<void>>();
+  const repoChains = new Map<string, Promise<boolean>>();
   const results = await Promise.allSettled(
     targets.map(({ worker, opts }) => {
-      const run = async (): Promise<void> => {
+      const run = async (): Promise<boolean> => {
+        store.reload();
+        if (
+          !isDeepStrictEqual(store.worker(worker.id), worker) ||
+          orderHasPendingSlack(store.snapshot, worker.orderId)
+        ) {
+          report.warnings.push(
+            `${worker.id} 워커 정리 보류: 정리 대상이나 Slack 게시 상태가 바뀌었어요`,
+          );
+          return false;
+        }
         await deps.launchers[worker.kind]?.release(worker, opts);
+        return true;
       };
       if (!opts.removeWorktree && worker.kind !== 'git-worktree') return run();
       const repo = store.order(worker.orderId)?.repo ?? '';
@@ -1539,7 +1556,24 @@ async function cleanupWorkers(
   results.forEach((r, i) => {
     const { worker: w, opts } = targets[i]!;
     if (r.status === 'fulfilled') {
+      if (!r.value) return;
       const at = store.timestamp();
+      const saved = store.appendIfCurrent(
+        {
+          type: 'worker-updated',
+          at,
+          workerId: w.id,
+          patch: { status: 'released' },
+          ...(w.releaseRefusedAt ? { unset: ['releaseRefusedAt'] } : {}),
+        },
+        () =>
+          isDeepStrictEqual(store.worker(w.id), w) &&
+          !orderHasPendingSlack(store.snapshot, w.orderId),
+      );
+      if (!saved) {
+        report.warnings.push(`${w.id} 워커 정리 보류: 정리 중 워커나 Slack 게시 상태가 바뀌었어요`);
+        return;
+      }
       store.append({
         type: 'bypass',
         at,
@@ -1551,10 +1585,6 @@ async function cleanupWorkers(
             : `${w.kind} 워커 ${w.id}를 정리했어요`,
           at,
         },
-      });
-      store.updateWorker(w.id, {
-        status: 'released',
-        ...(w.releaseRefusedAt ? { releaseRefusedAt: undefined } : {}),
       });
       return;
     }

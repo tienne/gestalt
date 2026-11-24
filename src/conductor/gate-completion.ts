@@ -1,10 +1,11 @@
+import { isDeepStrictEqual } from 'node:util';
 import {
   matchesApprovedDeployment,
   requestedDeployment,
   type ReadDeploymentEvidence,
 } from './deployment-evidence.js';
 import type { Launcher } from './launcher.js';
-import { slackAwaitingPublication } from './slack.js';
+import { orderHasPendingSlack } from './slack-state.js';
 import type { ConductorStore } from './store.js';
 import type { Gate, Worker } from './types.js';
 import {
@@ -37,7 +38,8 @@ export async function reconcileDeployments(
       const g = store.snapshot.gates[gate.id];
       const order = g?.orderId ? store.order(g.orderId) : undefined;
       return (
-        g === gate &&
+        g !== undefined &&
+        isDeepStrictEqual(g, gate) &&
         matchesApprovedDeployment(g, target) &&
         order?.repo === target.repo &&
         order.scope === 'approval' &&
@@ -52,15 +54,18 @@ export async function reconcileDeployments(
       const result = await read?.(target);
       if (!result) hold('GitHub 조회 경로가 없어요');
       else if ('reason' in result) hold(result.reason);
-      else if (!current()) hold('조회 중 게이트나 주문 상태가 바뀌었어요');
-      else {
-        store.append({
-          type: 'gate-completed',
-          at: report.at,
-          gateId: gate.id,
-          evidence: { kind: 'github-deployment', target, ...result },
-        });
-      }
+      else if (
+        !store.appendIfCurrent(
+          {
+            type: 'gate-completed',
+            at: report.at,
+            gateId: gate.id,
+            evidence: { kind: 'github-deployment', target, ...result },
+          },
+          current,
+        )
+      )
+        hold('조회 중 게이트나 주문 상태가 바뀌었어요');
     } catch {
       hold('GitHub 배포 증빙을 조회하거나 기록하지 못했어요');
     }
@@ -84,13 +89,11 @@ function workerCleanupBlocker(
     !order ||
     !CLEANUP_ORDER_STATUSES.has(order.status) ||
     (order.deploys?.length && !order.deploysRecordedAt) ||
+    orderHasPendingSlack(store.snapshot, order.id) ||
     Object.values(store.snapshot.gates).some(
       (g) =>
         g.orderId === order.id &&
-        (g.status === 'open' ||
-          g.deliveryPending ||
-          (g.approvedDeployment && !g.completion) ||
-          slackAwaitingPublication(store.snapshot, g)),
+        (g.status === 'open' || g.deliveryPending || (g.approvedDeployment && !g.completion)),
     ) ||
     store.activeWorkers().some((w) => w.orderId === order.id) ||
     store
@@ -109,6 +112,7 @@ export async function reconcileWorker(
   removeWorktree: boolean,
 ): Promise<void> {
   const hold = (reason: string) => report.warnings.push(`${gate.id} 워커 정리 보류: ${reason}`);
+  const order = store.order(worker.orderId);
   const blocker = workerCleanupBlocker(store, worker, gate);
   if (blocker) {
     hold(blocker);
@@ -133,18 +137,22 @@ export async function reconcileWorker(
       }
       evidence.removedWorkspace = workspace;
     }
-    if (
-      store.snapshot.gates[gate.id] !== gate ||
-      store.worker(worker.id) !== worker ||
-      workerCleanupBlocker(store, worker, gate) ||
-      Object.values(store.snapshot.gates)
-        .filter((g) => g.payload?.kind === CLEANUP_FAILED && g.payload.workerId === worker.id)
-        .at(-1) !== gate
-    )
-      hold('조회 중 게이트나 워커 상태가 바뀌었어요');
-    else {
-      store.append({ type: 'gate-completed', at: report.at, gateId: gate.id, evidence });
-    }
+    const saved = store.appendIfCurrent(
+      { type: 'gate-completed', at: report.at, gateId: gate.id, evidence },
+      () => {
+        const mine = Object.values(store.snapshot.gates).filter(
+          (g) => g.payload?.kind === CLEANUP_FAILED && g.payload.workerId === worker.id,
+        );
+        return (
+          isDeepStrictEqual(mine.at(-1), gate) &&
+          !mine.some((g) => g.status === 'open') &&
+          isDeepStrictEqual(store.worker(worker.id), worker) &&
+          isDeepStrictEqual(store.order(worker.orderId), order) &&
+          !workerCleanupBlocker(store, worker, gate)
+        );
+      },
+    );
+    if (!saved) hold('조회 중 게이트나 워커 상태가 바뀌었어요');
   } catch {
     hold('Orca 종료 증빙을 조회하거나 기록하지 못했어요');
   }

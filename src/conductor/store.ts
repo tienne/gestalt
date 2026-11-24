@@ -11,8 +11,10 @@ import {
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { withFileLock } from '../core/file-lock.js';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
 import { log } from '../core/log.js';
+import { orderHasPendingSlack } from './slack-state.js';
 import {
   ACTIVE_WORKER_STATUSES,
   TERMINAL_ORDER_STATUSES,
@@ -35,10 +37,8 @@ import {
  * 자리는 `deferSnapshot`으로 묶어 사본을 끝에 한 번만 쓴다.
  *
  * 워커 프로세스도 `gestalt conductor checkpoint save`로 같은 로그에 덧붙인다. 한 줄짜리
- * append는 O_APPEND로 쓴다. 줄 단위로 섞이지 않는다는 전제는 store.test.ts의
- * '두 프로세스가 동시에 덧붙여도 모든 줄이 온전하다'가 확인한다. 다른 프로세스가 쓰는
- * 도중에 끝을 읽으면 멀쩡한 줄 뒤에도 tail-repaired가 붙을 수 있는데, replay는 못 읽는
- * 줄만 버리므로 이벤트는 빠지지 않는다. 결과 보고는 inbox에 파일로 두고 tick이 읽는다.
+ * append는 쓰기 잠금을 잡고 O_APPEND로 한 줄씩 쓴다. 증빙 완료는 같은 잠금 아래
+ * 최신 로그를 읽고 검사한 뒤 기록한다. 결과 보고는 inbox에 파일로 두고 tick이 읽는다.
  */
 
 export const EVENTS_FILE = 'events.jsonl';
@@ -159,15 +159,14 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     }
     case 'gate-completed': {
       const g = s.gates[e.gateId];
-      if (!g || g.completion || g.decision !== 'approved') return;
-      s.gates[e.gateId] = { ...g, completion: { at: e.at, evidence: e.evidence } };
+      if (!g || !completionMatches(s, g, e.evidence)) return;
       if (e.evidence.kind === 'orca-worker') {
-        const w = s.workers[e.evidence.workerId];
-        if (!w || w.handle !== e.evidence.dispatchId) return;
+        const w = s.workers[e.evidence.workerId]!;
         const next: Worker = { ...w, status: 'released' };
         delete next.releaseRefusedAt;
         s.workers[w.id] = next;
       }
+      s.gates[e.gateId] = { ...g, completion: { at: e.at, evidence: e.evidence } };
       return;
     }
     case 'bypass':
@@ -419,6 +418,22 @@ export class ConductorStore {
   }
 
   append(event: ConductorEvent): void {
+    withFileLock(join(this.dir, 'events-write.lock'), ({ stillMine }) => {
+      this.writeEvent(event, stillMine);
+    });
+  }
+
+  /** 잠금 안에서 최신 로그를 대조한다. 조건이 유효할 때만 이벤트를 남긴다 */
+  appendIfCurrent(event: ConductorEvent, matches: () => boolean): boolean {
+    return withFileLock(join(this.dir, 'events-write.lock'), ({ stillMine }) => {
+      this.reload();
+      if (!matches()) return false;
+      this.writeEvent(event, stillMine);
+      return true;
+    });
+  }
+
+  private writeEvent(event: ConductorEvent, stillMine: () => boolean): void {
     validate(event, this.state);
     const path = join(this.dir, EVENTS_FILE);
     // 앞 프로세스가 줄 중간에 죽었으면 개행부터 붙인다. 안 그러면 깨진 꼬리와 새 이벤트가
@@ -428,6 +443,7 @@ export class ConductorStore {
       ? { type: 'tail-repaired', at: this.timestamp() }
       : undefined;
     const prefix = repair ? `\n${JSON.stringify(repair)}\n` : '';
+    if (!stillMine()) throw new Error('이벤트 쓰기 잠금을 잃었어요');
     appendFileSync(path, `${prefix}${JSON.stringify(event)}\n`, 'utf-8');
     if (repair) applyEvent(this.state, repair);
     applyEvent(this.state, event);
@@ -636,29 +652,30 @@ function validate(event: ConductorEvent, s: ConductorSnapshot): void {
   }
   if (event.type === 'gate-completed') {
     const g = s.gates[event.gateId];
-    if (!g || g.status !== 'resolved' || g.decision !== 'approved' || g.completion)
+    if (!g || !completionMatches(s, g, event.evidence))
       throw new Error(`현재 승인으로 완료를 남길 수 없는 게이트예요: ${event.gateId}`);
-    const evidence = event.evidence;
-    if (evidence.kind === 'orca-worker') {
-      const worker = s.workers[evidence.workerId];
-      if (
-        g.type !== 'no-procedure' ||
-        g.payload?.kind !== 'cleanup-failed' ||
-        g.payload.workerId !== evidence.workerId ||
-        !worker ||
-        worker.kind !== 'orca-worktree' ||
-        worker.handle !== evidence.dispatchId ||
-        worker.orderId !== g.payload.orderId ||
-        !['finished', 'failed', 'stopped'].includes(worker.status)
-      )
-        throw new Error(`현재 워커와 종료 증빙이 맞지 않아요: ${event.gateId}`);
-    } else if (
-      !g.approvedDeployment ||
-      JSON.stringify(g.approvedDeployment) !== JSON.stringify(evidence.target)
-    ) {
-      throw new Error(`현재 배포 승인과 성공 증빙이 맞지 않아요: ${event.gateId}`);
-    }
   }
+}
+
+function completionMatches(
+  state: ConductorSnapshot,
+  gate: Gate,
+  evidence: Extract<ConductorEvent, { type: 'gate-completed' }>['evidence'],
+): boolean {
+  if (gate.status !== 'resolved' || gate.decision !== 'approved' || gate.completion) return false;
+  if (evidence.kind === 'github-deployment')
+    return JSON.stringify(gate.approvedDeployment) === JSON.stringify(evidence.target);
+  const worker = state.workers[evidence.workerId];
+  return (
+    gate.type === 'no-procedure' &&
+    gate.payload?.kind === 'cleanup-failed' &&
+    gate.payload.workerId === evidence.workerId &&
+    worker?.kind === 'orca-worktree' &&
+    worker.handle === evidence.dispatchId &&
+    worker.orderId === gate.payload.orderId &&
+    ['finished', 'failed', 'stopped'].includes(worker.status) &&
+    !orderHasPendingSlack(state, worker.orderId)
+  );
 }
 
 function endsWithoutNewline(path: string): boolean {
