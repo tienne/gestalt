@@ -131,6 +131,49 @@ MCP 서버로 붙인다. 호스트별 등록 명령은 [MCP 등록](#mcp-등록)
 - iOS 실기기는 폰에 mobilecli 에이전트 앱을 서명해서 깔아야 한다. provisioning profile이 필요하고 무료 Apple ID 서명은 7일 뒤 만료된다. 예전 WebDriverAgent 방식은 `MOBILEMCP_LEGACY_ROBOT=1`로 쓴다.
 - 도구 이름은 버전마다 바뀌니 MCP 목록에서 확인한다. 기기 목록, 요소 목록, 스크린샷, 좌표 탭, 입력, 앱 실행이 있다.
 
+### iOS 실기기 설치와 확인
+
+대상 기기가 포함된 개발용 프로파일, 그에 맞는 서명 인증서와 개인 키가 필요하다. 기존 프로파일을 고를 때 기기 등록과 만료일, 에이전트 번들 ID에 쓸 수 있는지 확인한다. 사용할 수 있는 프로파일과 설치 명령은 [mobilecli 실기기 문서](https://github.com/mobile-next/mobilecli#ios-real-devices)를 따른다.
+
+```sh
+mobilecli agent install --device "$DEVICE_UDID" --provisioning-profile "$PROFILE"
+```
+
+서명 뒤 USB 설치가 응답 없이 대기하면 이번 시도에서 생성된 재서명 IPA를 임시 폴더에 보관하고 진행 중인 설치를 종료한다. 대상 기기에 이미 설치됐는지 확인한다. 설치가 끝나지 않았다면 재서명 IPA에서 꺼낸 앱 번들의 서명을 검사한 뒤 Xcode로 같은 기기에 설치한다. 재서명 결과를 확인할 수 없으면 멈추고 서명 단계부터 확인한다.
+
+```sh
+codesign --verify --deep --strict "$SIGNED_APP" &&
+  xcrun devicectl device install app --device "$DEVICE_UDID" "$SIGNED_APP"
+```
+
+설치 뒤 기기 목록에서 대상 실기기를 골라 접근성 요소를 한 번 읽는다. 요소를 읽어야 제어 세션이 붙었다고 판단한다.
+
+### 화면과 탭 위치가 어긋날 때
+
+iPad 가로 모드에서 iPhone 앱을 호환 모드로 열면 접근성 트리의 좌표와 실제 화면의 위치가 다를 수 있다. 앱이 화면에 보이는데 트리에는 시스템 요소만 나오는 경우도 있다.
+
+1. 전면 앱, 시스템 팝업, 화면 방향과 크기를 최신 트리와 캡처에서 확인한다. research 캡처는 개인정보 치환본만 본다.
+2. 요소 참조는 트리와 화면이 같은 상태를 가리킬 때 쓴다. 서로 어긋나면 캡처와 현재 기기의 입력 좌표계를 대조한다. 기기 방향이나 전면 앱이 바뀌면 다시 확인한다. 다른 기기나 화면 상태에서 얻은 보정값을 그대로 쓰지 않는다.
+3. 맞는 위치를 확인한 뒤 되돌리기 쉬운 동작을 한 번 보낸다. 기대한 화면이 열렸는지 다시 읽는다. 위치를 검증할 수 없으면 사용자에게 필요한 동작을 요청한다.
+
+### 한글 입력 확인
+
+iOS에서 `mobile_type_keys`가 성공을 반환해도 한글이 필드에 남지 않을 수 있다. 한글을 처음 입력하는 화면에서는 입력과 제출을 나눈다. 접근성 트리의 필드 값으로 요청한 글자가 들어갔는지 확인한 뒤 제출한다. 필드가 비어 있거나 일부만 들어갔으면 현재 값을 기준으로 화면 키보드에서 입력한 뒤 다시 읽는다. 비밀번호나 인증번호는 사용자에게 맡긴다.
+
+### iOS 테스트 러너 정리
+
+시작할 때 대상 기기에서 이미 실행 중인 테스트 러너가 있는지 확인해 이번 작업에서 시작한 세션과 구분한다. 이번 작업이 단독으로 시작한 mobilecli 데몬은 `mobilecli daemon stop`으로 닫는다. 데몬이 종료돼도 기기에 러너가 남을 수 있다.
+
+```sh
+xcrun devicectl device info processes --device "$DEVICE_UDID"
+```
+
+이번 작업에서 띄운 `devicekit-iosUITests-Runner`의 PID가 남아 있으면 대상 기기와 프로세스 경로를 확인한 뒤 아래 명령으로 그 PID만 종료한다. 같은 기기에서 프로세스 목록을 다시 읽어 종료를 확인한다. 기존 세션이나 다른 작업의 러너는 그대로 둔다.
+
+```sh
+xcrun devicectl device process terminate --device "$DEVICE_UDID" --pid "$RUNNER_PID"
+```
+
 ## Maestro (qa, Android 에뮬레이터와 흐름을 파일로 남길 iOS 시뮬레이터)
 
 ```sh
