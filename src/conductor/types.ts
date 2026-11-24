@@ -389,7 +389,6 @@ export type ConductorEvent =
    * idle은 앞 tick 뒤로 이 tick까지 tick 말고는 이벤트가 없고 tick이 한 일도 오류도 없었다는 뜻이다
    */
   | { type: 'tick'; at: string; clearedReports?: string[]; idle?: boolean }
-  | { type: 'tick-succeeded'; at: string }
   /** inbox의 보고 파일 하나를 적용했다. 지우기에 실패해 다음 tick에 다시 보여도 또 적용하지 않는다 */
   | { type: 'report-applied'; at: string; name: string; report?: StoredReport }
   /** 앞 프로세스가 줄 중간에 죽은 꼬리를 개행으로 끊었다는 표시. replay가 바로 앞 깨진 줄을 건너뛴다 */
@@ -439,8 +438,6 @@ export interface ConductorSnapshot {
   ticks: number;
   /** 마지막 tick 시각. 감시 주기보다 자주 돌지 않게 막는 데 쓴다 */
   lastTickAt?: string;
-  /** 오류 없이 끝났다는 기록이 있는 마지막 tick 시각 */
-  lastSuccessfulTickAt?: string;
   /** 상태가 안 바뀐 tick이 연달아 몇 번 왔는지. 세션이 반복 간격을 늘릴지 정하는 데 쓴다 */
   idleTicks?: number;
   /** 마지막 tick 이벤트까지 재생한 이벤트 수. 다음 tick이 그 사이 바뀐 게 있는지 가린다 */

@@ -77,6 +77,7 @@ import {
 import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
 import { readRecentEvents, type RecentEvent } from '../../conductor/recent-events.js';
 import { readConductorMonitor } from '../../conductor/monitor.js';
+import { readLastSuccessfulTick } from '../../conductor/successful-tick.js';
 import { removeOrderRefCopies } from '../../conductor/ref-copy.js';
 import {
   archiveAndCompress,
@@ -655,7 +656,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
       return print({
         stateDir: store.dir,
         lastTickAt: store.snapshot.lastTickAt ?? null,
-        lastSuccessfulTickAt: store.snapshot.lastSuccessfulTickAt ?? null,
+        lastSuccessfulTickAt: readLastSuccessfulTick(store.dir),
         orders: orders.map((o) => {
           const w = o.workerId ? store.worker(o.workerId) : undefined;
           return {
