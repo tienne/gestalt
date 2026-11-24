@@ -324,13 +324,13 @@ gestalt conductor gate resolve <gateId> --approve --completed-deploy '{"runId":2
 
 tick은 게이트 요청의 레포, 커밋, 태그를 승인 범위와 대조한다. 먼저 실행 커밋의 워크플로에서 태그 푸시만 허용하는지 확인한다. 승인한 실행 시도와 환경의 최신 배포 상태가 성공이고 그 상태가 같은 시도의 성공한 작업을 가리키면 게이트의 `completion`에 증빙을 남긴다. Orca 정리 실패 게이트는 기존 승인, dispatch 식별자, 종료와 터미널 해제 상태가 맞고 후속 작업이 끝났을 때 `completion`을 남긴다. Slack 게시를 호스트에 넘긴 기록만 있다면 실제 게시 근거가 확인될 때까지 워커 정리를 보류한다. 승인이나 증빙이 부족하면 tick 보고에 보류 이유가 나온다. 증빙 대조 단계는 읽기 요청만 보낸다.
 
-컨덕터 호스트가 `slack-post` 작업을 게시하면 Slack의 메시지 ts 또는 퍼머링크를 같은 게이트 ID와 작업 ID로 기록한다.
+컨덕터 호스트는 `slack-post` 작업이 지정한 채널 ID, 본문, 스레드와 `metadata`를 Slack `chat.postMessage`에 넘긴다. 같은 작업에서 받은 Slack 성공 응답 JSON을 게이트에 기록한다. 응답의 채널, 메시지 ts, 스레드와 작업 메타데이터가 승인과 맞아야 한다.
 
 ```bash
-gestalt conductor slack posted <gateId> --delivery <deliveryId> --ref <messageTs>
+gestalt conductor slack posted <gateId> --result-file <slack-response.json>
 ```
 
-세션이 끊겼다면 `gestalt conductor slack delivery <gateId>`로 승인한 작업을 다시 읽을 수 있다. Slack에 같은 메시지가 있는지 먼저 확인한다. 이미 게시했다면 기존 메시지 참조를 기록한다. 게시 여부가 확인되지 않으면 대기 상태가 이어진다.
+세션이 끊겼다면 `gestalt conductor slack delivery <gateId>`로 승인한 작업을 다시 읽을 수 있다. 같은 작업의 성공 응답을 보관했다면 그대로 기록한다. 퍼머링크만 받았거나 응답에 작업 메타데이터가 빠졌다면 대기 상태가 이어진다.
 
 답은 셋 중 하나다. `--answer`는 어느 답에나 붙일 수 있고 워커에는 고정 문구보다 먼저 따르라는 말과 함께 전해진다.
 

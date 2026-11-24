@@ -1,4 +1,5 @@
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -38,6 +39,7 @@ import {
 import { ConductorStore, EVENTS_FILE } from '../../../src/conductor/store.js';
 import { hostSlackClient } from '../../../src/conductor/adapters.js';
 import { publishApprovedSlack } from '../../../src/conductor/slack.js';
+import { orderHasPendingSlack } from '../../../src/conductor/slack-state.js';
 import type { HostAction } from '../../../src/conductor/launcher.js';
 import { registerSession } from '../../../src/conductor/handoff.js';
 import { touchSessionTick } from '../../../src/conductor/session-owner.js';
@@ -594,7 +596,7 @@ describe('gestalt conductor', () => {
     const stateDir = tempStateDir();
     const textFile = join(stateDir, 'draft.txt');
     writeFileSync(textFile, '배포 끝났어요~');
-    conductorSlackDraftCommand({ stateDir, json: true, channel: '#release', textFile });
+    conductorSlackDraftCommand({ stateDir, json: true, channel: 'C123', textFile });
     const gateId = String(last()['gateId']);
 
     conductorGateListCommand({ stateDir, json: true });
@@ -643,26 +645,89 @@ describe('gestalt conductor', () => {
       channel: 'C123',
       text: '게시할 본문',
       deliveryId: action.deliveryId,
+      metadata: action.metadata,
     });
-    const opts = { stateDir, json: true, delivery: action.deliveryId, ref: '12345.000001' };
+    const resultFile = join(stateDir, 'result.json');
+    const opts = { stateDir, json: true, resultFile };
+    const response = {
+      ok: true,
+      channel: 'C123',
+      ts: '12345.000001',
+      message: { ts: '12345.000001', metadata: action.metadata },
+    };
+    const confirm = (id: string, result: unknown) => {
+      writeFileSync(resultFile, JSON.stringify(result));
+      return conductorSlackPostedCommand(id, opts);
+    };
+    expect(last()['metadata']).toEqual(action.metadata);
     await expect(
-      conductorSlackPostedCommand(gateId, { ...opts, delivery: 'different' }),
+      confirm(gateId, {
+        ...response,
+        message: {
+          ...response.message,
+          metadata: { ...action.metadata, event_payload: { delivery_id: 'different' } },
+        },
+      }),
     ).rejects.toThrow('exit 1');
     expect(err.at(-1)).toContain('식별자가 달라');
-    await expect(conductorSlackPostedCommand(gateId, { ...opts, ref: 'host' })).rejects.toThrow(
+    await expect(
+      confirm(gateId, 'https://example.slack.com/archives/C999/p12345000001'),
+    ).rejects.toThrow('exit 1');
+    await expect(confirm(gateId, { ...response, channel: 'C999' })).rejects.toThrow('exit 1');
+    expect(err.at(-1)).toContain('채널이나 스레드가');
+    await expect(confirm(gateId, { ...response, message: { ts: response.ts } })).rejects.toThrow(
       'exit 1',
     );
+    expect(orderHasPendingSlack(ConductorStore.open(stateDir).snapshot, 'ord-slack')).toBe(true);
     expect(ConductorStore.open(stateDir).snapshot.slackPosted[gateId]).toBe('host');
-    await conductorSlackPostedCommand(gateId, opts);
-    expect(last()).toMatchObject({ gateId, recorded: true, ref: opts.ref });
-    await conductorSlackPostedCommand(gateId, opts);
+    await confirm(gateId, response);
+    expect(last()).toMatchObject({ gateId, recorded: true, ref: response.ts });
+    await confirm(gateId, response);
     expect(last()).toMatchObject({ gateId, recorded: false });
+
+    store.reload();
+    expect(store.snapshot.slackPosted[gateId]).toBe(response.ts);
+    expect(orderHasPendingSlack(store.snapshot, 'ord-slack')).toBe(false);
+    store.removeOrder('ord-slack');
+    store.addOrder(order({ id: 'ord-new-slack', status: 'done' }));
+    writeFileSync(textFile, '다음 주문의 본문');
+    conductorSlackDraftCommand({
+      stateDir,
+      json: true,
+      order: 'ord-new-slack',
+      channel: 'C123',
+      textFile,
+    });
+    const nextGateId = String(last()['gateId']);
+    await conductorGateResolveCommand(nextGateId, { stateDir, approve: true });
+    store.reload();
+    await publishApprovedSlack(store, client);
+    const next = actions[1];
+    if (next?.type !== 'slack-post') throw new Error('다음 Slack 인계가 없어요');
+    await expect(confirm(nextGateId, response)).rejects.toThrow('exit 1');
+    expect(err.at(-1)).toContain('식별자가 달라');
     await expect(
-      conductorSlackPostedCommand(gateId, { ...opts, ref: '12345.000002' }),
+      confirm(nextGateId, {
+        ...response,
+        message: { ...response.message, metadata: next.metadata },
+      }),
     ).rejects.toThrow('exit 1');
-    expect(ConductorStore.open(stateDir).snapshot.slackPosted[gateId]).toBe(opts.ref);
+    expect(err.at(-1)).toContain('다른 Slack 게시 작업');
+    appendFileSync(
+      join(stateDir, EVENTS_FILE),
+      JSON.stringify({
+        type: 'slack-publication-confirmed',
+        at: store.timestamp(),
+        gateId: nextGateId,
+        evidence: { deliveryId: next.deliveryId, channel: response.channel, ts: response.ts },
+      }) + '\n',
+    );
+    const replayed = ConductorStore.open(stateDir);
+    expect(replayed.snapshot.slackMessageClaims['C123:12345.000001']).toBe(gateId);
+    expect(replayed.snapshot.slackPosted[nextGateId]).toBe('host');
+    expect(orderHasPendingSlack(replayed.snapshot, 'ord-new-slack')).toBe(true);
     const receipts = readFileSync(join(stateDir, EVENTS_FILE), 'utf8').match(
-      /"ref":"12345\.000001"/g,
+      new RegExp(`"gateId":"${gateId}","evidence"`, 'g'),
     );
     expect(receipts).toHaveLength(1);
   });
