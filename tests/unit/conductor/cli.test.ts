@@ -632,6 +632,40 @@ describe('gestalt conductor', () => {
     expect(last()['order']).toMatchObject({ prRef: 'acme/app#12', skillChain: ['review'] });
   });
 
+  it('--skills는 repoPaths의 레포에 있는 repo:<이름> 스킬만 받는다', () => {
+    const home = mkdtempSync(join(tmpdir(), 'gestalt-conductor-home-'));
+    const repoDir = join(home, 'app');
+    mkdirSync(join(repoDir, '.claude', 'skills', 'release'), { recursive: true });
+    writeFileSync(join(repoDir, '.claude', 'skills', 'release', 'SKILL.md'), '# release\n');
+    mkdirSync(join(home, '.gestalt'), { recursive: true });
+    writeFileSync(
+      join(home, '.gestalt', 'conductor.json'),
+      JSON.stringify({ repoPaths: { 'acme/app': repoDir } }),
+    );
+    vi.stubEnv('GESTALT_HOME', home);
+    try {
+      const stateDir = tempStateDir();
+      const add = { stateDir, json: true, repo: 'acme/app', title: '릴리즈' };
+      conductorOrderAddCommand({ ...add, skills: 'repo:release' });
+      expect(last()['order']).toMatchObject({ skillChain: ['repo:release'] });
+
+      expect(() => conductorOrderAddCommand({ ...add, skills: 'repo:deploy' })).toThrow('exit 1');
+      expect(err.at(-1)).toContain('repo:deploy 스킬이 없어요');
+      expect(() => conductorOrderAddCommand({ ...add, skills: 'repo:../app' })).toThrow('exit 1');
+      expect(err.at(-1)).toContain('레포 스킬 이름은');
+      expect(() =>
+        conductorOrderAddCommand({ ...add, repo: 'acme/web', skills: 'repo:release' }),
+      ).toThrow('exit 1');
+      expect(err.at(-1)).toContain('repoPaths');
+      expect(() => conductorOrderAddCommand({ ...add, skills: 'release' })).toThrow('exit 1');
+      expect(err.at(-1)).toContain('repo:<이름>');
+      expect(ConductorStore.open(stateDir).orders()).toHaveLength(1);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it('워커 환경이나 워커 워크트리 안에서는 컨덕터 전용 명령을 거절한다', () => {
     // cwd를 바꿔 끼우므로 상대 경로가 그 cwd 기준으로 풀리지 않게 절대 경로로 둔다
     const stateDir = resolve(tempStateDir());

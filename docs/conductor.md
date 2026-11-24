@@ -546,9 +546,10 @@ tick은 잠금을 놓은 뒤 하루에 한 번 보관과 운영 파일 정리, �
 | ------------------------------------------------------------------------ | --------------------------------------------------------- | -------------- |
 | 체인이 전부 읽기만 하는 스킬(review, blast-radius, diff-radius, explain) | `subagent`                                                | `subagent`     |
 | 그 밖의 체인(solve, ship, review-loop, review-reply, local-pr 등)        | `orca-worktree`                                           | `git-worktree` |
+| 체인에 [레포 스킬](#레포-스킬)(`repo:<이름>`)이 하나라도 있음            | `orca-worktree`                                           | `git-worktree` |
 | `--worker-kind`로 고정                                                   | 그 값. `orca-worktree`인데 오르카가 없으면 `git-worktree` |                |
 
-기준은 `handoff` 스킬의 "맡길 곳 고르기" 표를 따른다.
+기준은 `handoff` 스킬의 "맡길 곳 고르기" 표를 따른다. 레포 스킬 체인은 `--worker-kind subagent`를 접수에서 거절한다. 서브에이전트는 컨덕터 자리에서 돌아 대상 레포 워크트리의 스킬 문서를 못 읽기 때문이다.
 
 ### 워커 에이전트 고르기
 
@@ -711,6 +712,27 @@ ship에는 밖으로 나가는 자리마다 사람 승인을 받는 단계가 �
 - 사람이 직접 머지하려면 확인 자리에 `--take-over`로 답한다. 주문은 `human-owned`가 되고 tick이 머지를 확인하면 `merged`로 옮긴다.
 - 넘겨받지 않고 GitHub에서 바로 머지해도 tick이 알아챈다. 아래 [GitHub에서 직접 머지하거나 닫았을 때](#github에서-직접-머지하거나-닫았을-때)를 본다.
 
+### 레포 스킬
+
+`--skills`는 게슈탈트 스킬 말고도 대상 레포에만 있는 프로젝트 스킬(`<레포>/.claude/skills/<이름>/SKILL.md`)을 받는다. 체인에는 `repo:<이름>`으로 적는다.
+
+```bash
+gestalt conductor order add --repo acme/app --title "v1.2.0 릴리즈" --skills repo:release --json
+```
+
+- **`repo:` 접두를 붙이는 까닭**: 게슈탈트 스킬과 이름이 겹치면 어느 쪽을 돌릴지 정할 수 없다. 레포 스킬 이름이 `ship`이면 ship 승인 단계(`--need-step`) 판정과 수정 전 캡처 줄도 그 스킬에 붙는다. 접두가 붙은 이름은 `KNOWN_SKILLS`에 없어서 바깥 출처를 거르는 기존 검사에 그대로 걸린다.
+- **이름 꼴**: 접두 뒤는 영문 소문자나 숫자로 시작하고 영문 소문자와 숫자, `-`만 쓴 64자 이하다. 경로 한 칸으로 붙으므로 `/`, `\`, `..`가 들어갈 수 없다.
+- **존재 확인**: 주문을 넣을 때 워커 워크트리가 갈라질 로컬 체크아웃에 스킬 문서가 있는지 본다. `--worker-kind git-worktree`면 부모를 무시하고 띄우므로 `~/.gestalt/conductor.json`의 `repoPaths[레포]`만 본다. `orca-worktree`이거나 종류를 안 정했으면 오르카가 없을 때 git 워크트리로 떨어지므로 부모 경로와 `repoPaths[레포]` 가운데 아는 경로를 다 본다. 경로를 하나도 모르거나 파일이 없으면 이유와 함께 거절하고 주문을 만들지 않는다. 스킬 문서나 그 디렉토리가 레포 밖을 가리키는 링크여도 거절한다. 같은 `--source-ref`로 다시 넣은 주문은 확인 전에 기존 주문을 돌려준다. 오르카에 등록된 레포 경로는 보지 않는다. 접수는 오르카를 부르지 않기 때문이다. 접수가 보는 건 그 체크아웃의 작업 트리 파일이고 워커 워크트리는 `--base-branch` 커밋에서 갈라진다. 이 값이 없으면 git 워크트리 워커는 그 체크아웃의 HEAD에서, 오르카 워커는 오르카가 정한 기준에서 갈라진다. 스킬 문서가 커밋되지 않았거나 기준 브랜치에 없으면 접수는 통과해도 워커에는 그 문서가 없다. 그러면 워커가 `needs other`로 올린다.
+- **받는 출처**: 컨덕터 세션이 `order add`로 넣은 주문과 말로 받은 주문만 받는다. 지라, 외부 큐, PR 감시에서 온 `repo:` 스킬은 체인에서 빠진다. 바깥 글이 레포 안 아무 스킬이나 돌리게 두지 않는다. 봇 채팅의 `order add`는 기본 체인만 받으므로 레포 스킬을 못 넣는다.
+- **ship과 함께 넣지 않는다**: 체인에 ship이 있으면 단계 값(`--need-step`)이 붙은 `simple-approval`을 사람 없이 넘긴다. 레포 스킬과 한 체인에 두면 레포 스킬의 푸시 승인도 그렇게 넘어갈 수 있어서 접수에서 거절한다. PR까지 가야 하면 주문을 나눠 넣는다.
+
+워커 지시서에는 레포 스킬마다 "워크트리의 `.claude/skills/<이름>/SKILL.md`를 읽고 그 절차를 따른다"는 줄이 붙는다. 워크트리에 그 파일이 없으면 `need other`로 올린다. 체크포인트의 `--skill`에는 `repo:<이름>`을 그대로 적는다. 재개는 `--done`에 적힌 스킬만 끝낸 것으로 세므로 밖으로 나가는 행동이 성공하면 바로 `--done repo:<이름>`을 붙여 체크포인트를 한 번 더 남긴다. 빠뜨리면 태그를 푸시한 뒤 끊겼을 때 재개한 워커가 그 절차를 처음부터 다시 돈다.
+
+레포 스킬은 PR을 만드는지 읽기만 하는지 알 수 없다. 그래서 지시서에 아래 두 줄이 더 붙는다.
+
+- 레포 밖 상태를 바꾸는 행동 직전에는 `--need simple-approval`을 단계 값 없이 올리고 결정을 기다린다. 기본 브랜치나 태그 푸시, force push, 원격 삭제, GitHub 릴리스 생성, 패키지나 앱 배포, 마이그레이션, 외부 API 호출, 메시지나 PR 코멘트 게시가 모두 여기 든다. 컨덕터 보고와 체크포인트 저장은 빼고 셈한다. 스킬 문서가 확인 없이 진행하라고 적었어도 이 줄이 먼저다. 컨덕터는 `simple-approval`을 체인에 ship이 있고 단계 값이 붙었을 때만 넘긴다. 레포 스킬 체인에는 ship을 못 넣으므로 이 요청은 범위가 `merge-through`여도 확인 자리(`no-procedure`)로 사람에게 간다.
+- 체인이 PR 없이 끝나면 머지 승인을 올리지 않고 `--status done`으로 낸다. 주문은 `merged`가 아니라 `done`으로 끝나고 지라는 머지 단계로 옮기지 않는다. 체인이 PR을 남기면 위 [머지까지](#머지까지)를 그대로 탄다.
+
 ## 주문 상태
 
 | 상태           | 뜻                                                | 끝 상태 | 슬롯 차지 |
@@ -767,6 +789,7 @@ running, waiting-gate, escalated ── PR CLOSED(머지 없음) ──▶ cance
 ```bash
 gestalt conductor checkpoint save --worker <id> --skill solve --next "스펙 확정" --done solve
 gestalt conductor checkpoint save --worker <id> --skill ship --next "라운드 2 반영" --ship-dir .ship
+gestalt conductor checkpoint save --worker <id> --skill repo:release --next "릴리스 노트 확인" --done repo:release
 ```
 
 ship 단계는 기존 `gestalt ship checkpoint save`와 `check`를 그대로 쓴다. 컨덕터 체크포인트는 그 자리(`--ship-dir`)만 가리킨다. 재개할 때 ship 체크포인트를 다시 읽어 단계와 라운드를 새 워커 지시에 싣는다. 끝낸 스킬은 다시 돌리지 않고 남은 체인만 이어 간다. git 워크트리 워커는 앞 워커의 워크트리 경로를 다시 써서 워크트리를 새로 만들지 않는다. 오르카 워커는 재개할 때도 새 워크트리로 띄운다. 지라 주문이면 새 워크트리가 앞 워커의 브랜치를 이어받는다([지라 주문의 브랜치와 참조](#지라-주문의-브랜치와-참조)).
@@ -873,7 +896,7 @@ tick은 메시지를 이렇게 처리한다.
 - 꼴이 틀린 본문(`repo`나 `title`이 없는 등)은 주문을 만들지 않고 사람 확인 자리를 연다.
 - 깨진 JSON, 256KB를 넘는 파일, 심볼릭 링크, id 꼴(영문, 숫자, `-`, `_`, `.`로 128자까지)이 틀린 이름은 `queue/failed/`로 옮기고 tick 보고의 `errors`에 남긴다.
 - 처리한 파일은 지운다.
-- 큐 본문은 자료로만 읽는다. 범위는 `defaultScope`보다 넓힐 수 없고 `merge-through`는 받지 않는다. `skillChain`은 아는 스킬 이름만 남긴다.
+- 큐 본문은 자료로만 읽는다. 범위는 `defaultScope`보다 넓힐 수 없고 `merge-through`는 받지 않는다. `skillChain`은 아는 스킬 이름만 남기고 `repo:` 레포 스킬도 뺀다.
 
 큐를 잠시 건너뛰려면 `gestalt conductor tick --no-queue`로 돌린다.
 

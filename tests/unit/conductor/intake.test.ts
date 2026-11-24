@@ -1,3 +1,5 @@
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   EXTERNAL_DESCRIPTION_MAX,
@@ -250,5 +252,256 @@ describe('배포 주문 접수', () => {
         config,
       ),
     ).toThrow(/order add/);
+  });
+});
+
+/** `.claude/skills/<이름>/SKILL.md`가 있는 가짜 레포 체크아웃 */
+function repoWithSkills(...names: string[]): string {
+  const root = resolve(tempStateDir());
+  for (const name of names) {
+    mkdirSync(join(root, '.claude', 'skills', name), { recursive: true });
+    writeFileSync(join(root, '.claude', 'skills', name, 'SKILL.md'), `# ${name}\n`);
+  }
+  return root;
+}
+
+describe('레포 스킬', () => {
+  it('컨덕터 세션이 넣은 주문은 대상 레포에 있는 레포 스킬을 체인에 받는다', () => {
+    const s = ConductorStore.open(tempStateDir());
+    const root = repoWithSkills('release');
+    const repoPaths = { 'acme/app': root };
+    const cli = intakeOrder(
+      s,
+      { source: 'jira', repo: 'acme/app', title: '릴리즈', skillChain: ['repo:release'] },
+      { ...config, repoPaths },
+      { trusted: true },
+    ).order;
+    expect(cli.skillChain).toEqual(['repo:release']);
+
+    const spoken = intakeOrder(
+      s,
+      { source: 'spoken', repo: 'acme/app', title: 'x', skillChain: ['solve', 'repo:release'] },
+      { ...config, repoPaths },
+    ).order;
+    expect(spoken.skillChain).toEqual(['solve', 'repo:release']);
+  });
+
+  const skillDoc = (root: string) => join(root, '.claude', 'skills', 'release', 'SKILL.md');
+
+  it.each([
+    { label: '오르카 워커', workerKind: 'orca-worktree' as const },
+    { label: '종류를 안 정한 주문', workerKind: undefined },
+  ])(
+    '$label도 오르카가 없으면 repoPaths로 떨어지므로 부모와 repoPaths 가운데 아는 경로를 다 본다',
+    ({ workerKind }) => {
+      const s = ConductorStore.open(tempStateDir());
+      const withSkill = repoWithSkills('release');
+      const plain = repoWithSkills();
+      const add = (
+        title: string,
+        parentWorktree: string | undefined,
+        repoPaths: Record<string, string>,
+      ) =>
+        intakeOrder(
+          s,
+          {
+            source: 'spoken',
+            repo: 'acme/app',
+            title,
+            skillChain: ['repo:release'],
+            parentWorktree,
+            workerKind,
+          },
+          { ...config, repoPaths },
+        );
+      expect(() => add('부모에만 있으면 거절', withSkill, { 'acme/app': plain })).toThrow(
+        skillDoc(plain),
+      );
+      expect(() => add('repoPaths에만 있으면 거절', plain, { 'acme/app': withSkill })).toThrow(
+        skillDoc(plain),
+      );
+      expect(
+        add('둘 다 있으면 접수', withSkill, { 'acme/app': repoWithSkills('release') }).created,
+      ).toBe(true);
+      expect(add('부모만 알면 접수', withSkill, {}).created).toBe(true);
+      expect(() => add('둘 다 모르면 거절', undefined, {})).toThrow(/로컬 경로를 몰라.*repoPaths/);
+    },
+  );
+
+  it('git 워크트리 워커는 부모를 무시하고 띄우므로 repoPaths 쪽에서만 찾는다', () => {
+    const s = ConductorStore.open(tempStateDir());
+    const withSkill = repoWithSkills('release');
+    const plain = repoWithSkills();
+    const add = (title: string, parentWorktree: string, repoPaths: Record<string, string>) =>
+      intakeOrder(
+        s,
+        {
+          source: 'spoken',
+          repo: 'acme/app',
+          title,
+          skillChain: ['repo:release'],
+          parentWorktree,
+          workerKind: 'git-worktree',
+        },
+        { ...config, repoPaths },
+      );
+    expect(add('x', plain, { 'acme/app': withSkill }).created).toBe(true);
+    expect(() => add('y', withSkill, { 'acme/app': plain })).toThrow(skillDoc(plain));
+    expect(() => add('z', withSkill, {})).toThrow(/로컬 경로를 몰라.*repoPaths/);
+    expect(s.orders().map((o) => o.title)).toEqual(['x']);
+  });
+
+  it('ship과 레포 스킬은 한 체인에 받지 않는다', () => {
+    const s = ConductorStore.open(tempStateDir());
+    const root = repoWithSkills('release');
+    expect(() =>
+      intakeOrder(
+        s,
+        { source: 'spoken', repo: 'acme/app', title: 'x', skillChain: ['ship', 'repo:release'] },
+        { ...config, repoPaths: { 'acme/app': root } },
+      ),
+    ).toThrow(/ship을 같이 넣을 수 없어요/);
+    expect(s.orders()).toEqual([]);
+  });
+
+  it('레포 밖을 가리키는 링크로 된 스킬 문서는 거절한다', () => {
+    const s = ConductorStore.open(tempStateDir());
+    const outside = repoWithSkills('release');
+    const root = repoWithSkills();
+    mkdirSync(join(root, '.claude', 'skills'), { recursive: true });
+    symlinkSync(
+      join(outside, '.claude', 'skills', 'release'),
+      join(root, '.claude', 'skills', 'release'),
+    );
+    expect(() =>
+      intakeOrder(
+        s,
+        { source: 'spoken', repo: 'acme/app', title: 'x', skillChain: ['repo:release'] },
+        { ...config, repoPaths: { 'acme/app': root } },
+      ),
+    ).toThrow(/레포 밖을 가리키는 링크/);
+  });
+
+  it('같은 sourceRef로 다시 넣으면 그사이 스킬 문서가 지워졌어도 기존 주문을 돌려준다', () => {
+    const s = ConductorStore.open(tempStateDir());
+    const root = repoWithSkills('release');
+    const input = {
+      source: 'spoken' as const,
+      sourceRef: 'spoken:release-1',
+      repo: 'acme/app',
+      title: 'x',
+      skillChain: ['repo:release'],
+    };
+    const cfg = { ...config, repoPaths: { 'acme/app': root } };
+    const first = intakeOrder(s, input, cfg);
+    rmSync(join(root, '.claude', 'skills', 'release'), { recursive: true });
+    const again = intakeOrder(s, input, cfg);
+    expect(again.created).toBe(false);
+    expect(again.order?.id).toBe(first.order?.id);
+  });
+
+  it('없는 스킬이나 경로를 모르는 레포는 이유와 함께 거절하고 주문을 만들지 않는다', () => {
+    const s = ConductorStore.open(tempStateDir());
+    const root = repoWithSkills('release');
+    expect(() =>
+      intakeOrder(
+        s,
+        { source: 'spoken', repo: 'acme/app', title: 'x', skillChain: ['repo:deploy'] },
+        { ...config, repoPaths: { 'acme/app': root } },
+      ),
+    ).toThrow(/acme\/app에 repo:deploy 스킬이 없어요/);
+    expect(() =>
+      intakeOrder(
+        s,
+        { source: 'spoken', repo: 'acme/web', title: 'x', skillChain: ['repo:release'] },
+        { ...config, repoPaths: { 'acme/app': root } },
+      ),
+    ).toThrow(/로컬 경로를 몰라.*repoPaths/);
+    expect(() =>
+      intakeOrder(
+        s,
+        { source: 'spoken', repo: 'acme/app', title: 'x', skillChain: ['repo:release'] },
+        config,
+      ),
+    ).toThrow(/repoPaths/);
+    expect(s.orders()).toEqual([]);
+  });
+
+  it.each([
+    'repo:../outside',
+    'repo:a/b',
+    'repo:..',
+    'repo:',
+    'repo:Release',
+    'repo:-x',
+    'repo:a\\b',
+  ])('경로를 벗어날 수 있는 이름 %s는 파일이 있어도 거절한다', (skill) => {
+    const s = ConductorStore.open(tempStateDir());
+    const root = repoWithSkills('release');
+    // repo:../outside가 가리킬 자리에 실제 파일을 둬서 존재 확인이 아니라 꼴 검사로 막히는지 본다
+    mkdirSync(join(root, '.claude', 'outside'), { recursive: true });
+    writeFileSync(join(root, '.claude', 'outside', 'SKILL.md'), '# outside\n');
+    expect(() =>
+      intakeOrder(
+        s,
+        { source: 'spoken', repo: 'acme/app', title: 'x', skillChain: [skill] },
+        { ...config, repoPaths: { 'acme/app': root } },
+      ),
+    ).toThrow(/레포 스킬 이름은/);
+  });
+
+  it('레포 스킬 체인은 서브에이전트 워커로 못 받는다', () => {
+    const s = ConductorStore.open(tempStateDir());
+    const root = repoWithSkills('release');
+    expect(() =>
+      intakeOrder(
+        s,
+        {
+          source: 'spoken',
+          repo: 'acme/app',
+          title: 'x',
+          skillChain: ['repo:release'],
+          workerKind: 'subagent',
+        },
+        { ...config, repoPaths: { 'acme/app': root } },
+      ),
+    ).toThrow(/서브에이전트/);
+  });
+
+  it.each(['jira', 'external-queue', 'pr-watch'] as const)(
+    '%s에서 온 레포 스킬은 레포에 있어도 체인에서 빠진다',
+    (source) => {
+      const s = ConductorStore.open(tempStateDir());
+      const repoPaths = { 'acme/app': repoWithSkills('release') };
+      const mixed = intakeOrder(
+        s,
+        { source, repo: 'acme/app', title: 'x', skillChain: ['repo:release', 'review'] },
+        { ...config, repoPaths },
+      ).order;
+      expect(mixed.skillChain).toEqual(['review']);
+      const only = intakeOrder(
+        s,
+        { source, repo: 'acme/app', title: 'y', skillChain: ['repo:release'] },
+        { ...config, repoPaths },
+      ).order;
+      expect(only.skillChain).toEqual(['solve', 'ship']);
+    },
+  );
+
+  it('외부 큐 메시지의 레포 스킬은 접수에서 빠진다', async () => {
+    const s = ConductorStore.open(tempStateDir());
+    const queue: ExternalQueue = {
+      receive: async () => [
+        {
+          id: 'm-1',
+          body: { repo: 'acme/app', title: '릴리즈', skillChain: ['repo:release', 'ship'] },
+        },
+      ],
+      ack: async () => {},
+    };
+    // 레포 스킬 파일이 있어도 바깥 출처라서 빠지는지 보려고 경로를 같이 넘긴다
+    const withPaths = { ...config, repoPaths: { 'acme/app': repoWithSkills('release') } };
+    const { created } = await pollQueue(s, queue, withPaths);
+    expect(created[0]?.skillChain).toEqual(['ship']);
   });
 });

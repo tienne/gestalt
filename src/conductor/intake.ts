@@ -1,7 +1,9 @@
-import { isAbsolute } from 'node:path';
+import { statSync } from 'node:fs';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { log } from '../core/log.js';
 import type { ConductorConfig } from './scheduler.js';
 import { openOrReuse } from './gates.js';
+import { real } from './parent-worktree.js';
 import { newId, type ConductorStore } from './store.js';
 import {
   AGENT_ID_RE,
@@ -47,6 +49,33 @@ export const KNOWN_SKILLS: ReadonlySet<string> = new Set([
   'doubt',
   'build-graph',
 ]);
+
+/**
+ * 대상 레포에만 있는 프로젝트 스킬을 체인에 넣을 때 붙이는 접두. 게슈탈트 스킬 이름과 섞이면
+ * 같은 이름의 레포 스킬이 게슈탈트 스킬 자리를 차지하거나 그 반대가 되므로 따로 받는다
+ */
+export const REPO_SKILL_PREFIX = 'repo:';
+
+/** 레포 스킬 이름. 경로 한 칸으로 붙으므로 `/`, `\`, `..`가 들어갈 수 없는 꼴만 받는다 */
+const REPO_SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+export function isRepoSkillName(name: string): boolean {
+  return REPO_SKILL_NAME_RE.test(name);
+}
+
+export function isRepoSkill(skill: string): boolean {
+  return skill.startsWith(REPO_SKILL_PREFIX);
+}
+
+/** `repo:<이름>`에서 이름만. 레포 스킬이 아니면 undefined */
+export function repoSkillName(skill: string): string | undefined {
+  return isRepoSkill(skill) ? skill.slice(REPO_SKILL_PREFIX.length) : undefined;
+}
+
+/** 레포 안에서 레포 스킬 문서가 있어야 할 상대 경로 */
+export function repoSkillPath(name: string): string {
+  return join('.claude', 'skills', name, 'SKILL.md');
+}
 
 export const ISSUE_KEY_RE = /^[A-Z][A-Z0-9_]*-\d+$/;
 
@@ -142,12 +171,13 @@ function capDescription(text: string): string {
 
 /**
  * 주문을 받는다. 범위와 스킬 체인을 그대로 믿는 건 컨덕터 세션이 CLI로 넣을 때(`trusted`)와
- * 말로 던진 주문뿐이다. 지라, 큐, PR 감시에서 온 값은 externalScope와 KNOWN_SKILLS로 거른다
+ * 말로 던진 주문뿐이다. 지라, 큐, PR 감시에서 온 값은 externalScope와 KNOWN_SKILLS로 거른다.
+ * 레포 스킬은 KNOWN_SKILLS에 없어 바깥 출처에서는 빠진다
  */
 export function intakeOrder(
   store: ConductorStore,
   input: IntakeInput,
-  config: Pick<ConductorConfig, 'defaultScope'>,
+  config: Pick<ConductorConfig, 'defaultScope'> & Partial<Pick<ConductorConfig, 'repoPaths'>>,
   opts: { trusted?: boolean } = {},
 ): IntakeResult {
   if (!REPO_RE.test(input.repo))
@@ -185,6 +215,8 @@ export function intakeOrder(
   if (removedAt) return { created: false, removedAt };
   const archivedAt = store.archivedAtOf(sourceRef);
   if (archivedAt) return { created: false, archivedAt };
+  // 같은 주문을 다시 넣은 경우는 위에서 돌려준다. 그사이 파일이 지워졌어도 이미 만든 주문은 그대로다
+  if (trusted && skills?.some(isRepoSkill)) checkRepoSkills(skills, input, config.repoPaths ?? {});
 
   const at = store.timestamp();
   const order: Order = {
@@ -214,6 +246,69 @@ export function intakeOrder(
   };
   store.addOrder(order);
   return { order, created: true };
+}
+
+/**
+ * 레포 스킬이 주문을 넣는 지금 워커 워크트리가 갈라질 로컬 체크아웃에 있는지 본다. 작업 트리 파일을
+ * 보므로 커밋 안 된 문서는 통과해도 커밋에서 갈라지는 워커에는 없다. 그때는 워커가 needs other로 올린다
+ */
+function checkRepoSkills(
+  skills: string[],
+  input: IntakeInput,
+  repoPaths: Record<string, string>,
+): void {
+  // ship 단계 값이 붙은 단순 승인은 사람을 안 거치므로 같은 체인에 두면 레포 스킬의 푸시 승인도 넘어간다
+  if (skills.includes('ship'))
+    throw new Error('레포 스킬 체인에는 ship을 같이 넣을 수 없어요. 주문을 나눠 넣어 주세요');
+  // 서브에이전트는 컨덕터 자리에서 돌아 대상 레포 워크트리의 스킬 문서를 못 읽는다
+  if (input.workerKind === 'subagent')
+    throw new Error(
+      '레포 스킬이 있는 체인은 서브에이전트 워커로 못 띄워요. --worker-kind를 빼 주세요',
+    );
+  const roots = repoSkillRoots(input, repoPaths);
+  const seen = new Set<string>();
+  for (const skill of skills) {
+    const name = repoSkillName(skill);
+    if (name === undefined || seen.has(name)) continue;
+    seen.add(name);
+    if (!isRepoSkillName(name))
+      throw new Error(
+        `레포 스킬 이름은 영문 소문자와 숫자, \`-\`만 쓴 64자 이하로 적어 주세요: ${oneLine(skill, 80)}`,
+      );
+    if (roots.length === 0)
+      throw new Error(
+        `${input.repo}의 로컬 경로를 몰라 ${skill} 스킬이 있는지 확인하지 못했어요. ~/.gestalt/conductor.json의 repoPaths에 적어 주세요`,
+      );
+    for (const root of roots) {
+      const file = join(root, repoSkillPath(name));
+      if (!isFile(file)) throw new Error(`${input.repo}에 ${skill} 스킬이 없어요: ${file}`);
+      if (!isInside(real(root), real(file)))
+        throw new Error(`${skill} 스킬 문서가 레포 밖을 가리키는 링크예요: ${file}`);
+    }
+  }
+}
+
+/**
+ * 워커 워크트리가 갈라질 자리. git 워크트리 워커는 부모를 무시하고 repoPaths에서 띄운다. 오르카
+ * 워커와 종류를 안 정한 주문은 오르카가 없으면 git 워크트리로 떨어지므로 두 자리를 다 본다
+ */
+function repoSkillRoots(input: IntakeInput, repoPaths: Record<string, string>): string[] {
+  const repoPath = Object.hasOwn(repoPaths, input.repo) ? repoPaths[input.repo] : undefined;
+  const roots = input.workerKind === 'git-worktree' ? [repoPath] : [input.parentWorktree, repoPath];
+  return roots.filter((r): r is string => r !== undefined);
+}
+
+function isInside(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel !== '' && !isAbsolute(rel) && rel.split(sep)[0] !== '..';
+}
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /** 배포 대상이 같은 레포에 실제로 있는 주문인지 확인하고 겹친 id를 걷어 돌려준다 */
