@@ -4,12 +4,14 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { handleGithubOrder, readGithubOrder } from '../../conductor/bot-github.js';
 import {
-  approvalMessage,
-  matchMergeGate,
+  gateApprovalMessage,
+  matchBotGate,
   readBotPolicy,
   readMergeEvidence,
-  verifyMergeApproval,
+  verifyGateApproval,
+  type BotGate,
 } from '../../conductor/bot-approval.js';
+import { itemBinding, readItemDecision, readOrcaItem } from '../../conductor/orca-item-approval.js';
 import {
   assertBotOwner,
   changeBotOwner,
@@ -1746,12 +1748,18 @@ async function closeAndDeliver(
   ctx: Ctx,
   gateId: string,
   decision: 'approved' | 'rejected',
-  options: { defer: boolean; answer?: string; signer?: string },
+  options: {
+    defer: boolean;
+    answer?: string;
+    signer?: string;
+    source?: Gate['decisionSource'];
+  },
 ) {
   const { store } = ctx;
   const closed = resolveGate(store, gateId, decision, options.answer, {
     deliveryPending: options.defer,
     ...(options.signer ? { decisionBy: options.signer } : {}),
+    ...(options.source ? { decisionSource: options.source } : {}),
   });
   const delivered = await deliverGateDecision(store, closed, launchersFor(ctx, process.env), {
     defer: options.defer,
@@ -1768,14 +1776,49 @@ async function requireBotOperator(ctx: Ctx): Promise<BotOwner> {
   return caller;
 }
 
+const DELIVERY_LABELS: Record<string, string> = {
+  pending: '대기 중(다음 tick이 전해요)',
+  delivered: '전달됨',
+  failed: '실패',
+  'host-action': '호스트 작업으로 넘김',
+  'no-worker': '받을 워커 없음',
+  unknown: '알 수 없음',
+};
+
+/** 결정과 워커 전달을 따로 싣는다. 승인했어도 워커가 아직 못 받았을 수 있어서다 */
 function botDecisionStatus(gate: Gate) {
+  const delivery = gate.deliveryPending ? 'pending' : (gate.deliveryOutcome ?? 'unknown');
+  const source = gate.decisionSource;
+  const decided =
+    gate.decision === 'approved' ? '승인' : gate.decision === 'rejected' ? '거절' : gate.decision;
   return {
     gateId: gate.id,
     decision: gate.decision ?? 'open',
     ...(gate.decisionBy ? { signer: gate.decisionBy } : {}),
-    delivery: gate.deliveryPending ? 'pending' : (gate.deliveryOutcome ?? 'unknown'),
+    ...(source ? { source } : {}),
+    delivery,
     ...(gate.deliveryAttempts ? { failedAttempts: gate.deliveryAttempts } : {}),
+    ...(gate.decision
+      ? {
+          itemReport: [
+            `판단: ${decided}${gate.decisionBy ? ` (서명 ${gate.decisionBy})` : ''}${source ? `, Orca 항목 ${source.item}의 답 ${source.answer}` : ''}`,
+            `워커 전달: ${DELIVERY_LABELS[delivery] ?? delivery}${gate.deliveryAttempts ? `, 다시 시도 ${gate.deliveryAttempts}번` : ''}`,
+          ].join('\n'),
+        }
+      : {}),
   };
+}
+
+const GATE_REQUESTS: Partial<Record<Gate['type'], string>> = {
+  merge: '머지 승인 또는 거절',
+  'file-overlap': '같은 파일을 고치는 주문을 이어서 진행할지',
+  'review-manual-switch': '답글만 달린 PR을 다시 리뷰할지',
+};
+
+async function botGateEvidence(ctx: Ctx, target: BotGate) {
+  return target.ref
+    ? readMergeEvidence(target.ref, new GhAccounts(ctx.config.accounts))
+    : undefined;
 }
 
 export async function conductorBotGateCommand(
@@ -1785,27 +1828,103 @@ export async function conductorBotGateCommand(
   try {
     const ctx = open(opts);
     await requireBotOperator(ctx);
-    const { gate, order, ref, url } = matchMergeGate(ctx.store, gateId);
+    const target = matchBotGate(ctx.store, gateId);
+    const { gate } = target;
     const base = {
       ...botDecisionStatus(gate),
-      repo: order.repo,
-      title: order.title,
-      pr: url,
-      request: '머지 승인 또는 거절',
+      type: gate.type,
+      repo: target.repo,
+      ...(target.title ? { title: target.title } : {}),
+      ...(target.url ? { pr: target.url } : {}),
+      request: GATE_REQUESTS[gate.type],
       reason: gate.reason,
+      refs: gate.refs,
     };
     if (gate.status === 'resolved') return print(base);
-    const evidence = await readMergeEvidence(ref, new GhAccounts(ctx.config.accounts));
+    const evidence = await botGateEvidence(ctx, target);
     print({
       ...base,
-      evidence,
+      ...(evidence ? { evidence } : {}),
       messages: {
-        approved: approvalMessage(gate, ref, evidence.head, 'approved'),
-        rejected: approvalMessage(gate, ref, evidence.head, 'rejected'),
+        approved: gateApprovalMessage(target, evidence?.head, 'approved'),
+        rejected: gateApprovalMessage(target, evidence?.head, 'rejected'),
+      },
+      orcaItem: {
+        binding: itemBinding(target, evidence?.head),
+        options: ['승인', '거절'],
+        answer: '첫 줄에 승인 또는 거절, 둘째 줄에 서명 <승인자-ID> <base64>',
       },
     });
   } catch (error) {
     exitWithError(error);
+  }
+}
+
+interface SignedDecision {
+  decision: 'approved' | 'rejected';
+  signer: string;
+  signature: string;
+}
+
+/**
+ * 잠금 안에서 게이트를 다시 읽고 서명을 확인한 뒤 닫는다. 머지는 잠금 안에서 GitHub HEAD를 한 번 더 읽어
+ * 서명한 HEAD와 같을 때만 닫는다
+ */
+async function applySignedDecision(
+  ctx: Ctx,
+  caller: BotOwner,
+  gateId: string,
+  before: BotGate,
+  head: string | undefined,
+  signed: SignedDecision,
+  extra: { source?: Gate['decisionSource']; sameSource?: (gate: Gate) => boolean } = {},
+) {
+  const lock = acquireDecisionLock(ctx);
+  try {
+    assertBotOwner(ctx.store.dir, caller);
+    ctx.store.reload();
+    const current = matchBotGate(ctx.store, gateId);
+    if (current.gate.status === 'resolved')
+      return print({
+        ...botDecisionStatus(current.gate),
+        alreadyResolved: true,
+        ...(extra.sameSource ? { sameAnswer: extra.sameSource(current.gate) } : {}),
+      });
+    if (current.gate.openedAt !== before.gate.openedAt || current.ref !== before.ref)
+      throw new Error('게이트나 PR이 바뀌었어요. 다시 확인해 주세요');
+    let approvedHead: string | undefined;
+    if (current.gate.type === 'merge') {
+      const now = await botGateEvidence(ctx, current);
+      if (!now || !head || now.head !== head)
+        throw new Error('PR HEAD가 바뀌었어요. 새 HEAD로 다시 승인받아 주세요');
+      if (signed.decision === 'approved' && (now.state !== 'OPEN' || now.draft))
+        throw new Error('리뷰 준비가 끝난 열린 PR만 머지 승인할 수 있어요');
+      approvedHead = now.head;
+    }
+    verifyGateApproval(
+      readBotPolicy(ctx.store.dir),
+      current.gate.type,
+      current.repo,
+      signed.signer,
+      gateApprovalMessage(current, head, signed.decision),
+      signed.signature,
+    );
+    const result = await closeAndDeliver(ctx, gateId, signed.decision, {
+      defer: true,
+      signer: signed.signer,
+      ...(extra.source ? { source: extra.source } : {}),
+      ...(approvedHead && signed.decision === 'approved'
+        ? {
+            answer: `승인된 PR HEAD는 ${approvedHead}입니다. 머지는 반드시 --match-head-commit ${approvedHead}로 제한하세요. HEAD가 바뀌면 새 승인을 요청하세요.`,
+          }
+        : {}),
+    });
+    print({
+      ...botDecisionStatus(ctx.store.snapshot.gates[gateId] ?? result.closed),
+      errors: result.delivered.errors,
+    });
+  } finally {
+    lock.release();
   }
 }
 
@@ -1821,47 +1940,53 @@ export async function conductorBotDecideCommand(
       ['approved', 'rejected'],
       '--decision',
     );
-    const { gate, ref } = matchMergeGate(ctx.store, gateId);
-    const evidence =
-      gate.status === 'open'
-        ? await readMergeEvidence(ref, new GhAccounts(ctx.config.accounts))
-        : undefined;
-    const lock = acquireLock(ctx.store.dir);
-    if (!lock.ok)
-      throw new Error('컨덕터가 상태를 갱신 중이에요. 잠시 뒤 게이트를 다시 확인해 주세요');
-    try {
-      assertBotOwner(ctx.store.dir, caller);
-      ctx.store.reload();
-      const current = matchMergeGate(ctx.store, gateId);
-      if (current.gate.status === 'resolved')
-        return print({ ...botDecisionStatus(current.gate), alreadyResolved: true });
-      if (!evidence || current.ref !== ref)
-        throw new Error('게이트나 PR이 바뀌었어요. 다시 확인해 주세요');
-      if (decision === 'approved' && (evidence.state !== 'OPEN' || evidence.draft))
-        throw new Error('리뷰 준비가 끝난 열린 PR만 머지 승인할 수 있어요');
-      verifyMergeApproval(
-        readBotPolicy(ctx.store.dir),
-        current.order.repo,
-        opts.signer,
-        approvalMessage(current.gate, ref, evidence.head, decision),
-        opts.signature,
-      );
-      const result = await closeAndDeliver(ctx, gateId, decision, {
-        defer: true,
-        signer: opts.signer,
-        ...(decision === 'approved'
-          ? {
-              answer: `승인된 PR HEAD는 ${evidence.head}입니다. 머지는 반드시 --match-head-commit ${evidence.head}로 제한하세요. HEAD가 바뀌면 새 승인을 요청하세요.`,
-            }
-          : {}),
+    const target = matchBotGate(ctx.store, gateId);
+    const evidence = target.gate.status === 'open' ? await botGateEvidence(ctx, target) : undefined;
+    await applySignedDecision(ctx, caller, gateId, target, evidence?.head, {
+      decision,
+      signer: opts.signer,
+      signature: opts.signature,
+    });
+  } catch (error) {
+    exitWithError(error);
+  }
+}
+
+/**
+ * Orca 항목에 사람이 단 답으로 게이트를 닫는다. 채팅에 옮겨 적은 말이 아니라 Orca가 저장한 항목을 직접 읽고
+ * 운영 봇, 채팅, 항목, 질문, 답 이벤트와 게이트를 맞춰 본 뒤 기존 승인자 서명을 확인한다
+ */
+export async function conductorBotItemDecideCommand(
+  gateId: string,
+  opts: ConductorCommonOptions & { item: string; question: string; answer: string },
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    const caller = await requireBotOperator(ctx);
+    const item = Number(opts.item);
+    if (!Number.isSafeInteger(item) || item <= 0) throw new Error('--item은 Orca 항목 번호예요');
+    const target = matchBotGate(ctx.store, gateId);
+    const sameSource = (gate: Gate) =>
+      gate.decisionSource?.item === item && gate.decisionSource.answer === opts.answer;
+    if (target.gate.status === 'resolved')
+      return print({
+        ...botDecisionStatus(target.gate),
+        alreadyResolved: true,
+        sameAnswer: sameSource(target.gate),
       });
-      print({
-        ...botDecisionStatus(ctx.store.snapshot.gates[gateId] ?? result.closed),
-        errors: result.delivered.errors,
-      });
-    } finally {
-      lock.release();
-    }
+    const evidence = await botGateEvidence(ctx, target);
+    const read = readItemDecision({
+      show: await readOrcaItem(item),
+      owner: caller,
+      item,
+      question: opts.question,
+      answer: opts.answer,
+      binding: itemBinding(target, evidence?.head),
+    });
+    await applySignedDecision(ctx, caller, gateId, target, evidence?.head, read, {
+      source: read.source,
+      sameSource,
+    });
   } catch (error) {
     exitWithError(error);
   }

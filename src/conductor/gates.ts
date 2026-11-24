@@ -6,6 +6,7 @@ import {
   type GateType,
   type NeedKind,
   type Order,
+  type OrcaItemSource,
   type ShipApprovalStep,
 } from './types.js';
 
@@ -216,7 +217,7 @@ export function resolveGate(
   gateId: string,
   decision: 'approved' | 'rejected',
   answer?: string,
-  options: { deliveryPending?: boolean; decisionBy?: string } = {},
+  options: { deliveryPending?: boolean; decisionBy?: string; decisionSource?: OrcaItemSource } = {},
 ): Gate {
   store.append({
     type: 'gate-resolved',

@@ -237,6 +237,18 @@ export interface Gate {
   deliveryAttempts?: number;
   deliveryOutcome?: GateDeliveryOutcome;
   decisionBy?: string;
+  /** Orca 항목의 사람 답으로 닫았을 때 그 답의 위치. 같은 답이 다시 와도 결정을 새로 쓰지 않는 근거다 */
+  decisionSource?: OrcaItemSource;
+}
+
+export interface OrcaItemSource {
+  kind: 'orca-item';
+  botId: string;
+  chatId: string;
+  item: number;
+  itemUid: string;
+  question: string;
+  answer: string;
 }
 
 export const NEED_KINDS = [
@@ -356,6 +368,7 @@ export type ConductorEvent =
       answer?: string;
       deliveryPending?: boolean;
       decisionBy?: string;
+      decisionSource?: OrcaItemSource;
     }
   /** pending이 true면 결정 전달을 tick에 넘겼고 false면 tick이 그 일을 마쳤다 */
   | {
