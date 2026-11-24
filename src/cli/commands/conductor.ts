@@ -130,7 +130,7 @@ import {
   type HandoffCloseResult,
 } from '../../conductor/handoff-close.js';
 import type { ConductorConfig } from '../../conductor/scheduler.js';
-import { draftSlack } from '../../conductor/slack.js';
+import { confirmSlackDelivery, draftSlack, pendingSlackDelivery } from '../../conductor/slack.js';
 import {
   claimWaitOwner,
   consumeWaitCarry,
@@ -1601,22 +1601,72 @@ export interface ConductorSlackDraftOptions extends ConductorCommonOptions {
 
 export function conductorSlackDraftCommand(opts: ConductorSlackDraftOptions): void {
   run(() => {
-    const { store } = open(opts);
+    const ctx = open(opts);
+    const { store } = ctx;
     const text = readFileSync(opts.textFile, 'utf-8').trim();
     if (!text) throw new Error('초안이 비었어요');
-    const { gate, reused } = draftSlack(
-      store,
-      {
-        channel: opts.channel,
-        text,
-        ...(opts.order ? { orderId: opts.order } : {}),
-        ...(opts.thread ? { threadTs: opts.thread } : {}),
-      },
-      join(store.dir, 'slack'),
-    );
-    if (opts.json) return print({ gateId: gate.id, reused });
-    console.log(`승인을 기다려요: ${gate.id}${reused ? ' (같은 초안이 이미 올라가 있어요)' : ''}`);
+    const lock = acquireDecisionLock(ctx);
+    try {
+      store.reload();
+      const { gate, reused } = draftSlack(
+        store,
+        {
+          channel: opts.channel,
+          text,
+          ...(opts.order ? { orderId: opts.order } : {}),
+          ...(opts.thread ? { threadTs: opts.thread } : {}),
+        },
+        join(store.dir, 'slack'),
+      );
+      if (opts.json) return print({ gateId: gate.id, reused });
+      console.log(
+        `승인을 기다려요: ${gate.id}${reused ? ' (같은 초안이 이미 올라가 있어요)' : ''}`,
+      );
+    } finally {
+      lock.release();
+    }
   });
+}
+
+export async function conductorSlackDeliveryCommand(
+  gateId: string,
+  opts: ConductorCommonOptions,
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'slack delivery');
+    assertBotOwner(ctx.store.dir, await tickBotCaller(ctx));
+    ctx.store.reload();
+    print(pendingSlackDelivery(ctx.store, gateId));
+  } catch (error) {
+    exitWithError(error);
+  }
+}
+
+export async function conductorSlackPostedCommand(
+  gateId: string,
+  opts: ConductorCommonOptions & { delivery: string; ref: string },
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'slack posted');
+    const caller = await tickBotCaller(ctx);
+    const lock = acquireDecisionLock(ctx);
+    try {
+      assertBotOwner(ctx.store.dir, caller);
+      ctx.store.reload();
+      const result = confirmSlackDelivery(ctx.store, gateId, opts.delivery, opts.ref);
+      ctx.store.flushSnapshot();
+      if (opts.json) return print({ gateId, ...result });
+      console.log(
+        result.recorded ? 'Slack 게시 결과를 남겼어요' : '같은 Slack 게시 결과가 이미 있어요',
+      );
+    } finally {
+      lock.release();
+    }
+  } catch (error) {
+    exitWithError(error);
+  }
 }
 
 export interface ConductorMetricsOptions {

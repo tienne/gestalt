@@ -102,7 +102,15 @@ export type HostAction =
   | { type: 'send'; workerId: string; message: string }
   // 외부 쓰기는 호스트 세션이 MCP로 한다. tick은 무엇을 할지만 돌려준다
   | { type: 'jira-transition'; issueKey: string; to: JiraStatus }
-  | { type: 'slack-post'; channel: string; text: string; threadTs?: string };
+  | {
+      type: 'slack-post';
+      gateId: string;
+      deliveryId: string;
+      orderId?: string;
+      channel: string;
+      text: string;
+      threadTs?: string;
+    };
 
 export interface LaunchSpec {
   order: Order;

@@ -52,7 +52,9 @@ import {
   conductorOrderShowCommand,
   conductorOrderTakeOverCommand,
   conductorQueueAddCommand,
+  conductorSlackDeliveryCommand,
   conductorSlackDraftCommand,
+  conductorSlackPostedCommand,
   conductorStatusCommand,
   conductorTickCommand,
   conductorWaitCommand,
@@ -1495,9 +1497,9 @@ export function createCli(): Command {
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorQueueAddCommand(o));
 
-  conductor
-    .command('slack')
-    .description('슬랙 초안')
+  const conductorSlack = conductor.command('slack').description('슬랙 초안과 게시 결과');
+
+  conductorSlack
     .command('draft')
     .description('초안을 승인 게이트로 올린다. 승인되면 다음 tick이 게시할 일로 돌려준다')
     .requiredOption('--channel <name>', '채널')
@@ -1507,6 +1509,21 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorSlackDraftCommand(o));
+
+  conductorSlack
+    .command('delivery <gateId>')
+    .description('인계한 Slack 게시 작업을 JSON으로 읽는다')
+    .addOption(stateDir())
+    .action(async (id, o) => conductorSlackDeliveryCommand(id, o));
+
+  conductorSlack
+    .command('posted <gateId>')
+    .description('인계한 Slack 작업의 게시 결과를 확인한다')
+    .requiredOption('--delivery <id>', '호스트에 전달된 게시 작업 식별자')
+    .requiredOption('--ref <ref>', 'Slack 응답의 메시지 ts 또는 퍼머링크')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (id, o) => conductorSlackPostedCommand(id, o));
 
   conductor
     .command('metrics')
