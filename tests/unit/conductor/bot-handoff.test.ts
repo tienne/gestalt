@@ -6,6 +6,7 @@ import {
   conductorStatusCommand,
 } from '../../../src/cli/commands/conductor.js';
 import { handoffBot } from '../../../src/conductor/bot-handoff.js';
+import { automationCoordinationRoot } from '../../../src/conductor/bot-handoff-coordination.js';
 import {
   assertBotOwner,
   changeBotOwner,
@@ -13,10 +14,18 @@ import {
   writeBotOwnership,
 } from '../../../src/conductor/bot-owner.js';
 import { acquireLock, tick } from '../../../src/conductor/engine.js';
-import { readScheduledBotAutomation } from '../../../src/conductor/orca-automation.js';
+import {
+  OrcaAutomationEditRejected,
+  readScheduledBotAutomation,
+} from '../../../src/conductor/orca-automation.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import { loadConfig } from '../../../src/core/config.js';
 import { cleanupStateDirs, tempStateDir } from './fixtures.js';
+
+vi.mock('../../../src/conductor/bot-handoff-coordination.js', async (original) => ({
+  ...(await original<typeof import('../../../src/conductor/bot-handoff-coordination.js')>()),
+  automationCoordinationRoot: vi.fn(),
+}));
 
 const source = { botId: 'ops-bot', name: 'Conductor', chatId: 'old-chat' };
 const target = { ...source, chatId: 'new-chat' };
@@ -29,6 +38,7 @@ const options = {
 };
 const now = Date.parse('2026-11-25T00:00:00Z');
 const nextRunAt = now + 25 * 60 * 1000;
+const originalExitCode = process.exitCode;
 
 function fixture() {
   const dir = tempStateDir();
@@ -57,6 +67,7 @@ function fixture() {
     }),
     write,
     now: () => now,
+    coordinationRoot: () => join(dir, 'shared'),
   };
   const run = (overrides?: Partial<typeof options> & { approve?: string; cancel?: boolean }) =>
     handoffBot(dir, { ...options, ...overrides }, deps);
@@ -77,36 +88,47 @@ function fixture() {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  process.exitCode = originalExitCode;
   cleanupStateDirs();
 });
 
 describe('Orca 봇 정기 자동화 인계', () => {
   it('운영자 명령에서만 Orca CLI의 기존 자동화 대상 편집을 호출한다', async () => {
     const { automation, dir } = fixture();
+    vi.mocked(automationCoordinationRoot).mockReturnValue(join(dir, 'shared'));
     automation.nextRunAt = Date.now() + 25 * 60 * 1000;
     const state = resolve(dir, 'automation.json');
     const edits = resolve(dir, 'edits.json');
     const orca = resolve(dir, 'orca.cjs');
+    const mode = resolve(dir, 'mode');
+    const closure = resolve(dir, 'closed');
     writeFileSync(state, JSON.stringify(automation));
+    writeFileSync(mode, 'normal');
     writeFileSync(
       orca,
       `#!/usr/bin/env node
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 const state = ${JSON.stringify(state)};
+const mode = fs.readFileSync(${JSON.stringify(mode)}, 'utf8');
+const closure = ${JSON.stringify(closure)};
 const automation = JSON.parse(fs.readFileSync(state, 'utf8'));
 const [group, action] = args;
 const bots = [{ id: ${JSON.stringify(source.botId)}, name: ${JSON.stringify(source.name)}, paused: false }];
 const chats = [
   { id: ${JSON.stringify(source.chatId)}, closed: false, self: true },
-  { id: ${JSON.stringify(target.chatId)}, closed: false }
+  { id: ${JSON.stringify(target.chatId)}, closed: mode === 'close-on-show' && fs.existsSync(closure) }
 ];
 let result;
 if (group === 'bot' && action === 'list') result = { bots };
 else if (group === 'bot' && action === 'chats') result = { bot: bots[0].name, chats };
-else if (group === 'automations' && action === 'show') result = { automation };
+else if (group === 'automations' && action === 'show') {
+  if (mode === 'close-on-show') fs.writeFileSync(closure, '');
+  result = { automation };
+}
 else if (group === 'automations' && action === 'edit') {
   fs.writeFileSync(${JSON.stringify(edits)}, JSON.stringify(args));
+  if (mode === 'lose-edit-response') process.exit(1);
   automation.bot.chat.sessionId = args[5].slice('chat:'.length);
   fs.writeFileSync(state, JSON.stringify(automation));
   result = { automation };
@@ -125,9 +147,19 @@ console.log(JSON.stringify({ ok: true, result }));
       throw new Error('exit');
     });
     const command = { ...options, json: true, stateDir: dir };
+    const competingDir = tempStateDir();
+    writeFileSync(
+      join(competingDir, 'bot-owner.json'),
+      JSON.stringify({ active: source, retired: [] }),
+    );
+    const competing = { ...command, stateDir: competingDir, request: 'competing-cli' };
+    const last = () => JSON.parse(output.mock.lastCall![0] as string);
     await conductorBotHandoffCommand(command);
-    const preview = JSON.parse(output.mock.lastCall![0] as string) as { approval: string };
+    const preview = last() as { approval: string };
     expect(preview).toMatchObject({ status: 'ready', approval: expect.any(String) });
+    await conductorBotHandoffCommand(competing);
+    const competingApproval = last().approval;
+    expect(competingApproval).toEqual(expect.any(String));
     vi.stubEnv('ORCA_AGENT_SESSION_ID', source.chatId);
     await expect(
       conductorBotHandoffCommand({ ...command, approve: preview.approval }),
@@ -135,8 +167,30 @@ console.log(JSON.stringify({ ok: true, result }));
     expect(() => readFileSync(edits)).toThrow();
 
     vi.stubEnv('ORCA_AGENT_SESSION_ID', undefined);
+    writeFileSync(mode, 'lose-edit-response');
     await conductorBotHandoffCommand({ ...command, approve: preview.approval });
-    expect(JSON.parse(output.mock.lastCall![0] as string)).toMatchObject({
+    expect(last()).toMatchObject({ status: 'partial', retryStage: 'reconcile-edit' });
+    conductorStatusCommand({ stateDir: dir, json: true });
+    expect(last()).toMatchObject({
+      conductor: { botHandoff: { status: 'partial', retryStage: 'reconcile-edit' } },
+    });
+    await conductorBotHandoffCommand({ ...command, approve: preview.approval, cancel: true });
+    expect(last()).toMatchObject({ status: 'partial', retryStage: 'reconcile-edit' });
+    await conductorBotHandoffCommand({ ...competing, approve: competingApproval });
+    expect(last()).toMatchObject({ status: 'blocked', retryStage: 'coordinate' });
+
+    automation.bot.chat.sessionId = target.chatId;
+    writeFileSync(state, JSON.stringify(automation));
+    writeFileSync(mode, 'close-on-show');
+    await conductorBotHandoffCommand({ ...command, approve: preview.approval });
+    expect(last()).toMatchObject({
+      status: 'partial',
+      retryStage: 'verify',
+      responsibleChatId: source.chatId,
+    });
+    writeFileSync(mode, 'normal');
+    await conductorBotHandoffCommand({ ...command, approve: preview.approval });
+    expect(last()).toMatchObject({
       status: 'completed',
       automationChatId: target.chatId,
       responsibleChatId: target.chatId,
@@ -153,10 +207,10 @@ console.log(JSON.stringify({ ok: true, result }));
       '--json',
     ]);
     conductorStatusCommand({ stateDir: dir, json: true });
-    expect(JSON.parse(output.mock.lastCall![0] as string)).toMatchObject({
+    expect(last()).toMatchObject({
       conductor: { botHandoff: { requestId: options.request, status: 'completed' } },
     });
-  });
+  }, 15_000);
 
   it('한 번 승인하면 같은 ID와 설정을 유지하고 다음 실행과 새 책임 채팅을 확인한다', async () => {
     const { dir, deps, automation, run, approval } = fixture();
@@ -216,15 +270,20 @@ console.log(JSON.stringify({ ok: true, result }));
         throw new Error('injected failure');
       };
       if (stage === 'write-intent') deps.write.mockImplementationOnce(fail);
-      if (stage === 'retarget') deps.retarget.mockImplementationOnce(fail);
+      if (stage === 'retarget')
+        deps.retarget.mockRejectedValueOnce(new OrcaAutomationEditRejected('접근 거절'));
       if (stage === 'verify') {
         deps.show.mockImplementationOnce(async () => readScheduledBotAutomation({ automation }));
         deps.show.mockImplementationOnce(fail);
       }
-      if (stage === 'commit-owner') {
-        deps.write.mockImplementationOnce(writeBotOwnership);
-        deps.write.mockImplementationOnce(fail);
-      }
+      if (stage === 'commit-owner')
+        deps.write.mockImplementation((path, value) => {
+          if (value.active?.chatId === target.chatId) {
+            deps.write.mockImplementation(writeBotOwnership);
+            return fail();
+          }
+          writeBotOwnership(path, value);
+        });
       const result = await run({ approve });
       expect(result).toMatchObject({
         status: stage === 'write-intent' ? 'blocked' : 'partial',
@@ -269,6 +328,101 @@ console.log(JSON.stringify({ ok: true, result }));
     expect(readBotOwnership(dir).active).toEqual(source);
     expect(await run({ approve })).toMatchObject({ status: 'completed' });
     expect(deps.retarget).toHaveBeenCalledTimes(1);
+  });
+
+  it('이미 편집된 요청도 운영권 확정 직전에 새 채팅이 닫히면 책임 채팅을 유지한다', async () => {
+    const { deps, dir, automation, run, approval } = fixture();
+    const approve = await approval();
+    deps.retarget.mockImplementationOnce(async (_id, chat) => {
+      automation.bot.chat.sessionId = chat;
+      deps.chat.mockRejectedValueOnce(new Error('첫 검증에서 닫힘'));
+    });
+    expect(await run({ approve })).toMatchObject({ status: 'partial', retryStage: 'verify' });
+    deps.chat.mockResolvedValueOnce(target).mockRejectedValueOnce(new Error('재시도 중에 닫힘'));
+    expect(await run({ approve })).toMatchObject({
+      status: 'partial',
+      retryStage: 'verify',
+      automationChatId: target.chatId,
+      responsibleChatId: source.chatId,
+    });
+    expect(readBotOwnership(dir).active).toEqual(source);
+    expect(await run({ approve })).toMatchObject({ status: 'completed' });
+    expect(deps.retarget).toHaveBeenCalledTimes(1);
+  });
+
+  it('응답 없는 편집은 늦은 반영을 확인할 때까지 재편집과 최종 취소를 막는다', async () => {
+    const { deps, dir, automation, run, approval } = fixture();
+    const approve = await approval();
+    deps.retarget.mockRejectedValueOnce(new Error('응답 시간 초과'));
+    expect(await run({ approve })).toMatchObject({
+      status: 'partial',
+      retryStage: 'reconcile-edit',
+    });
+    expect(await run({ approve, cancel: true })).toMatchObject({
+      status: 'partial',
+      retryStage: 'reconcile-edit',
+      responsibleChatId: source.chatId,
+    });
+    expect(await run({ approve })).toMatchObject({
+      status: 'partial',
+      retryStage: 'reconcile-edit',
+    });
+    expect(readBotOwnership(dir).handoffs[0]).toMatchObject({ editUncertain: true });
+    expect(deps.retarget).toHaveBeenCalledTimes(1);
+    automation.bot.chat.sessionId = target.chatId;
+    expect(await run({ approve, cancel: true })).toMatchObject({
+      status: 'partial',
+      retryStage: 'cancel',
+    });
+    expect(readBotOwnership(dir).handoffs[0]).toMatchObject({ editUncertain: false });
+    automation.bot.chat.sessionId = source.chatId;
+    expect(await run({ approve, cancel: true })).toMatchObject({ status: 'cancelled' });
+  });
+
+  it('서로 다른 저장소가 같은 자동화에 경합하면 최초 저장소만 인계를 확정한다', async () => {
+    const { deps, dir, automation, run, approval } = fixture();
+    const other = tempStateDir();
+    writeFileSync(join(other, 'bot-owner.json'), JSON.stringify({ active: source, retired: [] }));
+    const competing = { ...options, request: 'competing-handoff', chat: 'other-chat' };
+    const runOther = (approve?: string) =>
+      handoffBot(other, { ...competing, ...(approve ? { approve } : {}) }, deps);
+    const approve = await approval();
+    const preview = await runOther();
+    expect(preview.status).toBe('ready');
+    deps.retarget.mockImplementationOnce(async (_id, chat) => {
+      expect(await runOther(preview.approval)).toMatchObject({
+        status: 'blocked',
+        retryStage: 'coordinate',
+      });
+      automation.bot.chat.sessionId = chat;
+    });
+    expect(await run({ approve })).toMatchObject({ status: 'completed' });
+    automation.bot.chat.sessionId = source.chatId;
+    expect(await runOther(preview.approval)).toMatchObject({
+      status: 'blocked',
+      retryStage: 'coordinate',
+      detail: expect.stringContaining(options.request),
+    });
+    expect(readBotOwnership(dir).active).toEqual(target);
+    expect(readBotOwnership(other).active).toEqual(source);
+    expect(deps.retarget).toHaveBeenCalledTimes(1);
+  });
+
+  it('Orca에 도달하지 못한 첫 요청을 취소하면 공유 담당 기록도 해제한다', async () => {
+    const { deps, run, approval } = fixture();
+    const approve = await approval();
+    deps.retarget.mockRejectedValueOnce(new OrcaAutomationEditRejected('접근 거절'));
+    expect(await run({ approve })).toMatchObject({ status: 'partial', retryStage: 'retarget' });
+    const other = tempStateDir();
+    writeFileSync(join(other, 'bot-owner.json'), JSON.stringify({ active: source, retired: [] }));
+    const competing = { ...options, request: 'after-cancel' };
+    expect(await handoffBot(other, competing, deps)).toMatchObject({ status: 'blocked' });
+    expect(await run({ approve, cancel: true })).toMatchObject({ status: 'cancelled' });
+    const preview = await handoffBot(other, competing, deps);
+    expect(preview.status).toBe('ready');
+    expect(
+      await handoffBot(other, { ...competing, approve: preview.approval! }, deps),
+    ).toMatchObject({ status: 'completed' });
   });
 
   it('편집 뒤 보고 정책이 달라졌으면 책임을 유지하고 운영자가 복구한 뒤 취소할 수 있다', async () => {
