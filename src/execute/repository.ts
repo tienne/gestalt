@@ -104,7 +104,12 @@ export class ExecuteSessionRepository {
       spec: startPayload.spec ?? this.buildMinimalSpec(startPayload),
       status: startPayload.preparedPlan ? 'plan_complete' : 'planning',
       currentStep: startPayload.preparedPlan ? 5 : 1,
-      ...(startPayload.preparedPlan ? { executionPlan: startPayload.preparedPlan } : {}),
+      ...(startPayload.preparedPlan
+        ? {
+            executionPlan: startPayload.preparedPlan,
+            assignedWorktree: startPayload.codeGraphRepoRoot,
+          }
+        : {}),
       planningSteps: [],
       taskResults: [],
       completedTaskIds: [],

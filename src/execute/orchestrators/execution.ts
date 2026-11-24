@@ -459,7 +459,8 @@ export class ExecutionOrchestrator {
   async captureBaseline(sessionId: string, cwd?: string): Promise<BaselineCapture> {
     let repoRoot = cwd ?? process.cwd();
     try {
-      repoRoot = cwd ?? this.sessionManager.get(sessionId).codeGraphRepoRoot ?? process.cwd();
+      const session = this.sessionManager.get(sessionId);
+      repoRoot = session.assignedWorktree ?? cwd ?? session.codeGraphRepoRoot ?? process.cwd();
       const baseline = await captureWorkingTreeBaseline(repoRoot);
       if (baseline) return { repoRoot, baseline };
       log(`execute: ${repoRoot} is not a git work tree — completion claims will not be verified`);

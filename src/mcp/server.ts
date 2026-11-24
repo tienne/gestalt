@@ -27,7 +27,6 @@ import { handleInterviewPassthrough } from './tools/interview-passthrough.js';
 import { handleSpec } from './tools/spec.js';
 import { handleSpecPassthrough } from './tools/spec-passthrough.js';
 import { handleExecutePassthrough } from './tools/execute-passthrough.js';
-import { createHostAdapter } from './host-adapter.js';
 import { resolveStatusSessionId } from './session-selector.js';
 import { handleCreateAgentPassthrough } from './tools/create-agent-passthrough.js';
 import { handleStatus, buildStatusConfigInfo } from './tools/status.js';
@@ -338,8 +337,11 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         );
         return toolReply(result);
       }
-      const adapter = createHostAdapter(input.client ?? config.client, input.cwd);
-      const result = await handleExecutePassthrough(ptExecuteEngine, input, adapter);
+      const result = await handleExecutePassthrough(
+        ptExecuteEngine,
+        input,
+        input.client ?? config.client,
+      );
       return toolReply(result);
     },
   );

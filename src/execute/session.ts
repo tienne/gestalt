@@ -1,3 +1,4 @@
+import { claimPlanDestination } from './plan-destination.js';
 import { randomUUID } from 'node:crypto';
 import type {
   ExecuteSession,
@@ -248,6 +249,8 @@ export class ExecuteSessionManager {
 
   startExecution(sessionId: string, capture?: BaselineCapture): void {
     const session = this.get(sessionId);
+    if (session.executionPlan && !session.assignedWorktree)
+      claimPlanDestination(session.executionPlan.planId, { kind: 'local' });
     const baseline = capture?.baseline;
     session.status = 'executing';
     session.workingTreeBaseline = baseline;

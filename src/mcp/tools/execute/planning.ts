@@ -1,3 +1,6 @@
+import { execFileSync } from 'node:child_process';
+import { real } from '../../../conductor/parent-worktree.js';
+import { readOriginRepo } from '../../../harness-review/related-repos.js';
 import { isDeepStrictEqual } from 'node:util';
 import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../../schemas.js';
@@ -46,6 +49,25 @@ export function handleStart(
   );
 }
 
+function repositoryIdentity(root: string): string {
+  const origin = readOriginRepo(root);
+  if (origin) return `github:${origin.owner.toLowerCase()}/${origin.name.toLowerCase()}`;
+  try {
+    const gitDir = execFileSync(
+      'git',
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    ).trim();
+    return `git:${real(gitDir)}`;
+  } catch {
+    return `path:${real(root)}`;
+  }
+}
+
 export function handlePrepareConductor(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
@@ -54,6 +76,10 @@ export function handlePrepareConductor(
   try {
     if ((input.spec && (input.sessionId || input.planId)) || (input.sessionId && input.planId))
       return formatError('Select one of spec, sessionId or planId');
+    const root = real(input.codeGraphRepoRoot ?? input.cwd ?? process.cwd());
+    const target = repositoryIdentity(root);
+    const belongsToTarget = (candidate: ExecuteSession) =>
+      candidate.codeGraphRepoRoot && repositoryIdentity(candidate.codeGraphRepoRoot) === target;
     let session: ExecuteSession | undefined;
     if (input.sessionId) {
       session = engine.getSession(input.sessionId);
@@ -61,29 +87,49 @@ export function handlePrepareConductor(
       const spec = input.spec ? specSchema.parse(input.spec) : undefined;
       if (!spec && !input.planId) return formatError('spec, sessionId or planId is required');
       const matches = engine
-        .listSessions()
+        .getSessionManager()
+        .listPersisted()
         .filter(
           (candidate) =>
-            !candidate.sessionId.startsWith('conductor-') &&
+            !candidate.assignedWorktree &&
             (input.planId
               ? candidate.executionPlan?.planId === input.planId
               : candidate.specId === spec?.metadata.specId &&
-                (candidate.status === 'planning' || candidate.status === 'plan_complete')),
+                (candidate.status === 'planning' || candidate.status === 'plan_complete') &&
+                belongsToTarget(candidate)),
         );
-      const ready = matches.filter((candidate) => candidate.status === 'plan_complete');
-      const candidates = ready.length ? ready : matches;
+      const ready = input.planId
+        ? matches
+        : matches.filter((candidate) => {
+            try {
+              return Boolean(validateFinalizedSession(candidate));
+            } catch {
+              return false;
+            }
+          });
+      const candidates = ready.length
+        ? ready
+        : matches.filter((candidate) => candidate.status === 'planning');
       if (candidates.length > 1)
         return formatError('실행 세션이 여러 개예요. 세션이나 계획 ID를 골라 주세요');
       session = candidates[0];
       if (session && spec && !isDeepStrictEqual(specSchema.parse(session.spec), spec))
         return formatError('저장된 실행 세션의 Spec 내용이 선택한 Spec과 달라요');
-      if (!session && spec) return handleStart(engine, { ...input, spec }, adapter);
+      if (!session && spec)
+        return handleStart(engine, { ...input, codeGraphRepoRoot: root, spec }, adapter);
     }
     if (!session) return formatError('지정한 실행 계획을 찾지 못했어요');
+    if (
+      session.assignedWorktree ||
+      (session.status !== 'planning' && session.status !== 'plan_complete')
+    )
+      return formatError('구현을 시작하기 전의 원본 실행 세션을 골라 주세요');
+    if (!belongsToTarget(session))
+      return formatError(
+        '선택한 실행 계획의 대상 레포가 현재 레포와 다르거나 확인되지 않아요. 이 레포에서 Spec으로 계획을 준비해 주세요',
+      );
     if (session.status === 'plan_complete' && session.executionPlan)
       return formatConductorReady(session);
-    if (session.status !== 'planning')
-      return formatError('구현을 시작하기 전의 실행 세션을 골라 주세요');
     const executeContext = engine.resumePlanning(session);
     const context = executeContext
       ? sanitizeSurfaceContext(executeContext as unknown as Record<string, unknown>)

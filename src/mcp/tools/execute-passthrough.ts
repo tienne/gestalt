@@ -1,3 +1,4 @@
+import { real } from '../../conductor/parent-worktree.js';
 import type { PassthroughExecuteEngine } from '../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../schemas.js';
 import { createHostAdapter, type IHostAdapter } from '../host-adapter.js';
@@ -61,18 +62,29 @@ export async function handleExecutePassthrough(
 ): Promise<string> {
   const handler = handlers[input.action];
   if (!handler) return formatError(`Unknown action: ${input.action}`);
-  const adapter =
-    typeof clientOrAdapter === 'string'
-      ? createHostAdapter(clientOrAdapter, input.cwd)
-      : clientOrAdapter;
-
   const resolved = resolveExecuteSessionInput(engine, input);
   if (!resolved.ok) return formatError(resolved.error);
-
-  const blocked = blockWhileAwaitingHuman(engine, resolved.input);
+  const params = resolved.input;
+  const blocked = blockWhileAwaitingHuman(engine, params);
   if (blocked) return blocked;
 
-  return handler(engine, resolved.input, adapter);
+  let assignedWorktree: string | undefined;
+  if (params.sessionId) {
+    try {
+      assignedWorktree = engine.getSession(params.sessionId).assignedWorktree;
+    } catch {
+      // 기존 핸들러가 세션을 찾지 못한 결과를 돌려준다.
+    }
+  }
+  if (assignedWorktree && params.cwd && real(params.cwd) !== real(assignedWorktree))
+    return formatError('이 주문의 작업과 검증은 배정된 워크트리에서 진행해 주세요');
+
+  const bound = assignedWorktree ? { ...params, cwd: assignedWorktree } : params;
+  const adapter =
+    typeof clientOrAdapter === 'string'
+      ? createHostAdapter(clientOrAdapter, bound.cwd)
+      : clientOrAdapter;
+  return handler(engine, bound, adapter);
 }
 
 // 사람의 답을 기다리는 동안에는 흐름을 앞으로 미는 action을 막는다. 상태 조회와 해소만 통과시킨다

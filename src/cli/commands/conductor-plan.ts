@@ -2,12 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { existsSync, linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { loadConfig } from '../../core/config.js';
 import { gestaltPath } from '../../core/home.js';
 import { isPlainObject } from '../../core/json-file.js';
 import { EventStore } from '../../events/store.js';
+import { claimPlanDestination } from '../../execute/plan-destination.js';
 import { ExecuteSessionManager } from '../../execute/session.js';
 import { readOriginRepo } from '../../harness-review/related-repos.js';
 import { readBotOwnership, targetBotOwner, type BotOwner } from '../../conductor/bot-owner.js';
@@ -41,21 +42,40 @@ function stagedPath(planId: string): string {
   return gestaltPath('prepared-plans', `${planId}.json`);
 }
 
-function stage(prepared: PreparedPlan): void {
+interface StagedPlan {
+  prepared: PreparedPlan;
+  dbPath: string;
+}
+
+function stage(staged: StagedPlan): void {
+  const { prepared } = staged;
   const file = stagedPath(prepared.plan.planId);
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   const temp = `${file}.${randomUUID()}.tmp`;
   try {
-    writeFileSync(temp, JSON.stringify(prepared), { mode: 0o600, flag: 'wx' });
+    writeFileSync(temp, JSON.stringify(staged), { mode: 0o600, flag: 'wx' });
     linkSync(temp, file);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-    const existing = readPreparedPlan(JSON.parse(readFileSync(file, 'utf8')));
-    if (!isDeepStrictEqual(existing, prepared))
+    const existing = readStagedPlan(prepared.plan.planId);
+    if (!isDeepStrictEqual(existing, staged))
       throw new Error('같은 계획 ID로 다른 내용이나 레포를 보낼 수 없어요', { cause: error });
   } finally {
     rmSync(temp, { force: true });
   }
+}
+
+function readStagedPlan(planId: string): StagedPlan {
+  const stored: unknown = JSON.parse(readFileSync(stagedPath(planId), 'utf8'));
+  if (
+    !isPlainObject(stored) ||
+    typeof stored['dbPath'] !== 'string' ||
+    !isAbsolute(stored['dbPath'])
+  )
+    throw new Error('원본 실행 세션 저장소를 찾지 못했어요. 같은 계획을 다시 제출해 주세요');
+  const prepared = readPreparedPlan(stored['prepared']);
+  if (prepared.plan.planId !== planId) throw new Error('저장된 실행 계획의 ID가 달라요');
+  return { prepared, dbPath: stored['dbPath'] };
 }
 
 function receipt(dir: string, prepared: PreparedPlan) {
@@ -71,7 +91,7 @@ function receipt(dir: string, prepared: PreparedPlan) {
   return undefined;
 }
 
-async function accept(ctx: Ctx, caller: BotOwner | undefined, prepared: PreparedPlan) {
+async function accept(ctx: Ctx, caller: BotOwner | undefined, { prepared, dbPath }: StagedPlan) {
   if (!caller) throw new Error('등록된 Orca 운영 채팅에서 계획을 접수해 주세요');
   let lock = acquireLock(ctx.store.dir);
   for (let retry = 0; !lock.ok && retry < 10; retry++) {
@@ -85,6 +105,19 @@ async function accept(ctx: Ctx, caller: BotOwner | undefined, prepared: Prepared
       throw new Error('계획을 접수할 운영권이 이 채팅에 없어요');
     const existing = receipt(ctx.store.dir, prepared);
     if (existing) return existing;
+    const events = new EventStore(dbPath);
+    try {
+      const session = new ExecuteSessionManager(events).get(prepared.sessionId);
+      const current = prepareOrderPlan(session, prepared.repo);
+      if (!isDeepStrictEqual(current, prepared))
+        throw new Error('원본 실행 계획이 바뀌었어요. 현재 계획을 다시 제출해 주세요');
+      claimPlanDestination(prepared.plan.planId, {
+        kind: 'conductor',
+        stateDir: real(ctx.store.dir),
+      });
+    } finally {
+      events.close();
+    }
     const out = intakeOrder(
       ConductorStore.open(ctx.store.dir),
       {
@@ -114,9 +147,7 @@ export async function conductorAcceptPreparedPlan(
     const ctx = open(opts);
     assertConductorSession(ctx, 'order add --prepared-plan');
     const caller = await tickBotCaller(ctx);
-    const prepared = readPreparedPlan(JSON.parse(readFileSync(stagedPath(planId), 'utf8')));
-    if (prepared.plan.planId !== planId) throw new Error('저장된 실행 계획의 ID가 달라요');
-    print(await accept(ctx, caller, prepared));
+    print(await accept(ctx, caller, readStagedPlan(planId)));
   } catch (error) {
     exitWithError(error);
   }
@@ -141,7 +172,8 @@ export async function conductorPlanSubmitCommand(
     if (origin && `${origin.owner}/${origin.name}`.toLowerCase() !== repo.toLowerCase())
       throw new Error('대상 레포가 현재 체크아웃의 origin과 달라요');
 
-    const events = new EventStore(config.dbPath);
+    const dbPath = resolve(config.dbPath);
+    const events = new EventStore(dbPath);
     try {
       const session = new ExecuteSessionManager(events).get(sessionId);
       const plannedRepo = session.codeGraphRepoRoot
@@ -157,6 +189,7 @@ export async function conductorPlanSubmitCommand(
       events.close();
     }
 
+    const staged = { prepared, dbPath };
     const ids = {
       sessionId,
       specId: prepared.plan.specId,
@@ -176,14 +209,14 @@ export async function conductorPlanSubmitCommand(
     if (caller && readBotOwnership(stateDir).retired.includes(caller.chatId))
       throw new Error('이미 운영권을 인계한 봇 채팅이에요');
     if (caller?.botId === owner.botId && caller.chatId === owner.chatId)
-      return print({ ...ids, ...(await accept(ctx, caller, prepared)) });
+      return print({ ...ids, ...(await accept(ctx, caller, staged)) });
 
     const orca = detectOrca();
     if (!orca) throw new Error('Orca CLI로 등록된 운영 채팅을 확인해야 해요');
     const target = await targetBotOwner(owner.name, owner.chatId);
     if (target.botId !== owner.botId) throw new Error('등록된 Orca 봇과 조회한 봇이 달라요');
 
-    stage(prepared);
+    stage(staged);
     const command = `gestalt conductor order add --prepared-plan ${ids.planId} --state-dir ${quote(stateDir)} --json`;
     const sent = await execRunner(
       orca,
@@ -266,7 +299,7 @@ export async function conductorPlanLoadCommand(
         throw new Error('Orca에서 이 주문의 워크트리 배정을 확인하지 못했어요');
     }
     const origin = readOriginRepo(cwd);
-    if (origin && `${origin.owner}/${origin.name}`.toLowerCase() !== order.repo)
+    if (!origin || `${origin.owner}/${origin.name}`.toLowerCase() !== order.repo)
       throw new Error('워커 워크트리의 origin이 주문의 대상 레포와 달라요');
     const prepared = readPreparedPlan(order.preparedPlan);
     const events = new EventStore(loadConfig().dbPath);
