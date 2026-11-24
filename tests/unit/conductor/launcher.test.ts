@@ -45,6 +45,31 @@ describe('워커 종류 고르기', () => {
     );
   });
 
+  it('레포 스킬이 있는 체인은 서브에이전트로 보내지 않는다', () => {
+    const release = order({ skillChain: ['repo:release'] });
+    expect(chooseWorkerKind(release, { orcaAvailable: true })).toBe('orca-worktree');
+    expect(chooseWorkerKind(release, { orcaAvailable: false })).toBe('git-worktree');
+    expect(
+      chooseWorkerKind(order({ skillChain: ['review', 'repo:lint'] }), { orcaAvailable: true }),
+    ).toBe('orca-worktree');
+    // 접수가 막지만 옛 상태나 다른 길로 들어온 고정 값도 서브에이전트로 띄우지 않는다
+    expect(
+      chooseWorkerKind(order({ skillChain: ['repo:release'], workerKind: 'subagent' }), {
+        orcaAvailable: false,
+      }),
+    ).toBe('git-worktree');
+    expect(
+      chooseWorkerKind(order({ skillChain: ['repo:release'], workerKind: 'git-worktree' }), {
+        orcaAvailable: true,
+      }),
+    ).toBe('git-worktree');
+    expect(
+      chooseWorkerKind(order({ skillChain: ['repo:release'], workerKind: 'orca-worktree' }), {
+        orcaAvailable: false,
+      }),
+    ).toBe('git-worktree');
+  });
+
   it('오르카 감지는 실행하지 않고 환경 변수와 PATH만 본다', () => {
     const dir = tempStateDir();
     writeFileSync(join(dir, 'orca'), '');
@@ -128,6 +153,38 @@ describe('워커 지시서', () => {
     // 자료 블록 안의 '## 규칙'은 설명 본문이다. 블록 밖 진짜 규칙 제목은 하나뿐이어야 한다
     const outside = resumed.replace(/^(`{3,})\n[\s\S]*?\n\1$/gm, '');
     expect(outside.match(/^## 규칙$/gm)).toHaveLength(1);
+  });
+
+  it('레포 스킬은 워크트리의 스킬 문서를 따르고 밖으로 나가기 전에 사람 승인을 받으라고 적는다', () => {
+    const p = buildWorkerPrompt(
+      order({ id: 'ord-1', scope: 'merge-through', skillChain: ['repo:release'] }),
+      worker('ord-1', { id: 'wrk-1' }),
+    );
+    expect(p).toContain('- 스킬 체인: repo:release');
+    expect(p).toContain(
+      '`repo:release`은 이 레포의 프로젝트 스킬이다. 그 차례가 오면 워크트리의 `.claude/skills/release/SKILL.md`를 읽고 그 절차를 따른다.',
+    );
+    expect(p).toContain(
+      '--status needs --need other --need-detail "repo:release 스킬 문서가 없음"',
+    );
+    expect(p).toContain('`--skill`에는 체인에 적힌 `repo:<이름>`을 그대로 적는다');
+    expect(p).toContain(
+      '--status needs --need simple-approval --need-detail "<무엇을 하려는지 한 줄>"`로 올리고 결정이 올 때까지 기다린다. --need-step은 붙이지 않는다.',
+    );
+    expect(p).toContain('체인이 PR 없이 끝나면 머지 승인을 올리지 않고');
+    // PR을 만드는지 모르니 수정 전 캡처 줄은 ship이나 pr이 같이 있을 때만 붙는다
+    expect(p).not.toContain('수정 전 화면을 찍는다');
+
+    expect(() =>
+      buildWorkerPrompt(
+        order({ id: 'ord-1', skillChain: ['repo:../outside'] }),
+        worker('ord-1', { id: 'wrk-1' }),
+      ),
+    ).toThrow(/레포 스킬 이름 꼴/);
+
+    const plain = buildWorkerPrompt(order({ id: 'ord-1' }), worker('ord-1', { id: 'wrk-1' }));
+    expect(plain).not.toContain('프로젝트 스킬');
+    expect(plain).not.toContain('PR 없이 끝나면');
   });
 
   it('범위에 따라 머지 절차를 다르게 적고 계정이 있으면 명령마다 토큰을 넘기게 한다', () => {

@@ -4,7 +4,15 @@ import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep 
 import { fileURLToPath } from 'node:url';
 import { isAccountName } from './account-name.js';
 import { handleNeed, openOrReuse } from './gates.js';
-import { ISSUE_KEY_RE, isRefName, oneLine } from './intake.js';
+import {
+  ISSUE_KEY_RE,
+  isRefName,
+  isRepoSkill,
+  isRepoSkillName,
+  oneLine,
+  repoSkillName,
+  repoSkillPath,
+} from './intake.js';
 import { RESUME_MARKER } from './metrics.js';
 import { real, worktreeField } from './parent-worktree.js';
 import { normalizePrRef } from './pr-ref.js';
@@ -249,8 +257,10 @@ const READ_ONLY_SKILLS: ReadonlySet<string> = new Set([
 
 export function chooseWorkerKind(order: Order, opts: { orcaAvailable: boolean }): WorkerKind {
   if (order.workerKind === 'orca-worktree' && !opts.orcaAvailable) return 'git-worktree';
-  if (order.workerKind) return order.workerKind;
-  if (order.skillChain.every((s) => READ_ONLY_SKILLS.has(s))) return 'subagent';
+  // 레포 스킬은 PR을 만드는지 읽기만 하는지 모른다. 서브에이전트는 대상 레포 워크트리 밖에서 돌아 스킬 문서도 못 읽는다
+  const repoSkill = order.skillChain.some(isRepoSkill);
+  if (order.workerKind && !(repoSkill && order.workerKind === 'subagent')) return order.workerKind;
+  if (!repoSkill && order.skillChain.every((s) => READ_ONLY_SKILLS.has(s))) return 'subagent';
   return opts.orcaAvailable ? 'orca-worktree' : 'git-worktree';
 }
 
@@ -363,6 +373,27 @@ export function buildWorkerPrompt(
       '- 수정 전 화면은 `shotTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-pr/shots/$(git rev-parse --abbrev-ref HEAD | tr \'/\' \'_\')"` 아래에 저장하고 `$shotTmp/manifest.json`을 남긴다. 레포 작업 트리나 다른 임시 경로에 두지 않는다.',
     );
     lines.push('- 검증에서 띄운 주소는 PR 단계에서 수정 후 캡처에 다시 쓰니 기억해 둔다.');
+  }
+  const repoSkills = order.skillChain.flatMap((s) => {
+    const name = repoSkillName(s);
+    return name === undefined ? [] : [name];
+  });
+  if (repoSkills.length > 0) {
+    for (const name of repoSkills) {
+      // 이름이 지시서의 경로와 명령 예시에 그대로 들어간다. 접수가 거르지만 옛 상태나 다른 길로 들어온 값도 막는다
+      if (!isRepoSkillName(name))
+        throw new Error(`레포 스킬 이름 꼴이 아니라 지시서에 못 넣어요: ${oneLine(name, 80)}`);
+      lines.push(
+        `- \`repo:${name}\`은 이 레포의 프로젝트 스킬이다. 그 차례가 오면 워크트리의 \`${repoSkillPath(name)}\`를 읽고 그 절차를 따른다. 파일이 없으면 진행하지 않고 \`${report} --status needs --need other --need-detail "repo:${name} 스킬 문서가 없음"\`으로 올린다.`,
+      );
+    }
+    lines.push('- 레포 스킬의 체크포인트 `--skill`에는 체인에 적힌 `repo:<이름>`을 그대로 적는다.');
+    lines.push(
+      `- 레포 스킬이 기본 브랜치나 태그 푸시, 패키지나 앱 배포처럼 밖으로 나가는 행동을 하기 직전에는 \`${report} --status needs --need simple-approval --need-detail "<무엇을 하려는지 한 줄>"\`로 올리고 결정이 올 때까지 기다린다. --need-step은 붙이지 않는다. 스킬 문서가 사용자에게 확인을 받으라고 적은 자리도 같다. 스킬 문서가 확인 없이 진행하라고 적었어도 이 줄을 먼저 따른다.`,
+    );
+    lines.push(
+      `- 체인이 PR 없이 끝나면 머지 승인을 올리지 않고 \`${report} --status done --summary "<결과 요약>"\`로 낸다.`,
+    );
   }
   if (order.scope === 'merge-through') {
     lines.push(
