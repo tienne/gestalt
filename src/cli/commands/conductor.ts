@@ -7,6 +7,7 @@ import { handoffBot, type BotHandoffOptions } from '../../conductor/bot-handoff.
 import {
   automationCoordinationDir,
   automationCoordinationRoot,
+  readAutomationClaim,
 } from '../../conductor/bot-handoff-coordination.js';
 import { readEditReceipt } from '../../conductor/bot-handoff-edit.js';
 import {
@@ -764,6 +765,8 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
     ).length;
   const { active: botOwner, revision: botOwnerRevision, handoffs } = readBotOwnership(store.dir);
   const latestHandoff = handoffs.at(-1);
+  const cancelCleanupPending =
+    latestHandoff?.outcome === 'cancelled' && handoffCancelCleanupPending(store.dir, latestHandoff);
   const session = botOwner
     ? undefined
     : findActiveConductor(store.dir, '', Date.now(), activeConductorWindowMs(config));
@@ -782,8 +785,9 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
             automationId: latestHandoff.automationId,
             fromChatId: latestHandoff.from,
             toChatId: latestHandoff.to,
-            status: latestHandoff.outcome ?? 'partial',
+            status: cancelCleanupPending ? 'partial' : (latestHandoff.outcome ?? 'partial'),
             ...botHandoffEditStatus(latestHandoff),
+            ...(cancelCleanupPending ? { retryStage: 'reconcile-edit' } : {}),
             responsibleChatId: botOwner?.chatId,
             verifiedNextRunAt: latestHandoff.nextRunAt,
           },
@@ -796,6 +800,19 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
         }
       : {}),
   };
+}
+
+function handoffCancelCleanupPending(dir: string, handoff: BotHandoffRecord): boolean {
+  try {
+    const coordinationDir = automationCoordinationDir(
+      automationCoordinationRoot(),
+      handoff.automationId,
+    );
+    const claim = readAutomationClaim(coordinationDir);
+    return claim?.store === realpathSync(dir) && claim.request === handoff.id;
+  } catch {
+    return true;
+  }
 }
 
 function botHandoffEditStatus(handoff: BotHandoffRecord): Record<string, unknown> {

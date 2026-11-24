@@ -179,6 +179,7 @@ async function handoffLocked(
   let observed: ScheduledBotAutomation | undefined;
   let receipt: ReturnType<typeof readEditReceipt>;
   let cancelLock: ReturnType<typeof lockEditAttempt> | undefined;
+  let settlingCancellation = false;
   const save = (record: BotHandoffRecord, next = ownership) => {
     deps.write(dir, {
       ...next,
@@ -201,12 +202,16 @@ async function handoffLocked(
     const clearInitialClaim = () => {
       if (claim?.store === dir && claim.request === options.request) coordination.clear();
     };
-    if (journal?.outcome === 'cancelled') {
-      if (options.cancel) clearInitialClaim();
+    settlingCancellation =
+      journal?.outcome === 'cancelled' &&
+      options.cancel === true &&
+      claim?.store === dir &&
+      claim.request === options.request;
+    if (journal?.outcome === 'cancelled' && !settlingCancellation) {
       return { ...recordResult(ownership, options, journal), replayed: true };
     }
     let attempt = journal?.editAttempt;
-    if (options.cancel && journal && !journal.outcome) {
+    if (options.cancel && journal && (!journal.outcome || settlingCancellation)) {
       stage = 'reconcile-edit';
       if (attempt) {
         cancelLock = lockEditAttempt(coordination.dir, journal.approval, attempt);
@@ -214,27 +219,18 @@ async function handoffLocked(
           throw new Error('Orca 편집 프로세스의 응답이 도착한 뒤 다시 확인해 주세요');
         receipt = readEditReceipt(coordination.dir, journal.approval, attempt);
       }
-      if (
-        claim &&
-        claim.store !== dir &&
-        !attempt &&
-        journal.editUncertain === undefined &&
-        !hasEditAttempts(coordination.dir, journal.approval)
-      ) {
-        const source = assertSource(ownership, options, journal);
-        if (source.name !== options.bot) throw new Error('현재 운영 봇 이름과 달라요');
-        const cancelled = { ...journal, outcome: 'cancelled', cancelledWithoutEdit: true } as const;
-        save(cancelled);
-        clearInitialClaim();
-        return {
-          ...recordResult(ownership, options, cancelled),
-          detail: 'Orca 편집 전에 중단된 인계 요청을 취소했어요',
-        };
-      }
     }
-    if (claim && claim.store !== dir)
+    const foreignClaim = claim?.store !== dir ? claim : undefined;
+    const cancelUnsentLocal =
+      options.cancel &&
+      foreignClaim &&
+      journal &&
+      !attempt &&
+      journal.editUncertain === undefined &&
+      !hasEditAttempts(coordination.dir, journal.approval);
+    if (foreignClaim && !cancelUnsentLocal)
       throw new Error(
-        `다른 상태 저장소가 이 Orca 자동화를 맡고 있어요 (${claim.store}, 요청 ${claim.request})`,
+        `다른 상태 저장소가 이 Orca 자동화를 맡고 있어요 (${foreignClaim.store}, 요청 ${foreignClaim.request})`,
       );
     if (!journal && claim?.request === options.request && claim.intent && options.approve) {
       const intent = claim.intent;
@@ -255,11 +251,12 @@ async function handoffLocked(
       if (source.name !== options.bot) throw new Error('현재 운영 봇 이름과 달라요');
       save(intent);
     }
-    if (journal?.outcome) {
+    if (journal?.outcome && !settlingCancellation) {
       return { ...recordResult(ownership, options, journal), replayed: true };
     }
     if (
       claim &&
+      !cancelUnsentLocal &&
       claim.request !== options.request &&
       !ownership.handoffs.some((entry) => entry.id === claim.request && entry.outcome)
     )
@@ -353,19 +350,40 @@ async function handoffLocked(
       if (!journal && claim?.request !== options.request)
         throw new Error('취소할 인계 요청이 없어요');
       stage = 'reconcile-edit';
-      const receiving = await deps.chat(options.bot, source.chatId);
-      if (receiving.botId !== source.botId || receiving.chatId !== source.chatId)
-        throw new Error('취소 전에 기존 책임 채팅이 메일을 받을 수 있는지 확인해 주세요');
       observed = await show();
       verify(observed);
       if (observed.settings !== proposed.settings)
         throw new Error('취소 전에 승인된 Orca 자동화 설정을 복구해 주세요');
-      if (observed.chatId !== receiving.chatId)
+      if (automation.chatId !== source.chatId || observed.chatId !== source.chatId)
         throw new Error(
           receipt?.outcome === 'applied'
             ? '편집 응답을 확인했어요. 자동화를 기존 채팅으로 되돌린 뒤 취소해 주세요'
             : '자동화 대상이 기존 책임 채팅과 달라요. Orca에서 외부 편집을 확인하고 설정과 대상을 복구해 주세요',
         );
+      const receiving = await deps.chat(options.bot, source.chatId);
+      if (receiving.botId !== source.botId || receiving.chatId !== source.chatId)
+        throw new Error('취소 전에 기존 책임 채팅이 메일을 받을 수 있는지 확인해 주세요');
+      const currentClaim = coordination.read();
+      if (digest(currentClaim ?? null) !== digest(claim ?? null))
+        throw new Error('취소를 검증하는 동안 Orca 자동화의 담당 예약이 바뀌었어요');
+      if (foreignClaim) {
+        const foreign = readBotOwnership(foreignClaim.store);
+        if (foreign.active?.chatId !== source.chatId || foreign.active.botId !== source.botId)
+          throw new Error(
+            `담당 저장소 ${foreignClaim.store}의 운영권과 현재 일정이 일치하는지 확인해 주세요`,
+          );
+        const foreignEdit = foreign.handoffs.find(
+          (entry) => entry.automationId === options.automation && !entry.outcome,
+        );
+        const foreignReceipt = foreignEdit?.editAttempt
+          ? readEditReceipt(coordination.dir, foreignEdit.approval, foreignEdit.editAttempt)
+          : undefined;
+        if (
+          foreignEdit?.editUncertain !== undefined ||
+          (foreignEdit?.editAttempt && (!foreignReceipt || foreignReceipt.outcome === 'dispatched'))
+        )
+          throw new Error('담당 저장소의 Orca 편집 결과를 확인한 뒤 취소해 주세요');
+      }
       const current = readBotOwnership(dir);
       if (
         current.revision !== ownership.revision ||
@@ -374,7 +392,8 @@ async function handoffLocked(
       )
         throw new Error('취소 전에 기존 책임 채팅의 운영권을 다시 확인해 주세요');
       stage = 'cancel';
-      save({ ...(journal ?? { ...proposed, approval }), outcome: 'cancelled' });
+      if (!settlingCancellation)
+        save({ ...(journal ?? { ...proposed, approval }), outcome: 'cancelled' });
       clearInitialClaim();
       return { ...base, status: 'cancelled', automationChatId: observed.chatId };
     }
@@ -454,7 +473,7 @@ async function handoffLocked(
   } catch (error) {
     return {
       ...base,
-      status: journal && !journal.outcome ? 'partial' : 'blocked',
+      status: (journal && !journal.outcome) || settlingCancellation ? 'partial' : 'blocked',
       ...(observed ? { automationChatId: observed.chatId, schedule: observed.schedule } : {}),
       ...(journal?.editAttempt ? { editAttemptId: journal.editAttempt } : {}),
       ...(receipt?.dispatchedAt ? { editDispatchedAt: receipt.dispatchedAt } : {}),
