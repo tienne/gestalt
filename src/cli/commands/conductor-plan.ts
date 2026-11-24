@@ -1,3 +1,4 @@
+import { PlanRepositoryError } from '../../core/errors.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { execFileSync } from 'node:child_process';
@@ -8,7 +9,7 @@ import { loadConfig } from '../../core/config.js';
 import { gestaltPath } from '../../core/home.js';
 import { isPlainObject } from '../../core/json-file.js';
 import { EventStore } from '../../events/store.js';
-import { claimPlanDestination, rememberPlanStore } from '../../execute/plan-destination.js';
+import { claimPlanDestination, readPlanDestination } from '../../execute/plan-destination.js';
 import { ExecuteSessionManager } from '../../execute/session.js';
 import { githubRepositoryName } from '../../harness-review/related-repos.js';
 import { readBotOwnership, targetBotOwner, type BotOwner } from '../../conductor/bot-owner.js';
@@ -78,8 +79,14 @@ function readStagedPlan(planId: string): StagedPlan {
   return { prepared, dbPath: stored['dbPath'] };
 }
 
-function claimForConductor(dir: string, planId: string): void {
-  claimPlanDestination(planId, { kind: 'conductor', stateDir: real(dir) });
+function confirmOrderDestination(dir: string, planId: string, orderId: string): void {
+  const destination = claimPlanDestination(planId, {
+    kind: 'conductor',
+    stateDir: real(dir),
+    orderId,
+  });
+  if (destination.orderId !== orderId)
+    throw new Error('접수 기록의 주문 ID가 이 계획에 배정된 주문과 달라요');
 }
 
 function verifySource({ prepared, dbPath }: StagedPlan, cwd?: string): void {
@@ -103,11 +110,14 @@ function receipt(dir: string, prepared: PreparedPlan) {
     if (!isDeepStrictEqual(order.preparedPlan, prepared))
       throw new Error('같은 계획 ID가 다른 주문에 이미 연결돼 있어요');
     // 이전 주문의 접수 기록을 되읽을 때도 원본 계획의 실행 목적지를 복구한다.
-    claimForConductor(dir, prepared.plan.planId);
+    confirmOrderDestination(dir, prepared.plan.planId, order.id);
     return { status: 'accepted', orderId: order.id, scope: order.scope };
   }
-  if (store.removedAtOf(ref) || store.archivedAtOf(ref)) {
-    claimForConductor(dir, prepared.plan.planId);
+  const retired =
+    Object.entries(store.snapshot.removedOrders).find(([, order]) => order.sourceRef === ref) ??
+    Object.entries(store.snapshot.archivedOrders).find(([, order]) => order.sourceRef === ref);
+  if (retired) {
+    confirmOrderDestination(dir, prepared.plan.planId, retired[0]);
     return { status: 'retired' };
   }
   return undefined;
@@ -125,11 +135,9 @@ async function accept(ctx: Ctx, caller: BotOwner | undefined, { prepared, dbPath
     const active = readBotOwnership(ctx.store.dir).active;
     if (caller.botId !== active?.botId || caller.chatId !== active.chatId)
       throw new Error('계획을 접수할 운영권이 이 채팅에 없어요');
-    rememberPlanStore(prepared.plan.planId, ctx.store.dir);
     const existing = receipt(ctx.store.dir, prepared);
     if (existing) return existing;
     verifySource({ prepared, dbPath });
-    claimForConductor(ctx.store.dir, prepared.plan.planId);
     const out = intakeOrder(
       ConductorStore.open(ctx.store.dir),
       {
@@ -177,7 +185,7 @@ export async function conductorPlanSubmitCommand(
   let prepared: PreparedPlan | undefined;
   try {
     const config = loadConfig();
-    const stateDir = resolveStateDir(opts.stateDir, config.conductor);
+    const requestedStateDir = resolveStateDir(opts.stateDir, config.conductor);
     const origin = githubRepositoryName(process.cwd());
     const dbPath = resolve(config.dbPath);
     const events = new EventStore(dbPath);
@@ -197,12 +205,14 @@ export async function conductorPlanSubmitCommand(
       planId: prepared.plan.planId,
       repo: prepared.repo,
     };
+    const destination = readPlanDestination(ids.planId);
+    const stateDir = destination?.kind === 'conductor' ? destination.stateDir : requestedStateDir;
     if (!existsSync(stateDir)) throw new Error('등록된 Orca 컨덕터 운영 채팅이 없어요');
     const ctx: Ctx = { store: ConductorStore.open(stateDir), config: config.conductor };
     assertConductorSession(ctx, 'plan submit');
-    rememberPlanStore(prepared.plan.planId, stateDir);
     const existing = receipt(stateDir, prepared);
     if (existing) return print({ ...ids, ...existing });
+    if (destination?.kind === 'local') throw new Error('이 계획은 이미 로컬 실행에 사용됐어요');
     verifySource(staged, origin || !opts.repo ? process.cwd() : undefined);
     if (opts.check) return print({ ...ids, status: 'unconfirmed' });
 
@@ -268,6 +278,7 @@ export async function conductorPlanSubmitCommand(
       planId: prepared.plan.planId,
       repo: prepared.repo,
       error: error instanceof Error ? error.message : String(error),
+      ...(error instanceof PlanRepositoryError ? { nextStep: error.nextStep } : {}),
     });
     process.exitCode = 1;
   }
@@ -303,7 +314,7 @@ export async function conductorPlanLoadCommand(
     }
     const prepared = readPreparedPlan(order.preparedPlan);
     if (prepared.repo !== order.repo) throw new Error('보관된 계획의 레포가 주문과 달라요');
-    claimForConductor(ctx.store.dir, prepared.plan.planId);
+    confirmOrderDestination(ctx.store.dir, prepared.plan.planId, order.id);
     const events = new EventStore(loadConfig().dbPath);
     try {
       const session = new ExecuteSessionManager(events).restorePreparedPlan(

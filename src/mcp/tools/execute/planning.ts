@@ -1,3 +1,4 @@
+import { PlanRepositoryError } from '../../../core/errors.js';
 import { real } from '../../../conductor/parent-worktree.js';
 import { githubRepositoryName } from '../../../harness-review/related-repos.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -5,7 +6,7 @@ import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engi
 import type { ExecuteInput } from '../../schemas.js';
 import type { ExecuteSession, PlanningStepResult, NextActionGuide } from '../../../core/types.js';
 import type { IHostAdapter } from '../../host-adapter.js';
-import { formatError, stripContextPrompts } from './utils.js';
+import { formatError, formatPlanError, stripContextPrompts } from './utils.js';
 import { sanitizeSurfaceContext, getStageLabel } from '../../../gestalt/surface-labels.js';
 import { specSchema } from '../../../spec/schema.js';
 import { validateFinalizedSession } from '../../../conductor/prepared-plan.js';
@@ -24,7 +25,7 @@ export function handleStart(
     codeGraphRepoRoot: input.codeGraphRepoRoot,
     conductorPlan: input.action === 'prepare_conductor',
   });
-  if (!result.ok) return formatError(result.error.message);
+  if (!result.ok) return formatPlanError(result.error);
 
   const { session, executeContext } = result.value;
   const startGuide: NextActionGuide = {
@@ -99,7 +100,12 @@ export function handlePrepareConductor(
       if (session && spec && !isDeepStrictEqual(specSchema.parse(session.spec), spec))
         return formatError('저장된 실행 세션의 Spec 내용이 선택한 Spec과 달라요');
       if (!session && spec) {
-        if (!target) return formatError('현재 작업 위치의 대상 레포를 확인할 수 없어요');
+        if (!target) {
+          throw new PlanRepositoryError(
+            '현재 작업 위치의 대상 레포를 확인할 수 없어요',
+            '대상 레포의 origin을 확인한 뒤 Spec으로 계획을 준비해 주세요',
+          );
+        }
         return handleStart(engine, { ...input, codeGraphRepoRoot: root, spec }, adapter);
       }
     }
@@ -126,7 +132,7 @@ export function handlePrepareConductor(
       nextActionParams: { sessionId: session.sessionId },
     });
   } catch (error) {
-    return formatError(error instanceof Error ? error.message : String(error));
+    return formatPlanError(error, input.sessionId);
   }
 }
 
@@ -163,7 +169,7 @@ export function handlePlanStep(
     if (result.error instanceof PlanningRewoundError) {
       return formatRewound(input.sessionId, result.error, verbose);
     }
-    return formatError(result.error.message);
+    return formatPlanError(result.error, input.sessionId);
   }
 
   const { session, executeContext, isLastStep } = result.value;
@@ -226,11 +232,7 @@ export function handlePlanComplete(
         .getSessionManager()
         .selectConductorPlan(input.sessionId, input.codeGraphRepoRoot ?? input.cwd);
     } catch (error) {
-      return JSON.stringify({
-        error: error instanceof Error ? error.message : String(error),
-        sessionId: input.sessionId,
-        nextStep: '현재 레포의 origin을 확인한 뒤 Spec으로 계획을 다시 준비해 주세요',
-      });
+      return formatPlanError(error, input.sessionId);
     }
   }
 
@@ -239,14 +241,14 @@ export function handlePlanComplete(
     if (result.error instanceof PlanningRewoundError) {
       return formatRewound(input.sessionId, result.error, verbose);
     }
-    return formatError(result.error.message);
+    return formatPlanError(result.error, input.sessionId);
   }
 
   if (input.conductor) {
     try {
       return formatConductorReady(result.value.session);
     } catch (error) {
-      return formatError(error instanceof Error ? error.message : String(error));
+      return formatPlanError(error, input.sessionId);
     }
   }
 

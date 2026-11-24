@@ -29,7 +29,7 @@ import {
   handleSpawn,
   handleEvolutionViz,
 } from './execute/utility.js';
-import { formatError, resolveExecuteSessionInput } from './execute/utils.js';
+import { formatError, formatPlanError, resolveExecuteSessionInput } from './execute/utils.js';
 
 const handlers: Record<string, ExecuteHandler> = {
   start: handleStart,
@@ -76,7 +76,7 @@ export async function handleExecutePassthrough(
       engine.getSessionManager().assertPlanRepository(params.sessionId, params.cwd);
     } catch (error) {
       if (!(error instanceof ExecuteSessionNotFoundError))
-        return formatError(error instanceof Error ? error.message : String(error));
+        return formatPlanError(error, params.sessionId);
     }
   }
 

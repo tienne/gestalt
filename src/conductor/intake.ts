@@ -263,8 +263,7 @@ export function intakeOrder(
     ...(input.parentOrderId ? { parentOrderId: input.parentOrderId } : {}),
     ...(deploys ? { deploys } : {}),
   };
-  store.addOrder(order);
-  return { order, created: true };
+  return { order: store.addOrder(order), created: true };
 }
 
 /**

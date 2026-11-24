@@ -28,7 +28,7 @@ import type {
   HumanGate,
   HumanGateResolution,
 } from '../core/types.js';
-import { ExecuteSessionNotFoundError } from '../core/errors.js';
+import { ExecuteSessionNotFoundError, PlanRepositoryError } from '../core/errors.js';
 import { BASELINE_EVENT_DIRTY_LIMIT, DEFAULT_SESSION_TTL_MS } from '../core/constants.js';
 import { logger } from '../core/logger.js';
 import type { IEventStore } from '../events/store.js';
@@ -118,7 +118,10 @@ export class ExecuteSessionManager {
     const name = root ? githubRepositoryName(root) : undefined;
     const targetRepository = name && root ? { name, root } : undefined;
     if (opts.conductorPlan && !targetRepository)
-      throw new Error('현재 작업 위치의 대상 레포를 확인할 수 없어요');
+      throw new PlanRepositoryError(
+        '현재 작업 위치의 대상 레포를 확인할 수 없어요',
+        '대상 레포의 origin을 확인한 뒤 Spec으로 계획을 준비해 주세요',
+      );
     const session: ExecuteSession = {
       sessionId: randomUUID(),
       specId: spec.metadata.specId,
@@ -191,17 +194,21 @@ export class ExecuteSessionManager {
       session.executionPlan?.planId !== plan.planId ||
       session.codeGraphRepoRoot !== cwd
     )
-      this.rejectPlanBoundary(session, '이미 다른 실행 계획이나 워크트리에 연결된 세션이에요');
+      this.rejectPlanBoundary(
+        session,
+        '이미 다른 실행 계획이나 워크트리에 연결된 세션이에요',
+        '컨덕터에서 현재 배정된 워크트리와 주문 ID를 확인해 주세요',
+      );
     this.assertPlanRepository(sessionId, cwd, repo);
     return session;
   }
 
-  private rejectPlanBoundary(session: ExecuteSession, error: string): never {
+  private rejectPlanBoundary(session: ExecuteSession, error: string, nextStep: string): never {
     if (session.planBoundaryError !== error) {
       this.record(session.sessionId, EventType.EXECUTE_REPOSITORY_CHECKED, { error });
       session.planBoundaryError = error;
     }
-    throw new Error(error);
+    throw new PlanRepositoryError(error, nextStep);
   }
 
   selectConductorPlan(sessionId: string, cwd?: string, expectedRepo?: string): void {
@@ -230,27 +237,35 @@ export class ExecuteSessionManager {
     if (!target)
       this.rejectPlanBoundary(
         session,
-        '계획의 기준 레포가 기록되지 않았어요. 현재 레포에서 Spec으로 계획을 다시 준비해 주세요',
+        '계획의 기준 레포가 기록되지 않았어요',
+        '현재 레포의 origin을 확인한 뒤 Spec으로 계획을 다시 준비해 주세요',
       );
     if (expectedRepo && target.name !== expectedRepo)
       this.rejectPlanBoundary(
         session,
         `기록된 레포 ${target.name}과 대상 레포 ${expectedRepo}가 달라요`,
+        `origin이 ${target.name}인 체크아웃에서 다시 시도해 주세요. 다른 레포가 대상이면 해당 레포에서 Spec으로 계획을 준비해 주세요`,
       );
     const location = cwd ?? target.root;
     if (session.assignedWorktree && real(location) !== real(session.assignedWorktree))
-      this.rejectPlanBoundary(session, '이 주문의 작업과 검증은 배정된 워크트리에서 진행해 주세요');
+      this.rejectPlanBoundary(
+        session,
+        '이 주문의 작업과 검증은 배정된 워크트리에서 진행해 주세요',
+        'plan load가 반환한 cwd로 다시 호출해 주세요',
+      );
     const original = githubRepositoryName(target.root);
     const actual = location === target.root ? original : githubRepositoryName(location);
     if (!original || !actual)
       this.rejectPlanBoundary(
         session,
         `계획의 대상 레포 ${target.name}을 현재 작업 위치에서 확인할 수 없어요`,
+        `작업 위치에서 origin이 ${target.name}을 가리키는지 확인한 뒤 다시 시도해 주세요`,
       );
     if (original !== target.name || actual !== target.name)
       this.rejectPlanBoundary(
         session,
         `계획의 대상 레포 ${target.name}이 작업 위치의 레포 ${original !== target.name ? original : actual}와 달라요`,
+        `origin이 ${target.name}인 체크아웃에서 다시 시도해 주세요. 레포 변경이 의도한 것이면 Spec으로 계획을 다시 준비해 주세요`,
       );
     if (session.planBoundaryError) {
       this.record(session.sessionId, EventType.EXECUTE_REPOSITORY_CHECKED, { error: null });

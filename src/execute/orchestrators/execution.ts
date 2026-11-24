@@ -13,6 +13,7 @@ import type {
 import {
   ExecuteError,
   ExecuteSessionNotFoundError,
+  PlanRepositoryError,
   TaskExecutionError,
 } from '../../core/errors.js';
 import { type Result, ok, err } from '../../core/result.js';
@@ -131,7 +132,8 @@ export class ExecutionOrchestrator {
         allTasksCompleted: taskContext === null,
       });
     } catch (e) {
-      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      if (e instanceof ExecuteSessionNotFoundError || e instanceof PlanRepositoryError)
+        return err(e);
       return err(
         new TaskExecutionError(
           `Failed to start execution: ${e instanceof Error ? e.message : String(e)}`,

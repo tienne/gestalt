@@ -15,6 +15,7 @@ import {
   ExecuteError,
   ExecuteSessionNotFoundError,
   InvalidPlanningStepError,
+  PlanRepositoryError,
 } from '../../core/errors.js';
 import { type Result, ok, err } from '../../core/result.js';
 import {
@@ -96,6 +97,7 @@ export class PlanningOrchestrator {
 
       return ok({ session, executeContext });
     } catch (e) {
+      if (e instanceof PlanRepositoryError) return err(e);
       return err(
         new ExecuteError(
           `Failed to start execute session: ${e instanceof Error ? e.message : String(e)}`,
@@ -179,7 +181,11 @@ export class PlanningOrchestrator {
         isLastStep: false,
       });
     } catch (e) {
-      if (e instanceof ExecuteSessionNotFoundError || e instanceof InvalidPlanningStepError) {
+      if (
+        e instanceof ExecuteSessionNotFoundError ||
+        e instanceof InvalidPlanningStepError ||
+        e instanceof PlanRepositoryError
+      ) {
         return err(e);
       }
       return err(
@@ -257,7 +263,7 @@ export class PlanningOrchestrator {
         executionPlan: plan,
       });
     } catch (e) {
-      if (e instanceof ExecuteSessionNotFoundError) {
+      if (e instanceof ExecuteSessionNotFoundError || e instanceof PlanRepositoryError) {
         return err(e);
       }
       return err(

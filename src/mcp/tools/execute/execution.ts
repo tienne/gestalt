@@ -13,6 +13,7 @@ import { writeActiveSession, formatRuleContent } from '../../../execute/rule-wri
 import type { IHostAdapter } from '../../host-adapter.js';
 import {
   formatError,
+  formatPlanError,
   applyTaskContextFilters,
   slimRetrospectiveContext,
   parallelHint,
@@ -30,7 +31,7 @@ export async function handleExecuteStart(
   if (input.conductor) return formatError('Submit the finalized plan using the conductor handoff');
   const capture = await engine.captureBaseline(input.sessionId, input.cwd);
   const result = engine.startExecution(input.sessionId, capture);
-  if (!result.ok) return formatError(result.error.message);
+  if (!result.ok) return formatPlanError(result.error, input.sessionId);
 
   // 대조를 안 하는 세션이면 호스트가 첫 응답에서 알 수 있게 한다
   const artifactCheck = {
@@ -114,7 +115,7 @@ export async function handleExecuteTask(
   if (!input.taskResult) return formatError('taskResult is required for execute_task action');
 
   const result = await engine.submitTaskResult(input.sessionId, input.taskResult);
-  if (!result.ok) return formatError(result.error.message);
+  if (!result.ok) return formatPlanError(result.error, input.sessionId);
 
   const { session, allTasksCompleted, driftScore, retrospectiveContext, verification } =
     result.value;
