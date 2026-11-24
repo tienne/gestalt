@@ -297,7 +297,11 @@ describe('레포 스킬', () => {
       const s = ConductorStore.open(tempStateDir());
       const withSkill = repoWithSkills('release');
       const plain = repoWithSkills();
-      const add = (title: string, parentWorktree: string, repoPaths: Record<string, string>) =>
+      const add = (
+        title: string,
+        parentWorktree: string | undefined,
+        repoPaths: Record<string, string>,
+      ) =>
         intakeOrder(
           s,
           {
@@ -310,10 +314,17 @@ describe('레포 스킬', () => {
           },
           { ...config, repoPaths },
         );
-      expect(() => add('부모에만', withSkill, { 'acme/app': plain })).toThrow(skillDoc(plain));
-      expect(() => add('repoPaths에만', plain, { 'acme/app': withSkill })).toThrow(skillDoc(plain));
-      expect(add('둘 다', withSkill, { 'acme/app': repoWithSkills('release') }).created).toBe(true);
-      expect(add('부모만 알 때', withSkill, {}).created).toBe(true);
+      expect(() => add('부모에만 있으면 거절', withSkill, { 'acme/app': plain })).toThrow(
+        skillDoc(plain),
+      );
+      expect(() => add('repoPaths에만 있으면 거절', plain, { 'acme/app': withSkill })).toThrow(
+        skillDoc(plain),
+      );
+      expect(
+        add('둘 다 있으면 접수', withSkill, { 'acme/app': repoWithSkills('release') }).created,
+      ).toBe(true);
+      expect(add('부모만 알면 접수', withSkill, {}).created).toBe(true);
+      expect(() => add('둘 다 모르면 거절', undefined, {})).toThrow(/로컬 경로를 몰라.*repoPaths/);
     },
   );
 
