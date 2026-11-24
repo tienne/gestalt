@@ -70,7 +70,13 @@ describe('호스트로 넘기는 쓰기', () => {
       delivery,
     );
     expect(actions).toHaveLength(1);
-    if (typeof handoff === 'string') throw new Error('Slack 호스트 인계가 없어요');
+    if (
+      !handoff ||
+      typeof handoff !== 'object' ||
+      !('enqueue' in handoff) ||
+      typeof handoff.enqueue !== 'function'
+    )
+      throw new Error('Slack 호스트 인계가 없어요');
     handoff.enqueue();
     expect(actions).toEqual([
       { type: 'jira-transition', issueKey: 'APP-1', to: 'PR' },

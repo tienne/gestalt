@@ -332,6 +332,8 @@ gestalt conductor slack posted <gateId> --result-file <slack-response.json>
 
 세션이 끊겼다면 `gestalt conductor slack delivery <gateId>`로 승인한 작업을 다시 읽을 수 있다. 같은 작업의 성공 응답을 보관했다면 그대로 기록한다. 퍼머링크만 받았거나 응답에 작업 메타데이터가 빠졌다면 대기 상태가 이어진다.
 
+직접 게시 어댑터의 응답에도 같은 검사를 적용한다. 이전 기록에 메시지 ts나 링크만 있다면 워커 정리를 보류하고 tick에 사유를 남긴다. 같은 작업의 Slack 성공 응답이 있으면 `slack posted`로 확인할 수 있다.
+
 답은 셋 중 하나다. `--answer`는 어느 답에나 붙일 수 있고 워커에는 고정 문구보다 먼저 따르라는 말과 함께 전해진다.
 
 | 답            | 워커가 받는 지시                                                                                                           | 주문                                               |

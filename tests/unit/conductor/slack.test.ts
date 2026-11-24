@@ -11,16 +11,16 @@ import {
 } from '../../../src/conductor/slack.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import type { HostAction } from '../../../src/conductor/launcher.js';
-import { cleanupStateDirs, tempStateDir } from './fixtures.js';
+import { cleanupStateDirs, slackSuccess, tempStateDir } from './fixtures.js';
 
 afterEach(cleanupStateDirs);
 
 function fakeSlack() {
   const sent: { channel: string; text: string }[] = [];
   const client: SlackClient = {
-    post: async (m) => {
+    post: async (m, delivery) => {
       sent.push(m);
-      return `ts-${sent.length}`;
+      return slackSuccess(m, delivery, `12345.${String(sent.length).padStart(6, '0')}`);
     },
   };
   return { sent, client };
@@ -50,13 +50,9 @@ describe('슬랙 초안', () => {
     const dir = tempStateDir();
     const s = ConductorStore.open(dir);
     const { sent, client } = fakeSlack();
-    const { gate } = draftSlack(
-      s,
-      { channel: '#release', text: '배포 끝났어요~' },
-      join(dir, 'slack'),
-    );
+    const { gate } = draftSlack(s, { channel: 'C123', text: '배포 끝났어요~' }, join(dir, 'slack'));
     expect(
-      draftSlack(s, { channel: '#release', text: '배포 끝났어요~' }, join(dir, 'slack')).reused,
+      draftSlack(s, { channel: 'C123', text: '배포 끝났어요~' }, join(dir, 'slack')).reused,
     ).toBe(true);
     expect(gate.reason).not.toContain('배포 끝났어요');
 
@@ -65,27 +61,28 @@ describe('슬랙 초안', () => {
 
     resolveGate(s, gate.id, 'approved');
     const r = await publishApprovedSlack(s, client);
-    await publishApprovedSlack(s, client);
-    expect(r.posted).toEqual([{ gateId: gate.id, ref: 'ts-1' }]);
-    expect(sent).toEqual([{ channel: '#release', text: '배포 끝났어요~' }]);
-    expect(ConductorStore.open(dir).snapshot.slackPosted[gate.id]).toBe('ts-1');
+    const restarted = ConductorStore.open(dir);
+    await publishApprovedSlack(restarted, client);
+    expect(r.posted).toEqual([{ gateId: gate.id, ref: '12345.000001' }]);
+    expect(sent).toEqual([{ channel: 'C123', text: '배포 끝났어요~' }]);
+    expect(restarted.snapshot.slackPosted[gate.id]).toBe('12345.000001');
   });
 
   it('거절한 초안은 보내지 않고 게시 실패는 다음 tick에 다시 시도한다', async () => {
     const dir = tempStateDir();
     const s = ConductorStore.open(dir);
-    const rejected = draftSlack(s, { channel: '#a', text: '하나' }, join(dir, 'slack')).gate;
-    const approved = draftSlack(s, { channel: '#a', text: '둘' }, join(dir, 'slack')).gate;
+    const rejected = draftSlack(s, { channel: 'C123', text: '하나' }, join(dir, 'slack')).gate;
+    const approved = draftSlack(s, { channel: 'C123', text: '둘' }, join(dir, 'slack')).gate;
     resolveGate(s, rejected.id, 'rejected');
     resolveGate(s, approved.id, 'approved');
 
     let fail = true;
     const sent: string[] = [];
     const client: SlackClient = {
-      post: async (m) => {
+      post: async (m, delivery) => {
         if (fail) throw new Error('rate limited');
         sent.push(m.text);
-        return 'ts';
+        return slackSuccess(m, delivery);
       },
     };
     expect((await publishApprovedSlack(s, client)).failed[0]?.error).toBe('rate limited');
@@ -100,7 +97,7 @@ describe('슬랙 초안', () => {
     const { sent, client } = fakeSlack();
     const { gate } = draftSlack(
       s,
-      { channel: '#release', text: '배포 끝났어요', orderId: 'ord-1' },
+      { channel: 'C123', text: '배포 끝났어요', orderId: 'ord-1' },
       join(dir, 'slack'),
     );
     resolveGate(s, gate.id, 'approved');
@@ -121,6 +118,6 @@ describe('슬랙 초안', () => {
 
     resolveGate(s, newGateId, 'approved');
     await publishApprovedSlack(s, client);
-    expect(sent).toEqual([{ channel: '#release', text: '바꿔치기한 본문' }]);
+    expect(sent).toEqual([{ channel: 'C123', text: '바꿔치기한 본문' }]);
   });
 });

@@ -646,6 +646,7 @@ describe('gestalt conductor', () => {
       text: '게시할 본문',
       deliveryId: action.deliveryId,
       metadata: action.metadata,
+      pendingReason: expect.stringContaining('증빙을 기다리고'),
     });
     const resultFile = join(stateDir, 'result.json');
     const opts = { stateDir, json: true, resultFile };
@@ -723,7 +724,7 @@ describe('gestalt conductor', () => {
       }) + '\n',
     );
     const replayed = ConductorStore.open(stateDir);
-    expect(replayed.snapshot.slackMessageClaims['C123:12345.000001']).toBe(gateId);
+    expect(replayed.snapshot.slackMessageClaims['C123:12345.000001']).toMatchObject({ gateId });
     expect(replayed.snapshot.slackPosted[nextGateId]).toBe('host');
     expect(orderHasPendingSlack(replayed.snapshot, 'ord-new-slack')).toBe(true);
     const receipts = readFileSync(join(stateDir, EVENTS_FILE), 'utf8').match(

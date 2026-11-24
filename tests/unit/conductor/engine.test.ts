@@ -33,8 +33,13 @@ import {
 } from '../../../src/conductor/deployment-evidence.js';
 import { openOrReuse, resolveGate } from '../../../src/conductor/gates.js';
 import { saveSkillCheckpoint } from '../../../src/conductor/resume.js';
-import { draftSlack } from '../../../src/conductor/slack.js';
+import {
+  confirmSlackDelivery,
+  draftSlack,
+  pendingSlackDelivery,
+} from '../../../src/conductor/slack.js';
 import { SLACK_HOST_HANDOFF } from '../../../src/conductor/slack-state.js';
+import { foldEvents } from '../../../src/conductor/fold.js';
 import type { DeploySignal, JiraClient } from '../../../src/conductor/jira.js';
 import { repoContextPath } from '../../../src/conductor/context.js';
 import {
@@ -51,7 +56,14 @@ import type { PrStateSource } from '../../../src/conductor/ownership.js';
 import type { ConductorConfig } from '../../../src/conductor/scheduler.js';
 import { ConductorStore, EVENTS_FILE, replay } from '../../../src/conductor/store.js';
 import type { Worker, WorkerKind } from '../../../src/conductor/types.js';
-import { cleanupStateDirs, clockedStore, order, tempStateDir, worker } from './fixtures.js';
+import {
+  cleanupStateDirs,
+  clockedStore,
+  order,
+  slackSuccess,
+  tempStateDir,
+  worker,
+} from './fixtures.js';
 
 afterEach(cleanupStateDirs);
 
@@ -439,7 +451,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     const cleanup = workerGate(store);
     const { gate: slack } = draftSlack(
       store,
-      { orderId: 'ord-worker', channel: 'C-fixture', text: '공유 완료' },
+      { orderId: 'ord-worker', channel: 'C123', text: '공유 완료' },
       tempStateDir(),
     );
     resolveGate(store, cleanup.id, 'approved');
@@ -454,9 +466,9 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     const { deps: d } = deps({
       launchers: { 'orca-worktree': orca.launcher },
       slack: {
-        post: async () => {
+        post: async (message, delivery) => {
           if (!posted) throw new Error('게시 실패');
-          return '12345.000001';
+          return slackSuccess(message, delivery);
         },
       },
     });
@@ -480,7 +492,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     const cleanup = workerGate(store);
     const { gate: slack } = draftSlack(
       store,
-      { orderId: 'ord-worker', channel: 'C-fixture', text: '공유 완료' },
+      { orderId: 'ord-worker', channel: 'C123', text: '공유 완료' },
       tempStateDir(),
     );
     resolveGate(store, cleanup.id, 'approved');
@@ -489,7 +501,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     orca.launcher.completion = async () => ended;
     const { deps: d } = deps({
       launchers: { 'orca-worktree': orca.launcher },
-      slack: { post: async () => SLACK_HOST_HANDOFF },
+      slack: { post: async () => ({ enqueue: () => undefined }) },
     });
     for (let i = 0; i < 2; i++) {
       expect((await tick(store, d, { force: true })).warnings).toEqual([
@@ -551,7 +563,11 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     expect(restarted.worker('wrk-previous')?.status).toBe('finished');
   });
 
-  it('일반 워커 정리도 Slack 게시 결과가 확인될 때까지 release를 부르지 않는다', async () => {
+  it.each([
+    '12345.000001',
+    'https://example.slack.com/archives/C999/p12345000001',
+    'https://example.slack.com/archives/C123/p12345000001',
+  ])('이전 Slack 기록 %s를 재생하면 대기하고 확인된 뒤에만 워커를 해제한다', async (legacyRef) => {
     const { store } = clockedStore();
     store.addOrder(order({ id: 'ord-normal', status: 'done' }));
     store.startWorker(
@@ -564,7 +580,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     );
     const { gate } = draftSlack(
       store,
-      { orderId: 'ord-normal', channel: 'C-fixture', text: '보고' },
+      { orderId: 'ord-normal', channel: 'C123', text: '보고', threadTs: '12344.000001' },
       tempStateDir(),
     );
     resolveGate(store, gate.id, 'approved');
@@ -579,12 +595,84 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
       type: 'slack-posted',
       at: store.timestamp(),
       gateId: gate.id,
-      ref: '12345.000001',
+      ref: SLACK_HOST_HANDOFF,
     });
+    store.append({
+      type: 'slack-posted',
+      at: store.timestamp(),
+      gateId: gate.id,
+      ref: legacyRef,
+    });
+    await foldEvents(store.dir, { settleMs: 0 });
+    const restarted = ConductorStore.open(store.dir);
+    expect((await tick(restarted, d, { force: true })).warnings).toEqual([
+      expect.stringContaining('이전 Slack 게시 기록에'),
+    ]);
+    expect(orca.released).toEqual([]);
+    const pending = pendingSlackDelivery(restarted, gate.id);
+    confirmSlackDelivery(restarted, gate.id, slackSuccess(pending, pending));
+    await foldEvents(store.dir, { settleMs: 0 });
     await tick(ConductorStore.open(store.dir), d, { force: true });
     expect(orca.released).toEqual(['wrk-normal']);
     expect(ConductorStore.open(store.dir).worker('wrk-normal')?.status).toBe('released');
   });
+
+  it.each(['link', 'channel', 'thread', 'delivery'] as const)(
+    '직접 Slack 응답의 %s 증빙이 부족하면 다시 열어도 게시 대기에서 멈춘다',
+    async (invalid) => {
+      const { store } = clockedStore();
+      const cleanup = workerGate(store);
+      const { gate } = draftSlack(
+        store,
+        {
+          orderId: 'ord-worker',
+          channel: 'C123',
+          text: '공유 완료',
+          threadTs: '12344.000001',
+        },
+        tempStateDir(),
+      );
+      resolveGate(store, cleanup.id, 'approved');
+      resolveGate(store, gate.id, 'approved');
+      const orca = fakeLauncher('orca-worktree');
+      let checks = 0;
+      orca.launcher.completion = async () => {
+        checks++;
+        return ended;
+      };
+      let calls = 0;
+      const { deps: d } = deps({
+        launchers: { 'orca-worktree': orca.launcher },
+        slack: {
+          post: async (message, delivery) => {
+            calls++;
+            const result = slackSuccess(message, delivery);
+            if (invalid === 'link') return 'https://example.slack.com/archives/C999/p12345000001';
+            if (invalid === 'channel') return { ...result, channel: 'C999' };
+            if (invalid === 'thread')
+              return { ...result, message: { ...result.message, thread_ts: '99999.000001' } };
+            return slackSuccess(message, {
+              ...delivery,
+              metadata: { ...delivery.metadata, event_payload: { delivery_id: 'different' } },
+            });
+          },
+        },
+      });
+      const first = await tick(store, d, { force: true });
+      expect(first.errors).toEqual([expect.stringContaining('게시 실패')]);
+      expect(first.slackPosted).toEqual([]);
+      const restarted = ConductorStore.open(store.dir);
+      const replayed = await tick(restarted, d, { force: true });
+      expect(replayed.warnings).toEqual([
+        expect.stringContaining('직접 게시 응답에서 승인 범위를 확인하지 못했어요'),
+      ]);
+      expect(restarted.snapshot.gates[cleanup.id]?.completion).toBeUndefined();
+      expect(restarted.worker('wrk-previous')?.status).toBe('finished');
+      expect(calls).toBe(1);
+      expect(checks).toBe(0);
+      expect(orca.released).toEqual([]);
+    },
+  );
 
   it('워크트리까지 정리해야 한다면 같은 워크트리가 없어졌는지 읽기 요청으로 확인한다', async () => {
     const { store } = clockedStore();
