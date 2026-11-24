@@ -243,7 +243,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
       (params) => {
         const input = specInputSchema.parse(params);
-        const result = handleSpecPassthrough(ptEngine, ptSpecGen, input, agentRegistry);
+        const result = handleSpecPassthrough(ptEngine, ptSpecGen, input, agentRegistry, eventStore);
         return toolReply(result);
       },
     );
@@ -282,9 +282,9 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       'ges_generate_spec',
       'Generate a Spec specification from a completed interview session.',
       {
-        sessionId: z
-          .string()
-          .describe("The interview session ID. 'latest'(가장 최근 갱신)도 가능."),
+        sessionId: specInputSchema.shape.sessionId,
+        specId: specInputSchema.shape.specId,
+        reuse: specInputSchema.shape.reuse,
         force: z
           .boolean()
           .optional()
@@ -293,7 +293,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
       async (params) => {
         const input = specInputSchema.parse(params);
-        const result = await handleSpec(engine, specGenerator, input);
+        const result = await handleSpec(engine, specGenerator, input, eventStore);
         return toolReply(result);
       },
     );

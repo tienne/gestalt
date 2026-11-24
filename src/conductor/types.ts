@@ -5,6 +5,7 @@
  * 저장소(`store.ts`)에 이벤트로 쌓는다. 여기 타입은 그 이벤트와 스냅샷의 꼴이다.
  */
 
+import type { PreparedPlan } from './prepared-plan.js';
 import { AGENT_ID_RE, ORDER_SCOPES } from '../core/constants.js';
 
 export { AGENT_ID_RE, ORDER_SCOPES };
@@ -63,6 +64,7 @@ export interface Order {
   repo: string;
   title: string;
   description?: string;
+  preparedPlan?: PreparedPlan;
   scope: OrderScope;
   issueKey?: string;
   issueType?: IssueType;

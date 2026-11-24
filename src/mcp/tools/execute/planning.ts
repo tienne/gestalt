@@ -1,9 +1,12 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../../schemas.js';
-import type { PlanningStepResult, NextActionGuide } from '../../../core/types.js';
+import type { ExecuteSession, PlanningStepResult, NextActionGuide } from '../../../core/types.js';
 import type { IHostAdapter } from '../../host-adapter.js';
 import { formatError, stripContextPrompts } from './utils.js';
 import { sanitizeSurfaceContext, getStageLabel } from '../../../gestalt/surface-labels.js';
+import { specSchema } from '../../../spec/schema.js';
+import { validateFinalizedSession } from '../../../conductor/prepared-plan.js';
 import { PlanningRewoundError } from '../../../execute/orchestrators/planning.js';
 
 export function handleStart(
@@ -41,6 +44,72 @@ export function handleStart(
     null,
     2,
   );
+}
+
+export function handlePrepareConductor(
+  engine: PassthroughExecuteEngine,
+  input: ExecuteInput,
+  adapter: IHostAdapter,
+): string {
+  try {
+    if ((input.spec && (input.sessionId || input.planId)) || (input.sessionId && input.planId))
+      return formatError('Select one of spec, sessionId or planId');
+    let session: ExecuteSession | undefined;
+    if (input.sessionId) {
+      session = engine.getSession(input.sessionId);
+    } else {
+      const spec = input.spec ? specSchema.parse(input.spec) : undefined;
+      if (!spec && !input.planId) return formatError('spec, sessionId or planId is required');
+      const matches = engine
+        .listSessions()
+        .filter(
+          (candidate) =>
+            !candidate.sessionId.startsWith('conductor-') &&
+            (input.planId
+              ? candidate.executionPlan?.planId === input.planId
+              : candidate.specId === spec?.metadata.specId &&
+                (candidate.status === 'planning' || candidate.status === 'plan_complete')),
+        );
+      const ready = matches.filter((candidate) => candidate.status === 'plan_complete');
+      const candidates = ready.length ? ready : matches;
+      if (candidates.length > 1)
+        return formatError('실행 세션이 여러 개예요. 세션이나 계획 ID를 골라 주세요');
+      session = candidates[0];
+      if (session && spec && !isDeepStrictEqual(specSchema.parse(session.spec), spec))
+        return formatError('저장된 실행 세션의 Spec 내용이 선택한 Spec과 달라요');
+      if (!session && spec) return handleStart(engine, { ...input, spec }, adapter);
+    }
+    if (!session) return formatError('지정한 실행 계획을 찾지 못했어요');
+    if (session.status === 'plan_complete' && session.executionPlan)
+      return formatConductorReady(session);
+    if (session.status !== 'planning')
+      return formatError('구현을 시작하기 전의 실행 세션을 골라 주세요');
+    const executeContext = engine.resumePlanning(session);
+    const context = executeContext
+      ? sanitizeSurfaceContext(executeContext as unknown as Record<string, unknown>)
+      : undefined;
+    return JSON.stringify({
+      status: 'planning',
+      sessionId: session.sessionId,
+      specId: session.specId,
+      stepsCompleted: session.planningSteps.length,
+      executeContext: input.verbose === false ? stripContextPrompts(context) : context,
+      nextAction: context ? 'plan_step' : 'plan_complete',
+      nextActionParams: { sessionId: session.sessionId },
+    });
+  } catch (error) {
+    return formatError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+function formatConductorReady(session: ExecuteSession): string {
+  const plan = validateFinalizedSession(session);
+  return JSON.stringify({
+    status: 'ready_for_conductor',
+    sessionId: session.sessionId,
+    specId: plan.specId,
+    planId: plan.planId,
+  });
 }
 
 export function handlePlanStep(
@@ -125,6 +194,14 @@ export function handlePlanComplete(
       return formatRewound(input.sessionId, result.error, verbose);
     }
     return formatError(result.error.message);
+  }
+
+  if (input.conductor) {
+    try {
+      return formatConductorReady(result.value.session);
+    } catch (error) {
+      return formatError(error instanceof Error ? error.message : String(error));
+    }
   }
 
   const { executionPlan } = result.value;

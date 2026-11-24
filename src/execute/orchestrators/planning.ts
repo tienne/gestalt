@@ -103,6 +103,12 @@ export class PlanningOrchestrator {
     }
   }
 
+  resumePlanning(session: ExecuteSession): ExecuteContext | undefined {
+    if (session.status !== 'planning' || session.planningSteps.length >= PLANNING_TOTAL_STEPS)
+      return undefined;
+    return this.buildExecuteContext(session.spec, session.currentStep, session.planningSteps);
+  }
+
   planStep(
     sessionId: string,
     stepResult: PlanningStepResult,
@@ -185,6 +191,11 @@ export class PlanningOrchestrator {
   planComplete(sessionId: string): Result<PassthroughPlanCompleteResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
+
+      if (session.status === 'plan_complete' && session.executionPlan)
+        return ok({ session, executionPlan: session.executionPlan });
+      if (session.status !== 'planning')
+        return err(new ExecuteError(`Cannot finalize plan in state "${session.status}"`));
 
       if (session.planningSteps.length < PLANNING_TOTAL_STEPS) {
         return err(

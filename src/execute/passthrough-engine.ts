@@ -27,6 +27,7 @@ import { EvaluationOrchestrator } from './orchestrators/evaluation.js';
 import { EvolutionOrchestrator } from './orchestrators/evolution.js';
 import type { ExecuteConfig } from '../core/config.js';
 import type {
+  ExecuteContext,
   PassthroughStartResult,
   PassthroughPlanStepResult,
   PassthroughPlanCompleteResult,
@@ -125,6 +126,10 @@ export class PassthroughExecuteEngine {
   /** 평가 성공 판정 기준값. 설정이 없으면 상수 기본값이다 */
   getEvaluateThresholds(): { success: number; goalAlignment: number } {
     return this.evaluateThresholds;
+  }
+
+  resumePlanning(session: ExecuteSession): ExecuteContext | undefined {
+    return this.planningOrch.resumePlanning(session);
   }
 
   // ─── Planning ────────────────────────────────────────────────

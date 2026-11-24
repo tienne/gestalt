@@ -150,6 +150,31 @@ export class ExecuteSessionManager {
     return session;
   }
 
+  restorePreparedPlan(
+    sessionId: string,
+    spec: Spec,
+    plan: ExecutionPlan,
+    cwd: string,
+  ): ExecuteSession {
+    if (this.eventStore.countByAggregate('execute', sessionId) === 0) {
+      this.record(sessionId, EventType.EXECUTE_SESSION_STARTED, {
+        specId: spec.metadata.specId,
+        goal: spec.goal,
+        spec,
+        codeGraphRepoRoot: cwd,
+        preparedPlan: plan,
+      });
+    }
+    const session = this.get(sessionId);
+    if (
+      session.specId !== plan.specId ||
+      session.executionPlan?.planId !== plan.planId ||
+      session.codeGraphRepoRoot !== cwd
+    )
+      throw new Error('이미 다른 실행 계획이나 워크트리에 연결된 세션이에요');
+    return session;
+  }
+
   /**
    * updatedAt(마지막 활동) 기준으로 ttlMs를 초과한 인메모리 세션을 제거한다.
    * SQLite 이벤트 원장은 보존되므로 지운 세션도 get()이 다시 재구성한다.
@@ -643,6 +668,10 @@ export class ExecuteSessionManager {
       sessionId,
       reason,
     });
+  }
+
+  listPersisted(): ExecuteSession[] {
+    return this.repo.list().map((id) => this.get(id));
   }
 
   list(): ExecuteSession[] {

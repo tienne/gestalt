@@ -3,7 +3,12 @@ import type { ExecuteInput } from '../schemas.js';
 import { createHostAdapter, type IHostAdapter } from '../host-adapter.js';
 import type { ClientType } from '../../execute/rule-writer.js';
 import type { ExecuteHandler } from './execute/types.js';
-import { handleStart, handlePlanStep, handlePlanComplete } from './execute/planning.js';
+import {
+  handleStart,
+  handlePlanStep,
+  handlePlanComplete,
+  handlePrepareConductor,
+} from './execute/planning.js';
 import { handleExecuteStart, handleExecuteTask } from './execute/execution.js';
 import { handleEvaluate } from './execute/evaluate.js';
 import {
@@ -27,6 +32,7 @@ import { formatError, resolveExecuteSessionInput } from './execute/utils.js';
 
 const handlers: Record<string, ExecuteHandler> = {
   start: handleStart,
+  prepare_conductor: handlePrepareConductor,
   plan_step: handlePlanStep,
   plan_complete: handlePlanComplete,
   execute_start: handleExecuteStart,

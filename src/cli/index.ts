@@ -59,6 +59,11 @@ import {
   conductorWorkerReportCommand,
 } from './commands/conductor.js';
 import {
+  conductorAcceptPreparedPlan,
+  conductorPlanLoadCommand,
+  conductorPlanSubmitCommand,
+} from './commands/conductor-plan.js';
+import {
   conductorBrowseCommand,
   conductorResultsListCommand,
   conductorResultsSearchCommand,
@@ -1147,6 +1152,22 @@ export function createCli(): Command {
     .addOption(stateDir())
     .action(conductorBotGithubCommand);
 
+  const conductorPlan = conductor.command('plan').description('확정된 계획을 주문으로 넘긴다');
+  conductorPlan
+    .command('submit <session-id>')
+    .description('등록된 운영 채팅에 실행 계획을 보내고 주문 ID를 확인한다')
+    .option('--repo <owner/name>', '대상 레포. 없으면 현재 체크아웃의 origin')
+    .option('--check', '다시 보내지 않고 접수 여부만 확인한다')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(conductorPlanSubmitCommand);
+  conductorPlan
+    .command('load <order-id>')
+    .description('배정된 워크트리에서 주문의 Spec과 계획을 실행 세션으로 복원한다')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(conductorPlanLoadCommand);
+
   const conductorOrder = conductor.command('order').description('주문을 다룬다');
   conductorOrder
     .command('show <id>')
@@ -1160,8 +1181,12 @@ export function createCli(): Command {
     .description(
       '말로 던진 요청이나 호스트가 읽은 지라 티켓을 주문으로 받는다. 같은 출처는 한 번만 받는다',
     )
-    .requiredOption('--repo <owner/name>', '대상 레포')
-    .requiredOption('--title <text>', '주문 제목')
+    .option('--repo <owner/name>', '대상 레포')
+    .option('--title <text>', '주문 제목')
+    .option(
+      '--prepared-plan <plan-id>',
+      '등록된 운영 채팅에서 보관된 실행 계획을 승인 주문으로 접수',
+    )
     .option(
       '--description <text>',
       '주문 설명. 워커는 컨덕터 대화를 못 보니 요구사항과 결정을 다 적는다',
@@ -1195,6 +1220,8 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action(async (o) => {
+      if (o.preparedPlan) return conductorAcceptPreparedPlan(o.preparedPlan, o);
+      if (!o.repo || !o.title) throw new Error('--repo와 --title을 주세요');
       await conductorCheckBotMutation('order add', o);
       conductorOrderAddCommand(o);
     });

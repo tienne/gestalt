@@ -27,6 +27,7 @@ export async function handleExecuteStart(
 
   if (!input.sessionId) return formatError('sessionId is required for execute_start action');
 
+  if (input.conductor) return formatError('Submit the finalized plan using the conductor handoff');
   const capture = await engine.captureBaseline(input.sessionId, input.cwd);
   const result = engine.startExecution(input.sessionId, capture);
   if (!result.ok) return formatError(result.error.message);

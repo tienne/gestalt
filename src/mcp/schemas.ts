@@ -1,3 +1,4 @@
+import { planningStepSchema } from '../execute/plan-schema.js';
 import { z } from 'zod';
 import { guardObject } from './input-guard.js';
 import { ARCHITECTURE_VIEWS } from '../architecture/types.js';
@@ -89,6 +90,11 @@ export const specInputSchema = guardObject(
       .string()
       .optional()
       .describe('Plain text description to generate spec directly without interview'),
+    specId: z.string().optional().describe('Retrieve a previously saved Spec by ID'),
+    reuse: z
+      .boolean()
+      .optional()
+      .describe('Reuse the stored Spec for this completed interview when available'),
     template: z
       .string()
       .optional()
@@ -208,6 +214,7 @@ export const executeInputSchema = guardObject(
   z.object({
     action: z.enum([
       'start',
+      'prepare_conductor',
       'plan_step',
       'plan_complete',
       'execute_start',
@@ -260,6 +267,8 @@ export const executeInputSchema = guardObject(
       .describe(
         "Execute session ID. 'active'(현재 활성 세션) 또는 'latest'(가장 최근 갱신)도 가능.",
       ),
+    planId: z.string().uuid().optional().describe('Select an existing plan for prepare_conductor'),
+    conductor: z.boolean().optional().describe('Return the finished plan for conductor handoff'),
     changedFiles: z
       .array(z.string())
       .optional()
@@ -281,56 +290,7 @@ export const executeInputSchema = guardObject(
       .enum(['claude-code', 'codex', 'both', 'grok'])
       .optional()
       .describe('Host client for active context recording (overrides server config per call)'),
-    stepResult: z
-      .object({
-        principle: z.enum(['figure_ground', 'closure', 'proximity', 'continuity']),
-        classifiedACs: z
-          .array(
-            z.object({
-              acIndex: z.number(),
-              acText: z.string(),
-              classification: z.enum(['figure', 'ground']),
-              priority: z.enum(['critical', 'high', 'medium', 'low']),
-              reasoning: z.string(),
-            }),
-          )
-          .optional(),
-        atomicTasks: z
-          .array(
-            z.object({
-              taskId: z.string(),
-              title: z.string(),
-              description: z.string(),
-              sourceAC: z.array(z.number()),
-              isImplicit: z.boolean(),
-              estimatedComplexity: z.enum(['low', 'medium', 'high']),
-              dependsOn: z.array(z.string()),
-            }),
-          )
-          .optional(),
-        taskGroups: z
-          .array(
-            z.object({
-              groupId: z.string(),
-              name: z.string(),
-              domain: z.string(),
-              taskIds: z.array(z.string()),
-              reasoning: z.string(),
-            }),
-          )
-          .optional(),
-        dagValidation: z
-          .object({
-            isValid: z.boolean(),
-            hasCycles: z.boolean(),
-            cycleDetails: z.array(z.string()).optional(),
-            hasConflicts: z.boolean(),
-            conflictDetails: z.array(z.string()).optional(),
-            topologicalOrder: z.array(z.string()),
-            criticalPath: z.array(z.string()),
-          })
-          .optional(),
-      })
+    stepResult: planningStepSchema
       .optional()
       .describe('Planning step result (required for plan_step)'),
     taskResult: z

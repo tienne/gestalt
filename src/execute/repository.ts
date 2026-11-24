@@ -95,14 +95,16 @@ export class ExecuteSessionRepository {
       goal: string;
       spec?: Spec;
       codeGraphRepoRoot?: string;
+      preparedPlan?: ExecutionPlan;
     };
 
     const session: ExecuteSession = {
       sessionId,
       specId: startPayload.specId ?? '',
       spec: startPayload.spec ?? this.buildMinimalSpec(startPayload),
-      status: 'planning',
-      currentStep: 1,
+      status: startPayload.preparedPlan ? 'plan_complete' : 'planning',
+      currentStep: startPayload.preparedPlan ? 5 : 1,
+      ...(startPayload.preparedPlan ? { executionPlan: startPayload.preparedPlan } : {}),
       planningSteps: [],
       taskResults: [],
       completedTaskIds: [],
