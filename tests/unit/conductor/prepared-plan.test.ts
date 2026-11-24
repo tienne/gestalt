@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCli } from '../../../src/cli/index.js';
 import { changeBotOwner } from '../../../src/conductor/bot-owner.js';
 import { buildWorkerPrompt, chooseWorkerKind } from '../../../src/conductor/launcher.js';
+import { prepareOrderPlan, preparedPlanSourceRef } from '../../../src/conductor/prepared-plan.js';
+import { EventType } from '../../../src/events/types.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import { EventStore } from '../../../src/events/store.js';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
@@ -14,7 +16,7 @@ import { executeInputSchema } from '../../../src/mcp/schemas.js';
 import { ExecuteSessionManager } from '../../../src/execute/session.js';
 import type { Order } from '../../../src/conductor/types.js';
 import { createExecuteFixture, type ExecuteFixture } from '../../helpers/execute-fixture.js';
-import { cleanupStateDirs, tempStateDir, worker } from './fixtures.js';
+import { cleanupStateDirs, order as fixtureOrder, tempStateDir, worker } from './fixtures.js';
 
 const owner = { botId: 'ops', name: 'Conductor', chatId: 'ops-home' };
 const outside = { botId: 'other', name: 'Other', chatId: 'other-home' };
@@ -140,7 +142,7 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
 
   it('등록된 운영 채팅이 승인 범위 주문을 받고 배정된 워크트리에 원본 계획을 복원한다', async () => {
     changeBotOwner(stateDir, undefined, owner);
-    const { sessionId, spec } = fx.plannedSession();
+    const { sessionId, spec } = fx.plannedSession(undefined, undefined, dir);
     const plan = fx.engine.getSession(sessionId).executionPlan!;
     await submit(sessionId, '--repo', 'acme/app');
     const [order] = orders() as [Order];
@@ -208,6 +210,15 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
       await expect(call('evaluate', dir)).resolves.toMatchObject({
         error: expect.stringContaining('배정된 워크트리'),
       });
+      execFileSync('git', ['remote', 'set-url', 'origin', 'https://github.com/acme/other.git'], {
+        cwd: worktree,
+      });
+      await expect(call('evaluate')).resolves.toMatchObject({
+        error: expect.stringContaining('acme/other'),
+      });
+      expect(new ExecuteSessionManager(events).get(executionId).planBoundaryError).toContain(
+        'acme/other',
+      );
 
       expect(restored).toMatchObject({
         executionPlan: plan,
@@ -223,7 +234,7 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
 
   it('Orca가 실제 배정한 위치만 워커 계획 복원을 허용한다', async () => {
     changeBotOwner(stateDir, undefined, owner);
-    const { sessionId } = fx.plannedSession();
+    const { sessionId } = fx.plannedSession(undefined, undefined, dir);
     await submit(sessionId, '--repo', 'acme/app');
     const [order] = orders() as [Order];
     const worktree = join(dir, `${order.id}-1`);
@@ -256,7 +267,7 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
     const incomplete = fx.startedSession();
     await expect(submit(incomplete.sessionId, '--repo', 'acme/app')).rejects.toThrow('exit 1');
     expect(vi.mocked(execRunner)).not.toHaveBeenCalled();
-    const { sessionId } = fx.plannedSession();
+    const { sessionId } = fx.plannedSession(undefined, undefined, dir);
     const planId = fx.engine.getSession(sessionId).executionPlan!.planId;
     await submit(sessionId, '--repo', 'acme/app');
     expect(last()).toMatchObject({ status: 'unconfirmed', planId, sessionId });
@@ -281,7 +292,7 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
 
   it('동시 도착과 재시도는 한 주문이고 다른 채팅에서는 접수할 수 없다', async () => {
     changeBotOwner(stateDir, undefined, owner);
-    const { sessionId } = fx.plannedSession();
+    const { sessionId } = fx.plannedSession(undefined, undefined, dir);
     const planId = fx.engine.getSession(sessionId).executionPlan!.planId;
     failDelivery = true;
     await submit(sessionId, '--repo', 'acme/app');
@@ -302,7 +313,7 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
 
   it('전달 뒤 로컬 실행을 시작했으면 새 운영 접수 프로세스도 주문을 만들지 못한다', async () => {
     changeBotOwner(stateDir, undefined, owner);
-    const { sessionId } = fx.plannedSession();
+    const { sessionId } = fx.plannedSession(undefined, undefined, dir);
     const planId = fx.engine.getSession(sessionId).executionPlan!.planId;
     failDelivery = true;
     await submit(sessionId, '--repo', 'acme/app');
@@ -316,7 +327,7 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
 
   it('먼저 접수한 계획은 저장소를 다시 열어도 원본 로컬 실행을 시작할 수 없다', async () => {
     changeBotOwner(stateDir, undefined, owner);
-    const { sessionId } = fx.plannedSession();
+    const { sessionId } = fx.plannedSession(undefined, undefined, dir);
     await submit(sessionId, '--repo', 'acme/app');
     expect(orders()).toHaveLength(1);
     const events = new EventStore(fx.dbPath);
@@ -331,8 +342,96 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
     }
   });
 
+  it.each(['accept', 'check'])(
+    '이미 기록된 주문을 %s로 확인하면 로컬 착수 방지 기록을 복구한다',
+    async (route) => {
+      changeBotOwner(stateDir, undefined, owner);
+      const { sessionId } = fx.plannedSession(undefined, undefined, dir);
+      const prepared = prepareOrderPlan(fx.engine.getSession(sessionId), 'acme/app');
+      failDelivery = true;
+      await submit(sessionId, '--repo', 'acme/app');
+      const prior = fixtureOrder({
+        sourceRef: preparedPlanSourceRef(prepared.plan.planId),
+        scope: 'approval',
+        preparedPlan: prepared,
+      });
+      ConductorStore.open(stateDir).addOrder(prior);
+      if (route === 'accept') {
+        vi.stubEnv('ORCA_AGENT_SESSION_ID', owner.chatId);
+        await cli(
+          'conductor',
+          'order',
+          'add',
+          '--prepared-plan',
+          prepared.plan.planId,
+          '--state-dir',
+          stateDir,
+        );
+      } else {
+        await submit(sessionId, '--repo', 'acme/app', '--check');
+      }
+      expect(last()).toMatchObject({ status: 'accepted', orderId: prior.id });
+      expect(orders()).toHaveLength(1);
+      const restarted = new PassthroughExecuteEngine(fx.store);
+      expect(restarted.startExecution(sessionId).ok).toBe(false);
+    },
+  );
+
+  it.each(['changed', 'missing'])(
+    '원본 계획의 레포가 %s이면 새 접수와 로컬 실행을 거절하고 상태에 남긴다',
+    async (change) => {
+      changeBotOwner(stateDir, undefined, owner);
+      const { sessionId } = fx.plannedSession(undefined, undefined, dir);
+      const planId = fx.engine.getSession(sessionId).executionPlan!.planId;
+      failDelivery = true;
+      await submit(sessionId, '--repo', 'acme/app');
+      const args =
+        change === 'changed'
+          ? ['set-url', 'origin', 'https://github.com/acme/other.git']
+          : ['remove', 'origin'];
+      execFileSync('git', ['remote', ...args], { cwd: dir });
+      vi.stubEnv('ORCA_AGENT_SESSION_ID', owner.chatId);
+      await expect(
+        cli('conductor', 'order', 'add', '--prepared-plan', planId, '--state-dir', stateDir),
+      ).rejects.toThrow('exit 1');
+      expect(orders()).toHaveLength(0);
+      const reopened = new PassthroughExecuteEngine(fx.store);
+      expect(reopened.startExecution(sessionId).ok).toBe(false);
+      const status = await fx.call({ action: 'status', sessionId });
+      const reason = change === 'changed' ? 'acme/other' : '확인할 수 없어요';
+      expect(status).toMatchObject({
+        session: {
+          targetRepository: 'acme/app',
+          planBoundaryError: expect.stringContaining(reason),
+        },
+      });
+    },
+  );
+
+  it('이전 버전에서 다른 레포에 복원한 세션으로는 실행과 평가를 시작하지 못한다', async () => {
+    const { sessionId, spec } = fx.plannedSession(undefined, undefined, dir);
+    const plan = fx.engine.getSession(sessionId).executionPlan!;
+    const workerSessionId = 'conductor-legacy-worker';
+    const other = join(dir, 'other-repo');
+    execFileSync('git', ['init', '-q', other]);
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/other.git'], {
+      cwd: other,
+    });
+    fx.store.append('execute', workerSessionId, EventType.EXECUTE_SESSION_STARTED, {
+      specId: spec.metadata.specId,
+      spec,
+      preparedPlan: plan,
+      codeGraphRepoRoot: other,
+    });
+    for (const action of ['execute_start', 'evaluate'] as const) {
+      const res = await fx.call({ action, sessionId: workerSessionId, cwd: other });
+      expect(res['error']).toContain('기준 레포가 기록되지 않았어요');
+    }
+    expect(fx.engine.getSession(workerSessionId).status).toBe('plan_complete');
+  });
+
   it('별도 프로세스에서 착수와 접수가 동시에 목적지를 잡아도 하나만 성공한다', async () => {
-    const { sessionId } = fx.plannedSession();
+    const { sessionId } = fx.plannedSession(undefined, undefined, dir);
     const planId = fx.engine.getSession(sessionId).executionPlan!.planId;
     const moduleUrl = new URL('../../../src/execute/plan-destination.ts', import.meta.url).href;
     const choose = (destination: { kind: 'local' } | { kind: 'conductor'; stateDir: string }) =>
@@ -358,7 +457,7 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
 
   it('메일 전달 성공 뒤 접수 기록이 생기기 전에는 주문 ID를 만들지 않는다', async () => {
     changeBotOwner(stateDir, undefined, owner);
-    const { sessionId } = fx.plannedSession();
+    const { sessionId } = fx.plannedSession(undefined, undefined, dir);
     const planId = fx.engine.getSession(sessionId).executionPlan!.planId;
     acceptMail = false;
     const delivery = submit(sessionId, '--repo', 'acme/app');

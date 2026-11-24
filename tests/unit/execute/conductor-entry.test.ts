@@ -98,6 +98,12 @@ describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
     try {
       execFileSync('git', ['init', '-q', first]);
       execFileSync('git', ['init', '-q', second]);
+      execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/first.git'], {
+        cwd: first,
+      });
+      execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/second.git'], {
+        cwd: second,
+      });
       const a = await fx.call({ action: 'prepare_conductor', spec, codeGraphRepoRoot: first });
       const aSessionId = a['sessionId'] as string;
       for (const stepResult of planningSteps(spec))
@@ -118,6 +124,15 @@ describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
       expect(b['sessionId']).not.toBe(aSessionId);
       const reused = await fx.call({ action: 'prepare_conductor', spec, codeGraphRepoRoot: first });
       expect(reused).toEqual(aPlan);
+      execFileSync('git', ['remote', 'set-url', 'origin', 'https://github.com/acme/second.git'], {
+        cwd: first,
+      });
+      const rediscovered = await fx.call({
+        action: 'prepare_conductor',
+        spec,
+        codeGraphRepoRoot: first,
+      });
+      expect(rediscovered['sessionId']).toBe(b['sessionId']);
     } finally {
       fx.close();
       for (const directory of [first, second]) rmSync(directory, { recursive: true, force: true });
