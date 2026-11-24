@@ -214,7 +214,9 @@ Orca GitHub 커넥터가 연결된 팀 접수 봇은 운영 봇과 별도로 둔
   "githubIntakeBotId": "<팀 접수 봇 ID>",
   "githubRepositories": { "acme/app": [12345678] },
   "mergeApprovers": {
-    "acme/app": { "release-owner": "-----BEGIN PUBLIC KEY-----\n<공개키>\n-----END PUBLIC KEY-----\n" }
+    "acme/app": {
+      "release-owner": "-----BEGIN PUBLIC KEY-----\n<공개키>\n-----END PUBLIC KEY-----\n"
+    }
   }
 }
 ```
@@ -411,7 +413,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 
 ## 상태 저장소
 
-주문, 워커, 체크포인트, 사람 확인 자리(gate), bypass 기록은 전부 `events.jsonl`에 이벤트로 한 줄씩 덧붙는다. 상태는 `base.json`이 있으면 거기서 시작해 남은 `segments/`와 이 로그를 이어서 재생해 만든다. 없으면 로그를 처음부터 재생한다. 컨덕터 세션이 압축되거나 새로 떠도 같은 저장소를 열면 같은 상태에서 이어 간다. 조회용 `snapshot.json`은 tick이나 `order remove`, `archive`가 끝날 때 들여쓰기 없이 쓴다.
+주문, 워커, 체크포인트, 사람 확인 자리(gate), bypass 기록은 전부 `events.jsonl`에 이벤트로 한 줄씩 덧붙는다. 상태는 `base.json`이 있으면 거기서 시작해 남은 `segments/`와 이 로그를 이어서 재생해 만든다. 없으면 로그를 처음부터 재생한다. 컨덕터 세션이 압축되거나 새로 떠도 같은 저장소를 열면 같은 상태에서 이어 간다. 조회용 `snapshot.json`은 tick이나 `order remove`, `archive`가 끝날 때 들여쓰기 없이 쓴다. 상태 안 워커와 게이트를 주문 id로 찾을 때는 상태가 바뀔 때마다 한 번 만든 주문 id별 인덱스를 쓴다.
 
 `events.jsonl`을 떼어 내 `base.json`에 반영하는 일은 [끝난 주문 보관](#끝난-주문-보관)(`archive` 명령)이 함께 한다. tick은 아직 부르지 않는다. 설계는 [`proposals/conductor-archive.md`](./proposals/conductor-archive.md)에 있다.
 
@@ -423,14 +425,14 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 - 잠금 없이 읽는 쪽은 재생 앞뒤로 `base.json`과 segment 목록을 비교해 바뀌었으면 다시 읽는다. 다섯 번 읽어도 계속 바뀌면 어긋난 상태를 돌려주지 않고 에러를 낸다. 최근 이벤트를 읽을 때도 같다.
 - 결과 보기(`results`, 웹 뷰어)와 최근 이벤트도 같은 순서로 읽는다. 최근 이벤트는 `events.jsonl`에서 모자라면 남은 segment 끝을 이어서 읽는다. 웹 뷰어는 `base.json`과 segment마다의 크기, `events.jsonl`이 바뀌었을 때만 다시 읽는다.
 - 떼어 낸 뒤에는 `base.json`을 모르는 0.153.0 전 gestalt가 이 저장소를 열면 `events.jsonl`만 재생해 상태를 잘못 만든다. 0.153.0도 `archivedOrders`를 몰라서 보관한 주문의 출처를 다시 받고 PR 감시가 주문을 다시 만든다. `archive`를 처음 부르기 전에 컨덕터 세션과 워커가 쓰는 gestalt를 `archive` 명령이 들어간 버전으로 맞춘다.
-- 반영하면서 이벤트를 주문별로 `order-logs/<주문 id>/`에 옮겨 둔다. segment는 다음 반영 때 지워지므로 나중에 그 주문을 보관할 때 이 파일로 이벤트를 모은다. 주문을 찾는 규칙은 제안서의 [이벤트를 주문에 붙이는 규칙](./proposals/conductor-archive.md#이벤트를-주문에-붙이는-규칙)과 같다. tick과 `tail-repaired`, 주문 없는 게이트, `report` 없이 이름만 있는 옛 `report-applied` 줄은 모으지 않는다. 마지막 것은 `appliedReports`에만 쓰이고 그건 `base.json`에 들어간다. 첫 반영 전 로그는 첫 반영이 처음부터 재생하며 모은다.
+- 반영하면서 이벤트를 주문별로 `order-logs/<주문 id>.jsonl`에 덧붙여 둔다. segment는 다음 반영 때 지워지므로 나중에 그 주문을 보관할 때 이 파일로 이벤트를 모은다. 덧붙이기 전에 줄이 닿은 주문의 파일 크기와 이번 반영 id를 `order-logs/.staging.json`에 적고 `base.json`에도 같은 id(`orderLogsFold`)를 적는다. 두 id가 다르면 지난 반영이 덧붙인 뒤 `base.json`을 못 쓰고 죽은 것이라 다음 반영이 적어 둔 크기로 되돌리고 그 범위를 다시 읽어 덧붙인다. 파일 끝에 끝나지 않은 줄이 있으면 덧붙이기 전에 잘라 낸다. fsync는 반영 한 번에 줄이 닿은 주문 수 + 4번(기록 파일과 그 rename, 새 파일 엔트리, `order-logs/`를 새로 만든 경우 저장소 디렉토리)이 상한이다. 0.158.0은 반영 범위마다 `order-logs/<주문 id>/<segment>.<시작 바이트>.jsonl`을 따로 썼다. 그 파일이 남아 있으면 보관할 때 이름 순서로 앞에 잇고 단일 파일을 뒤에 잇는다. 주문을 찾는 규칙은 제안서의 [이벤트를 주문에 붙이는 규칙](./proposals/conductor-archive.md#이벤트를-주문에-붙이는-규칙)과 같다. tick과 `tail-repaired`, 주문 없는 게이트, `report` 없이 이름만 있는 옛 `report-applied` 줄은 모으지 않는다. 마지막 것은 `appliedReports`에만 쓰이고 그건 `base.json`에 들어간다. 첫 반영 전 로그는 첫 반영이 처음부터 재생하며 모은다.
 
 | 경로                           | 쓰는 쪽         | 내용                                                                                                                                                                                                                                                                      |
 | ------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `events.jsonl`                 | tick, CLI 명령  | 상태 이벤트와 실제 워커 에이전트, 보고 이력. `report-applied`에 workerId, status, summary, refs, skill, prRef, merged, stopReason, need, refCopies를 보존하며 진행 보고도 포함한다. 하위 주문 요청(`spawnRequest`)은 주문 이벤트로 옮겨지므로 보고에는 다시 남기지 않는다 |
 | `base.json`                    | 떼어 내기       | 떼어 낸 로그를 반영한 기준점 상태와 반영한 segment의 이름과 길이(`foldedSegments`). 재생은 여기서 시작한다                                                                                                                                                                |
 | `segments/`                    | 떼어 내기       | `events.jsonl`에서 떼어 낸 로그. 반영한 뒤에도 다음 반영 때까지 남겨 두고 그때 지운다                                                                                                                                                                                     |
-| `order-logs/<주문 id>/`        | 떼어 내기       | 반영한 이벤트를 주문별로 옮겨 둔 것. 그 주문을 보관할 때 `archive/`로 옮기고 지운다                                                                                                                                                                                       |
+| `order-logs/<주문 id>.jsonl`   | 떼어 내기       | 반영한 이벤트를 주문별로 덧붙여 둔 것. 그 주문을 보관할 때 `archive/`로 옮기고 지운다                                                                                                                                                                                     |
 | `archive/<YYYY-MM>/<주문 id>/` | 보관            | 보관한 주문의 이벤트(`events.jsonl`), 끝 상태(`order.json`), refs 사본(`refs/`), 워커 요약(`workers/`). 끝나고 한 달 지난 달은 `archive/<YYYY-MM>.tar.gz`로 묶는다. 아래 [끝난 주문 보관](#끝난-주문-보관)에 있다                                                         |
 | `inbox/`                       | 워커            | `worker report`가 남긴 결과 파일. 다음 tick이 상태와 보고 본문을 이벤트에 기록한 뒤 지운다. 적용하다 실패한 원문은 `inbox/failed/`로 옮긴다                                                                                                                               |
 | `inbox/unrecorded/`            | tick            | 적용은 끝났는데 `report-applied` 기록만 실패한 결과 파일. 다음 tick이 다시 적용하지 않고 기록만 남긴 뒤 지운다. 다시 적용하면 bypass와 워커에 전하기, 하위 주문이 한 번 더 돌기 때문이다                                                                                  |
@@ -471,7 +473,7 @@ gh로 읽을 수 있는 PR 목록과 계정 전환은 tick이 직접 한다. 오
 - 주문 디렉토리에는 넷을 둔다. `events.jsonl`은 `order-logs/`에 모아 둔 그 주문의 이벤트 줄을 원래 값 그대로 이은 것이다. `order.json`은 `order show --json`과 같은 꼴에 `stateDir` 대신 보관한 시각(`archivedAt`)을 둔다. `refs/`는 `refs/<주문 id>/`를 복사한 것이고 `order.json`의 `refCopies[].path`는 옮긴 자리(`archive/<YYYY-MM>/<주문 id>/refs/...`)로 바꿔 적는다. `workers/<워커 id>.summary.json`은 그 주문 워커의 타임라인 요약(`activity/<워커 id>.summary.json`)을 복사한 것이다. 모아 둔 이벤트가 없으면(손으로 `order-logs/`를 지운 경우) 빈 `events.jsonl`을 쓰고 `warnings`에 남긴다.
 - 상태에서는 `order remove`와 같은 규칙으로 주문과 워커, 체크포인트, 게이트, bypass, 지라 전이, 보고를 빼고 `archivedOrders`에 출처(`sourceRef`), 상위 주문, 보관 시각과 달을 남긴다. 지운 주문처럼 같은 출처를 다시 받지 않는다. 상위 주문이 하위 주문을 몇 개 만들었는지 셀 때도 넣는다. parked 주문이면 사람에게 넘긴 PR을 `humanPr`로 남겨 PR 감시가 그 PR로 주문을 새로 만들지 않는다.
 - `order remove`로 지운 주문은 지운 시각에서 같은 기간이 지나면 모아 둔 이벤트만 `archive/<지운 달>/<주문 id>/events.jsonl`로 옮기고 `removedOrders`의 그 주문에 옮긴 달(`archived`)을 적는다. 모아 둔 이벤트가 없으면 달만 적는다. 한 번 옮긴 지운 주문은 다시 옮기지 않는다.
-- 주문에 안 붙는 컨덕터 게이트는 닫히고 같은 기간이 지나면 상태에서 버린다. 다만 그 게이트가 있어야 도는 일이 남았으면 둔다. `sourceRef`가 있는 게이트(PR 감시와 접수가 같은 질문을 다시 안 여는 근거), 승인했지만 아직 슬랙에 안 올린 `slack-post`, 승인했지만 워커가 아직 released가 아닌 정리 실패 게이트가 그렇다. `sourceRef`가 있는 게이트는 상한 없이 쌓인다. 상태를 열 때마다 들고 다니는 크기가 그만큼 늘어나므로 출처별 색인으로 줄이는 일을 다음 단계에서 본다.
+- 주문에 안 붙는 컨덕터 게이트는 닫히고 같은 기간이 지나면 상태에서 버린다. 다만 그 게이트가 있어야 도는 일이 남았으면 둔다. 승인했지만 후속 재리뷰 주문(`<sourceRef>:approved`)이 아직 없는 `review-manual-switch`, 승인했지만 아직 슬랙에 안 올린 `slack-post`, 승인했지만 워커가 아직 released가 아닌 정리 실패 게이트가 그렇다. 버리는 게이트에 `sourceRef`가 있으면 `askedSourceRefs`에 출처와 닫힌 시각만 남긴다. PR 감시의 `review-manual-switch`와 접수의 `no-procedure`가 같은 질문을 다시 안 여는 근거라서 두 곳 다 `gates`와 이 색인을 함께 본다. 승인한 `review-manual-switch`는 후속 주문이 생긴 뒤에만 옮기므로 tick이 승인 게이트를 훑어 후속 주문을 만드는 자리는 상태에 남은 게이트만 봐도 된다. 색인은 `removedOrders`처럼 늘기만 한다.
 - 보관 파일과 refs 사본, 새로 만든 보관 디렉토리와 `base.json`을 다 쓰고 fsync한 뒤에 `order-logs/<주문 id>/`와 `refs/<주문 id>/`를 지운다. 지운 주문도 같다. `base.json`을 쓰기 전에 죽으면 모아 둔 이벤트가 그대로라 다시 불렀을 때 같은 자리에 같은 내용을 덮어쓴다. `base.json`까지 쓰고 죽어 남은 파일은 다음 보관이 보관 기록(`archivedOrders`, `removedOrders`의 `archived`)을 보고 지운다.
 - 옮긴 뒤에 그 주문으로 붙는 줄은 모으지 않고 버린다. 재생할 때도 지우거나 옮긴 주문에 워커, 체크포인트, 게이트, bypass, 지라 전이를 다시 붙이지 않는다. 없는 게이트에 온 `slack-posted`도 버린다. 끝나고 기간이 지났고 도는 워커와 열린 게이트가 없는 주문만 옮기므로 그런 줄은 옮기는 순간에 늦게 쓴 경우뿐이다.
 - `results show`에 보관한 주문 id를 주면 보관소 자리를 알려 준다. 묶은 달이면 `archive/<YYYY-MM>.tar.gz` 안의 자리를, `archive prune`으로 지운 달이면 지웠다는 사실을 알려 준다. 결과 뷰어가 보관소를 읽는 일은 뒤에 따로 한다.
