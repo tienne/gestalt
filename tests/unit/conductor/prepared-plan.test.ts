@@ -377,6 +377,71 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
     },
   );
 
+  it.each(['start-first', 'concurrent'])(
+    '기존 주문이 %s로 복구 조회보다 먼저 성립했으면 새 로컬 실행을 막는다',
+    async (timing) => {
+      changeBotOwner(stateDir, undefined, owner);
+      const { sessionId } = fx.plannedSession(undefined, undefined, dir);
+      const prepared = prepareOrderPlan(fx.engine.getSession(sessionId), 'acme/app');
+      failDelivery = true;
+      await submit(sessionId, '--repo', 'acme/app');
+      const prior = fixtureOrder({
+        sourceRef: preparedPlanSourceRef(prepared.plan.planId),
+        scope: 'approval',
+        preparedPlan: prepared,
+      });
+      ConductorStore.open(stateDir).addOrder(prior);
+      const moduleUrl = new URL('../../../src/execute/passthrough-engine.ts', import.meta.url).href;
+      const storeUrl = new URL('../../../src/events/store.ts', import.meta.url).href;
+      const runLocal = () =>
+        promisify(execFile)(
+          process.execPath,
+          [
+            '--import',
+            'tsx',
+            '--input-type=module',
+            '-e',
+            `import { PassthroughExecuteEngine } from ${JSON.stringify(moduleUrl)};
+              import { EventStore } from ${JSON.stringify(storeUrl)};
+              const store = new EventStore(process.env.GESTALT_DB_PATH);
+              try {
+                const result = new PassthroughExecuteEngine(store).startExecution(${JSON.stringify(sessionId)});
+                console.log(JSON.stringify({ started: result.ok, error: result.error?.message }));
+              } finally { store.close(); }`,
+          ],
+          { cwd },
+        ).then(({ stdout }) => JSON.parse(stdout.trim()));
+      const check = () => submit(sessionId, '--repo', 'acme/app', '--check');
+      const start =
+        timing === 'concurrent' ? (await Promise.all([runLocal(), check()]))[0] : await runLocal();
+      if (timing === 'start-first') await check();
+      expect(start).toMatchObject({
+        started: false,
+        error: expect.stringContaining('다른 컨덕터 접수'),
+      });
+      expect(last()).toMatchObject({ status: 'accepted', orderId: prior.id });
+      expect(fx.engine.getSession(sessionId).status).toBe('plan_complete');
+      expect(orders()).toHaveLength(1);
+    },
+  );
+
+  it('재시작했을 때 설정된 저장소의 기존 주문을 제출 기록 없이도 찾는다', () => {
+    vi.stubEnv('GESTALT_CONDUCTOR_STATE_DIR', stateDir);
+    const { sessionId } = fx.plannedSession(undefined, undefined, dir);
+    const prepared = prepareOrderPlan(fx.engine.getSession(sessionId), 'acme/app');
+    ConductorStore.open(stateDir).addOrder(
+      fixtureOrder({
+        sourceRef: preparedPlanSourceRef(prepared.plan.planId),
+        scope: 'approval',
+        preparedPlan: prepared,
+      }),
+    );
+    const result = new PassthroughExecuteEngine(fx.store).startExecution(sessionId);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('다른 컨덕터 접수');
+    expect(orders()).toHaveLength(1);
+  });
+
   it.each(['changed', 'missing'])(
     '원본 계획의 레포가 %s이면 새 접수와 로컬 실행을 거절하고 상태에 남긴다',
     async (change) => {

@@ -16,9 +16,19 @@ import {
   RecordingAdapter,
 } from '../../helpers/execute-fixture.js';
 
+function repoForPlanning(name: string): string {
+  const root = mkdtempSync(join(tmpdir(), 'gestalt-conductor-entry-'));
+  execFileSync('git', ['init', '-q', root]);
+  execFileSync('git', ['remote', 'add', 'origin', `https://github.com/acme/${name}.git`], {
+    cwd: root,
+  });
+  return root;
+}
+
 describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
   it('완료한 인터뷰의 Spec과 계획을 생성하고 세 출발점에서 같은 계획을 찾는다', async () => {
     const fx = createExecuteFixture('conductor-entry');
+    const root = repoForPlanning('entry');
     try {
       const interviews = new PassthroughEngine(fx.store);
       const specs = new PassthroughSpecGenerator(fx.store);
@@ -59,7 +69,8 @@ describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
       expect(fromInterview).toEqual(fromSpec);
       expect(fx.store.listAggregates('spec')).toHaveLength(1);
 
-      const execute = (input: Record<string, unknown>) => fx.call(executeInputSchema.parse(input));
+      const execute = (input: Record<string, unknown>) =>
+        fx.call(executeInputSchema.parse({ codeGraphRepoRoot: root, ...input }));
       const start = await execute({ action: 'prepare_conductor', spec: fromInterview });
       const execId = start['sessionId'] as string;
       const [first, ...rest] = planningSteps(spec);
@@ -87,6 +98,7 @@ describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
       ).toBe(false);
     } finally {
       fx.close();
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -188,10 +200,44 @@ describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
     }
   });
 
+  it('플래그 없는 실행은 계획을 만든 뒤 origin을 지워도 이어진다', async () => {
+    const fx = createExecuteFixture('conductor-unbound-local');
+    const root = repoForPlanning('ordinary');
+    try {
+      const { sessionId } = fx.plannedSession(undefined, undefined, root);
+      expect(fx.engine.getSession(sessionId).targetRepository?.name).toBe('acme/ordinary');
+      execFileSync('git', ['remote', 'remove', 'origin'], { cwd: root });
+      await expect(
+        fx.call({ action: 'execute_start', sessionId, cwd: root }),
+      ).resolves.toMatchObject({ status: 'executing' });
+    } finally {
+      fx.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('레포를 확인하지 못한 계획은 접수 준비 완료 대신 사유와 다음 조치를 준다', async () => {
+    const fx = createExecuteFixture('conductor-no-repo');
+    try {
+      const { sessionId } = fx.plannedSession();
+      const result = await fx.call({ action: 'plan_complete', sessionId, conductor: true });
+      expect(result).toMatchObject({
+        sessionId,
+        error: expect.stringContaining('기준 레포가 기록되지 않았어요'),
+        nextStep: expect.stringContaining('Spec으로 계획'),
+      });
+      expect(result).not.toHaveProperty('status', 'ready_for_conductor');
+      expect(fx.engine.getSession(sessionId).planBoundaryError).toContain('기준 레포');
+    } finally {
+      fx.close();
+    }
+  });
+
   it('서버가 의존성 순환을 되감은 계획은 접수 준비로 보지 않는다', async () => {
     const fx = createExecuteFixture('conductor-invalid-dag');
+    const root = repoForPlanning('dag');
     try {
-      const { sessionId, spec } = fx.startedSession(makeSpec(['AC0', 'AC1']));
+      const { sessionId, spec } = fx.startedSession(makeSpec(['AC0', 'AC1']), root);
       const steps = planningSteps(spec, [makeTask('a', ['b'], 0), makeTask('b', ['a'], 1)]);
       for (const stepResult of steps) await fx.call({ action: 'plan_step', sessionId, stepResult });
       const result = await fx.call({ action: 'plan_complete', sessionId, conductor: true });
@@ -199,6 +245,7 @@ describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
       expect(fx.engine.getSession(sessionId).executionPlan).toBeUndefined();
     } finally {
       fx.close();
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
