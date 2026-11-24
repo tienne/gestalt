@@ -248,6 +248,10 @@ async function handoffLocked(
         stage = observed.chatId === source.chatId ? 'retarget' : 'verify';
         throw editError ?? new Error('Orca에서 인계 대상 채팅을 확인하지 못했어요');
       }
+      const receiving = await deps.chat(options.bot, target.chatId);
+      if (receiving.botId !== target.botId || receiving.chatId !== target.chatId)
+        throw new Error('편집 뒤 인계 대상 채팅을 확인하지 못했어요');
+      verify(observed);
       confirmed = observed;
     }
     stage = 'commit-owner';
