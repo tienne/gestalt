@@ -72,6 +72,19 @@ function copyOrderButton(orderId: string): string {
   return `<button class="copy" data-copy="${esc(orderId)}" data-focus="${esc(`copy:${orderId}`)}" aria-label="${esc(`주문 번호 ${orderId} 복사`)}" title="주문 번호 복사">복사</button>`
 }
 
+function prLink(ref: string, orderId: string): string {
+  const match = /^([\w.-]+)\/([\w.-]+)#(\d+)$/.exec(ref) ??
+    /^https?:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)\/?(?:[?#].*)?$/.exec(ref)
+  if (!match) return span('ell', ref)
+  const [, owner, repo, number] = match
+  const url = `https://github.com/${owner}/${repo}/pull/${number}`
+  const id = esc(`pr:${orderId}`)
+  return `<button type="button" class="pr-link ell" popovertarget="${id}" data-focus="${id}" title="${esc(ref)}">${esc(ref)}</button>` +
+    `<div class="pr-actions" id="${id}" popover>` +
+    `<button type="button" data-open-pr="${url}" data-focus="${id}:open">브라우저에서 열기</button>` +
+    `<button type="button" data-copy="${url}" data-focus="${id}:copy">링크 복사</button></div>`
+}
+
 const AGENT_STATE: Record<AgentState, string> = { working: '작업 중', blocked: '권한 대기', waiting: '입력 대기', done: '끝남' }
 
 function liveBlock(o: Card['order'], live: WorkerLive | 'loading' | undefined, now: number): string {
@@ -212,7 +225,9 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
   const body = join(
     div('t', div('tid-row', span('tid', o.id), interactive && copyOrderButton(o.id), canOpen && goButton(o.id)), span('ttl', o.title)),
     c.meta.some((r) => r.label !== '레포') &&
-      div('meta', ...c.meta.filter((r) => r.label !== '레포').map((r) => div('mrow', span('muted', r.label), span('ell', r.value)))),
+      div('meta', ...c.meta.filter((r) => r.label !== '레포').map((r) =>
+        div('mrow', span('muted', r.label), interactive && r.label === 'PR' ? prLink(r.value, o.id) : span('ell', r.value))
+      )),
     c.chips.length > 0 && div('chain', ...c.chips.map((ch) => span(`chip ${ch.state}`, ch.text))),
     c.todo === undefined
       ? pct !== null && `<div class="prog ${c.state.tone}"><b style="width:${pct}%"></b></div>`
@@ -444,6 +459,10 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
 .copy:hover { color: var(--t-fg); border-color: var(--t-dim); }
+.pr-link { justify-self: start; max-width: 100%; padding: 0; border: 0; background: none; color: var(--t-blue); text-decoration: underline; text-underline-offset: 2px; font: inherit; cursor: pointer; }
+.pr-actions { position: fixed; inset: auto; position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; margin: 4px 0; padding: 4px; border: 1px solid var(--orca-border, var(--t-line)); border-radius: 6px; background: var(--orca-popover, var(--t-bg)); color: var(--orca-popover-foreground, var(--t-fg)); box-shadow: 0 4px 12px #0005; }
+.pr-actions button { display: block; width: 100%; border: 0; border-radius: 3px; padding: 4px 8px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.pr-actions button:hover, .pr-actions button:focus-visible { background: var(--orca-accent, var(--t-line)); }
 .copy:focus-visible, .go:focus-visible, .more > summary:focus-visible { outline: 1px solid var(--t-fg); outline-offset: 2px; }
 .flow { display: flex; justify-content: center; color: var(--t-dim); margin: 6px 0; font-size: 11px; white-space: nowrap; overflow: hidden; }
 .gates { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
