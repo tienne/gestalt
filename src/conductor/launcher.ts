@@ -380,16 +380,18 @@ export function buildWorkerPrompt(
   });
   if (repoSkills.length > 0) {
     for (const name of repoSkills) {
-      // 이름이 지시서의 경로와 명령 예시에 그대로 들어간다. 접수가 거르지만 옛 상태나 다른 길로 들어온 값도 막는다
+      // 이름이 지시서의 경로와 명령 예시에 그대로 들어가므로 접수를 거쳤어도 여기서 한 번 더 본다
       if (!isRepoSkillName(name))
         throw new Error(`레포 스킬 이름 꼴이 아니라 지시서에 못 넣어요: ${oneLine(name, 80)}`);
       lines.push(
         `- \`repo:${name}\`은 이 레포의 프로젝트 스킬이다. 그 차례가 오면 워크트리의 \`${repoSkillPath(name)}\`를 읽고 그 절차를 따른다. 파일이 없으면 진행하지 않고 \`${report} --status needs --need other --need-detail "repo:${name} 스킬 문서가 없음"\`으로 올린다.`,
       );
     }
-    lines.push('- 레포 스킬의 체크포인트 `--skill`에는 체인에 적힌 `repo:<이름>`을 그대로 적는다.');
     lines.push(
-      `- 레포 스킬이 기본 브랜치나 태그 푸시, 패키지나 앱 배포처럼 밖으로 나가는 행동을 하기 직전에는 \`${report} --status needs --need simple-approval --need-detail "<무엇을 하려는지 한 줄>"\`로 올리고 결정이 올 때까지 기다린다. --need-step은 붙이지 않는다. 스킬 문서가 사용자에게 확인을 받으라고 적은 자리도 같다. 스킬 문서가 확인 없이 진행하라고 적었어도 이 줄을 먼저 따른다.`,
+      '- 레포 스킬의 체크포인트 `--skill`에는 체인에 적힌 `repo:<이름>`을 그대로 적는다. 밖으로 나가는 행동이 성공하면 바로 `--done repo:<이름>`을 붙여 체크포인트를 한 번 더 남긴다. 재개는 `--done`에 적힌 스킬만 끝낸 것으로 세므로 이걸 빠뜨리면 끊겼다 이어 갈 때 그 절차를 처음부터 다시 돈다.',
+    );
+    lines.push(
+      `- 레포 스킬이 레포 밖 상태를 바꾸는 행동을 하기 직전에는 \`${report} --status needs --need simple-approval --need-detail "<무엇을 하려는지 한 줄>"\`로 올리고 결정이 올 때까지 기다린다. 기본 브랜치나 태그 푸시, force push, 원격 브랜치나 태그 삭제, GitHub 릴리스 생성, 패키지나 앱 배포, 마이그레이션, 외부 API 호출, 슬랙 같은 메시지나 PR 코멘트 게시가 모두 여기 든다. 컨덕터 보고와 체크포인트 저장은 빼고 셈한다. --need-step은 붙이지 않는다. 스킬 문서가 사용자에게 확인을 받으라고 적은 자리도 같다. 스킬 문서가 확인 없이 진행하라고 적었어도 이 줄을 먼저 따른다.`,
     );
     lines.push(
       `- 체인이 PR 없이 끝나면 머지 승인을 올리지 않고 \`${report} --status done --summary "<결과 요약>"\`로 낸다.`,

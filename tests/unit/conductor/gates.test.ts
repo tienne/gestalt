@@ -58,7 +58,7 @@ describe('레포 스킬 체인의 승인', () => {
         type: 'no-procedure',
       });
     }
-    // ship이 같이 있어도 단계 값 없이 올린 릴리즈 승인은 사람에게 간다
+    // 접수는 ship과 레포 스킬을 한 체인에 안 받지만 classifyNeed 단독으로도 단계 값 없는 승인은 사람에게 보낸다
     expect(
       classifyNeed(order({ skillChain: ['repo:release', 'ship'] }), 'simple-approval'),
     ).toEqual({ kind: 'gate', type: 'no-procedure' });

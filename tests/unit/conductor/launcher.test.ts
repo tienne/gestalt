@@ -52,7 +52,7 @@ describe('워커 종류 고르기', () => {
     expect(
       chooseWorkerKind(order({ skillChain: ['review', 'repo:lint'] }), { orcaAvailable: true }),
     ).toBe('orca-worktree');
-    // 접수가 막지만 옛 상태나 다른 길로 들어온 고정 값도 서브에이전트로 띄우지 않는다
+    // 접수가 막지만 접수 검사가 생기기 전에 저장된 주문의 고정 값도 서브에이전트로 띄우지 않는다
     expect(
       chooseWorkerKind(order({ skillChain: ['repo:release'], workerKind: 'subagent' }), {
         orcaAvailable: false,
@@ -169,7 +169,17 @@ describe('워커 지시서', () => {
     );
     expect(p).toContain('`--skill`에는 체인에 적힌 `repo:<이름>`을 그대로 적는다');
     expect(p).toContain(
-      '--status needs --need simple-approval --need-detail "<무엇을 하려는지 한 줄>"`로 올리고 결정이 올 때까지 기다린다. --need-step은 붙이지 않는다.',
+      '밖으로 나가는 행동이 성공하면 바로 `--done repo:<이름>`을 붙여 체크포인트를 한 번 더 남긴다',
+    );
+    expect(p).toContain(
+      '레포 스킬이 레포 밖 상태를 바꾸는 행동을 하기 직전에는 `gestalt conductor worker report',
+    );
+    expect(p).toContain(
+      '--status needs --need simple-approval --need-detail "<무엇을 하려는지 한 줄>"`로 올리고 결정이 올 때까지 기다린다.',
+    );
+    expect(p).toContain('GitHub 릴리스 생성');
+    expect(p).toContain(
+      '컨덕터 보고와 체크포인트 저장은 빼고 셈한다. --need-step은 붙이지 않는다.',
     );
     expect(p).toContain('체인이 PR 없이 끝나면 머지 승인을 올리지 않고');
     // PR을 만드는지 모르니 수정 전 캡처 줄은 ship이나 pr이 같이 있을 때만 붙는다
