@@ -11,6 +11,9 @@ export interface ScheduledBotAutomation {
   settings: string;
 }
 
+/** Orca가 변경 요청을 받기 전에 실패했다는 것이 확인된 경우다. */
+export class OrcaAutomationEditRejected extends Error {}
+
 function sortedJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortedJson);
   if (!isPlainObject(value)) return value;
@@ -67,7 +70,10 @@ export function readScheduledBotAutomation(response: unknown): ScheduledBotAutom
 
 async function callOrcaAutomation(args: string[]): Promise<unknown> {
   const command = detectOrca();
-  if (!command) throw new Error('Orca CLI가 필요해요');
+  if (!command) {
+    if (args[0] === 'edit') throw new OrcaAutomationEditRejected('Orca CLI가 필요해요');
+    throw new Error('Orca CLI가 필요해요');
+  }
   const result = await execRunner(
     command,
     ['automations', ...args, '--environment', 'local', '--json'],
@@ -84,6 +90,8 @@ async function callOrcaAutomation(args: string[]): Promise<unknown> {
   if (isPlainObject(body) && body['ok'] === true && result.code === 0) return body['result'];
   const error = isPlainObject(body) ? body['error'] : undefined;
   const code = isPlainObject(error) ? error['code'] : undefined;
+  if (args[0] === 'edit' && code === 'runtime_access_denied')
+    throw new OrcaAutomationEditRejected('Orca 런타임이 편집 요청의 접근을 거절했어요');
   throw new Error(
     `Orca 자동화 ${args[0]} 실패${typeof code === 'string' && /^[a-z_]+$/.test(code) ? ` (${code})` : ''}`,
   );

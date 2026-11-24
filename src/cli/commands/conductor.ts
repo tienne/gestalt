@@ -777,6 +777,9 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
             fromChatId: latestHandoff.from,
             toChatId: latestHandoff.to,
             status: latestHandoff.outcome ?? 'partial',
+            ...(!latestHandoff.outcome && latestHandoff.editUncertain
+              ? { retryStage: 'reconcile-edit' }
+              : {}),
             responsibleChatId: botOwner?.chatId,
             verifiedNextRunAt: latestHandoff.nextRunAt,
           },

@@ -20,6 +20,7 @@ export interface BotHandoffRecord {
   botId: string;
   settings: string;
   revision: number;
+  editUncertain?: boolean;
   outcome?: 'completed' | 'cancelled';
   nextRunAt?: number;
 }
@@ -51,6 +52,7 @@ function handoffRecord(value: unknown): value is BotHandoffRecord {
     ) &&
     typeof value['revision'] === 'number' &&
     Number.isSafeInteger(value['revision']) &&
+    (value['editUncertain'] === undefined || typeof value['editUncertain'] === 'boolean') &&
     (value['outcome'] === undefined ||
       value['outcome'] === 'completed' ||
       value['outcome'] === 'cancelled') &&

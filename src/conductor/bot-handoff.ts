@@ -1,4 +1,5 @@
 import { realpathSync } from 'node:fs';
+import { automationCoordinationRoot, lockAutomationHandoff } from './bot-handoff-coordination.js';
 import {
   readBotOwnership,
   targetBotOwner,
@@ -11,6 +12,7 @@ import { acquireLock } from './engine.js';
 import { isSessionId } from './handoff.js';
 import {
   digest,
+  OrcaAutomationEditRejected,
   retargetBotAutomation,
   showScheduledBotAutomation,
   type ScheduledBotAutomation,
@@ -32,6 +34,7 @@ interface HandoffDeps {
   retarget: (id: string, chat: string) => Promise<void>;
   write: typeof writeBotOwnership;
   now: () => number;
+  coordinationRoot: () => string;
 }
 
 const defaultDeps: HandoffDeps = {
@@ -40,9 +43,18 @@ const defaultDeps: HandoffDeps = {
   retarget: retargetBotAutomation,
   write: writeBotOwnership,
   now: Date.now,
+  coordinationRoot: automationCoordinationRoot,
 };
 
-type Stage = 'preflight' | 'write-intent' | 'retarget' | 'verify' | 'commit-owner' | 'cancel';
+type Stage =
+  | 'preflight'
+  | 'coordinate'
+  | 'write-intent'
+  | 'retarget'
+  | 'reconcile-edit'
+  | 'verify'
+  | 'commit-owner'
+  | 'cancel';
 
 export interface BotHandoffResult {
   status: 'ready' | 'blocked' | 'partial' | 'completed' | 'cancelled';
@@ -123,7 +135,21 @@ export async function handoffBot(
     };
   }
   try {
-    return await handoffLocked(dir, options, deps);
+    const store = realpathSync(dir);
+    const coordination = lockAutomationHandoff(deps.coordinationRoot(), options.automation);
+    if (!coordination) {
+      return {
+        ...resultBase(options, readBotOwnership(dir)),
+        status: 'blocked',
+        retryStage: 'coordinate',
+        detail: '같은 Orca 자동화 인계가 다른 프로세스에서 진행 중이에요',
+      };
+    }
+    try {
+      return await handoffLocked(store, options, deps, coordination);
+    } finally {
+      coordination.release();
+    }
   } finally {
     lock.release();
   }
@@ -133,6 +159,7 @@ async function handoffLocked(
   dir: string,
   options: BotHandoffOptions,
   deps: HandoffDeps,
+  coordination: NonNullable<ReturnType<typeof lockAutomationHandoff>>,
 ): Promise<BotHandoffResult> {
   const ownership = readBotOwnership(dir);
   const base = resultBase(options, ownership);
@@ -149,7 +176,20 @@ async function handoffLocked(
     ) {
       throw new Error('이 요청 ID는 다른 인계 또는 승인값에 이미 쓰였어요');
     }
-    if (journal?.outcome) return { ...recordResult(ownership, options, journal), replayed: true };
+    stage = 'coordinate';
+    const claim = coordination.read();
+    const clearInitialClaim = () => {
+      if (claim?.store === dir && claim.request === options.request) coordination.clear();
+    };
+    if (claim && claim.store !== dir)
+      throw new Error(
+        `다른 상태 저장소가 이 Orca 자동화를 맡고 있어요 (${claim.store}, 요청 ${claim.request})`,
+      );
+    if (journal?.outcome) {
+      if (options.cancel && journal.outcome === 'cancelled') clearInitialClaim();
+      return { ...recordResult(ownership, options, journal), replayed: true };
+    }
+    stage = 'preflight';
     if (ownership.handoffs.some((entry) => !entry.outcome && entry.id !== options.request))
       throw new Error('진행 중인 인계를 먼저 완료하거나 취소해 주세요');
 
@@ -196,7 +236,7 @@ async function handoffLocked(
       settings: automation.settings,
       revision: ownership.revision,
     };
-    const approval = digest({ store: realpathSync(dir), ...proposed });
+    const approval = digest({ store: dir, ...proposed });
     if (!options.approve) {
       return {
         ...base,
@@ -206,7 +246,14 @@ async function handoffLocked(
         verifiedNextRunAt: automation.nextRunAt,
         approval,
         ...(journal
-          ? { retryStage: automation.chatId === target.chatId ? 'commit-owner' : 'retarget' }
+          ? {
+              retryStage:
+                automation.chatId === target.chatId
+                  ? 'verify'
+                  : journal.editUncertain
+                    ? 'reconcile-edit'
+                    : 'retarget',
+            }
           : {}),
       };
     }
@@ -217,43 +264,67 @@ async function handoffLocked(
         ...next,
         handoffs: [...ownership.handoffs.filter((entry) => entry.id !== record.id), record],
       });
+      journal = record;
     };
+    const settleEdit = () => {
+      if (journal?.editUncertain) save({ ...journal, editUncertain: false });
+    };
+    if (journal?.editUncertain) {
+      stage = 'reconcile-edit';
+      if (automation.chatId !== target.chatId)
+        throw new Error(
+          '앞선 Orca 편집이 끝났는지 확인되지 않았어요. 기존 대상 조회만으로 취소하거나 편집을 다시 요청할 수 없어요',
+        );
+      settleEdit();
+    }
     if (options.cancel) {
       stage = 'cancel';
-      if (!journal || automation.chatId !== source.chatId)
-        throw new Error('기존 채팅의 정기 자동화와 진행 중인 요청을 확인한 뒤 취소할 수 있어요');
+      if (!journal) throw new Error('취소할 인계 요청이 없어요');
+      if (automation.chatId !== source.chatId)
+        throw new Error('편집 결과를 확인했어요. 자동화를 기존 채팅으로 되돌린 뒤 취소해 주세요');
       save({ ...journal, outcome: 'cancelled' });
+      clearInitialClaim();
       return { ...base, status: 'cancelled', automationChatId: automation.chatId };
     }
     if (!journal) {
       stage = 'write-intent';
       const intent = { ...proposed, approval };
       save(intent);
-      journal = intent;
     }
+    stage = 'coordinate';
+    if (!claim) coordination.claim(dir, options.request);
     let confirmed = automation;
     if (automation.chatId !== target.chatId) {
+      stage = 'write-intent';
+      save({ ...journal!, editUncertain: true });
       stage = 'retarget';
       observed = undefined;
       let editError: unknown;
       try {
         await deps.retarget(automation.id, target.chatId);
       } catch (error) {
-        editError = error;
+        editError = error ?? new Error('Orca 편집 결과를 확인할 수 없어요');
       }
+      if (editError === undefined || editError instanceof OrcaAutomationEditRejected) settleEdit();
       stage = 'verify';
       observed = await show();
       verify(observed);
       if (observed.chatId !== target.chatId) {
-        stage = observed.chatId === source.chatId ? 'retarget' : 'verify';
+        stage = journal?.editUncertain
+          ? 'reconcile-edit'
+          : observed.chatId === source.chatId
+            ? 'retarget'
+            : 'verify';
         throw editError ?? new Error('Orca에서 인계 대상 채팅을 확인하지 못했어요');
       }
-      const receiving = await deps.chat(options.bot, target.chatId);
-      if (receiving.botId !== target.botId || receiving.chatId !== target.chatId)
-        throw new Error('편집 뒤 인계 대상 채팅을 확인하지 못했어요');
-      verify(observed);
+      settleEdit();
       confirmed = observed;
     }
+    stage = 'verify';
+    const receiving = await deps.chat(options.bot, target.chatId);
+    if (receiving.botId !== target.botId || receiving.chatId !== target.chatId)
+      throw new Error('운영권을 넘기기 전에 인계 대상 채팅을 확인하지 못했어요');
+    verify(confirmed);
     stage = 'commit-owner';
     const next = {
       ...ownership,
@@ -261,7 +332,11 @@ async function handoffLocked(
       retired: [...ownership.retired, source.chatId],
       revision: ownership.revision + 1,
     };
-    const completed = { ...journal, outcome: 'completed', nextRunAt: confirmed.nextRunAt } as const;
+    const completed = {
+      ...journal!,
+      outcome: 'completed',
+      nextRunAt: confirmed.nextRunAt,
+    } as const;
     save(completed, next);
     return {
       ...recordResult(next, options, completed),
