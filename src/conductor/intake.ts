@@ -286,17 +286,12 @@ function checkRepoSkills(
 }
 
 /**
- * 워커 워크트리가 갈라질 자리. git 워크트리 워커는 부모를 무시하고 repoPaths에서 띄운다. 종류를
- * 안 정한 주문은 오르카가 없으면 git 워크트리로 떨어지므로 두 자리를 다 본다
+ * 워커 워크트리가 갈라질 자리. git 워크트리 워커는 부모를 무시하고 repoPaths에서 띄운다. 오르카
+ * 워커와 종류를 안 정한 주문은 오르카가 없으면 git 워크트리로 떨어지므로 두 자리를 다 본다
  */
 function repoSkillRoots(input: IntakeInput, repoPaths: Record<string, string>): string[] {
   const repoPath = Object.hasOwn(repoPaths, input.repo) ? repoPaths[input.repo] : undefined;
-  const roots =
-    input.workerKind === 'git-worktree'
-      ? [repoPath]
-      : input.workerKind === 'orca-worktree'
-        ? [input.parentWorktree ?? repoPath]
-        : [input.parentWorktree, repoPath];
+  const roots = input.workerKind === 'git-worktree' ? [repoPath] : [input.parentWorktree, repoPath];
   return roots.filter((r): r is string => r !== undefined);
 }
 

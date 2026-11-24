@@ -286,10 +286,32 @@ describe('레포 스킬', () => {
     expect(spoken.skillChain).toEqual(['solve', 'repo:release']);
   });
 
-  it('오르카 워커에 부모 워크트리를 줬으면 repoPaths 대신 그 체크아웃에서 스킬을 찾는다', () => {
+  it('오르카 워커도 오르카가 없으면 repoPaths로 떨어지므로 부모와 repoPaths를 다 본다', () => {
     const s = ConductorStore.open(tempStateDir());
-    const parent = repoWithSkills('release');
+    const withSkill = repoWithSkills('release');
     const plain = repoWithSkills();
+    const add = (title: string, parentWorktree: string, repoPath: string) =>
+      intakeOrder(
+        s,
+        {
+          source: 'spoken',
+          repo: 'acme/app',
+          title,
+          skillChain: ['repo:release'],
+          parentWorktree,
+          workerKind: 'orca-worktree',
+        },
+        { ...config, repoPaths: { 'acme/app': repoPath } },
+      );
+    expect(() => add('부모에만', withSkill, plain)).toThrow(/repo:release 스킬이 없어요/);
+    expect(() => add('repoPaths에만', plain, withSkill)).toThrow(/repo:release 스킬이 없어요/);
+    expect(add('둘 다', withSkill, repoWithSkills('release')).order.skillChain).toEqual([
+      'repo:release',
+    ]);
+  });
+
+  it('오르카 워커에 부모만 있고 repoPaths를 모르면 부모 체크아웃만 본다', () => {
+    const s = ConductorStore.open(tempStateDir());
     const made = intakeOrder(
       s,
       {
@@ -297,26 +319,12 @@ describe('레포 스킬', () => {
         repo: 'acme/app',
         title: 'x',
         skillChain: ['repo:release'],
-        parentWorktree: parent,
+        parentWorktree: repoWithSkills('release'),
         workerKind: 'orca-worktree',
       },
-      { ...config, repoPaths: { 'acme/app': plain } },
+      { ...config, repoPaths: {} },
     ).order;
     expect(made.skillChain).toEqual(['repo:release']);
-    expect(() =>
-      intakeOrder(
-        s,
-        {
-          source: 'spoken',
-          repo: 'acme/app',
-          title: 'y',
-          skillChain: ['repo:release'],
-          parentWorktree: plain,
-          workerKind: 'orca-worktree',
-        },
-        { ...config, repoPaths: { 'acme/app': parent } },
-      ),
-    ).toThrow(/repo:release 스킬이 없어요/);
   });
 
   it('git 워크트리 워커는 부모를 무시하고 띄우므로 repoPaths 쪽에서만 찾는다', () => {
