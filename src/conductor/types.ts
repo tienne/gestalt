@@ -407,6 +407,11 @@ export interface ConductorSnapshot {
   orders: Record<string, Order>;
   removedOrders: Record<string, RemovedOrder>;
   archivedOrders: Record<string, ArchivedOrder>;
+  /**
+   * 보관 기간이 지나 상태에서 뺀 닫힌 게이트의 `payload.sourceRef`와 닫힌 시각. 같은 출처로 다시 묻지 않게
+   * 접수와 PR 감시가 `gates`와 함께 본다. `removedOrders`처럼 늘기만 한다
+   */
+  askedSourceRefs: Record<string, string>;
   workers: Record<string, Worker>;
   /** 주문마다 마지막 체크포인트 하나 */
   checkpoints: Record<string, Checkpoint>;

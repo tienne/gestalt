@@ -11,7 +11,12 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ARCHIVE_DIR, archiveOrders } from '../../../src/conductor/archive.js';
 import { acquireLock } from '../../../src/conductor/engine.js';
-import { ORDER_LOGS_DIR, foldEvents, writeDurable } from '../../../src/conductor/fold.js';
+import {
+  ORDER_LOGS_DIR,
+  foldEvents,
+  orderLogPath,
+  writeDurable,
+} from '../../../src/conductor/fold.js';
 import { intakeOrder } from '../../../src/conductor/intake.js';
 import { pollPrs } from '../../../src/conductor/pr-watch.js';
 import { REFS_DIR } from '../../../src/conductor/ref-copy.js';
@@ -125,8 +130,8 @@ describe('archiveOrders', () => {
       month: '2026-11',
     });
     expect(existsSync(join(dir, REFS_DIR, 'ord-old'))).toBe(false);
-    expect(existsSync(join(dir, ORDER_LOGS_DIR, 'ord-old'))).toBe(false);
-    expect(existsSync(join(dir, ORDER_LOGS_DIR, 'ord-new'))).toBe(true);
+    expect(existsSync(orderLogPath(dir, 'ord-old'))).toBe(false);
+    expect(existsSync(orderLogPath(dir, 'ord-new'))).toBe(true);
   });
 
   it('반영한 segment가 지워진 뒤에 옮겨도 앞쪽 이벤트가 보관소에 남는다', async () => {
@@ -236,11 +241,29 @@ describe('archiveOrders', () => {
     });
   });
 
+  it('0.158.0이 범위마다 쓴 주문별 로그를 앞에 잇고 단일 파일을 뒤에 잇는다', async () => {
+    const dir = tempStateDir();
+    seed(dir);
+    await foldEvents(dir, fast);
+    const current = readFileSync(orderLogPath(dir, 'ord-old'), 'utf-8');
+    const legacy = join(dir, ORDER_LOGS_DIR, 'ord-old');
+    mkdirSync(legacy, { recursive: true });
+    writeFileSync(join(legacy, '0000000002-x.000000000000.jsonl'), '{"n":2}\n');
+    writeFileSync(join(legacy, '0000000001-x.000000000000.jsonl'), '{"n":1}\n');
+
+    await archiveOrders(dir, fast);
+
+    expect(
+      readFileSync(join(dir, ARCHIVE_DIR, '2026-11', 'ord-old', 'events.jsonl'), 'utf-8'),
+    ).toBe(`{"n":1}\n{"n":2}\n${current}`);
+    expect(existsSync(legacy)).toBe(false);
+  });
+
   it('모아 둔 이벤트가 없으면 빈 events.jsonl을 쓰고 경고를 남긴다', async () => {
     const dir = tempStateDir();
     seed(dir);
     await foldEvents(dir, fast);
-    rmSync(join(dir, ORDER_LOGS_DIR, 'ord-old'), { recursive: true });
+    rmSync(orderLogPath(dir, 'ord-old'));
 
     const result = await archiveOrders(dir, fast);
 
@@ -283,7 +306,7 @@ describe('archiveOrders', () => {
     const s = ConductorStore.open(dir, { now: () => new Date('2026-11-02T00:00:00.000Z') });
     s.removeOrder('ord-old');
     await foldEvents(dir, fast);
-    expect(existsSync(join(dir, ORDER_LOGS_DIR, 'ord-old'))).toBe(true);
+    expect(existsSync(orderLogPath(dir, 'ord-old'))).toBe(true);
 
     const result = await archiveOrders(dir, fast);
 
@@ -293,7 +316,7 @@ describe('archiveOrders', () => {
       'utf-8',
     );
     expect(events.trim().split('\n').at(-1)).toContain('"order-removed"');
-    expect(existsSync(join(dir, ORDER_LOGS_DIR, 'ord-old'))).toBe(false);
+    expect(existsSync(orderLogPath(dir, 'ord-old'))).toBe(false);
     expect(ConductorStore.open(dir).snapshot.removedOrders['ord-old']).toMatchObject({
       archived: '2026-11',
     });
@@ -357,8 +380,8 @@ describe('archiveOrders', () => {
     await foldEvents(dir, fast);
 
     expect([readFileSync(oldEvents, 'utf-8'), readFileSync(goneEvents, 'utf-8')]).toEqual(before);
-    expect(readdirSync(join(dir, ORDER_LOGS_DIR))).not.toContain('ord-old');
-    expect(readdirSync(join(dir, ORDER_LOGS_DIR))).not.toContain('ord-gone');
+    expect(readdirSync(join(dir, ORDER_LOGS_DIR))).not.toContain('ord-old.jsonl');
+    expect(readdirSync(join(dir, ORDER_LOGS_DIR))).not.toContain('ord-gone.jsonl');
     const after = ConductorStore.open(dir).snapshot;
     expect(after.workers['wrk-late']).toBeUndefined();
     expect(after.gates['gate-late']).toBeUndefined();
@@ -390,12 +413,14 @@ describe('archiveOrders', () => {
     expect(Object.keys(shown.gates)).toEqual(['gate-open']);
   });
 
-  it('후속 동작이 기대는 닫힌 컨덕터 게이트는 남긴다', async () => {
+  it('후속 동작이 기대는 닫힌 컨덕터 게이트는 남기고 sourceRef 게이트는 색인으로 옮긴다', async () => {
     const dir = tempStateDir();
     const s = ConductorStore.open(dir, { now: () => new Date('2026-11-01T00:00:00.000Z') });
     s.addOrder(order({ id: 'ord-1' }));
     s.startWorker(worker('ord-1', { id: 'wrk-stuck', status: 'finished' }));
     s.startWorker(worker('ord-1', { id: 'wrk-done', status: 'released' }));
+    // 승인한 재리뷰 게이트 중 후속 주문이 이미 생긴 쪽
+    s.addOrder(order({ id: 'ord-follow', sourceRef: 'pr-watch:made:approved' }));
     const closed: [Gate, 'approved' | 'rejected'][] = [
       [
         gate({
@@ -404,6 +429,23 @@ describe('archiveOrders', () => {
           payload: { sourceRef: 'pr-watch:x' },
         }),
         'rejected',
+      ],
+      [gate({ id: 'gate-no-proc', payload: { sourceRef: 'jira:BAD' } }), 'approved'],
+      [
+        gate({
+          id: 'gate-pending',
+          type: 'review-manual-switch',
+          payload: { sourceRef: 'pr-watch:pending', prRef: 'o/r#1' },
+        }),
+        'approved',
+      ],
+      [
+        gate({
+          id: 'gate-made',
+          type: 'review-manual-switch',
+          payload: { sourceRef: 'pr-watch:made', prRef: 'o/r#2' },
+        }),
+        'approved',
       ],
       [gate({ id: 'gate-unposted', type: 'slack-post' }), 'approved'],
       [
@@ -422,12 +464,69 @@ describe('archiveOrders', () => {
 
     const result = await archiveOrders(dir, fast);
 
-    expect(result).toMatchObject({ gates: ['gate-cleaned'] });
-    expect(Object.keys(ConductorStore.open(dir).snapshot.gates).sort()).toEqual([
-      'gate-asked',
+    expect(result).toMatchObject({
+      gates: ['gate-asked', 'gate-cleaned', 'gate-made', 'gate-no-proc'],
+    });
+    const after = ConductorStore.open(dir);
+    expect(Object.keys(after.snapshot.gates).sort()).toEqual([
       'gate-cleanup',
+      'gate-pending',
       'gate-unposted',
     ]);
+    expect(after.snapshot.askedSourceRefs).toEqual({
+      'pr-watch:x': '2026-11-01T00:00:00.000Z',
+      'jira:BAD': '2026-11-01T00:00:00.000Z',
+      'pr-watch:made': '2026-11-01T00:00:00.000Z',
+    });
+    expect(after.askedSourceRef('pr-watch:x')).toBe(true);
+    expect(after.askedSourceRef('pr-watch:pending')).toBe(true);
+    expect(after.askedSourceRef('pr-watch:other')).toBe(false);
+  });
+
+  it('색인으로 옮긴 출처로는 PR 감시와 접수가 다시 묻지 않는다', async () => {
+    const dir = tempStateDir();
+    const s = ConductorStore.open(dir, { now: () => new Date('2026-11-01T00:00:00.000Z') });
+    const sourceRef = 'pr-watch:replies:o/r#5@abc:2';
+    s.openGate(gate({ id: 'gate-r', type: 'review-manual-switch', payload: { sourceRef } }));
+    s.append({ type: 'gate-resolved', at: s.timestamp(), gateId: 'gate-r', decision: 'rejected' });
+    await archiveOrders(dir, fast);
+
+    const store = ConductorStore.open(dir);
+    expect(store.snapshot.gates['gate-r']).toBeUndefined();
+    const pr = {
+      ref: 'o/r#5',
+      repo: 'o/r',
+      title: 't',
+      headSha: 'abc',
+      reviewedHeadSha: 'abc',
+      repliesSinceReview: 2,
+    };
+    const result = await pollPrs(
+      store,
+      { authored: async () => [], reviewing: async () => [pr] },
+      { defaultScope: 'approval' },
+    );
+    expect(result.gated).toEqual([]);
+    expect(Object.keys(store.snapshot.gates)).toEqual([]);
+  });
+
+  it('색인으로 옮긴 뒤에도 base.json과 segment 재생이 같은 상태를 낸다', async () => {
+    const dir = tempStateDir();
+    const s = ConductorStore.open(dir, { now: () => new Date('2026-11-01T00:00:00.000Z') });
+    s.openGate(gate({ id: 'gate-a', payload: { sourceRef: 'queue:bad' } }));
+    s.append({ type: 'gate-resolved', at: s.timestamp(), gateId: 'gate-a', decision: 'rejected' });
+    await archiveOrders(dir, fast);
+    const archived = ConductorStore.open(dir).snapshot;
+
+    // 늦게 붙는 줄과 다음 반영을 지나도 색인과 상태가 그대로다
+    ConductorStore.open(dir).append({ type: 'tick', at: NOW.toISOString() });
+    const beforeFold = ConductorStore.open(dir).snapshot;
+    await foldEvents(dir, fast);
+    const afterFold = ConductorStore.open(dir).snapshot;
+
+    expect(afterFold).toEqual(beforeFold);
+    expect(afterFold.askedSourceRefs).toEqual(archived.askedSourceRefs);
+    expect(afterFold.askedSourceRefs).toEqual({ 'queue:bad': '2026-11-01T00:00:00.000Z' });
   });
 
   it('꼴이 이상한 주문 id의 줄은 저장소 밖에 안 쓴다', async () => {
@@ -452,13 +551,16 @@ describe('archiveOrders', () => {
     seed(dir);
     await archiveOrders(dir, fast);
     // 지우기 전에 죽은 자리를 흉내 낸다
+    // 0.158.0이 쓰던 주문별 디렉토리도 같이 지운다
     mkdirSync(join(dir, ORDER_LOGS_DIR, 'ord-old'), { recursive: true });
     writeFileSync(join(dir, ORDER_LOGS_DIR, 'ord-old', 'x.jsonl'), '{}\n');
+    writeFileSync(orderLogPath(dir, 'ord-old'), '{}\n');
     mkdirSync(join(dir, REFS_DIR, 'ord-old'), { recursive: true });
 
     await archiveOrders(dir, fast);
 
     expect(existsSync(join(dir, ORDER_LOGS_DIR, 'ord-old'))).toBe(false);
+    expect(existsSync(orderLogPath(dir, 'ord-old'))).toBe(false);
     expect(existsSync(join(dir, REFS_DIR, 'ord-old'))).toBe(false);
     // 보관 파일은 그대로다
     expect(readdirSync(join(dir, ARCHIVE_DIR, '2026-11', 'ord-old')).sort()).toEqual([

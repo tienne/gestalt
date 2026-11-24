@@ -70,7 +70,7 @@ archive/YYYY-MM/
 1. `tick.lock`을 잡는다. 못 잡으면 이번엔 넘긴다.
 2. `events.jsonl`을 `segments/<순번>-<시각>.jsonl`로 이름을 바꾼다. 이 순간부터 덧붙는 이벤트는 새 `events.jsonl`로 간다.
 3. 이름을 바꾸기 직전에 파일을 연 워커가 옛 파일에 한 줄을 쓸 수 있다. 1초 기다린 뒤 segment 크기가 더 늘지 않는 걸 확인하고 읽는다.
-4. `base.json` + segment를 재생해 상태를 만들고 재생한 이벤트를 주문별로 `order-logs/<주문 id>/`에 옮겨 둔다. 보관할 주문을 고르고 그 주문의 `order-logs/`를 이어 `archive/YYYY-MM/<주문 id>/events.jsonl`로 쓰고 `order.json`을 쓴다. `refs/<주문 id>/`는 `archive/YYYY-MM/<주문 id>/refs/`로 옮긴다. `order.json`의 `refCopies[].path`는 옮긴 자리로 바꿔 적고 `events.jsonl`은 원래 값 그대로 둔다.
+4. `base.json` + segment를 재생해 상태를 만들고 재생한 이벤트를 주문별로 `order-logs/<주문 id>.jsonl`에 덧붙여 둔다. 보관할 주문을 고르고 그 주문의 `order-logs/`를 이어 `archive/YYYY-MM/<주문 id>/events.jsonl`로 쓰고 `order.json`을 쓴다. `refs/<주문 id>/`는 `archive/YYYY-MM/<주문 id>/refs/`로 옮긴다. `order.json`의 `refCopies[].path`는 옮긴 자리로 바꿔 적고 `events.jsonl`은 원래 값 그대로 둔다.
 5. 상태에서 보관한 주문을 `removeFromSnapshot`과 같은 규칙으로 빼고 `archivedOrders`에 출처를 남긴 뒤 `base.json`을 원자적으로 쓴다. `foldedSegments`는 디스크에 남은 segment 전부의 이름과 반영한 길이로 다시 쓴다.
 6. 지난 반영에서 남겨 둔 segment를 지운다(또는 압축해 둔다. 열린 질문 3). 이번에 떼어 낸 segment는 늦게 붙는 줄을 받으려고 다음 반영까지 남긴다.
 7. 잠금을 푼다.
@@ -88,13 +88,13 @@ archive/YYYY-MM/
 | `bypass`, `jira-transition`  | `record.orderId`                                           |
 | `tick`, `tail-repaired`      | 주문에 안 붙는다. `base.json`에 누적 값만 남고 줄은 버린다 |
 
-주문에 안 붙는 컨덕터 게이트는 끝나고 같은 기간이 지나면 버린다. `sourceRef`가 있거나 승인 뒤 할 일(슬랙 게시, 워커 정리 반영)이 남은 게이트는 둔다. 주문도 같은 이유로 안 거둔 워커나 열린 정리 실패 게이트, 안 올린 슬랙 게시가 남았으면 옮기지 않는다. 옮긴 주문에 늦게 붙는 줄은 모으지 않고 버린다. `report` 없이 이름만 있는 옛 `report-applied`도 주문에 안 붙는다. 이 줄은 `appliedReports`에만 쓰이고 그건 `base.json`에 남는다.
+주문에 안 붙는 컨덕터 게이트는 끝나고 같은 기간이 지나면 버린다. 승인 뒤 할 일(후속 재리뷰 주문 만들기, 슬랙 게시, 워커 정리 반영)이 남은 게이트는 둔다. 버리는 게이트에 `sourceRef`가 있으면 출처와 닫힌 시각을 `askedSourceRefs`에 남긴다(아래 [상태 크기 상한](#상태-크기-상한)). 주문도 같은 이유로 안 거둔 워커나 열린 정리 실패 게이트, 안 올린 슬랙 게시가 남았으면 옮기지 않는다. 옮긴 주문에 늦게 붙는 줄은 모으지 않고 버린다. `report` 없이 이름만 있는 옛 `report-applied`도 주문에 안 붙는다. 이 줄은 `appliedReports`에만 쓰이고 그건 `base.json`에 남는다.
 
 ### 중복 판정
 
 지라 소스와 PR 감시는 `sourceRef`로 이미 받은 주문인지 본다. 지운 주문은 `removedOrders`가 막는다. 보관한 주문은 `archivedOrders`(`sourceRef`, `parentOrderId`, `archivedAt`, parked 주문이면 사람에게 넘긴 PR `humanPr`)가 같은 일을 한다. 접수와 `hasSourceRef`가 `removedAtOf`와 `archivedAtOf`를 둘 다 본다. 하위 주문 상한(`MAX_SPAWN_PER_ORDER`)도 `parentOrderId`로 보관한 하위 주문을 센다.
 
-`archivedOrders`도 늘기만 한다. 한 줄이 100바이트쯤이라 1년에 주문 1.5만 개가 쌓여도 1.5MB라 지금은 그대로 둔다.
+`archivedOrders`도 늘기만 한다. 크기는 아래 [상태 크기 상한](#상태-크기-상한)에 적었다.
 
 ### 운영 파일 정리
 
@@ -120,6 +120,44 @@ archive/YYYY-MM/
 3. **보관소를 압축할까, 언제 지울까.** (주문 디렉토리는 그대로 두고 달이 끝나고 한 달 지난 `archive/YYYY-MM/`을 `.tar.gz`로 묶는다. 지우기는 자동으로 하지 않고 `gestalt conductor archive prune --before YYYY-MM`으로 사람이 부른다)
 4. **`prompts/`와 `handoffs/`.** (`prompts/`는 보관할 때 지운다. 워커 첫 지시라 결과를 읽는 데 필요 없고 주문 설명과 스킬 체인은 `order.json`에 남는다. `handoffs/`는 1번과 같은 기간이 지나면 지운다)
 5. **tick이 자동으로 돌릴까.** (하루 한 번 자동. 끄는 설정 `archive.enabled`를 둔다)
+
+## 상태 크기 상한
+
+0.158.0 다음 PR에서 넣었다. `base.json`과 `snapshot.json`은 tick마다 열고 쓰므로 늘기만 하는 칸을 줄인다.
+
+### sourceRef 게이트 색인
+
+0.158.0은 `sourceRef`가 있는 닫힌 게이트를 기간과 상관없이 상태에 남겼다. PR 감시의 `review-manual-switch`는 PR과 head, 답글 수마다 하나씩 생기고 접수의 `no-procedure`도 출처마다 하나라서 둘 다 `base.json`과 `snapshot.json`에 계속 쌓인다.
+
+- 닫히고 보관 기간이 지난 게이트는 `askedSourceRefs`(`payload.sourceRef` → 닫힌 시각)로 옮기고 게이트는 버린다. `removedOrders`와 같은 꼴이다.
+- 접수의 `askOnce`와 PR 감시는 `ConductorStore.askedSourceRef`로 `gates`와 이 색인을 함께 본다.
+- 승인한 `review-manual-switch`는 후속 주문(`<sourceRef>:approved`)이 이미 생겼을 때만 옮긴다. tick은 상태에 남은 승인 게이트를 훑어 후속 주문을 만들므로 옮기는 조건과 맞물린다. 기간을 따로 길게 잡아 버리는 방식은 쓰지 않았다. 후속 주문이 안 생긴 채 기간이 지나면 주문이 영영 안 만들어지기 때문이다.
+- 색인 한 줄은 100바이트쯤이다(`pr-watch:replies:<owner/name#번호>@<sha 40자>:<답글 수>` 70자 안팎과 시각). 같은 게이트를 통째로 둘 때(이유 문구, refs, payload, 시각이 붙어 400~500바이트)보다 4분의 1 정도로 줄어든다. 하루 20개씩 생겨도 1년에 0.7MB다. 항목은 지우지 않는다. 지우면 같은 출처를 다시 묻는다.
+
+### archivedOrders 크기
+
+2026-11-12부터 11-24까지 주문이 379개 생겼다. 하루 30개꼴이면 1년에 1.1만 개다. 한 줄이 120바이트쯤(`sourceRef`, `archivedAt`, `month`, 가끔 `parentOrderId`와 `humanPr`)이라 1년에 1.3MB, 3년이면 4MB쯤이다. 1.3MB JSON을 읽고 쓰는 데 10ms 안팎이라 지금은 상한을 두지 않는다. 몇 MB를 넘어 tick이 느려지면 오래된 기록을 달별 색인 파일(`archive/<YYYY-MM>/index.json`)로 옮기고 출처를 찾을 때만 읽는 안을 본다.
+
+### 조회 인덱스
+
+상태 안 워커와 게이트를 주문 id로 찾는 자리(`workersOf`, `openGates(주문)`, `removalBlocker`, `planArchive`, `detachOrder`)는 배열을 매번 훑었다. 주문마다 부르면 주문 수의 제곱으로 는다. 주문 id별 Map(`indexByOrder`)을 상태가 바뀔 때(`eventCount`가 늘거나 다시 읽을 때) 한 번 만들어 쓴다. 합성 데이터(주문마다 워커 하나, 게이트 하나)로 잰 값이다.
+
+| 주문 수 | 주문마다 `workersOf`와 `openGates` | `planArchive` |
+| ------- | ---------------------------------- | ------------- |
+| 400     | 37ms → 1.8ms                       | 82ms → 10ms   |
+| 4000    | 5.6초 → 3.9ms                      | 11초 → 9ms    |
+
+### 주문별 로그
+
+0.158.0은 반영 범위마다, 줄이 닿은 주문마다 `order-logs/<주문 id>/<segment>.<시작 바이트>.jsonl`을 새로 쓰고 파일과 디렉토리를 fsync했다. 반영 한 번에 fsync가 주문 수 × 2 + 2번이었고 파일은 반영 횟수만큼 쌓였다.
+
+- 주문마다 `order-logs/<주문 id>.jsonl` 하나에 덧붙인다. 범위가 여럿이어도 한 반영에서 모아 한 번에 덧붙인다.
+- 덧붙이기 전에 주문별 파일 크기와 반영 id를 `order-logs/.staging.json`에 쓰고 `base.json`에도 같은 id(`orderLogsFold`)를 쓴다. 다음 반영이 두 id가 다른 걸 보면 덧붙이고 `base.json`을 못 쓰고 죽은 것이라 적어 둔 크기로 되돌리고 기록을 지운다. 그 범위는 `base.json`이 안 바뀌었으니 다시 읽어 덧붙인다.
+- 제안받은 방식은 마지막으로 반영한 `<segment>.<from>`을 옆에 적고 같은 범위를 건너뛰는 것이었다. 다시 읽을 때는 그 사이 늦게 붙은 줄로 범위 끝이 늘 수 있어서 건너뛰면 그 줄이 빠진다. 덧붙인 뒤 기록을 쓰기 전에 죽으면 같은 줄이 두 번 들어가기도 한다. 그래서 덧붙이기 전 크기를 먼저 적고 되돌리는 쪽으로 했다.
+- 파일 끝에 끝나지 않은 줄이 있으면 덧붙이기 전에 잘라 낸다.
+- 이 버전으로 반영한 저장소를 0.158.0 이하로 반영하면 `base.json`의 `orderLogsFold`가 빠진다. 다시 이 버전으로 돌아오면 남은 기록 파일과 id가 달라 이미 반영된 줄을 걷어 낸다. 상태 재생에는 영향이 없고 그 범위의 주문 로그만 비므로 다운그레이드 뒤 되돌아오는 경우는 받아들인다.
+- fsync는 정상 반영 한 번에 줄이 닿은 주문 수 + 4번이 상한이다. 기록 파일과 그 rename, 주문마다 덧붙인 파일, 새 파일 엔트리, `order-logs/`를 새로 만든 경우 저장소 디렉토리다. 끝나지 않은 줄을 자르거나 죽은 반영을 되돌린 파일은 한 번씩 더 들지만 죽은 뒤 첫 반영에서만 생긴다. 테스트(`fold-order-logs.test.ts`)가 주문 하나당 1번씩만 느는지 본다.
+- 0.158.0이 쓴 `<주문 id>/` 디렉토리는 보관할 때 이름 순서로 앞에 잇고 단일 파일을 뒤에 잇는다. 보관한 뒤 둘 다 지운다.
 
 ## 순서
 

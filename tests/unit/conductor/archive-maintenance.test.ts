@@ -341,10 +341,18 @@ describe('지난 달 보관소 묶기', () => {
       fake,
       [
         '#!/bin/sh',
-        'if [ "$1" = "-czf" ]; then',
-        '  mv "$4/$5/ord-a/drop.json" "$4/drop.aside"',
+        // 인자 순서가 바뀌어도 되게 -czf와 -C 뒤 경로를 인자 전체에서 찾는다
+        'create=; root=; prev=',
+        'for a in "$@"; do',
+        '  [ "$a" = "-czf" ] && create=1',
+        '  [ "$prev" = "-C" ] && root="$a"',
+        '  prev="$a"',
+        'done',
+        'if [ -n "$create" ] && [ -n "$root" ]; then',
+        '  src=$(find "$root" -path "*/ord-a/drop.json" | head -n 1)',
+        '  mv "$src" "$root/drop.aside"',
         '  "$REAL_TAR" "$@"; code=$?',
-        '  mv "$4/drop.aside" "$4/$5/ord-a/drop.json"',
+        '  mv "$root/drop.aside" "$src"',
         '  exit $code',
         'fi',
         'exec "$REAL_TAR" "$@"',
@@ -360,7 +368,8 @@ describe('지난 달 보관소 묶기', () => {
     try {
       result = compressArchive(dir, NOW);
     } finally {
-      process.env.PATH = path;
+      if (path === undefined) delete process.env.PATH;
+      else process.env.PATH = path;
       delete process.env.REAL_TAR;
     }
 

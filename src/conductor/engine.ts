@@ -26,7 +26,7 @@ import {
 import { updateWorkerInfo } from './activity.js';
 import { saveFinishedSummaries } from './work-log.js';
 import { existingRepoContext } from './context.js';
-import { handleNeed, openOrReuse, type BypassHandlers } from './gates.js';
+import { approvedFollowUpRef, handleNeed, openOrReuse, type BypassHandlers } from './gates.js';
 import {
   intakeOrder,
   pollJira,
@@ -597,8 +597,11 @@ async function intake(
     unanswered = r.unansweredThreads;
   }
   // 사람이 답글만 온 PR을 보고 재리뷰를 승인했으면 review-loop 주문으로 잇는다
+  // 보관은 후속 주문이 생긴 게이트만 색인으로 옮기므로(archive.ts keepsFollowUp) 상태에 남은 게이트만 보면 된다
   for (const g of Object.values(store.snapshot.gates)) {
     if (g.type !== 'review-manual-switch' || g.orderId || g.decision !== 'approved') continue;
+    const sourceRef = approvedFollowUpRef(g);
+    if (store.hasSourceRef(sourceRef)) continue;
     const prRef = g.payload?.prRef;
     const repo = prRef ? repoOfPrRef(prRef) : null;
     if (!prRef || !repo) continue;
@@ -606,7 +609,7 @@ async function intake(
       store,
       {
         source: 'pr-watch',
-        sourceRef: `${g.payload?.sourceRef ?? g.id}:approved`,
+        sourceRef,
         repo,
         title: `재리뷰: ${prRef}`,
         prRef,

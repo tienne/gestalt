@@ -20,6 +20,14 @@ import {
  * 단계 값이 없으면 워커가 다른 자리에 쓴 것이라 무엇을 승인하는지 컨덕터가 알 수 없어 사람에게 올린다.
  */
 
+/**
+ * 승인한 `review-manual-switch` 게이트로 만드는 재리뷰 주문의 출처. tick은 이 출처로 주문이 없으면 만들고
+ * 보관은 이 출처로 주문이 생긴 뒤에만 게이트를 색인으로 옮긴다
+ */
+export function approvedFollowUpRef(g: Gate): string {
+  return `${g.payload?.sourceRef ?? g.id}:approved`;
+}
+
 export type NeedDecision = { kind: 'gate'; type: GateType } | { kind: 'bypass' };
 
 export function classifyNeed(

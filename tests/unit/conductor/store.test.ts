@@ -348,3 +348,36 @@ describe('ConductorStore', () => {
     expect(a.removedAtOf('jira:APP-2')).toBeDefined();
   });
 });
+
+describe('주문 id 조회 인덱스', () => {
+  it('이벤트를 붙이면 workersOf와 openGates, askedSourceRef가 바로 따라온다', () => {
+    const s = ConductorStore.open(tempStateDir());
+    s.addOrder(order({ id: 'ord-1' }));
+    expect(s.workersOf('ord-1')).toEqual([]);
+    s.startWorker(worker('ord-1', { id: 'wrk-2', attempt: 2 }));
+    s.startWorker(worker('ord-1', { id: 'wrk-1', attempt: 1 }));
+    expect(s.workersOf('ord-1').map((w) => w.id)).toEqual(['wrk-1', 'wrk-2']);
+    s.updateWorker('wrk-1', { status: 'released' });
+    expect(s.workersOf('ord-1')[0]?.status).toBe('released');
+
+    const gate = {
+      id: 'gate-1',
+      orderId: 'ord-1',
+      type: 'merge' as const,
+      status: 'open' as const,
+      reason: '확인',
+      refs: [],
+      payload: { sourceRef: 'pr-watch:a' },
+      openedAt: s.timestamp(),
+    };
+    s.openGate(gate);
+    expect(s.openGates('ord-1').map((g) => g.id)).toEqual(['gate-1']);
+    expect(s.askedSourceRef('pr-watch:a')).toBe(true);
+    s.append({ type: 'gate-resolved', at: s.timestamp(), gateId: 'gate-1', decision: 'approved' });
+    expect(s.openGates('ord-1')).toEqual([]);
+    expect(s.askedSourceRef('pr-watch:a')).toBe(true);
+
+    s.reload();
+    expect(s.workersOf('ord-1').map((w) => w.id)).toEqual(['wrk-1', 'wrk-2']);
+  });
+});
