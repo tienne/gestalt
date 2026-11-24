@@ -181,7 +181,8 @@ export function readItemDecision(input: {
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
-  const decision = lines[0] !== undefined ? DECISIONS[lines[0]] : undefined;
+  const decision =
+    lines[0] !== undefined && Object.hasOwn(DECISIONS, lines[0]) ? DECISIONS[lines[0]] : undefined;
   if (!decision || lines.length > 2) throw new Error('승인이나 거절로 읽을 수 없는 답이에요');
   if (lines.length === 1) throw new OrcaContractError();
   const signed = /^(?:서명\s+)?(\S+)\s+([A-Za-z0-9+/]{86}==)$/.exec(lines[1]!);

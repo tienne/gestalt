@@ -1892,6 +1892,15 @@ async function applySignedDecision(
       });
     if (current.gate.openedAt !== before.gate.openedAt || current.ref !== before.ref)
       throw new Error('게이트나 PR이 바뀌었어요. 다시 확인해 주세요');
+    // 서명이 틀린 요청은 GitHub를 부르기 전에 거절해 잠금을 오래 잡지 않는다
+    verifyGateApproval(
+      readBotPolicy(ctx.store.dir),
+      current.gate.type,
+      current.repo,
+      signed.signer,
+      gateApprovalMessage(current, head, signed.decision),
+      signed.signature,
+    );
     let approvedHead: string | undefined;
     if (current.gate.type === 'merge') {
       const now = await botGateEvidence(ctx, current);
@@ -1901,14 +1910,6 @@ async function applySignedDecision(
         throw new Error('리뷰 준비가 끝난 열린 PR만 머지 승인할 수 있어요');
       approvedHead = now.head;
     }
-    verifyGateApproval(
-      readBotPolicy(ctx.store.dir),
-      current.gate.type,
-      current.repo,
-      signed.signer,
-      gateApprovalMessage(current, head, signed.decision),
-      signed.signature,
-    );
     const result = await closeAndDeliver(ctx, gateId, signed.decision, {
       defer: true,
       signer: signed.signer,
@@ -1967,7 +1968,9 @@ export async function conductorBotItemDecideCommand(
     if (!Number.isSafeInteger(item) || item <= 0) throw new Error('--item은 Orca 항목 번호예요');
     const target = matchBotGate(ctx.store, gateId);
     const sameSource = (gate: Gate) =>
-      gate.decisionSource?.item === item && gate.decisionSource.answer === opts.answer;
+      gate.decisionSource?.item === item &&
+      gate.decisionSource.question === opts.question &&
+      gate.decisionSource.answer === opts.answer;
     if (target.gate.status === 'resolved')
       return print({
         ...botDecisionStatus(target.gate),

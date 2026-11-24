@@ -352,6 +352,9 @@ describe('Orca 항목 답 판독', () => {
     expect(() => read(show(st, gate, '좋아요 진행해 주세요'), gate, st)).toThrow(
       '승인이나 거절로 읽을 수 없는',
     );
+    expect(() => read(show(st, gate, `constructor\n서명 x ${sig}`), gate, st)).toThrow(
+      '승인이나 거절로 읽을 수 없는',
+    );
     expect(() => read(show(st, gate, '승인'), gate, st)).toThrow(OrcaContractError);
     const newer = {
       id: 'e115',
