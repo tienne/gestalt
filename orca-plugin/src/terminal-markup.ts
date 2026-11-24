@@ -30,6 +30,7 @@ const div = (cls: string, ...body: Part[]) => `<div class="${esc(cls)}">${join(.
 const span = (cls: string, text: string) => `<span${cls ? ` class="${esc(cls)}"` : ''}>${esc(text)}</span>`
 const kv = (k: string, v: string) => div('kv', span('', k), span('', v))
 const SEP = '<div class="sep"></div>'
+const BYPASS_LABEL = '자동 처리 내역'
 
 function conductorBox(v: ConductorView, m: TerminalModel, now: number, interactive: boolean): string {
   const info = v.conductor
@@ -223,7 +224,7 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
       span('muted', [c.subagents > 0 ? `서브 ${c.subagents}` : '', c.state.aside].filter(Boolean).join(' · '))
     ),
     c.next && div('muted ell', esc(`next › ${c.next}`)),
-    c.bypass && div('muted ell', esc(`bypass › ${c.bypass}`)),
+    c.bypass && div('muted ell', esc(`${BYPASS_LABEL} › ${c.bypass}`)),
     c.children.length > 0 &&
       div('children', ...c.children.map((k) => div('child', span('ell', `${k.id} ${k.title}`), span('', displayStatus(k))))),
     detail(c, v, opts)
@@ -256,7 +257,7 @@ const EVENT_TONE: Record<string, string> = {
   'gate-resolved': 'c-gt'
 }
 
-const EVENT_LABEL: Record<string, string> = { 'gate-opened': 'gate', 'gate-resolved': 'gate ✓' }
+const EVENT_LABEL: Record<string, string> = { bypass: BYPASS_LABEL, 'gate-opened': 'gate', 'gate-resolved': 'gate ✓' }
 
 /**
  * 인증 없는 폰 페이지에 요약을 싣는 이벤트. report, waiting, bypass 요약은 워커가 쓴 글이라
@@ -349,7 +350,7 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
       '<span class="grow"></span>',
       `<span>workers <b class="b-green">[${m.activeWorkers}${m.maxWorkers !== undefined ? `/${m.maxWorkers}` : ''}]</b></span>`,
       `<span>gates <b class="b-yellow">[${m.gates.length}]</b></span>`,
-      `<span>bypass <b class="b-purple">[${m.bypasses}]</b></span>`
+      `<span>${BYPASS_LABEL} <b class="b-purple">[${m.bypasses}]</b></span>`
     )
   )
 }

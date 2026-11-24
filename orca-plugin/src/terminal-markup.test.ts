@@ -121,12 +121,14 @@ test('웹 페이지는 워커가 쓴 다음 할 일과 대기 사유, bypass, �
     ]
   })
   const web = terminalMarkup(v, { now: NOW, interactive: false, private: false })
-  for (const secret of ['/Users/someone', 'TOKEN', 'work-acct', 'next ›', 'bypass ›']) lacks(web, secret)
+  for (const secret of ['/Users/someone', 'TOKEN', 'work-acct', 'next ›', '자동 처리 내역 ›']) lacks(web, secret)
+  has(web, '<span class="c-bp">자동 처리 내역</span>')
+  has(web, '자동 처리 내역 <b class="b-purple">[1]</b>')
   has(web, 'ship → ci')
   has(web, '대기 ~')
 
   const desk = terminalMarkup(v, { now: NOW, interactive: true, private: true })
-  for (const shown of ['cat /Users/someone/.npmrc', 'ghp_waitTOKEN', '<span class="muted">계정</span><span class="ell">work-acct</span>', 'ghp_reportTOKEN', 'rm -rf /Users/someone/tmp']) has(desk, shown)
+  for (const shown of ['cat /Users/someone/.npmrc', 'ghp_waitTOKEN', '<span class="muted">계정</span><span class="ell">work-acct</span>', 'ghp_reportTOKEN', '자동 처리 내역 › rm -rf /Users/someone/tmp']) has(desk, shown)
 })
 
 test('모르는 이벤트 유형은 Object 원형에서 클래스나 이름을 꺼내지 않는다', () => {
