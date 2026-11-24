@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readAutomationClaim } from '../../../src/conductor/bot-handoff-coordination.js';
 import { readEditReceipt } from '../../../src/conductor/bot-handoff-edit.js';
 import { changeBotOwner, readBotOwnership } from '../../../src/conductor/bot-owner.js';
 import { digest } from '../../../src/conductor/orca-automation.js';
@@ -20,34 +21,48 @@ const sourceModule = (name: string) =>
   new URL(`../../../src/conductor/${name}.ts`, import.meta.url).href;
 const tsxLoader = createRequire(import.meta.url).resolve('tsx');
 const runner = `
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { handoffBot } from ${JSON.stringify(sourceModule('bot-handoff'))};
+import { automationCoordinationDir } from ${JSON.stringify(sourceModule('bot-handoff-coordination'))};
 import { launchAutomationEdit } from ${JSON.stringify(sourceModule('bot-handoff-edit'))};
 import { writeBotOwnership } from ${JSON.stringify(sourceModule('bot-owner'))};
 import { readScheduledBotAutomation } from ${JSON.stringify(sourceModule('orca-automation'))};
 const { dir, shared, schedule, editing, options, phase, source } = JSON.parse(process.argv[1]);
 const killSelf = () => process.kill(process.pid, 'SIGKILL');
+let reads = 0;
+let chats = 0;
 const result = await handoffBot(dir, options, {
   coordinationRoot: () => shared,
   now: Date.now,
-  chat: async (name, chatId) => ({ name, chatId, botId: source.botId }),
+  chat: async (name, chatId) => {
+    if (phase === 'cancel-source-closes' && ++chats === 2) throw new Error('기존 채팅 닫힘');
+    return { name, chatId, botId: source.botId };
+  },
   show: async () => {
-    const record = readScheduledBotAutomation({ automation: JSON.parse(readFileSync(schedule, 'utf8')) });
-    if (phase === 'before-claim') killSelf();
-    if (phase === 'old-local-intent') {
-      writeBotOwnership(dir, { active: source, retired: [], revision: 0, handoffs: [{
+    const automation = JSON.parse(readFileSync(schedule, 'utf8'));
+    if (phase === 'cancel-late-move' && ++reads === 2) {
+      automation.bot.chat.sessionId = options.chat;
+      writeFileSync(schedule, JSON.stringify(automation));
+    }
+    const record = readScheduledBotAutomation({ automation });
+    if (phase === 'shared-only') {
+      const intent = {
         id: options.request, approval: options.approve, automationId: options.automation,
         from: options.fromChat, to: options.chat, botId: source.botId,
         settings: record.settings, revision: 0,
-      }] });
+      };
+      writeFileSync(join(automationCoordinationDir(shared, options.automation), 'claim.json'),
+        JSON.stringify({ store: dir, request: options.request, intent }));
       killSelf();
     }
     return record;
   },
   write: (dir, value) => {
-    if (phase === 'after-claim') killSelf();
+    if (phase === 'after-claim' && value.handoffs.some(record => record.editAttempt)) killSelf();
     writeBotOwnership(dir, value);
+    if (phase === 'before-claim') killSelf();
   },
   launchEdit: async (job) => {
     if (phase === 'before-edit') killSelf();
@@ -166,7 +181,7 @@ const release = ${JSON.stringify(release)};
 afterEach(cleanupStateDirs);
 
 describe('Orca 인계 프로세스 중단 복구', () => {
-  it.each(['before-claim', 'after-claim', 'before-edit'])(
+  it.each(['before-claim', 'after-claim', 'before-edit', 'shared-only'])(
     '%s에서 프로세스가 멈춰도 같은 요청을 재개해 편집을 한 번만 보낸다',
     async (phase) => {
       const { dir, editing, invoke, approve } = fixture();
@@ -181,28 +196,67 @@ describe('Orca 인계 프로세스 중단 복구', () => {
     20_000,
   );
 
-  it.each(['after-claim', 'before-edit'])(
+  it.each(['after-claim', 'before-edit', 'shared-only'])(
     '%s에서 멈춘 요청은 Orca 편집을 보내지 않고 취소한 뒤 운영권을 해제할 수 있다',
     async (phase) => {
-      const { dir, editing, invoke, approve, setChat } = fixture();
+      const { dir, editing, invoke, approve } = fixture();
       const approval = await approve();
       expect(await invoke({ approve: approval, phase })).toBe('killed');
-      if (phase === 'after-claim') changeBotOwner(dir, source.chatId);
-      else setChat(options.chat);
       expect(await invoke({ approve: approval, cancel: true })).toMatchObject({
         status: 'cancelled',
       });
-      if (phase !== 'after-claim') changeBotOwner(dir, source.chatId);
+      changeBotOwner(dir, source.chatId);
       expect(readBotOwnership(dir).active).toBeUndefined();
       expect(existsSync(editing)).toBe(false);
     },
     20_000,
   );
 
+  it.each(['after-claim', 'before-edit', 'shared-only'])(
+    '%s에서 외부 편집으로 대상이 바뀌면 기존 책임 채팅으로 돌아오기 전까지 취소를 보류한다',
+    async (phase) => {
+      const { dir, shared, editing, invoke, approve, setChat } = fixture();
+      const approval = await approve();
+      expect(await invoke({ approve: approval, phase })).toBe('killed');
+      const claimDir = join(shared, digest(options.automation));
+      setChat(options.chat);
+      expect(await invoke({ approve: approval, cancel: true })).toMatchObject({
+        status: 'partial',
+        retryStage: 'reconcile-edit',
+        automationChatId: options.chat,
+        responsibleChatId: source.chatId,
+      });
+      setChat(source.chatId);
+      expect(
+        await invoke({ approve: approval, cancel: true, phase: 'cancel-late-move' }),
+      ).toMatchObject({
+        status: 'partial',
+        retryStage: 'reconcile-edit',
+        automationChatId: options.chat,
+      });
+      setChat(source.chatId);
+      expect(
+        await invoke({ approve: approval, cancel: true, phase: 'cancel-source-closes' }),
+      ).toMatchObject({
+        status: 'partial',
+        retryStage: 'reconcile-edit',
+      });
+      expect(readAutomationClaim(claimDir)?.store).toBe(dir);
+      expect(() => changeBotOwner(dir, source.chatId)).toThrow('진행 중');
+      expect(await invoke({ approve: approval, cancel: true })).toMatchObject({
+        status: 'cancelled',
+        automationChatId: source.chatId,
+      });
+      expect(readAutomationClaim(claimDir)).toBeUndefined();
+      expect(existsSync(editing)).toBe(false);
+    },
+    25_000,
+  );
+
   it('담당 예약 없는 옛 로컬 요청은 두 번째 저장소의 기록을 건드리지 않고 취소한다', async () => {
     const { dir, invoke, approve, editing } = fixture();
     const approval = await approve();
-    expect(await invoke({ approve: approval, phase: 'old-local-intent' })).toBe('killed');
+    expect(await invoke({ approve: approval, phase: 'before-claim' })).toBe('killed');
     const other = resolve(tempStateDir());
     writeFileSync(join(other, 'bot-owner.json'), JSON.stringify({ active: source, retired: [] }));
     const preview = (await invoke({ store: other })) as Result;

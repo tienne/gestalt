@@ -380,6 +380,19 @@ console.log(JSON.stringify({ ok: true, result }));
       retryStage: 'reconcile-edit',
     });
     expect(readBotOwnership(dir).handoffs[0]).toMatchObject({ editAttempt: first.editAttemptId });
+    vi.mocked(automationCoordinationRoot).mockReturnValue(join(dir, 'shared'));
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+    conductorStatusCommand({ stateDir: dir, json: true });
+    expect(JSON.parse(output.mock.lastCall![0] as string)).toMatchObject({
+      conductor: {
+        botHandoff: {
+          retryStage: 'reconcile-edit',
+          editReceipt: 'dispatched',
+          editAttemptId: first.editAttemptId,
+          editDispatchedAt: expect.any(String),
+        },
+      },
+    });
     expect(deps.retarget).toHaveBeenCalledTimes(1);
     automation.bot.chat.sessionId = target.chatId;
     expect(await run({ approve, cancel: true })).toMatchObject({
