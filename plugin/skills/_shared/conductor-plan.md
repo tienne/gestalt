@@ -13,7 +13,7 @@
 
 ## 공식 계획 확정
 
-[execute의 Phase 0과 Planning](../execute/SKILL.md)을 따른다. `start` 대신 `ges_execute { action: "prepare_conductor", spec, codeGraphRepoRoot }`를 호출한다. `codeGraphRepoRoot`는 대상 레포의 절대 경로다. 명시한 계획은 `planId`로 선택한다. 실행 세션을 골랐다면 `sessionId`를 준다. 준비 중인 계획은 응답의 `nextAction`부터 이어 간다. 후보가 여러 개면 사용자가 선택한 ID로 다시 조회한다. 새 플래닝이 필요하면 네 원리의 `plan_step`을 제출한 뒤 `ges_execute { action: "plan_complete", sessionId, conductor: true }`로 확정한다. `plan_rewound`면 공식 플래닝의 되감기 절차를 적용한다.
+[execute의 Phase 0과 Planning](../execute/SKILL.md)을 따른다. `start` 대신 `ges_execute { action: "prepare_conductor", spec, codeGraphRepoRoot }`를 호출한다. `codeGraphRepoRoot`는 대상 레포의 절대 경로다. 명시한 계획은 `planId`로 선택한다. 실행 세션을 골랐다면 `sessionId`를 준다. 두 경우에도 대상 레포의 절대 경로를 넘긴다. 준비 중인 계획은 응답의 `nextAction`부터 이어 간다. 후보가 여러 개면 사용자가 선택한 ID로 다시 조회한다. 새 플래닝이 필요하면 네 원리의 `plan_step`을 제출한 뒤 `ges_execute { action: "plan_complete", sessionId, conductor: true }`로 확정한다. `plan_rewound`면 공식 플래닝의 되감기 절차를 적용한다.
 
 `status: "ready_for_conductor"` 응답이 있어야 접수할 수 있다. 이 경로는 `execute_start` 전에 끝난다. 구현, 브랜치나 워크트리 생성, 환경 검증과 머지 결정은 컨덕터와 배정된 워커가 맡는다.
 
@@ -25,6 +25,6 @@
 gestalt conductor plan submit <실행-세션-ID> --json
 ```
 
-`status: "accepted"`면 주문 ID, Spec ID, 계획 ID, 범위 `approval`을 알려 준다. `unconfirmed`면 응답의 사유와 같은 ID들을 보여 준다. 다시 보내기 전에 같은 명령에 `--check`를 붙여 접수 여부를 확인한다. 여전히 미접수면 같은 실행 세션 ID로 다시 제출한다. 설계나 플래닝을 반복할 필요가 없다. `retired`는 앞서 접수한 주문이 보관되거나 지워진 상태다.
+`status: "accepted"`면 주문 ID, Spec ID, 계획 ID, 범위 `approval`을 알려 준다. `unconfirmed`면 응답의 사유와 같은 ID들을 보여 준다. 다시 보내기 전에 같은 명령에 `--check`를 붙여 접수 여부를 확인한다. 여전히 미접수면 같은 실행 세션 ID로 다시 제출한다. 로컬에서 실행을 시작했으면 이미 전송된 요청도 접수되지 않는다. 설계나 플래닝을 반복할 필요가 없다. `retired`는 앞서 접수한 주문이 보관되거나 지워진 상태다.
 
 등록된 봇 운영 채팅이 있어야 한다. 운영 채팅 밖의 세션은 Orca 메일로 등록된 채팅에 접수를 요청한다. 운영 채팅이 `order add --prepared-plan <계획-ID>`로 일반 승인 주문을 받는다. Orca의 메일 성공은 접수 확인과 별개다. 워커를 띄울 수 없는 세션이거나 운영 채팅을 확인할 수 없으면 Spec과 공식 계획을 유지한 채 멈춘다.
