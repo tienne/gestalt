@@ -201,6 +201,11 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       s.lastTickEventCount = s.eventCount;
       for (const name of e.clearedReports ?? []) delete s.appliedReports[name];
       return;
+    case 'tick-succeeded':
+      if (!s.lastSuccessfulTickAt || e.at > s.lastSuccessfulTickAt) s.lastSuccessfulTickAt = e.at;
+      // 성공 증거만 추가됐으면 다음 tick의 idle 판정에는 변화가 없다.
+      if (s.lastTickEventCount === s.eventCount - 1) s.lastTickEventCount = s.eventCount;
+      return;
     case 'tail-repaired':
       return;
   }
@@ -344,6 +349,7 @@ export function orderOfEvent(e: ConductorEvent, s: ConductorSnapshot): string | 
     case 'jira-transition':
       return e.record.orderId;
     case 'tick':
+    case 'tick-succeeded':
     case 'tail-repaired':
       return undefined;
     default: {

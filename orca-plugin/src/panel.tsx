@@ -725,7 +725,7 @@ function OperationsMonitor({ v }: { v: ConductorView }) {
     <Stack gap="sm">
       <Heading level={3}>운영 감시</Heading>
       <MonitorField label="운영 채팅" value={owner ? `${owner.name} · ${owner.chatId}` : UNKNOWN} source="Gestalt status · botOwner" />
-      <MonitorField label="마지막 성공 tick" value={formatMonitorTime(ms(v.lastTickAt))} source="Gestalt status · tick 완료 기록" />
+      <MonitorField label="마지막 성공 tick" value={formatMonitorTime(ms(v.lastSuccessfulTickAt))} source="Gestalt status · tick 성공 기록" />
       <MonitorField
         label="다음 정기 점검 예정"
         value={formatMonitorTime(v.monitor?.nextCheckAt ?? null)}

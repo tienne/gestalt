@@ -136,6 +136,7 @@ export type ConductorView = {
   stateDir: string | null
   error?: string
   lastTickAt: string | null
+  lastSuccessfulTickAt?: string
   orders: OrderView[]
   gates: GateView[]
   unassignedBypasses: Bypass[]

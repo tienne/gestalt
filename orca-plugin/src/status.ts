@@ -51,6 +51,7 @@ export type RawOrder = {
 export type RawStatus = {
   stateDir?: string
   lastTickAt: string | null
+  lastSuccessfulTickAt?: string
   orders: RawOrder[]
   unassignedBypasses: Bypass[]
   gates: GateView[]
@@ -320,11 +321,13 @@ export function parseStatus(value: unknown): RawStatus {
     gates.push(gate)
   }
   const stateDir = str(value['stateDir'])
+  const lastSuccessfulTickAt = str(value['lastSuccessfulTickAt'])
   const info = conductorInfo(value['conductor'])
   const recent = events(value['recentEvents'])
   return {
     ...(stateDir ? { stateDir } : {}),
     lastTickAt: str(value['lastTickAt']) ?? null,
+    ...(lastSuccessfulTickAt ? { lastSuccessfulTickAt } : {}),
     orders,
     unassignedBypasses: bypasses(value['unassignedBypasses']),
     gates,
@@ -396,6 +399,7 @@ export function toView(
     state: 'ok',
     stateDir,
     lastTickAt: raw.lastTickAt,
+    ...(raw.lastSuccessfulTickAt ? { lastSuccessfulTickAt: raw.lastSuccessfulTickAt } : {}),
     orders: raw.orders.map((o): OrderView => {
       const ws = findWorkspace(o, workspaces)
       const parent = o.parentWorktree

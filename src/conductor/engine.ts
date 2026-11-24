@@ -307,7 +307,7 @@ function formatGap(ms: number): string {
 export async function tick(
   store: ConductorStore,
   deps: EngineDeps,
-  opts: { force?: boolean; admit?: () => void } = {},
+  opts: { force?: boolean; admit?: () => void; inputErrors?: () => string[] } = {},
 ): Promise<TickReport> {
   assertCanSpawn(deps.env);
   const report = emptyReport(store.timestamp());
@@ -341,13 +341,35 @@ export async function tick(
     }
     const gap = tickGapWarning(last, report.at, deps.config.staleAfterSec * 1000);
     if (gap) report.warnings.push(gap);
-    result = await store.deferSnapshot(() => runTick(store, deps, report));
+    result = await store.deferSnapshot(async () => {
+      const result = await runTick(store, deps, report);
+      result.errors.push(...(opts.inputErrors?.() ?? []));
+      if (!deps.archive && result.errors.length === 0)
+        store.append({ type: 'tick-succeeded', at: result.at });
+      return result;
+    });
   } finally {
     lock.release();
   }
   // 보관은 같은 잠금을 스스로 잡으므로 놓은 뒤에 부른다
-  if (deps.archive) await archiveStep(store, deps.archive, result);
+  if (deps.archive) {
+    await archiveStep(store, deps.archive, result);
+    if (result.errors.length === 0) recordSuccessAfterArchive(store, result.at);
+  }
   return result;
+}
+
+function recordSuccessAfterArchive(store: ConductorStore, at: string): void {
+  const lock = acquireLock(store.dir);
+  if (!lock.ok) return;
+  try {
+    store.reload();
+    if (store.snapshot.lastSuccessfulTickAt && store.snapshot.lastSuccessfulTickAt >= at) return;
+    store.append({ type: 'tick-succeeded', at });
+    store.flushSnapshot();
+  } finally {
+    lock.release();
+  }
 }
 
 async function archiveStep(
