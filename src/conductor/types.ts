@@ -473,7 +473,7 @@ export interface ConductorSnapshot {
   jiraTransitions: JiraTransitionRecord[];
   slackPosted: Record<string, string>;
   /** 먼저 붙은 게이트를 보관한 뒤에도 같은 메시지를 다른 작업에 쓰지 못하게 한다 */
-  slackMessageClaims: Record<string, string>;
+  slackMessageClaims: Record<string, string | (SlackPublicationEvidence & { gateId: string })>;
   /** 적용한 보고 파일 이름과 시각 */
   appliedReports: Record<string, string>;
   reports: Record<string, (StoredReport & { at: string })[]>;

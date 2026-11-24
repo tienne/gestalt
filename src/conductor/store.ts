@@ -14,7 +14,12 @@ import { join } from 'node:path';
 import { withFileLock } from '../core/file-lock.js';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
 import { log } from '../core/log.js';
-import { orderHasPendingSlack, slackMessageKey, slackPublicationMatches } from './slack-state.js';
+import {
+  orderHasPendingSlack,
+  slackMessageKey,
+  slackPublicationConfirmed,
+  slackPublicationMatches,
+} from './slack-state.js';
 import {
   ACTIVE_WORKER_STATUSES,
   TERMINAL_ORDER_STATUSES,
@@ -193,15 +198,19 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       s.gates[e.gateId] = next;
       return;
     }
-    case 'slack-posted':
+    case 'slack-posted': {
       // 주문과 함께 빠졌거나 보관에서 버린 게이트에 늦게 온 줄이다
-      if (!s.gates[e.gateId]) return;
-      s.slackPosted[e.gateId] = e.ref;
+      const gate = s.gates[e.gateId];
+      if (gate && !slackPublicationConfirmed(s, gate)) s.slackPosted[e.gateId] = e.ref;
       return;
+    }
     case 'slack-publication-confirmed': {
       const gate = s.gates[e.gateId];
       if (!gate || !e.evidence || !slackPublicationMatches(s, gate, e.evidence)) return;
-      s.slackMessageClaims[slackMessageKey(e.evidence.channel, e.evidence.ts)] = e.gateId;
+      s.slackMessageClaims[slackMessageKey(e.evidence.channel, e.evidence.ts)] = {
+        ...e.evidence,
+        gateId: e.gateId,
+      };
       s.slackPosted[e.gateId] = e.evidence.ts;
       return;
     }

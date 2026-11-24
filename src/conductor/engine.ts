@@ -74,7 +74,7 @@ import {
 import type { ConductorConfig } from './scheduler.js';
 import { planSlots } from './scheduler.js';
 import { publishApprovedSlack, type SlackClient } from './slack.js';
-import { orderHasPendingSlack } from './slack-state.js';
+import { orderHasPendingSlack, orderSlackBlocker } from './slack-state.js';
 import { newId, type ConductorStore } from './store.js';
 import { CLEANUP_FAILED, CLEANUP_ORDER_STATUSES } from './worker-completion.js';
 import type {
@@ -1493,8 +1493,9 @@ async function cleanupWorkers(
       continue;
     }
     const latest = mine.at(-1);
-    if (orderHasPendingSlack(store.snapshot, w.orderId)) {
-      report.warnings.push(`${w.id} 워커 정리 보류: Slack 게시가 남아 있어요`);
+    const slackBlocker = orderSlackBlocker(store.snapshot, w.orderId);
+    if (slackBlocker) {
+      report.warnings.push(`${w.id} 워커 정리 보류: Slack 게시가 남아 있어요. ${slackBlocker}`);
       continue;
     }
     if (latest?.decision === 'approved') {
