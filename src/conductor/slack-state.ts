@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import type { ConductorSnapshot, Gate, SlackPublicationEvidence } from './types.js';
+import type {
+  ConductorSnapshot,
+  Gate,
+  SlackDraftReplacement,
+  SlackPublicationEvidence,
+} from './types.js';
 
 export const SLACK_HOST_HANDOFF = 'host';
 export const SLACK_UNVERIFIED_RESPONSE = 'unverified';
@@ -40,10 +45,55 @@ export function slackClaimOwner(
   return typeof claim === 'string' ? claim : claim?.gateId;
 }
 
-function superseded(state: ConductorSnapshot, gate: Gate, ref: string): boolean {
-  if (!ref.startsWith(SUPERSEDED_PREFIX)) return false;
-  const next = state.gates[ref.slice(SUPERSEDED_PREFIX.length)];
-  return next?.type === 'slack-post' && next.id !== gate.id && next.orderId === gate.orderId;
+function replacementMatches(
+  gate: Gate,
+  next: Gate | undefined,
+  proof: SlackDraftReplacement,
+): boolean {
+  const previous = gate.payload;
+  const replacement = next?.payload;
+  return (
+    gate.type === 'slack-post' &&
+    gate.status === 'resolved' &&
+    gate.decision === 'approved' &&
+    next?.type === 'slack-post' &&
+    next.id === proof.replacementGateId &&
+    next.id !== gate.id &&
+    next.orderId === gate.orderId &&
+    isSlackChannelId(previous?.channel) &&
+    previous.channel === replacement?.channel &&
+    previous.threadTs === replacement.threadTs &&
+    typeof previous.draftFile === 'string' &&
+    typeof replacement.draftFile === 'string' &&
+    previous.draftFile !== replacement.draftFile &&
+    slackDeliveryId(gate) === proof.approvedDeliveryId &&
+    typeof previous.digest === 'string' &&
+    previous.digest === proof.previousDigest &&
+    typeof replacement.digest === 'string' &&
+    replacement.digest === proof.replacementDigest &&
+    previous.digest !== replacement.digest
+  );
+}
+
+export function canReplaceSlackDraft(
+  state: ConductorSnapshot,
+  gate: Gate,
+  proof: SlackDraftReplacement,
+): boolean {
+  const next = state.gates[proof.replacementGateId];
+  return (
+    !gate.slackReplacement &&
+    state.slackPosted[gate.id] === undefined &&
+    next?.status === 'open' &&
+    replacementMatches(gate, next, proof)
+  );
+}
+
+export function slackReplacementConfirmed(state: ConductorSnapshot, gate: Gate): boolean {
+  const proof = gate.slackReplacement;
+  return (
+    proof !== undefined && replacementMatches(gate, state.gates[proof.replacementGateId], proof)
+  );
 }
 
 export function slackPublicationMatches(
@@ -53,7 +103,11 @@ export function slackPublicationMatches(
 ): boolean {
   if (!approvalMatches(gate, evidence)) return false;
   const ref = state.slackPosted[gate.id];
-  if (ref === undefined || superseded(state, gate, ref) || slackPublicationConfirmed(state, gate))
+  if (
+    ref === undefined ||
+    slackReplacementConfirmed(state, gate) ||
+    slackPublicationConfirmed(state, gate)
+  )
     return false;
   const claim = state.slackMessageClaims[slackMessageKey(evidence.channel, evidence.ts)];
   return claim === undefined || claim === gate.id;
@@ -73,24 +127,24 @@ export function slackPublicationConfirmed(state: ConductorSnapshot, gate: Gate):
   );
 }
 
-export function approvedSlackUnrecorded(
-  state: Pick<ConductorSnapshot, 'slackPosted'>,
-  gate: Gate,
-): boolean {
+export function approvedSlackUnrecorded(state: ConductorSnapshot, gate: Gate): boolean {
   return (
     gate.type === 'slack-post' &&
     gate.decision === 'approved' &&
-    state.slackPosted[gate.id] === undefined
+    state.slackPosted[gate.id] === undefined &&
+    !slackReplacementConfirmed(state, gate)
   );
 }
 
 export function slackPublicationBlocker(state: ConductorSnapshot, gate: Gate): string | undefined {
   if (gate.type !== 'slack-post' || gate.decision !== 'approved') return;
+  if (slackReplacementConfirmed(state, gate) || slackPublicationConfirmed(state, gate)) return;
   const ref = state.slackPosted[gate.id];
   if (ref === undefined) return 'Slack 게시 결과를 기다리고 있어요';
   if (ref === SLACK_HOST_HANDOFF) return '호스트에 넘긴 Slack 게시의 증빙을 기다리고 있어요';
   if (ref === SLACK_UNVERIFIED_RESPONSE) return '직접 게시 응답에서 승인 범위를 확인하지 못했어요';
-  if (superseded(state, gate, ref) || slackPublicationConfirmed(state, gate)) return;
+  if (ref.startsWith(SUPERSEDED_PREFIX))
+    return '이전 Slack 기록에서 초안 교체 증빙을 확인하지 못했어요';
   return '이전 Slack 게시 기록에 채널, 스레드와 작업 증빙이 없어요';
 }
 

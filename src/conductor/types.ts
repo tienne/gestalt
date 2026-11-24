@@ -224,6 +224,13 @@ export interface SlackPublicationEvidence {
   threadTs?: string;
 }
 
+export interface SlackDraftReplacement {
+  replacementGateId: string;
+  approvedDeliveryId: string;
+  previousDigest: string;
+  replacementDigest: string;
+}
+
 export interface ApprovedDeployment {
   repo: string;
   ref: string;
@@ -257,6 +264,7 @@ export interface Gate {
   /** 슬랙 초안의 채널과 본문 경로처럼 승인 뒤 다시 쓸 값 */
   payload?: Record<string, string>;
   approvedDeployment?: ApprovedDeployment;
+  slackReplacement?: SlackDraftReplacement;
   completion?: { at: string; evidence: GateCompletionEvidence };
   openedAt: string;
   resolvedAt?: string;
@@ -416,6 +424,7 @@ export type ConductorEvent =
   | { type: 'bypass'; at: string; record: BypassRecord }
   | { type: 'jira-transition'; at: string; record: JiraTransitionRecord }
   | { type: 'slack-posted'; at: string; gateId: string; ref: string }
+  | { type: 'slack-draft-replaced'; at: string; gateId: string; replacement: SlackDraftReplacement }
   | {
       type: 'slack-publication-confirmed';
       at: string;

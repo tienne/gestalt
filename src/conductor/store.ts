@@ -15,10 +15,13 @@ import { withFileLock } from '../core/file-lock.js';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
 import { log } from '../core/log.js';
 import {
+  canReplaceSlackDraft,
   orderHasPendingSlack,
   slackMessageKey,
   slackPublicationConfirmed,
   slackPublicationMatches,
+  slackReplacementConfirmed,
+  SUPERSEDED_PREFIX,
 } from './slack-state.js';
 import {
   ACTIVE_WORKER_STATUSES,
@@ -201,7 +204,15 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     case 'slack-posted': {
       // 주문과 함께 빠졌거나 보관에서 버린 게이트에 늦게 온 줄이다
       const gate = s.gates[e.gateId];
-      if (gate && !slackPublicationConfirmed(s, gate)) s.slackPosted[e.gateId] = e.ref;
+      if (gate && !slackPublicationConfirmed(s, gate) && !slackReplacementConfirmed(s, gate))
+        s.slackPosted[e.gateId] = e.ref;
+      return;
+    }
+    case 'slack-draft-replaced': {
+      const gate = s.gates[e.gateId];
+      if (!gate || !e.replacement || !canReplaceSlackDraft(s, gate, e.replacement)) return;
+      s.gates[e.gateId] = { ...gate, slackReplacement: e.replacement };
+      s.slackPosted[e.gateId] = `${SUPERSEDED_PREFIX}${e.replacement.replacementGateId}`;
       return;
     }
     case 'slack-publication-confirmed': {
@@ -372,6 +383,7 @@ export function orderOfEvent(e: ConductorEvent, s: ConductorSnapshot): string | 
     case 'gate-resolved':
     case 'gate-delivery':
     case 'slack-posted':
+    case 'slack-draft-replaced':
     case 'slack-publication-confirmed':
       return s.gates[e.gateId]?.orderId;
     case 'gate-completed':
@@ -677,6 +689,11 @@ function validate(event: ConductorEvent, s: ConductorSnapshot): void {
     const gate = s.gates[event.gateId];
     if (!gate || !slackPublicationMatches(s, gate, event.evidence))
       throw new Error('현재 승인과 일치하는 Slack 게시 증빙이 아니에요');
+  }
+  if (event.type === 'slack-draft-replaced') {
+    const gate = s.gates[event.gateId];
+    if (!gate || !canReplaceSlackDraft(s, gate, event.replacement))
+      throw new Error('이전 승인과 새 Slack 초안의 교체 관계가 맞지 않아요');
   }
 }
 

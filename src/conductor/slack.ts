@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { isPlainObject } from '../core/json-file.js';
 import {
   approvedSlackUnrecorded,
+  canReplaceSlackDraft,
   isSlackChannelId,
   SLACK_DELIVERY_EVENT,
   SLACK_HOST_HANDOFF,
@@ -202,7 +203,7 @@ export interface PublishResult {
  *
  * 게시했는지는 slack-posted 이벤트로 남기고 다음 tick에는 건너뛴다. 거절된 초안은 게시하지 않는다.
  * 초안 파일은 워커도 쓸 수 있는 자리라 승인 때의 digest와 다르면 보내지 않는다. 바뀐 본문으로
- * 새 게이트를 열고 앞 게이트는 SUPERSEDED_PREFIX로 표시해 다음 tick이 다시 집지 않게 한다.
+ * 새 게이트를 열고 두 초안의 교체 관계를 남겨 다음 tick이 앞 게이트를 다시 집지 않게 한다.
  */
 export async function publishApprovedSlack(
   store: ConductorStore,
@@ -223,7 +224,10 @@ export async function publishApprovedSlack(
     try {
       const threadTs = gate.payload?.threadTs;
       const text = readDraft(draftFile);
-      if (draftDigest(channel, threadTs, text) !== gate.payload?.digest) {
+      const previousDigest = gate.payload?.digest;
+      if (!previousDigest) throw new Error('승인한 Slack 초안의 해시가 없어요');
+      const replacementDigest = draftDigest(channel, threadTs, text);
+      if (replacementDigest !== previousDigest) {
         const { gate: next } = draftSlack(
           store,
           {
@@ -234,12 +238,22 @@ export async function publishApprovedSlack(
           },
           dirname(draftFile),
         );
-        store.append({
-          type: 'slack-posted',
-          at: store.timestamp(),
-          gateId: gate.id,
-          ref: `${SUPERSEDED_PREFIX}${next.id}`,
-        });
+        const replacement = {
+          replacementGateId: next.id,
+          approvedDeliveryId: slackDeliveryId(gate),
+          previousDigest,
+          replacementDigest,
+        };
+        const recorded = store.appendIfCurrent(
+          { type: 'slack-draft-replaced', at: store.timestamp(), gateId: gate.id, replacement },
+          () => {
+            const current = store.snapshot.gates[gate.id];
+            return (
+              current !== undefined && canReplaceSlackDraft(store.snapshot, current, replacement)
+            );
+          },
+        );
+        if (!recorded) throw new Error('Slack 초안을 교체하는 사이 게이트가 바뀌었어요');
         result.reopened.push({ gateId: gate.id, newGateId: next.id });
         result.failed.push({
           gateId: gate.id,
