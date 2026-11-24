@@ -243,7 +243,13 @@ export async function archiveOrders(
         const g = state.gates[id]!;
         const ref = g.payload?.sourceRef;
         if (ref !== undefined && !Object.hasOwn(state.askedSourceRefs, ref))
-          state.askedSourceRefs[ref] = g.resolvedAt ?? at.toISOString();
+          // 대입으로 쓰면 키가 `__proto__`일 때 프로토타입이 바뀌고 항목은 안 남는다
+          Object.defineProperty(state.askedSourceRefs, ref, {
+            value: g.resolvedAt ?? at.toISOString(),
+            enumerable: true,
+            writable: true,
+            configurable: true,
+          });
         delete state.gates[id];
         delete state.slackPosted[id];
       }

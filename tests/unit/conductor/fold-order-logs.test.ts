@@ -70,6 +70,27 @@ describe('주문별 로그', () => {
     expect(lines(dir, 'ord-1')).toHaveLength(3);
   });
 
+  it('첫 반영이 새 파일에 덧붙이고 죽으면 다음 반영이 파일을 지웠다가 다시 쓴다', async () => {
+    const dir = tempStateDir();
+    ConductorStore.open(dir).addOrder(order({ id: 'ord-1' }));
+
+    await expect(
+      foldEvents(dir, {
+        ...fast,
+        beforeWrite: () => {
+          throw new Error('죽음');
+        },
+      }),
+    ).rejects.toThrow('죽음');
+    expect(lines(dir, 'ord-1')).toHaveLength(1);
+
+    await foldEvents(dir, fast);
+
+    expect(lines(dir, 'ord-1').map((l) => (JSON.parse(l) as { type: string }).type)).toEqual([
+      'order-added',
+    ]);
+  });
+
   it('덧붙이기 전에 파일 끝의 반쪽 줄을 잘라 낸다', async () => {
     const dir = tempStateDir();
     ConductorStore.open(dir).addOrder(order({ id: 'ord-1' }));
