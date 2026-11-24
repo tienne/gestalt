@@ -568,7 +568,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     'https://example.slack.com/archives/C999/p12345000001',
     'https://example.slack.com/archives/C123/p12345000001',
   ])('이전 Slack 기록 %s를 재생하면 대기하고 확인된 뒤에만 워커를 해제한다', async (legacyRef) => {
-    const { store } = clockedStore();
+    const { store, now } = clockedStore();
     store.addOrder(order({ id: 'ord-normal', status: 'done' }));
     store.startWorker(
       worker('ord-normal', {
@@ -604,7 +604,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
       ref: legacyRef,
     });
     await foldEvents(store.dir, { settleMs: 0 });
-    const restarted = ConductorStore.open(store.dir);
+    const restarted = ConductorStore.open(store.dir, { now });
     expect((await tick(restarted, d, { force: true })).warnings).toEqual([
       expect.stringContaining('이전 Slack 게시 기록에'),
     ]);
@@ -612,7 +612,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     const pending = pendingSlackDelivery(restarted, gate.id);
     confirmSlackDelivery(restarted, gate.id, slackSuccess(pending, pending));
     await foldEvents(store.dir, { settleMs: 0 });
-    await tick(ConductorStore.open(store.dir), d, { force: true });
+    await tick(ConductorStore.open(store.dir, { now }), d, { force: true });
     expect(orca.released).toEqual(['wrk-normal']);
     expect(ConductorStore.open(store.dir).worker('wrk-normal')?.status).toBe('released');
   });
@@ -620,7 +620,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
   it.each(['link', 'channel', 'thread', 'delivery'] as const)(
     '직접 Slack 응답의 %s 증빙이 부족하면 다시 열어도 게시 대기에서 멈춘다',
     async (invalid) => {
-      const { store } = clockedStore();
+      const { store, now } = clockedStore();
       const cleanup = workerGate(store);
       const { gate } = draftSlack(
         store,
@@ -661,7 +661,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
       const first = await tick(store, d, { force: true });
       expect(first.errors).toEqual([expect.stringContaining('게시 실패')]);
       expect(first.slackPosted).toEqual([]);
-      const restarted = ConductorStore.open(store.dir);
+      const restarted = ConductorStore.open(store.dir, { now });
       const replayed = await tick(restarted, d, { force: true });
       expect(replayed.warnings).toEqual([
         expect.stringContaining('직접 게시 응답에서 승인 범위를 확인하지 못했어요'),
