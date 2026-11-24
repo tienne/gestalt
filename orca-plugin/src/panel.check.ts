@@ -34,6 +34,7 @@ export default defineCheck({
       }
     }
   },
+  monitor: { settings: { gestaltPath: FAKE, stateDir: path('../test/fixtures/monitor') } },
   'cli-missing': {
     settings: { gestaltPath: path('../test/no-such-gestalt'), stateDir: path('../test/fixtures/busy') }
   }

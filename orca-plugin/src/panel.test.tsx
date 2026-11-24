@@ -81,6 +81,37 @@ test('저장소가 없으면 저장소 없음 안내를 띄운다', async () => 
   await view.unmount()
 })
 
+test('운영 채팅과 다음 점검, 완료 tick, 실행 및 게시 결과의 출처를 같은 화면에 그린다', async () => {
+  const at = Date.parse(base.lastTickAt!)
+  const { host } = setup({
+    ...base,
+    conductor: { botOwner: { botId: 'bot-fixture', name: '컨덕터 fixture', chatId: 'chat-fixture' } },
+    monitor: {
+      automationId: 'automation-fixture',
+      nextCheckAt: at + 1_500_000,
+      latestRun: { id: 'run-skip', at: at + 300_000, state: 'precheck-skipped' },
+      latestPosting: { id: 'run-post', at, state: 'post-failed' }
+    }
+  })
+  const view = await mount(panel, { host })
+  for (const text of ['운영 채팅', '마지막 성공 tick', '다음 정기 점검 예정', '최근 결과 게시',
+    'Gestalt status · botOwner', 'Gestalt status · tick 완료 기록', 'Orca automations list · 25분 사전 검사', 'Orca automations runs']) {
+    assert.ok(view.find({ text }), text)
+  }
+  assert.ok(view.find({ text: /사전 검사로 정상 건너뜀/ }))
+  assert.ok(view.find({ text: /게시 실패 \(같은 실행의 tick은 알 수 없음\)/ }))
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
+test('CLI에 운영 감시 자료가 없으면 알 수 없음으로 표시한다', async () => {
+  const { host } = setup({ ...base, lastTickAt: null })
+  const view = await mount(panel, { host })
+  assert.equal(view.findAll({ text: '알 수 없음' }).length, 4)
+  assert.deepEqual(view.errors, [])
+  await view.unmount()
+})
+
 test('지도는 레포마다 타일을 두고 확인 대기가 있는 레포를 앞에 둔다', async () => {
   const { host } = setup({
     ...base,
