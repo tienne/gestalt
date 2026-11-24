@@ -1,6 +1,5 @@
-import { execFileSync } from 'node:child_process';
 import { real } from '../../../conductor/parent-worktree.js';
-import { readOriginRepo } from '../../../harness-review/related-repos.js';
+import { githubRepositoryName } from '../../../harness-review/related-repos.js';
 import { isDeepStrictEqual } from 'node:util';
 import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../../schemas.js';
@@ -49,25 +48,6 @@ export function handleStart(
   );
 }
 
-function repositoryIdentity(root: string): string {
-  const origin = readOriginRepo(root);
-  if (origin) return `github:${origin.owner.toLowerCase()}/${origin.name.toLowerCase()}`;
-  try {
-    const gitDir = execFileSync(
-      'git',
-      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-      {
-        cwd: root,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      },
-    ).trim();
-    return `git:${real(gitDir)}`;
-  } catch {
-    return `path:${real(root)}`;
-  }
-}
-
 export function handlePrepareConductor(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
@@ -77,9 +57,11 @@ export function handlePrepareConductor(
     if ((input.spec && (input.sessionId || input.planId)) || (input.sessionId && input.planId))
       return formatError('Select one of spec, sessionId or planId');
     const root = real(input.codeGraphRepoRoot ?? input.cwd ?? process.cwd());
-    const target = repositoryIdentity(root);
+    const target = githubRepositoryName(root);
     const belongsToTarget = (candidate: ExecuteSession) =>
-      candidate.codeGraphRepoRoot && repositoryIdentity(candidate.codeGraphRepoRoot) === target;
+      candidate.targetRepository?.name === target &&
+      candidate.targetRepository &&
+      githubRepositoryName(candidate.targetRepository.root) === target;
     let session: ExecuteSession | undefined;
     if (input.sessionId) {
       session = engine.getSession(input.sessionId);
@@ -115,8 +97,10 @@ export function handlePrepareConductor(
       session = candidates[0];
       if (session && spec && !isDeepStrictEqual(specSchema.parse(session.spec), spec))
         return formatError('저장된 실행 세션의 Spec 내용이 선택한 Spec과 달라요');
-      if (!session && spec)
+      if (!session && spec) {
+        if (!target) return formatError('현재 작업 위치의 대상 레포를 확인할 수 없어요');
         return handleStart(engine, { ...input, codeGraphRepoRoot: root, spec }, adapter);
+      }
     }
     if (!session) return formatError('지정한 실행 계획을 찾지 못했어요');
     if (
@@ -124,10 +108,9 @@ export function handlePrepareConductor(
       (session.status !== 'planning' && session.status !== 'plan_complete')
     )
       return formatError('구현을 시작하기 전의 원본 실행 세션을 골라 주세요');
-    if (!belongsToTarget(session))
-      return formatError(
-        '선택한 실행 계획의 대상 레포가 현재 레포와 다르거나 확인되지 않아요. 이 레포에서 Spec으로 계획을 준비해 주세요',
-      );
+    engine
+      .getSessionManager()
+      .assertPlanRepository(session.sessionId, root, target ?? '확인되지 않은 레포');
     if (session.status === 'plan_complete' && session.executionPlan)
       return formatConductorReady(session);
     const executeContext = engine.resumePlanning(session);

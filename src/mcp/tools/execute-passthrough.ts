@@ -1,4 +1,4 @@
-import { real } from '../../conductor/parent-worktree.js';
+import { ExecuteSessionNotFoundError } from '../../core/errors.js';
 import type { PassthroughExecuteEngine } from '../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../schemas.js';
 import { createHostAdapter, type IHostAdapter } from '../host-adapter.js';
@@ -69,15 +69,16 @@ export async function handleExecutePassthrough(
   if (blocked) return blocked;
 
   let assignedWorktree: string | undefined;
-  if (params.sessionId) {
+  if (params.sessionId && params.action !== 'status' && params.action !== 'prepare_conductor') {
     try {
-      assignedWorktree = engine.getSession(params.sessionId).assignedWorktree;
-    } catch {
-      // 기존 핸들러가 세션을 찾지 못한 결과를 돌려준다.
+      const session = engine.getSession(params.sessionId);
+      assignedWorktree = session.assignedWorktree;
+      engine.getSessionManager().assertPlanRepository(params.sessionId, params.cwd);
+    } catch (error) {
+      if (!(error instanceof ExecuteSessionNotFoundError))
+        return formatError(error instanceof Error ? error.message : String(error));
     }
   }
-  if (assignedWorktree && params.cwd && real(params.cwd) !== real(assignedWorktree))
-    return formatError('이 주문의 작업과 검증은 배정된 워크트리에서 진행해 주세요');
 
   const bound = assignedWorktree ? { ...params, cwd: assignedWorktree } : params;
   const adapter =

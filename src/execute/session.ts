@@ -1,3 +1,6 @@
+import { resolve } from 'node:path';
+import { real } from '../conductor/parent-worktree.js';
+import { githubRepositoryName } from '../harness-review/related-repos.js';
 import { claimPlanDestination } from './plan-destination.js';
 import { randomUUID } from 'node:crypto';
 import type {
@@ -108,6 +111,9 @@ export class ExecuteSessionManager {
   }
 
   create(spec: Spec, opts: { codeGraphRepoRoot?: string } = {}): ExecuteSession {
+    const root = opts.codeGraphRepoRoot ? resolve(opts.codeGraphRepoRoot) : undefined;
+    const name = root ? githubRepositoryName(root) : undefined;
+    const targetRepository = name && root ? { name, root } : undefined;
     const session: ExecuteSession = {
       sessionId: randomUUID(),
       specId: spec.metadata.specId,
@@ -127,6 +133,7 @@ export class ExecuteSessionManager {
       lateralAttempts: 0,
       humanGates: [],
       codeGraphRepoRoot: opts.codeGraphRepoRoot,
+      targetRepository,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -139,6 +146,7 @@ export class ExecuteSessionManager {
       acCount: spec.acceptanceCriteria.length,
       spec,
       codeGraphRepoRoot: opts.codeGraphRepoRoot,
+      targetRepository,
     });
 
     logger.info('execute.started', {
@@ -156,14 +164,18 @@ export class ExecuteSessionManager {
     spec: Spec,
     plan: ExecutionPlan,
     cwd: string,
+    repo: string,
   ): ExecuteSession {
     if (this.eventStore.countByAggregate('execute', sessionId) === 0) {
+      if (githubRepositoryName(cwd) !== repo)
+        throw new Error(`배정된 워크트리의 대상 레포 ${repo}를 확인하지 못했어요`);
       this.record(sessionId, EventType.EXECUTE_SESSION_STARTED, {
         specId: spec.metadata.specId,
         goal: spec.goal,
         spec,
         codeGraphRepoRoot: cwd,
         preparedPlan: plan,
+        targetRepository: { name: repo, root: cwd },
       });
     }
     const session = this.get(sessionId);
@@ -172,8 +184,54 @@ export class ExecuteSessionManager {
       session.executionPlan?.planId !== plan.planId ||
       session.codeGraphRepoRoot !== cwd
     )
-      throw new Error('이미 다른 실행 계획이나 워크트리에 연결된 세션이에요');
+      this.rejectPlanBoundary(session, '이미 다른 실행 계획이나 워크트리에 연결된 세션이에요');
+    this.assertPlanRepository(sessionId, cwd, repo);
     return session;
+  }
+
+  private rejectPlanBoundary(session: ExecuteSession, error: string): never {
+    if (session.planBoundaryError !== error) {
+      this.record(session.sessionId, EventType.EXECUTE_REPOSITORY_CHECKED, { error });
+      session.planBoundaryError = error;
+    }
+    throw new Error(error);
+  }
+
+  assertPlanRepository(sessionId: string, cwd?: string, expectedRepo?: string): void {
+    const session = this.get(sessionId);
+    const target = session.targetRepository;
+    if (!target) {
+      if (expectedRepo || session.assignedWorktree)
+        this.rejectPlanBoundary(
+          session,
+          '계획의 기준 레포가 기록되지 않았어요. 현재 레포에서 계획을 준비해 주세요',
+        );
+      return;
+    }
+    if (expectedRepo && target.name !== expectedRepo)
+      this.rejectPlanBoundary(
+        session,
+        `기록된 레포 ${target.name}과 대상 레포 ${expectedRepo}가 달라요`,
+      );
+    const location = cwd ?? target.root;
+    if (session.assignedWorktree && real(location) !== real(session.assignedWorktree))
+      this.rejectPlanBoundary(session, '이 주문의 작업과 검증은 배정된 워크트리에서 진행해 주세요');
+    const original = githubRepositoryName(target.root);
+    const actual = location === target.root ? original : githubRepositoryName(location);
+    if (!original || !actual)
+      this.rejectPlanBoundary(
+        session,
+        `계획의 대상 레포 ${target.name}을 현재 작업 위치에서 확인할 수 없어요`,
+      );
+    if (original !== target.name || actual !== target.name)
+      this.rejectPlanBoundary(
+        session,
+        `계획의 대상 레포 ${target.name}이 작업 위치의 레포 ${original !== target.name ? original : actual}와 달라요`,
+      );
+    if (session.planBoundaryError) {
+      this.record(session.sessionId, EventType.EXECUTE_REPOSITORY_CHECKED, { error: null });
+      delete session.planBoundaryError;
+    }
   }
 
   /**
@@ -249,6 +307,7 @@ export class ExecuteSessionManager {
 
   startExecution(sessionId: string, capture?: BaselineCapture): void {
     const session = this.get(sessionId);
+    this.assertPlanRepository(sessionId, capture?.repoRoot);
     if (session.executionPlan && !session.assignedWorktree)
       claimPlanDestination(session.executionPlan.planId, { kind: 'local' });
     const baseline = capture?.baseline;

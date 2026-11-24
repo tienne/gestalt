@@ -96,6 +96,7 @@ export class ExecuteSessionRepository {
       spec?: Spec;
       codeGraphRepoRoot?: string;
       preparedPlan?: ExecutionPlan;
+      targetRepository?: ExecuteSession['targetRepository'];
     };
 
     const session: ExecuteSession = {
@@ -123,6 +124,7 @@ export class ExecuteSessionRepository {
       lateralAttempts: 0,
       humanGates: [],
       codeGraphRepoRoot: startPayload.codeGraphRepoRoot,
+      targetRepository: startPayload.targetRepository,
       createdAt: firstEvent.timestamp,
       updatedAt: firstEvent.timestamp,
     };
@@ -160,6 +162,10 @@ export class ExecuteSessionRepository {
         }
         break;
       }
+
+      case EventType.EXECUTE_REPOSITORY_CHECKED:
+        session.planBoundaryError = typeof payload.error === 'string' ? payload.error : undefined;
+        break;
 
       case EventType.EXECUTE_PLAN_COMPLETED: {
         const executionPlan = payload.executionPlan as ExecutionPlan | undefined;

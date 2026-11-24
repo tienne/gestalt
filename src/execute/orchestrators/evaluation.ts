@@ -48,7 +48,9 @@ export class EvaluationOrchestrator {
         return err(new EvaluationError('No execution plan found'));
       }
 
-      const projectRoot = session.codeGraphRepoRoot ?? cwd ?? process.cwd();
+      this.sessionManager.assertPlanRepository(sessionId, cwd);
+      const projectRoot =
+        session.assignedWorktree ?? session.codeGraphRepoRoot ?? cwd ?? process.cwd();
       const commands = buildStructuralCommands(projectRoot, this.findAffectedTests(session));
       this.sessionManager.startStructuralEvaluation(sessionId, commands);
 

@@ -266,6 +266,10 @@ function handleStatus(engine: PassthroughExecuteEngine, sessionId?: string, cwd?
             currentStep: session.currentStep,
             stepsCompleted: session.planningSteps.length,
             hasPlan: !!session.executionPlan,
+            ...(session.targetRepository
+              ? { targetRepository: session.targetRepository.name }
+              : {}),
+            ...(session.planBoundaryError ? { planBoundaryError: session.planBoundaryError } : {}),
             taskResults: session.taskResults.length,
             evaluateStage: session.evaluateStage ?? null,
             hasEvaluation: !!session.evaluationResult,

@@ -115,6 +115,7 @@ export class PlanningOrchestrator {
   ): Result<PassthroughPlanStepResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
+      this.sessionManager.assertPlanRepository(sessionId);
 
       if (session.status !== 'planning') {
         return err(new ExecuteError(`Session is not in planning state: ${session.status}`));
@@ -191,6 +192,7 @@ export class PlanningOrchestrator {
   planComplete(sessionId: string): Result<PassthroughPlanCompleteResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
+      this.sessionManager.assertPlanRepository(sessionId);
 
       if (session.status === 'plan_complete' && session.executionPlan)
         return ok({ session, executionPlan: session.executionPlan });
