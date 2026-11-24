@@ -9,8 +9,20 @@ triggers:
 inputs:
   spec:
     type: object
-    required: true
-    description: 'A validated Spec specification from the spec generation step'
+    required: false
+    description: 'A validated Spec, required unless --conductor selects an existing plan or session'
+  planId:
+    type: string
+    required: false
+    description: 'A finalized plan selected with --plan when --conductor is set'
+  sessionId:
+    type: string
+    required: false
+    description: 'An existing execute session selected with --session when --conductor is set'
+  conductor:
+    type: boolean
+    required: false
+    description: 'Explicit --conductor flag to submit a validated plan for implementation'
 outputs:
   - executionPlan
 ---
@@ -23,6 +35,10 @@ This skill transforms a validated Spec specification into a concrete, dependency
 
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
 > `ges_*` 도구가 없거나 호출이 실패하면 직접 흉내내 진행하지 않고 무엇이 왜 안 되는지 말하고 멈춥니다.
+
+## 컨덕터 옵션
+
+사용자 호출에 `--conductor`가 있으면 [공식 계획 확정과 접수](../_shared/conductor-plan.md)까지만 한다. 사용자에게 받은 Spec ID, `--plan <계획-ID>`, `--session <실행-세션-ID>`로 시작한다. 기본 호출은 아래 실행과 평가 단계를 따른다.
 
 ## Full Pipeline
 
