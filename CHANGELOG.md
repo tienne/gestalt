@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.160.1] - 2026-11-24
+
+### Fixed
+
+- **device 스킬이 도구의 성공 응답 뒤 실제 화면과 입력값을 확인해요.** 탭이 빗나가면 전면 앱과 최신 캡처를 대조하고 한글은 필드에 들어간 글자를 확인한 뒤 제출해요. 화면 방향이나 기기가 바뀌면 좌표를 다시 확인해요.
+- **iOS 실기기 설치가 멈췄을 때의 복구와 작업 뒤 러너 정리를 보완했어요.** USB 설치가 대기하면 같은 재서명 앱의 서명을 확인해 Xcode로 설치하고 접근성 요소를 읽어 연결을 확인해요. 종료할 때는 이번 작업에서 띄운 러너만 내려갔는지 확인해요.
+- **오르카 컨덕터 터미널의 `bypass` 표시를 “자동 처리 내역”으로 바꿨어요.** 주문 카드와 이벤트 목록, 하단 집계에 같은 이름을 써요.
+
+### 검증 범위
+
+- device 문서에 적은 절차로 실기기를 다시 조작하는 검증은 하지 않았어요.
+
 ## [0.160.0] - 2026-11-24
 
 ### Added
