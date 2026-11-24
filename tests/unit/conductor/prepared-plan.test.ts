@@ -1,6 +1,6 @@
 import { promisify } from 'node:util';
 import { execFile, execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createCli } from '../../../src/cli/index.js';
@@ -8,6 +8,8 @@ import { changeBotOwner } from '../../../src/conductor/bot-owner.js';
 import { buildWorkerPrompt, chooseWorkerKind } from '../../../src/conductor/launcher.js';
 import { prepareOrderPlan, preparedPlanSourceRef } from '../../../src/conductor/prepared-plan.js';
 import { EventType } from '../../../src/events/types.js';
+import { claimPlanDestination } from '../../../src/execute/plan-destination.js';
+import { gestaltPath } from '../../../src/core/home.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import { EventStore } from '../../../src/events/store.js';
 import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
@@ -355,7 +357,11 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
         scope: 'approval',
         preparedPlan: prepared,
       });
-      ConductorStore.open(stateDir).addOrder(prior);
+      ConductorStore.open(stateDir).append({
+        type: 'order-added',
+        at: prior.createdAt,
+        order: prior,
+      });
       if (route === 'accept') {
         vi.stubEnv('ORCA_AGENT_SESSION_ID', owner.chatId);
         await cli(
@@ -425,21 +431,60 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
     },
   );
 
-  it('재시작했을 때 설정된 저장소의 기존 주문을 제출 기록 없이도 찾는다', () => {
+  it.each(['default', 'custom'])(
+    '%s 저장소의 접수 기록은 원본 엔진을 다시 열거나 설정을 바꿔도 같은 주문으로 복구된다',
+    async (location) => {
+      vi.stubEnv('GESTALT_CONDUCTOR_STATE_DIR', undefined);
+      const originalStore = location === 'default' ? gestaltPath('conductor') : stateDir;
+      const { sessionId } = fx.plannedSession(undefined, undefined, dir);
+      const prepared = prepareOrderPlan(fx.engine.getSession(sessionId), 'acme/app');
+      const prior = ConductorStore.open(originalStore).addOrder(
+        fixtureOrder({
+          sourceRef: preparedPlanSourceRef(prepared.plan.planId),
+          scope: 'approval',
+          preparedPlan: prepared,
+        }),
+      );
+      const otherStore = resolve(tempStateDir());
+      vi.stubEnv('GESTALT_CONDUCTOR_STATE_DIR', otherStore);
+      const events = new EventStore(fx.dbPath);
+      try {
+        const result = new PassthroughExecuteEngine(events).startExecution(sessionId);
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.error.message).toContain('다른 컨덕터 접수');
+      } finally {
+        events.close();
+      }
+      await cli('conductor', 'plan', 'submit', sessionId, '--check', '--json');
+      expect(last()).toMatchObject({ status: 'accepted', orderId: prior.id });
+      expect(ConductorStore.open(otherStore).orders()).toHaveLength(0);
+    },
+  );
+
+  it('일반 계획은 재시작해도 다른 컨덕터 저장소를 읽지 않고 로컬에서 실행한다', () => {
     vi.stubEnv('GESTALT_CONDUCTOR_STATE_DIR', stateDir);
+    writeFileSync(join(stateDir, 'base.json'), '깨진 별도 저장소');
     const { sessionId } = fx.plannedSession(undefined, undefined, dir);
-    const prepared = prepareOrderPlan(fx.engine.getSession(sessionId), 'acme/app');
-    ConductorStore.open(stateDir).addOrder(
-      fixtureOrder({
-        sourceRef: preparedPlanSourceRef(prepared.plan.planId),
-        scope: 'approval',
-        preparedPlan: prepared,
-      }),
-    );
-    const result = new PassthroughExecuteEngine(fx.store).startExecution(sessionId);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toContain('다른 컨덕터 접수');
-    expect(orders()).toHaveLength(1);
+    execFileSync('git', ['remote', 'remove', 'origin'], { cwd: dir });
+    const events = new EventStore(fx.dbPath);
+    try {
+      expect(new PassthroughExecuteEngine(events).startExecution(sessionId).ok).toBe(true);
+    } finally {
+      events.close();
+    }
+  });
+
+  it('접수 기록 전에 중단됐으면 같은 저장소와 주문 ID로 재시도한다', async () => {
+    changeBotOwner(stateDir, undefined, owner);
+    const { sessionId } = fx.plannedSession(undefined, undefined, dir);
+    const planId = fx.engine.getSession(sessionId).executionPlan!.planId;
+    claimPlanDestination(planId, { kind: 'conductor', stateDir, orderId: 'ord-reserved' });
+    await submit(sessionId, '--repo', 'acme/app', '--check');
+    expect(last()).toMatchObject({ status: 'unconfirmed' });
+    expect(orders()).toHaveLength(0);
+    await submit(sessionId, '--repo', 'acme/app');
+    expect(last()).toMatchObject({ status: 'accepted', orderId: 'ord-reserved' });
+    expect(orders().map((order) => order.id)).toEqual(['ord-reserved']);
   });
 
   it.each(['changed', 'missing'])(
@@ -499,7 +544,9 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
     const { sessionId } = fx.plannedSession(undefined, undefined, dir);
     const planId = fx.engine.getSession(sessionId).executionPlan!.planId;
     const moduleUrl = new URL('../../../src/execute/plan-destination.ts', import.meta.url).href;
-    const choose = (destination: { kind: 'local' } | { kind: 'conductor'; stateDir: string }) =>
+    const choose = (
+      destination: { kind: 'local' } | { kind: 'conductor'; stateDir: string; orderId: string },
+    ) =>
       promisify(execFile)(
         process.execPath,
         [
@@ -513,7 +560,7 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
       );
     const outcomes = await Promise.allSettled([
       choose({ kind: 'local' }),
-      choose({ kind: 'conductor', stateDir }),
+      choose({ kind: 'conductor', stateDir, orderId: 'ord-race' }),
     ]);
     expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
     const rejected = outcomes.find((outcome) => outcome.status === 'rejected');

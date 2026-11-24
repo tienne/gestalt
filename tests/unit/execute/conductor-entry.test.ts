@@ -233,6 +233,68 @@ describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
     }
   });
 
+  it.each(['changed', 'missing'])(
+    '플래그로 준비한 뒤 origin이 %s이면 원인과 맞는 다음 조치를 준다',
+    async (change) => {
+      const fx = createExecuteFixture('conductor-origin-error');
+      const root = repoForPlanning('before');
+      const spec = makeSpec();
+      try {
+        const started = await fx.call({
+          action: 'prepare_conductor',
+          spec,
+          codeGraphRepoRoot: root,
+        });
+        const sessionId = started['sessionId'] as string;
+        for (const stepResult of planningSteps(spec)) {
+          await fx.call({ action: 'plan_step', sessionId, stepResult });
+        }
+        const args =
+          change === 'changed'
+            ? ['set-url', 'origin', 'https://github.com/acme/after.git']
+            : ['remove', 'origin'];
+        execFileSync('git', ['remote', ...args], { cwd: root });
+        const stopped = await fx.call({
+          action: 'plan_complete',
+          sessionId,
+          conductor: true,
+          cwd: root,
+        });
+        expect(stopped).toMatchObject({
+          error: expect.stringContaining(change === 'changed' ? 'acme/after' : '확인할 수 없어요'),
+          nextStep: expect.stringContaining(
+            change === 'changed' ? 'Spec으로 계획' : 'origin이 acme/before',
+          ),
+        });
+        expect(stopped).not.toHaveProperty('status', 'ready_for_conductor');
+      } finally {
+        fx.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('origin이 없는 레포에서 처음 준비하면 계획을 만들지 않고 다음 조치를 준다', async () => {
+    const fx = createExecuteFixture('conductor-missing-initial-origin');
+    const root = repoForPlanning('initial');
+    try {
+      execFileSync('git', ['remote', 'remove', 'origin'], { cwd: root });
+      const stopped = await fx.call({
+        action: 'prepare_conductor',
+        spec: makeSpec(),
+        codeGraphRepoRoot: root,
+      });
+      expect(stopped).toMatchObject({
+        error: expect.stringContaining('확인할 수 없어요'),
+        nextStep: expect.stringContaining('origin'),
+      });
+      expect(fx.engine.listSessions()).toHaveLength(0);
+    } finally {
+      fx.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('서버가 의존성 순환을 되감은 계획은 접수 준비로 보지 않는다', async () => {
     const fx = createExecuteFixture('conductor-invalid-dag');
     const root = repoForPlanning('dag');
