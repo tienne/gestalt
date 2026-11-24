@@ -228,13 +228,15 @@ export interface ApprovedDeployment {
 }
 
 export type GateCompletionEvidence =
-  | { kind: 'github-deployment'; target: ApprovedDeployment; statusId: number }
+  | { kind: 'github-deployment'; target: ApprovedDeployment; statusId: number; jobId: number }
   | {
       kind: 'orca-worker';
       workerId: string;
       dispatchId: string;
       runId: string;
-      state: string;
+      state: 'stopped' | 'succeeded';
+      liveness: 'exited' | 'gone';
+      terminalState: 'released';
       removedWorkspace?: string;
     };
 

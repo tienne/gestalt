@@ -57,7 +57,7 @@ export async function reconcileDeployments(
           type: 'gate-completed',
           at: report.at,
           gateId: gate.id,
-          evidence: { kind: 'github-deployment', target, statusId: result.statusId },
+          evidence: { kind: 'github-deployment', target, ...result },
         });
       }
     } catch {
@@ -83,7 +83,11 @@ function workerCleanupBlocker(
     !order ||
     !CLEANUP_ORDER_STATUSES.has(order.status) ||
     (order.deploys?.length && !order.deploysRecordedAt) ||
-    store.openGates(order.id).length > 0 ||
+    Object.values(store.snapshot.gates).some(
+      (g) =>
+        g.orderId === order.id &&
+        (g.status === 'open' || g.deliveryPending || (g.approvedDeployment && !g.completion)),
+    ) ||
     store.activeWorkers().some((w) => w.orderId === order.id) ||
     store
       .orders()

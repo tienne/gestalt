@@ -38,5 +38,7 @@ export function workerCompletion(
     dispatchId: worker.handle,
     runId: observed.runId,
     state: observed.state,
+    liveness: observed.liveness,
+    terminalState: observed.terminalState,
   };
 }

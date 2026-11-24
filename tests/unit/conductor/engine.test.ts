@@ -217,7 +217,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
           reason: gate.reason.replace(ref, 'customer-stage-v.260101.3'),
           refs: [],
         });
-        return { statusId: 43 };
+        return { statusId: 43, jobId: 54 };
       },
     });
     expect((await tick(store, d, { force: true })).warnings).toEqual([
@@ -273,6 +273,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     expect(store.snapshot.gates[stage.id]?.completion?.evidence).toMatchObject({
       kind: 'github-deployment',
       statusId: 43,
+      jobId: 54,
       target: { sha, ...scope },
     });
     expect(store.snapshot.gates[cleanup.id]?.completion?.evidence).toMatchObject({
@@ -280,6 +281,8 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
       dispatchId: ended.dispatchId,
       runId: ended.runId,
       workerId: 'wrk-previous',
+      liveness: 'exited',
+      terminalState: 'released',
     });
     expect(store.worker('wrk-previous')?.status).toBe('released');
     await tick(store, d, { force: true });

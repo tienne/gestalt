@@ -56,7 +56,7 @@ export function approveDeployment(
   };
 }
 
-type DeploymentResult = { statusId: number } | { reason: string };
+type DeploymentResult = { statusId: number; jobId: number } | { reason: string };
 export type ReadDeploymentEvidence = (target: ApprovedDeployment) => Promise<DeploymentResult>;
 
 export async function readDeploymentEvidence(
@@ -109,7 +109,8 @@ export async function readDeploymentEvidence(
   const prefix = `https://github.com/${repo.toLowerCase()}/actions/runs/${runId}/job/`;
   const logUrl = typeof latest.log_url === 'string' ? latest.log_url.toLowerCase() : '';
   const job = logUrl.startsWith(prefix) ? logUrl.slice(prefix.length) : '';
-  if (/^[1-9]\d*$/.test(job) && positiveId(Number(job))) {
+  const jobId = Number(job);
+  if (/^[1-9]\d*$/.test(job) && positiveId(jobId)) {
     const result = await get(`actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100`);
     if (
       isPlainObject(result) &&
@@ -117,14 +118,14 @@ export async function readDeploymentEvidence(
       result.jobs.some(
         (entry: unknown) =>
           isPlainObject(entry) &&
-          entry.id === Number(job) &&
+          entry.id === jobId &&
           entry.run_id === runId &&
           entry.head_sha === sha &&
           entry.status === 'completed' &&
           entry.conclusion === 'success',
       )
     )
-      return { statusId: latest.id };
+      return { statusId: latest.id, jobId };
   }
   return { reason: '배포 상태가 승인한 실행 시도의 성공한 작업을 가리키지 않아요' };
 }
