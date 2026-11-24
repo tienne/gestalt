@@ -51,6 +51,7 @@ import {
   type GateDecision,
   type GateResolveResult,
   type GateView,
+  type MonitorRun,
   type OrderRemoveResult,
   type OrderView
 } from './protocol'
@@ -673,16 +674,10 @@ function RepoDetail({ s }: { s: RepoSummary }) {
 }
 
 function Header({ v }: { v: ConductorView | null }) {
-  const tick = ms(v?.lastTickAt)
   return (
     <Row justify="between">
       <Row gap="xs">
         <Heading level={2}>컨덕터</Heading>
-        {tick !== null ? (
-          <Text size="xs" muted>
-            tick <RelativeTime at={tick} muted />
-          </Text>
-        ) : null}
       </Row>
       <Row gap="xs">
         {/* 늘 떠 있는 안내라 지도를 밀어내지 않게 아이콘으로만 두고 내용은 툴팁으로 보여 준다 */}
@@ -692,6 +687,53 @@ function Header({ v }: { v: ConductorView | null }) {
         <IconButton icon="refresh" label="새로고침" variant="ghost" size="sm" onPress={() => load('conductor.refresh')} />
       </Row>
     </Row>
+  )
+}
+
+const UNKNOWN = '알 수 없음'
+const ORCA_RUNS = 'Orca automations runs'
+const monitorDate = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'medium' })
+const formatMonitorTime = (at: number | null) => at === null ? UNKNOWN : monitorDate.format(at)
+
+function runLabel(run: MonitorRun | null | undefined): string {
+  if (!run) return UNKNOWN
+  const label = {
+    'chat-unavailable': '대상 채팅이 닫혔거나 메일을 받을 수 없어 미실행',
+    'precheck-skipped': '사전 검사로 정상 건너뜀',
+    'post-failed': '게시 실패 (같은 실행의 tick은 알 수 없음)',
+    completed: '정상 완료 (Orca 결과 게시)',
+    unknown: UNKNOWN
+  }[run.state]
+  return `${label} · ${formatMonitorTime(run.at)}`
+}
+
+function MonitorField({ label, value, source }: { label: string; value: string; source: string }) {
+  return (
+    <Stack gap="none">
+      <Text size="sm">{label}</Text>
+      <Text size="sm">{value}</Text>
+      <Text size="xs" muted>{source}</Text>
+    </Stack>
+  )
+}
+
+function OperationsMonitor({ v }: { v: ConductorView }) {
+  const owner = v.conductor?.botOwner
+  const latest = v.monitor?.latestRun
+  const posting = v.monitor?.latestPosting
+  return (
+    <Stack gap="sm">
+      <Heading level={3}>운영 감시</Heading>
+      <MonitorField label="운영 채팅" value={owner ? `${owner.name} · ${owner.chatId}` : UNKNOWN} source="Gestalt status · botOwner" />
+      <MonitorField label="마지막 성공 tick" value={formatMonitorTime(ms(v.lastTickAt))} source="Gestalt status · tick 완료 기록" />
+      <MonitorField
+        label="다음 정기 점검 예정"
+        value={formatMonitorTime(v.monitor?.nextCheckAt ?? null)}
+        source="Orca automations list · 25분 사전 검사"
+      />
+      <MonitorField label="최근 결과 게시" value={runLabel(posting)} source={ORCA_RUNS} />
+      {latest?.id !== posting?.id ? <MonitorField label="최근 정기 실행" value={runLabel(latest)} source={ORCA_RUNS} /> : null}
+    </Stack>
   )
 }
 
@@ -711,6 +753,7 @@ export default function Panel() {
     return (
       <Stack gap="md">
         <Header v={v} />
+        <OperationsMonitor v={v} />
         <EmptyState
           icon="database"
           title="컨덕터 저장소 없음"
@@ -724,6 +767,7 @@ export default function Panel() {
   return (
     <Stack gap="md">
       <Header v={v} />
+      <OperationsMonitor v={v} />
       {v.state === 'error' ? (
         <Callout tone="danger" title="gestalt CLI가 실패했어요" icon="error">
           <Text size="xs">{v.error ?? ''}</Text>
