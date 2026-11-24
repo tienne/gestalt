@@ -136,7 +136,7 @@ export class PassthroughExecuteEngine {
 
   start(
     spec: Spec,
-    opts: { codeGraphRepoRoot?: string } = {},
+    opts: { codeGraphRepoRoot?: string; conductorPlan?: boolean } = {},
   ): Result<PassthroughStartResult, ExecuteError> {
     return this.planningOrch.start(spec, opts);
   }

@@ -22,6 +22,7 @@ export function handleStart(
 
   const result = engine.start(input.spec as Parameters<typeof engine.start>[0], {
     codeGraphRepoRoot: input.codeGraphRepoRoot,
+    conductorPlan: input.action === 'prepare_conductor',
   });
   if (!result.ok) return formatError(result.error.message);
 
@@ -108,9 +109,7 @@ export function handlePrepareConductor(
       (session.status !== 'planning' && session.status !== 'plan_complete')
     )
       return formatError('구현을 시작하기 전의 원본 실행 세션을 골라 주세요');
-    engine
-      .getSessionManager()
-      .assertPlanRepository(session.sessionId, root, target ?? '확인되지 않은 레포');
+    engine.getSessionManager().selectConductorPlan(session.sessionId, root, target);
     if (session.status === 'plan_complete' && session.executionPlan)
       return formatConductorReady(session);
     const executeContext = engine.resumePlanning(session);
@@ -132,6 +131,10 @@ export function handlePrepareConductor(
 }
 
 function formatConductorReady(session: ExecuteSession): string {
+  if (!session.conductorPlan || !session.targetRepository)
+    throw new Error(
+      '계획의 기준 레포가 기록되지 않았어요. 현재 레포에서 Spec으로 계획을 다시 준비해 주세요',
+    );
   const plan = validateFinalizedSession(session);
   return JSON.stringify({
     status: 'ready_for_conductor',
@@ -216,6 +219,20 @@ export function handlePlanComplete(
 ): string {
   if (!input.sessionId) return formatError('sessionId is required for plan_complete action');
   const verbose = input.verbose !== false;
+
+  if (input.conductor) {
+    try {
+      engine
+        .getSessionManager()
+        .selectConductorPlan(input.sessionId, input.codeGraphRepoRoot ?? input.cwd);
+    } catch (error) {
+      return JSON.stringify({
+        error: error instanceof Error ? error.message : String(error),
+        sessionId: input.sessionId,
+        nextStep: '현재 레포의 origin을 확인한 뒤 Spec으로 계획을 다시 준비해 주세요',
+      });
+    }
+  }
 
   const result = engine.planComplete(input.sessionId);
   if (!result.ok) {

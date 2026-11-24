@@ -110,10 +110,15 @@ export class ExecuteSessionManager {
     this.eventCounts.set(sessionId, (this.eventCounts.get(sessionId) ?? 0) + 1);
   }
 
-  create(spec: Spec, opts: { codeGraphRepoRoot?: string } = {}): ExecuteSession {
+  create(
+    spec: Spec,
+    opts: { codeGraphRepoRoot?: string; conductorPlan?: boolean } = {},
+  ): ExecuteSession {
     const root = opts.codeGraphRepoRoot ? resolve(opts.codeGraphRepoRoot) : undefined;
     const name = root ? githubRepositoryName(root) : undefined;
     const targetRepository = name && root ? { name, root } : undefined;
+    if (opts.conductorPlan && !targetRepository)
+      throw new Error('현재 작업 위치의 대상 레포를 확인할 수 없어요');
     const session: ExecuteSession = {
       sessionId: randomUUID(),
       specId: spec.metadata.specId,
@@ -134,6 +139,7 @@ export class ExecuteSessionManager {
       humanGates: [],
       codeGraphRepoRoot: opts.codeGraphRepoRoot,
       targetRepository,
+      ...(opts.conductorPlan ? { conductorPlan: true as const } : {}),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -147,6 +153,7 @@ export class ExecuteSessionManager {
       spec,
       codeGraphRepoRoot: opts.codeGraphRepoRoot,
       targetRepository,
+      ...(opts.conductorPlan ? { conductorPlan: true as const } : {}),
     });
 
     logger.info('execute.started', {
@@ -197,17 +204,34 @@ export class ExecuteSessionManager {
     throw new Error(error);
   }
 
-  assertPlanRepository(sessionId: string, cwd?: string, expectedRepo?: string): void {
+  selectConductorPlan(sessionId: string, cwd?: string, expectedRepo?: string): void {
     const session = this.get(sessionId);
-    const target = session.targetRepository;
-    if (!target) {
-      if (expectedRepo || session.assignedWorktree)
-        this.rejectPlanBoundary(
-          session,
-          '계획의 기준 레포가 기록되지 않았어요. 현재 레포에서 계획을 준비해 주세요',
-        );
-      return;
+    if (
+      session.assignedWorktree ||
+      (session.status !== 'planning' && session.status !== 'plan_complete')
+    )
+      throw new Error('구현을 시작하기 전의 원본 실행 세션을 골라 주세요');
+    this.assertPlanRepository(sessionId, cwd, expectedRepo, true);
+    if (!session.conductorPlan) {
+      this.record(sessionId, EventType.EXECUTE_CONDUCTOR_SELECTED, {});
+      session.conductorPlan = true;
     }
+  }
+
+  assertPlanRepository(
+    sessionId: string,
+    cwd?: string,
+    expectedRepo?: string,
+    required = false,
+  ): void {
+    const session = this.get(sessionId);
+    if (!required && !session.conductorPlan && !session.assignedWorktree && !expectedRepo) return;
+    const target = session.targetRepository;
+    if (!target)
+      this.rejectPlanBoundary(
+        session,
+        '계획의 기준 레포가 기록되지 않았어요. 현재 레포에서 Spec으로 계획을 다시 준비해 주세요',
+      );
     if (expectedRepo && target.name !== expectedRepo)
       this.rejectPlanBoundary(
         session,

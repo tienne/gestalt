@@ -546,6 +546,7 @@ export interface ExecuteSession {
   roleConsensus?: RoleConsensus;
   // Blast-radius based test filtering
   assignedWorktree?: string;
+  conductorPlan?: true;
   targetRepository?: { name: string; root: string };
   planBoundaryError?: string;
   codeGraphRepoRoot?: string;

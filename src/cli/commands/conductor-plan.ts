@@ -8,7 +8,7 @@ import { loadConfig } from '../../core/config.js';
 import { gestaltPath } from '../../core/home.js';
 import { isPlainObject } from '../../core/json-file.js';
 import { EventStore } from '../../events/store.js';
-import { claimPlanDestination } from '../../execute/plan-destination.js';
+import { claimPlanDestination, rememberPlanStore } from '../../execute/plan-destination.js';
 import { ExecuteSessionManager } from '../../execute/session.js';
 import { githubRepositoryName } from '../../harness-review/related-repos.js';
 import { readBotOwnership, targetBotOwner, type BotOwner } from '../../conductor/bot-owner.js';
@@ -86,10 +86,10 @@ function verifySource({ prepared, dbPath }: StagedPlan, cwd?: string): void {
   const events = new EventStore(dbPath);
   try {
     const sessions = new ExecuteSessionManager(events);
-    sessions.assertPlanRepository(prepared.sessionId, cwd, prepared.repo);
     const current = prepareOrderPlan(sessions.get(prepared.sessionId), prepared.repo);
     if (!isDeepStrictEqual(current, prepared))
       throw new Error('원본 실행 계획이 바뀌었어요. 현재 계획을 다시 제출해 주세요');
+    sessions.selectConductorPlan(prepared.sessionId, cwd, prepared.repo);
   } finally {
     events.close();
   }
@@ -125,6 +125,7 @@ async function accept(ctx: Ctx, caller: BotOwner | undefined, { prepared, dbPath
     const active = readBotOwnership(ctx.store.dir).active;
     if (caller.botId !== active?.botId || caller.chatId !== active.chatId)
       throw new Error('계획을 접수할 운영권이 이 채팅에 없어요');
+    rememberPlanStore(prepared.plan.planId, ctx.store.dir);
     const existing = receipt(ctx.store.dir, prepared);
     if (existing) return existing;
     verifySource({ prepared, dbPath });
@@ -199,6 +200,7 @@ export async function conductorPlanSubmitCommand(
     if (!existsSync(stateDir)) throw new Error('등록된 Orca 컨덕터 운영 채팅이 없어요');
     const ctx: Ctx = { store: ConductorStore.open(stateDir), config: config.conductor };
     assertConductorSession(ctx, 'plan submit');
+    rememberPlanStore(prepared.plan.planId, stateDir);
     const existing = receipt(stateDir, prepared);
     if (existing) return print({ ...ids, ...existing });
     verifySource(staged, origin || !opts.repo ? process.cwd() : undefined);
