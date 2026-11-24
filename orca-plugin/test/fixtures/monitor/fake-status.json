@@ -1,5 +1,6 @@
 {
-  "lastTickAt": "2026-11-24T16:25:03.000Z",
+  "lastTickAt": "2026-11-24T16:30:03.000Z",
+  "lastSuccessfulTickAt": "2026-11-24T16:25:03.000Z",
   "conductor": {
     "botOwner": { "botId": "bot-fixture", "name": "컨덕터 fixture", "chatId": "chat-fixture" }
   },

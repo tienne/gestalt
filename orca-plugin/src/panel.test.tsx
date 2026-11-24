@@ -85,6 +85,7 @@ test('운영 채팅과 다음 점검, 완료 tick, 실행 및 게시 결과의 �
   const at = Date.parse(base.lastTickAt!)
   const { host } = setup({
     ...base,
+    lastSuccessfulTickAt: base.lastTickAt!,
     conductor: { botOwner: { botId: 'bot-fixture', name: '컨덕터 fixture', chatId: 'chat-fixture' } },
     monitor: {
       automationId: 'automation-fixture',
@@ -95,7 +96,7 @@ test('운영 채팅과 다음 점검, 완료 tick, 실행 및 게시 결과의 �
   })
   const view = await mount(panel, { host })
   for (const text of ['운영 채팅', '마지막 성공 tick', '다음 정기 점검 예정', '최근 결과 게시',
-    'Gestalt status · botOwner', 'Gestalt status · tick 완료 기록', 'Orca automations list · 25분 사전 검사', 'Orca automations runs']) {
+    'Gestalt status · botOwner', 'Gestalt status · tick 성공 기록', 'Orca automations list · 25분 사전 검사', 'Orca automations runs']) {
     assert.ok(view.find({ text }), text)
   }
   assert.ok(view.find({ text: /사전 검사로 정상 건너뜀/ }))
@@ -104,8 +105,8 @@ test('운영 채팅과 다음 점검, 완료 tick, 실행 및 게시 결과의 �
   await view.unmount()
 })
 
-test('CLI에 운영 감시 자료가 없으면 알 수 없음으로 표시한다', async () => {
-  const { host } = setup({ ...base, lastTickAt: null })
+test('CLI에 성공 증거가 없는 일반 tick은 알 수 없음으로 표시한다', async () => {
+  const { host } = setup(base)
   const view = await mount(panel, { host })
   assert.equal(view.findAll({ text: '알 수 없음' }).length, 4)
   assert.deepEqual(view.errors, [])

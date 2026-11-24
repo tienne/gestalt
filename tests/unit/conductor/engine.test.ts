@@ -1022,7 +1022,7 @@ describe('컨덕터 tick', () => {
         advance(7_199_000);
         expect((await tick(store, d, { force: true })).escalated).toEqual([]);
         expect(store.worker('wrk-1')?.releaseRefusedAt).toBe(first.at);
-        expect(store.snapshot.eventCount).toBe(eventCount + 1);
+        expect(store.snapshot.eventCount).toBe(eventCount + 2); // tick과 성공 기록만 추가된다
 
         advance(1000);
         const expired = await tick(store, d, { force: true });
@@ -2229,6 +2229,7 @@ describe('tick 끝의 보관', () => {
     expect(r.archive?.orders).toEqual(['ord-a']);
     expect(r.warnings).toContain('보관: 빈 events.jsonl');
     expect(r.warnings.some((w) => w.includes('못 옮긴 주문 1개: ord-b'))).toBe(true);
+    expect(store.snapshot.lastSuccessfulTickAt).toBe(r.at);
   });
 
   it('보관이 실패해도 tick 결과는 그대로 두고 오류만 남긴다', async () => {
@@ -2243,6 +2244,8 @@ describe('tick 끝의 보관', () => {
     expect(r.launched).toHaveLength(1);
     expect(r.errors).toContain('보관 실패: 디스크가 찼어요');
     expect(r.archive).toBeUndefined();
+    expect(store.snapshot.lastTickAt).toBe(r.at);
+    expect(store.snapshot.lastSuccessfulTickAt).toBeUndefined();
   });
 
   it('보관이 상태를 바꾸고 던져도 store를 다시 읽는다', async () => {
