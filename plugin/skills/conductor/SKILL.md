@@ -188,6 +188,13 @@ gestalt conductor slack draft --channel "#release" --text-file "$tmp/draft.txt" 
 ```
 
 승인되면 다음 tick의 `hostActions`에 `slack-post`가 나온다.
+게시가 성공하면 Slack 응답의 메시지 ts나 퍼머링크를 같은 작업의 `gateId`, `deliveryId`와 함께 기록한다.
+
+```bash
+gestalt conductor slack posted <gateId> --delivery <deliveryId> --ref <messageTs>
+```
+
+게시 여부가 모호한 채 세션이 끊기면 `gestalt conductor slack delivery <gateId>`로 작업을 다시 읽고 Slack에서 같은 채널, 스레드와 본문의 게시를 확인한다. 이미 게시했으면 기존 메시지 참조를 기록한다. 확인할 수 없으면 게시 결과를 보류한다.
 
 ## 6. 배포 결과
 

@@ -27,13 +27,18 @@ import {
   conductorOrderRemoveCommand,
   conductorOrderShowCommand,
   conductorQueueAddCommand,
+  conductorSlackDeliveryCommand,
   conductorSlackDraftCommand,
+  conductorSlackPostedCommand,
   conductorStatusCommand,
   conductorTickCommand,
   conductorWaitCommand,
   conductorWorkerReportCommand,
 } from '../../../src/cli/commands/conductor.js';
-import { ConductorStore } from '../../../src/conductor/store.js';
+import { ConductorStore, EVENTS_FILE } from '../../../src/conductor/store.js';
+import { hostSlackClient } from '../../../src/conductor/adapters.js';
+import { publishApprovedSlack } from '../../../src/conductor/slack.js';
+import type { HostAction } from '../../../src/conductor/launcher.js';
 import { registerSession } from '../../../src/conductor/handoff.js';
 import { touchSessionTick } from '../../../src/conductor/session-owner.js';
 import { claimWaitOwner } from '../../../src/conductor/wait.js';
@@ -603,6 +608,63 @@ describe('gestalt conductor', () => {
       'exit 1',
     );
     expect(err.at(-1)).toContain('이미 종료된');
+  });
+
+  it('중단 뒤 Slack 인계를 찾고 같은 작업의 게시 결과만 한 번 기록한다', async () => {
+    const stateDir = tempStateDir();
+    const textFile = join(stateDir, 'draft.txt');
+    const store = ConductorStore.open(stateDir);
+    store.addOrder(order({ id: 'ord-slack', status: 'done' }));
+    writeFileSync(textFile, '게시할 본문');
+    conductorSlackDraftCommand({
+      stateDir,
+      json: true,
+      order: 'ord-slack',
+      channel: 'C123',
+      textFile,
+    });
+    const gateId = String(last()['gateId']);
+    await conductorGateResolveCommand(gateId, { stateDir, approve: true });
+    const actions: HostAction[] = [];
+    const client = hostSlackClient(actions);
+    store.reload();
+    await publishApprovedSlack(store, client);
+    const action = actions[0];
+    if (action?.type !== 'slack-post') throw new Error('Slack 인계가 없어요');
+    expect(action).toMatchObject({ gateId, orderId: 'ord-slack', channel: 'C123' });
+
+    const restarted = ConductorStore.open(stateDir);
+    expect((await publishApprovedSlack(restarted, client)).posted).toEqual([]);
+    expect(actions).toHaveLength(1);
+    await conductorSlackDeliveryCommand(gateId, { stateDir });
+    expect(last()).toEqual({
+      gateId,
+      orderId: 'ord-slack',
+      channel: 'C123',
+      text: '게시할 본문',
+      deliveryId: action.deliveryId,
+    });
+    const opts = { stateDir, json: true, delivery: action.deliveryId, ref: '12345.000001' };
+    await expect(
+      conductorSlackPostedCommand(gateId, { ...opts, delivery: 'different' }),
+    ).rejects.toThrow('exit 1');
+    expect(err.at(-1)).toContain('식별자가 달라');
+    await expect(conductorSlackPostedCommand(gateId, { ...opts, ref: 'host' })).rejects.toThrow(
+      'exit 1',
+    );
+    expect(ConductorStore.open(stateDir).snapshot.slackPosted[gateId]).toBe('host');
+    await conductorSlackPostedCommand(gateId, opts);
+    expect(last()).toMatchObject({ gateId, recorded: true, ref: opts.ref });
+    await conductorSlackPostedCommand(gateId, opts);
+    expect(last()).toMatchObject({ gateId, recorded: false });
+    await expect(
+      conductorSlackPostedCommand(gateId, { ...opts, ref: '12345.000002' }),
+    ).rejects.toThrow('exit 1');
+    expect(ConductorStore.open(stateDir).snapshot.slackPosted[gateId]).toBe(opts.ref);
+    const receipts = readFileSync(join(stateDir, EVENTS_FILE), 'utf8').match(
+      /"ref":"12345\.000001"/g,
+    );
+    expect(receipts).toHaveLength(1);
   });
 
   it('주문의 --pr과 --skills, --issue-key는 꼴이 틀리면 받지 않는다', () => {

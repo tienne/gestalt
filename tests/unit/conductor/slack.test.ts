@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { hostSlackClient } from '../../../src/conductor/adapters.js';
 import { resolveGate } from '../../../src/conductor/gates.js';
 import {
   draftSlack,
@@ -9,6 +10,7 @@ import {
   type SlackClient,
 } from '../../../src/conductor/slack.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
+import type { HostAction } from '../../../src/conductor/launcher.js';
 import { cleanupStateDirs, tempStateDir } from './fixtures.js';
 
 afterEach(cleanupStateDirs);
@@ -25,6 +27,25 @@ function fakeSlack() {
 }
 
 describe('슬랙 초안', () => {
+  it('인계 기록을 쓰지 못하면 호스트에 게시 작업을 넘기지 않는다', async () => {
+    const dir = tempStateDir();
+    const store = ConductorStore.open(dir);
+    const { gate } = draftSlack(store, { channel: 'C123', text: '게시할 본문' }, dir);
+    resolveGate(store, gate.id, 'approved');
+    const actions: HostAction[] = [];
+    const append = vi.spyOn(store, 'append').mockImplementationOnce(() => {
+      throw new Error('인계 기록 실패');
+    });
+    const result = await publishApprovedSlack(store, hostSlackClient(actions));
+    append.mockRestore();
+    expect(result.failed).toEqual([{ gateId: gate.id, error: '인계 기록 실패' }]);
+    expect(actions).toEqual([]);
+    const restarted = ConductorStore.open(dir);
+    await publishApprovedSlack(restarted, hostSlackClient(actions));
+    expect(actions).toHaveLength(1);
+    expect(restarted.snapshot.slackPosted[gate.id]).toBe('host');
+  });
+
   it('초안은 게이트로 올리고 승인 전에는 보내지 않으며 승인되면 한 번만 보낸다', async () => {
     const dir = tempStateDir();
     const s = ConductorStore.open(dir);

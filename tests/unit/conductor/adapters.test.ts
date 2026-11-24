@@ -56,10 +56,14 @@ describe('호스트로 넘기는 쓰기', () => {
   it('지라 전환과 슬랙 게시는 할 일로만 모은다', async () => {
     const actions: HostAction[] = [];
     await hostJiraClient(actions).transition('APP-1', 'PR');
-    expect(await hostSlackClient(actions).post({ channel: '#a', text: '안녕' })).toBe('host');
+    const delivery = { gateId: 'gate-slack', deliveryId: 'delivery-1', orderId: 'ord-1' };
+    const handoff = await hostSlackClient(actions).post({ channel: '#a', text: '안녕' }, delivery);
+    expect(actions).toHaveLength(1);
+    if (typeof handoff === 'string') throw new Error('Slack 호스트 인계가 없어요');
+    handoff.enqueue();
     expect(actions).toEqual([
       { type: 'jira-transition', issueKey: 'APP-1', to: 'PR' },
-      { type: 'slack-post', channel: '#a', text: '안녕' },
+      { type: 'slack-post', channel: '#a', text: '안녕', ...delivery },
     ]);
   });
 
