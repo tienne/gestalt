@@ -286,52 +286,42 @@ describe('레포 스킬', () => {
     expect(spoken.skillChain).toEqual(['solve', 'repo:release']);
   });
 
-  it('오르카 워커도 오르카가 없으면 repoPaths로 떨어지므로 부모와 repoPaths를 다 본다', () => {
-    const s = ConductorStore.open(tempStateDir());
-    const withSkill = repoWithSkills('release');
-    const plain = repoWithSkills();
-    const add = (title: string, parentWorktree: string, repoPath: string) =>
-      intakeOrder(
-        s,
-        {
-          source: 'spoken',
-          repo: 'acme/app',
-          title,
-          skillChain: ['repo:release'],
-          parentWorktree,
-          workerKind: 'orca-worktree',
-        },
-        { ...config, repoPaths: { 'acme/app': repoPath } },
-      );
-    expect(() => add('부모에만', withSkill, plain)).toThrow(/repo:release 스킬이 없어요/);
-    expect(() => add('repoPaths에만', plain, withSkill)).toThrow(/repo:release 스킬이 없어요/);
-    expect(add('둘 다', withSkill, repoWithSkills('release')).order.skillChain).toEqual([
-      'repo:release',
-    ]);
-  });
+  const skillDoc = (root: string) => join(root, '.claude', 'skills', 'release', 'SKILL.md');
 
-  it('오르카 워커에 부모만 있고 repoPaths를 모르면 부모 체크아웃만 본다', () => {
-    const s = ConductorStore.open(tempStateDir());
-    const made = intakeOrder(
-      s,
-      {
-        source: 'spoken',
-        repo: 'acme/app',
-        title: 'x',
-        skillChain: ['repo:release'],
-        parentWorktree: repoWithSkills('release'),
-        workerKind: 'orca-worktree',
-      },
-      { ...config, repoPaths: {} },
-    ).order;
-    expect(made.skillChain).toEqual(['repo:release']);
-  });
+  it.each([
+    { label: '오르카 워커', workerKind: 'orca-worktree' as const },
+    { label: '종류를 안 정한 주문', workerKind: undefined },
+  ])(
+    '$label도 오르카가 없으면 repoPaths로 떨어지므로 부모와 repoPaths 가운데 아는 경로를 다 본다',
+    ({ workerKind }) => {
+      const s = ConductorStore.open(tempStateDir());
+      const withSkill = repoWithSkills('release');
+      const plain = repoWithSkills();
+      const add = (title: string, parentWorktree: string, repoPaths: Record<string, string>) =>
+        intakeOrder(
+          s,
+          {
+            source: 'spoken',
+            repo: 'acme/app',
+            title,
+            skillChain: ['repo:release'],
+            parentWorktree,
+            workerKind,
+          },
+          { ...config, repoPaths },
+        );
+      expect(() => add('부모에만', withSkill, { 'acme/app': plain })).toThrow(skillDoc(plain));
+      expect(() => add('repoPaths에만', plain, { 'acme/app': withSkill })).toThrow(skillDoc(plain));
+      expect(add('둘 다', withSkill, { 'acme/app': repoWithSkills('release') }).created).toBe(true);
+      expect(add('부모만 알 때', withSkill, {}).created).toBe(true);
+    },
+  );
 
   it('git 워크트리 워커는 부모를 무시하고 띄우므로 repoPaths 쪽에서만 찾는다', () => {
     const s = ConductorStore.open(tempStateDir());
     const withSkill = repoWithSkills('release');
     const plain = repoWithSkills();
-    const add = (title: string, parentWorktree: string, repoPath: string) =>
+    const add = (title: string, parentWorktree: string, repoPaths: Record<string, string>) =>
       intakeOrder(
         s,
         {
@@ -342,29 +332,12 @@ describe('레포 스킬', () => {
           parentWorktree,
           workerKind: 'git-worktree',
         },
-        { ...config, repoPaths: { 'acme/app': repoPath } },
+        { ...config, repoPaths },
       );
-    expect(add('x', plain, withSkill).created).toBe(true);
-    expect(() => add('y', withSkill, plain)).toThrow(/repo:release 스킬이 없어요/);
-  });
-
-  it('워커 종류를 안 정했으면 부모와 repoPaths 가운데 아는 경로를 다 본다', () => {
-    const s = ConductorStore.open(tempStateDir());
-    const withSkill = repoWithSkills('release');
-    const plain = repoWithSkills();
-    const input = {
-      source: 'spoken' as const,
-      repo: 'acme/app',
-      title: 'x',
-      skillChain: ['repo:release'],
-      parentWorktree: withSkill,
-    };
-    // 오르카가 없으면 git 워크트리로 떨어져 repoPaths에서 띄우므로 거기에도 있어야 한다
-    expect(() => intakeOrder(s, input, { ...config, repoPaths: { 'acme/app': plain } })).toThrow(
-      /repo:release 스킬이 없어요/,
-    );
-    // repoPaths에 그 레포가 없다는 이유만으로는 거절하지 않는다
-    expect(intakeOrder(s, input, config).created).toBe(true);
+    expect(add('x', plain, { 'acme/app': withSkill }).created).toBe(true);
+    expect(() => add('y', withSkill, { 'acme/app': plain })).toThrow(skillDoc(plain));
+    expect(() => add('z', withSkill, {})).toThrow(/로컬 경로를 몰라.*repoPaths/);
+    expect(s.orders().map((o) => o.title)).toEqual(['x']);
   });
 
   it('ship과 레포 스킬은 한 체인에 받지 않는다', () => {
