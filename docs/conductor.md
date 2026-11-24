@@ -316,6 +316,14 @@ gestalt conductor gate resolve <gateId> --take-over --answer "머지는 내가 �
 
 `gate resolve` 응답에 `hostActions`가 실리면 컨덕터 세션이 그걸 실행해야 결정이 워커에 닿는다. 그래서 대화에서 답하는 쪽이 기본이다.
 
+이미 끝난 승인 주문의 태그 배포를 대조하려면 운영자 터미널에서 배포 범위를 함께 승인한다.
+
+```bash
+gestalt conductor gate resolve <gateId> --approve --completed-deploy '{"runId":21,"attempt":2,"deploymentId":32,"environment":"customer-stage"}'
+```
+
+tick은 게이트 요청의 레포, 커밋, 태그를 승인 범위와 대조한다. GitHub에서 실행 시도와 해당 환경의 최신 배포 상태가 성공이고 그 상태가 같은 시도의 성공한 작업을 가리키면 게이트의 `completion`에 증빙을 남긴다. Orca 정리 실패 게이트는 기존 승인, dispatch 식별자, 종료와 터미널 해제 상태가 맞고 후속 작업이 끝났을 때 `completion`을 남긴다. 승인이나 증빙이 부족하면 tick 보고에 보류 이유가 나온다. 증빙 대조 단계는 읽기 요청만 보낸다.
+
 답은 셋 중 하나다. `--answer`는 어느 답에나 붙일 수 있고 워커에는 고정 문구보다 먼저 따르라는 말과 함께 전해진다.
 
 | 답            | 워커가 받는 지시                                                                                                           | 주문                                               |

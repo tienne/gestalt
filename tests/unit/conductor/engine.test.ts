@@ -25,7 +25,12 @@ import {
   type EngineDeps,
 } from '../../../src/conductor/engine.js';
 import { readWorkerInfo } from '../../../src/conductor/activity.js';
-import { resolveGate } from '../../../src/conductor/gates.js';
+import { GhAccounts } from '../../../src/conductor/adapters.js';
+import {
+  approveDeployment,
+  readDeploymentEvidence,
+} from '../../../src/conductor/deployment-evidence.js';
+import { openOrReuse, resolveGate } from '../../../src/conductor/gates.js';
 import { saveSkillCheckpoint } from '../../../src/conductor/resume.js';
 import type { DeploySignal, JiraClient } from '../../../src/conductor/jira.js';
 import { repoContextPath } from '../../../src/conductor/context.js';
@@ -122,6 +127,309 @@ function report(store: ConductorStore, d: EngineDeps, raw: Record<string, unknow
     config.resultMaxChars,
   );
 }
+
+describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
+  const repo = 'example/customer-frontend';
+  const sha = 'a'.repeat(40);
+  const ref = 'customer-stage-v.260101.2';
+  const environment = 'customer-stage';
+  const scope = { runId: 21, attempt: 2, deploymentId: 32, environment };
+  const run = {
+    id: 21,
+    run_attempt: 2,
+    head_sha: sha,
+    event: 'push',
+    head_branch: ref,
+    repository: { full_name: repo },
+    status: 'completed',
+    conclusion: 'success',
+  };
+  const deployment = { id: 32, sha, ref, environment };
+  const status = {
+    id: 43,
+    environment,
+    state: 'success',
+    log_url: `https://github.com/${repo}/actions/runs/21/job/54`,
+  };
+  const jobs = {
+    jobs: [{ id: 54, run_id: 21, head_sha: sha, status: 'completed', conclusion: 'success' }],
+  };
+  const json = (value: unknown) => ({ code: 0, stdout: JSON.stringify(value), stderr: '' });
+
+  function deploymentGate(store: ConductorStore) {
+    store.addOrder(order({ id: 'ord-stage', repo, status: 'done', scope: 'approval' }));
+    return openOrReuse(store, {
+      type: 'no-procedure',
+      orderId: 'ord-stage',
+      reason: `ship ⓐⓑⓒ 단계로 확인되지 않은 단순 승인이라 사람에게 올려요: ${repo}의 커밋 ${sha}에 ${ref} 태그를 붙여 origin에 push하면 customer stage 배포가 시작됩니다.`,
+    }).gate;
+  }
+
+  function workerGate(store: ConductorStore, handle = 'ctx_0123abcd') {
+    store.addOrder(order({ id: 'ord-worker', repo, status: 'done' }));
+    store.startWorker(
+      worker('ord-worker', {
+        id: 'wrk-previous',
+        handle,
+        kind: 'orca-worktree',
+        status: 'finished',
+      }),
+    );
+    return openOrReuse(store, {
+      type: 'no-procedure',
+      reason:
+        'wrk-previous 정리에 실패했어요(liveness live). `orca orchestration worker-stop --dispatch=ctx_0123abcd`로 앞 워커를 멈춘 뒤 승인해 주세요',
+      payload: { kind: 'cleanup-failed', workerId: 'wrk-previous', orderId: 'ord-worker' },
+    }).gate;
+  }
+
+  function githubResponses() {
+    return new Map<string, unknown>([
+      [`repos/${repo}/actions/runs/21`, run],
+      [`repos/${repo}/deployments/32`, deployment],
+      [`repos/${repo}/deployments/32/statuses?per_page=1`, [status]],
+      [`repos/${repo}/actions/runs/21/attempts/2/jobs?per_page=100`, jobs],
+    ]);
+  }
+
+  const ended = {
+    dispatchId: 'ctx_0123abcd',
+    runId: 'run-fixture',
+    state: 'stopped',
+    stage: 'process_stopped',
+    liveness: 'exited',
+    terminalState: 'released',
+    waitingOnHuman: 'unknown',
+  };
+
+  it('GitHub 조회 사이에 게이트의 요청이 바뀌면 예전 증빙을 쓰지 않는다', async () => {
+    const { store } = clockedStore();
+    const gate = deploymentGate(store);
+    resolveGate(store, gate.id, 'approved', undefined, {
+      approvedDeployment: approveDeployment(gate, repo, JSON.stringify(scope)),
+    });
+    const { deps: d } = deps({
+      deploymentEvidence: async () => {
+        store.append({
+          type: 'gate-updated',
+          at: store.timestamp(),
+          gateId: gate.id,
+          reason: gate.reason.replace(ref, 'customer-stage-v.260101.3'),
+          refs: [],
+        });
+        return { statusId: 43 };
+      },
+    });
+    expect((await tick(store, d, { force: true })).warnings).toEqual([
+      expect.stringContaining('조회 중 게이트나 주문 상태가 바뀌었어요'),
+    ]);
+    expect(store.snapshot.gates[gate.id]?.completion).toBeUndefined();
+  });
+
+  it('사람이 승인한 두 실제 사례의 치환 fixture를 다시 열어도 완료를 한 번씩만 기록한다', async () => {
+    const { store } = clockedStore();
+    const stage = deploymentGate(store);
+    const cleanup = workerGate(store);
+    const calls: string[][] = [];
+    const responses = githubResponses();
+    const runner: CommandRunner = async (command, args) => {
+      calls.push([command, ...args]);
+      if (command === 'orca') {
+        expect(args).toEqual(['orchestration', 'worker-show', '--dispatch=ctx_0123abcd', '--json']);
+        return json({ ok: true, result: ended });
+      }
+      expect(args.slice(0, 3)).toEqual(['api', '--method', 'GET']);
+      expect(responses.has(args[3]!)).toBe(true);
+      return json(responses.get(args[3]!));
+    };
+    const { deps: d } = deps({
+      launchers: {
+        'orca-worktree': new OrcaLauncher({
+          orcaCommand: 'orca',
+          promptDir: tempStateDir(),
+          runner,
+        }),
+      },
+      deploymentEvidence: (target) => readDeploymentEvidence(target, new GhAccounts(), runner),
+    });
+    const before = await tick(store, d, { force: true });
+    expect(before.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`${stage.id} 배포 완료 보류`),
+        expect.stringContaining(`${cleanup.id} 워커 정리 보류`),
+      ]),
+    );
+    expect(calls).toEqual([]);
+    expect(store.openGates().map((g) => g.id)).toEqual([stage.id, cleanup.id]);
+
+    resolveGate(store, stage.id, 'approved', undefined, {
+      approvedDeployment: approveDeployment(stage, repo, JSON.stringify(scope)),
+    });
+    resolveGate(store, cleanup.id, 'approved');
+    const done = await tick(store, d, { force: true });
+    expect(done.errors).toEqual([]);
+    expect(done.hostActions).toEqual([]);
+    expect(calls).toHaveLength(5);
+    expect(store.snapshot.gates[stage.id]?.completion?.evidence).toMatchObject({
+      kind: 'github-deployment',
+      statusId: 43,
+      target: { sha, ...scope },
+    });
+    expect(store.snapshot.gates[cleanup.id]?.completion?.evidence).toMatchObject({
+      kind: 'orca-worker',
+      dispatchId: ended.dispatchId,
+      runId: ended.runId,
+      workerId: 'wrk-previous',
+    });
+    expect(store.worker('wrk-previous')?.status).toBe('released');
+    await tick(store, d, { force: true });
+    const reopened = ConductorStore.open(store.dir);
+    expect((await tick(reopened, d, { force: true })).errors).toEqual([]);
+    expect(calls).toHaveLength(5);
+    const events = readFileSync(join(store.dir, EVENTS_FILE), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { type: string; gateId?: string });
+    expect(events.filter((event) => event.type === 'gate-resolved').map((e) => e.gateId)).toEqual([
+      stage.id,
+      cleanup.id,
+    ]);
+    expect(events.filter((event) => event.type === 'gate-completed').map((e) => e.gateId)).toEqual([
+      stage.id,
+      cleanup.id,
+    ]);
+    expect(reopened.worker('wrk-previous')?.status).toBe('released');
+  });
+
+  it.each([
+    ['실행 실패', 'actions/runs/21', { ...run, conclusion: 'failure' }, /실행의 성공/],
+    ['시도 불일치', 'actions/runs/21', { ...run, run_attempt: 3 }, /승인과 달라/],
+    ['커밋 불일치', 'actions/runs/21', { ...run, head_sha: 'b'.repeat(40) }, /승인과 달라/],
+    ['환경 불일치', 'deployments/32', { ...deployment, environment: 'production' }, /승인과 달라/],
+    [
+      '최신 배포 실패',
+      'deployments/32/statuses?per_page=1',
+      [{ ...status, state: 'failure' }],
+      /성공이 아니/,
+    ],
+    [
+      '실행 연결 불일치',
+      'deployments/32/statuses?per_page=1',
+      [{ ...status, log_url: status.log_url.replace('/21/', '/22/') }],
+      /가리키지 않아/,
+    ],
+    ['조회 실패', 'actions/runs/21', undefined, /조회하거나 기록하지 못/],
+  ] as const)('%s면 배포 완료를 보류한다', async (_name, route, value, reason) => {
+    const { store } = clockedStore();
+    const gate = deploymentGate(store);
+    resolveGate(store, gate.id, 'approved', undefined, {
+      approvedDeployment: approveDeployment(gate, repo, JSON.stringify(scope)),
+    });
+    const responses = githubResponses();
+    responses.set(`repos/${repo}/${route}`, value);
+    const runner: CommandRunner = async (_cmd, args) =>
+      responses.get(args[3]!) === undefined
+        ? { code: 1, stdout: '', stderr: '' }
+        : json(responses.get(args[3]!));
+    const { deps: d } = deps({
+      deploymentEvidence: (target) => readDeploymentEvidence(target, new GhAccounts(), runner),
+    });
+    expect((await tick(store, d, { force: true })).warnings).toEqual([
+      expect.stringMatching(reason),
+    ]);
+    expect(store.snapshot.gates[gate.id]?.completion).toBeUndefined();
+  });
+
+  it.each([
+    [
+      '다른 dispatch',
+      'ctx_0123abcd',
+      { ...ended, dispatchId: 'ctx_abcd0123' },
+      false,
+      /식별자가 맞지 않아/,
+    ],
+    ['다른 승인 대상', 'ctx_abcd0123', ended, false, /현재 워커 실행이 달라/],
+    ['워크트리 정리 대기', 'ctx_0123abcd', ended, true, /워크트리 정리 증빙/],
+    [
+      '터미널 정리 대기',
+      'ctx_0123abcd',
+      { ...ended, terminalState: 'retained' },
+      false,
+      /터미널 정리/,
+    ],
+    ['출력 불명', 'ctx_0123abcd', { ...ended, liveness: 'unverifiable' }, false, /종료됐다는 근거/],
+    ['조회 실패', 'ctx_0123abcd', undefined, false, /종료 증빙을 조회/],
+  ] as const)('%s면 워커 완료를 보류한다', async (_name, handle, observed, removeDone, reason) => {
+    const { store } = clockedStore();
+    const gate = workerGate(store, handle);
+    resolveGate(store, gate.id, 'approved');
+    const launcher = fakeLauncher('orca-worktree');
+    launcher.launcher.completion = async () => {
+      if (!observed) throw new Error('조회 실패');
+      return observed;
+    };
+    const { deps: d } = deps({
+      launchers: { 'orca-worktree': launcher.launcher },
+      config: { ...config, removeDoneOrcaWorktrees: removeDone },
+    });
+    expect((await tick(store, d, { force: true })).warnings).toEqual([
+      expect.stringMatching(reason),
+    ]);
+    expect(launcher.released).toEqual([]);
+    expect(store.worker('wrk-previous')?.status).toBe('finished');
+    expect(store.snapshot.gates[gate.id]?.completion).toBeUndefined();
+  });
+
+  it('ORCA가 종료됐더라도 하위 주문이 남아 있으면 조회와 정리를 보류한다', async () => {
+    const { store } = clockedStore();
+    const gate = workerGate(store);
+    store.addOrder(
+      order({ id: 'ord-follow-up', parentOrderId: 'ord-worker', status: 'escalated' }),
+    );
+    resolveGate(store, gate.id, 'approved');
+    const launcher = fakeLauncher('orca-worktree');
+    launcher.launcher.completion = async () => {
+      throw new Error('후속 주문이 남아 있으면 호출하지 않아요');
+    };
+    const { deps: d } = deps({ launchers: { 'orca-worktree': launcher.launcher } });
+    expect((await tick(store, d, { force: true })).warnings).toEqual([
+      expect.stringContaining('남은 후속 작업'),
+    ]);
+    expect(launcher.released).toEqual([]);
+    expect(store.snapshot.gates[gate.id]?.completion).toBeUndefined();
+  });
+
+  it('워크트리까지 정리해야 한다면 같은 워크트리가 없어졌는지 읽기 요청으로 확인한다', async () => {
+    const { store } = clockedStore();
+    const gate = workerGate(store);
+    resolveGate(store, gate.id, 'approved');
+    const workspace = 'repo-fixture::/tmp/orca-fixture/ord-worker-1';
+    const calls: string[][] = [];
+    const runner: CommandRunner = async (_cmd, args) => {
+      calls.push(args);
+      if (args[0] === 'orchestration') return json({ ok: true, result: { ...ended, workspace } });
+      return { ...json({ ok: false, error: { code: 'selector_not_found' } }), code: 1 };
+    };
+    const { deps: d } = deps({
+      launchers: {
+        'orca-worktree': new OrcaLauncher({
+          orcaCommand: 'orca',
+          promptDir: tempStateDir(),
+          runner,
+        }),
+      },
+      config: { ...config, removeDoneOrcaWorktrees: true },
+    });
+    expect((await tick(store, d, { force: true })).warnings).toEqual([]);
+    expect(calls).toEqual([
+      ['orchestration', 'worker-show', '--dispatch=ctx_0123abcd', '--json'],
+      ['worktree', 'show', '--worktree', `id:${workspace}`, '--json'],
+    ]);
+    expect(store.snapshot.gates[gate.id]?.completion?.evidence).toMatchObject({
+      removedWorkspace: workspace,
+    });
+  });
+});
 
 describe('컨덕터 tick', () => {
   it('동시 상한을 넘는 주문은 큐에 남았다가 자리가 나면 뜬다', async () => {
