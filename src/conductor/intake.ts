@@ -1,8 +1,9 @@
 import { statSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { log } from '../core/log.js';
 import type { ConductorConfig } from './scheduler.js';
 import { openOrReuse } from './gates.js';
+import { real } from './parent-worktree.js';
 import { newId, type ConductorStore } from './store.js';
 import {
   AGENT_ID_RE,
@@ -200,7 +201,6 @@ export function intakeOrder(
     ? checkDeployTargets(store, input.repo, input.deploys, trusted)
     : undefined;
   const skills = trusted ? input.skillChain : input.skillChain?.filter((s) => KNOWN_SKILLS.has(s));
-  if (trusted && skills?.some(isRepoSkill)) checkRepoSkills(skills, input, config.repoPaths ?? {});
 
   const description =
     input.description && opts.trusted !== true
@@ -215,6 +215,8 @@ export function intakeOrder(
   if (removedAt) return { created: false, removedAt };
   const archivedAt = store.archivedAtOf(sourceRef);
   if (archivedAt) return { created: false, archivedAt };
+  // 같은 주문을 다시 넣은 경우는 위에서 돌려준다. 그사이 파일이 지워졌어도 이미 만든 주문은 그대로다
+  if (trusted && skills?.some(isRepoSkill)) checkRepoSkills(skills, input, config.repoPaths ?? {});
 
   const at = store.timestamp();
   const order: Order = {
@@ -246,37 +248,61 @@ export function intakeOrder(
   return { order, created: true };
 }
 
-/**
- * 레포 스킬이 주문을 넣는 지금 대상 레포의 로컬 체크아웃에 있는지 본다. 부모 워크트리를 줬으면
- * 워커 워크트리가 거기서 갈라지므로 그쪽을, 아니면 repoPaths의 경로를 본다
- */
+/** 레포 스킬이 주문을 넣는 지금 워커 워크트리가 갈라질 로컬 체크아웃에 있는지 본다 */
 function checkRepoSkills(
   skills: string[],
   input: IntakeInput,
   repoPaths: Record<string, string>,
 ): void {
+  // ship 단계 값이 붙은 단순 승인은 사람을 안 거치므로 같은 체인에 두면 레포 스킬의 푸시 승인도 넘어간다
+  if (skills.includes('ship'))
+    throw new Error('레포 스킬 체인에는 ship을 같이 넣을 수 없어요. 주문을 나눠 넣어 주세요');
   // 서브에이전트는 컨덕터 자리에서 돌아 대상 레포 워크트리의 스킬 문서를 못 읽는다
   if (input.workerKind === 'subagent')
     throw new Error(
       '레포 스킬이 있는 체인은 서브에이전트 워커로 못 띄워요. --worker-kind를 빼 주세요',
     );
-  const root =
-    input.parentWorktree ??
-    (Object.hasOwn(repoPaths, input.repo) ? repoPaths[input.repo] : undefined);
+  const roots = repoSkillRoots(input, repoPaths);
+  const seen = new Set<string>();
   for (const skill of skills) {
     const name = repoSkillName(skill);
-    if (name === undefined) continue;
+    if (name === undefined || seen.has(name)) continue;
+    seen.add(name);
     if (!isRepoSkillName(name))
       throw new Error(
         `레포 스킬 이름은 영문 소문자와 숫자, \`-\`만 쓴 64자 이하로 적어 주세요: ${oneLine(skill, 80)}`,
       );
-    if (!root)
+    if (roots.length === 0)
       throw new Error(
-        `${input.repo}의 로컬 경로를 몰라 ${skill}이 있는지 못 봤어요. ~/.gestalt/conductor.json의 repoPaths에 적어 주세요`,
+        `${input.repo}의 로컬 경로를 몰라 ${skill} 스킬이 있는지 확인하지 못했어요. ~/.gestalt/conductor.json의 repoPaths에 적어 주세요`,
       );
-    const file = join(root, repoSkillPath(name));
-    if (!isFile(file)) throw new Error(`${input.repo}에 ${skill} 스킬이 없어요: ${file}`);
+    for (const root of roots) {
+      const file = join(root, repoSkillPath(name));
+      if (!isFile(file)) throw new Error(`${input.repo}에 ${skill} 스킬이 없어요: ${file}`);
+      if (!isInside(real(root), real(file)))
+        throw new Error(`${skill} 스킬 문서가 레포 밖을 가리키는 링크예요: ${file}`);
+    }
   }
+}
+
+/**
+ * 워커 워크트리가 갈라질 자리. git 워크트리 워커는 부모를 무시하고 repoPaths에서 띄운다. 종류를
+ * 안 정한 주문은 오르카가 없으면 git 워크트리로 떨어지므로 두 자리를 다 본다
+ */
+function repoSkillRoots(input: IntakeInput, repoPaths: Record<string, string>): string[] {
+  const repoPath = Object.hasOwn(repoPaths, input.repo) ? repoPaths[input.repo] : undefined;
+  const roots =
+    input.workerKind === 'git-worktree'
+      ? [repoPath]
+      : input.workerKind === 'orca-worktree'
+        ? [input.parentWorktree ?? repoPath]
+        : [input.parentWorktree, repoPath];
+  return roots.filter((r): r is string => r !== undefined);
+}
+
+function isInside(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel !== '' && !isAbsolute(rel) && rel.split(sep)[0] !== '..';
 }
 
 function isFile(path: string): boolean {
