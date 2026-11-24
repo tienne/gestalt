@@ -211,13 +211,12 @@ const REMOVAL_WORDS = {
 } as const;
 
 /**
- * 주문 id로 찾는 워커와 게이트, 상태에 남은 게이트의 `payload.sourceRef`. 주문마다 배열을 훑으면 주문 수의
+ * 주문 id로 찾는 워커와 게이트. 주문마다 배열을 훑으면 주문 수의
  * 제곱으로 늘어서 한 번 모아 둔다. 상태를 고치면 다시 만든다. 다른 주문을 상태에서 빼는 건 괜찮다
  */
 export interface OrderIndex {
   workers: ReadonlyMap<string, Worker[]>;
   gates: ReadonlyMap<string, Gate[]>;
-  gateSourceRefs: ReadonlySet<string>;
 }
 
 export function indexByOrder(s: ConductorSnapshot): OrderIndex {
@@ -228,16 +227,13 @@ export function indexByOrder(s: ConductorSnapshot): OrderIndex {
     else workers.set(w.orderId, [w]);
   }
   const gates = new Map<string, Gate[]>();
-  const gateSourceRefs = new Set<string>();
   for (const g of Object.values(s.gates)) {
-    const ref = g.payload?.sourceRef;
-    if (ref !== undefined) gateSourceRefs.add(ref);
     if (g.orderId === undefined) continue;
     const list = gates.get(g.orderId);
     if (list) list.push(g);
     else gates.set(g.orderId, [g]);
   }
-  return { workers, gates, gateSourceRefs };
+  return { workers, gates };
 }
 
 function workersOfOrder(s: ConductorSnapshot, orderId: string, index?: OrderIndex): Worker[] {
@@ -509,10 +505,11 @@ export class ConductorStore {
    * 사람이 거절한 것도 물은 것으로 친다
    */
   askedSourceRef(sourceRef: string): boolean {
-    return (
-      this.byOrder().gateSourceRefs.has(sourceRef) ||
-      Object.hasOwn(this.state.askedSourceRefs, sourceRef)
-    );
+    if (Object.hasOwn(this.state.askedSourceRefs, sourceRef)) return true;
+    // 부를 때마다 앞에서 이벤트가 붙는 루프(pr-watch, askOnce)라 인덱스를 다시 만들면 게이트와 워커를 매번 다 훑는다
+    for (const g of Object.values(this.state.gates))
+      if (g.payload?.sourceRef === sourceRef) return true;
+    return false;
   }
 
   /** 상태는 이벤트로만 바뀌고 그때마다 eventCount가 는다. 다시 읽으면 상태 객체가 바뀐다 */
