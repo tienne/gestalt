@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PassthroughEngine } from '../../../src/interview/passthrough-engine.js';
 import { PassthroughSpecGenerator } from '../../../src/spec/passthrough-generator.js';
@@ -83,6 +87,40 @@ describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
       ).toBe(false);
     } finally {
       fx.close();
+    }
+  });
+
+  it('현재 레포의 계획만 자동 선택하고 다른 레포의 명시적 계획은 거절한다', async () => {
+    const fx = createExecuteFixture('conductor-plan-repo');
+    const first = mkdtempSync(join(tmpdir(), 'gestalt-conductor-a-'));
+    const second = mkdtempSync(join(tmpdir(), 'gestalt-conductor-b-'));
+    const spec = makeSpec();
+    try {
+      execFileSync('git', ['init', '-q', first]);
+      execFileSync('git', ['init', '-q', second]);
+      const a = await fx.call({ action: 'prepare_conductor', spec, codeGraphRepoRoot: first });
+      const aSessionId = a['sessionId'] as string;
+      for (const stepResult of planningSteps(spec))
+        await fx.call({ action: 'plan_step', sessionId: aSessionId, stepResult });
+      const aPlan = await fx.call({
+        action: 'plan_complete',
+        sessionId: aSessionId,
+        conductor: true,
+      });
+      const rejected = await fx.call({
+        action: 'prepare_conductor',
+        planId: aPlan['planId'] as string,
+        codeGraphRepoRoot: second,
+      });
+      expect(rejected['error']).toContain('대상 레포');
+      const b = await fx.call({ action: 'prepare_conductor', spec, codeGraphRepoRoot: second });
+      expect(b).toMatchObject({ status: 'started', nextAction: 'plan_step' });
+      expect(b['sessionId']).not.toBe(aSessionId);
+      const reused = await fx.call({ action: 'prepare_conductor', spec, codeGraphRepoRoot: first });
+      expect(reused).toEqual(aPlan);
+    } finally {
+      fx.close();
+      for (const directory of [first, second]) rmSync(directory, { recursive: true, force: true });
     }
   });
 

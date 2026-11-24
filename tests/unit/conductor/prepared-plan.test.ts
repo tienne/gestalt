@@ -1,4 +1,5 @@
-import { execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
+import { execFile, execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,6 +8,9 @@ import { changeBotOwner } from '../../../src/conductor/bot-owner.js';
 import { buildWorkerPrompt, chooseWorkerKind } from '../../../src/conductor/launcher.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import { EventStore } from '../../../src/events/store.js';
+import { PassthroughExecuteEngine } from '../../../src/execute/passthrough-engine.js';
+import { handleExecutePassthrough } from '../../../src/mcp/tools/execute-passthrough.js';
+import { executeInputSchema } from '../../../src/mcp/schemas.js';
 import { ExecuteSessionManager } from '../../../src/execute/session.js';
 import type { Order } from '../../../src/conductor/types.js';
 import { createExecuteFixture, type ExecuteFixture } from '../../helpers/execute-fixture.js';
@@ -42,6 +46,9 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
     dir = resolve(tempStateDir());
     stateDir = resolve(tempStateDir());
     execFileSync('git', ['init', '-q', dir]);
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git'], {
+      cwd: dir,
+    });
     process.chdir(dir);
     fx = createExecuteFixture('prepared-plan');
     vi.stubEnv('GESTALT_HOME', dir);
@@ -157,6 +164,9 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
     const worktree = join(dir, 'assigned-worktree');
     mkdirSync(worktree);
     execFileSync('git', ['init', '-q', worktree]);
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/acme/app.git'], {
+      cwd: worktree,
+    });
     const assigned = worker(order.id, { kind: 'git-worktree', handle: worktree });
     const store = ConductorStore.open(stateDir);
     store.startWorker(assigned);
@@ -180,6 +190,25 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
     const events = new EventStore(newDb);
     try {
       const restored = new ExecuteSessionManager(events).get(executionId);
+      const workerEngine = new PassthroughExecuteEngine(events);
+      const call = async (action: 'execute_start' | 'evaluate', workdir?: string) =>
+        JSON.parse(
+          await handleExecutePassthrough(
+            workerEngine,
+            executeInputSchema.parse({ action, sessionId: executionId, cwd: workdir }),
+          ),
+        );
+      await expect(call('execute_start', dir)).resolves.toMatchObject({
+        error: expect.stringContaining('배정된 워크트리'),
+      });
+      await expect(call('execute_start')).resolves.toMatchObject({
+        status: 'executing',
+        artifactCheck: { repoRoot: worktree },
+      });
+      await expect(call('evaluate', dir)).resolves.toMatchObject({
+        error: expect.stringContaining('배정된 워크트리'),
+      });
+
       expect(restored).toMatchObject({
         executionPlan: plan,
         spec,
@@ -271,6 +300,62 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
     expect(last()).toMatchObject({ status: 'accepted', orderId });
   });
 
+  it('전달 뒤 로컬 실행을 시작했으면 새 운영 접수 프로세스도 주문을 만들지 못한다', async () => {
+    changeBotOwner(stateDir, undefined, owner);
+    const { sessionId } = fx.plannedSession();
+    const planId = fx.engine.getSession(sessionId).executionPlan!.planId;
+    failDelivery = true;
+    await submit(sessionId, '--repo', 'acme/app');
+    expect(fx.engine.startExecution(sessionId).ok).toBe(true);
+    vi.stubEnv('ORCA_AGENT_SESSION_ID', owner.chatId);
+    await expect(
+      cli('conductor', 'order', 'add', '--prepared-plan', planId, '--state-dir', stateDir),
+    ).rejects.toThrow('exit 1');
+    expect(orders()).toHaveLength(0);
+  });
+
+  it('먼저 접수한 계획은 저장소를 다시 열어도 원본 로컬 실행을 시작할 수 없다', async () => {
+    changeBotOwner(stateDir, undefined, owner);
+    const { sessionId } = fx.plannedSession();
+    await submit(sessionId, '--repo', 'acme/app');
+    expect(orders()).toHaveLength(1);
+    const events = new EventStore(fx.dbPath);
+    try {
+      const engine = new PassthroughExecuteEngine(events);
+      const result = engine.startExecution(sessionId);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.message).toContain('다른 컨덕터 접수');
+      expect(engine.getSession(sessionId).status).toBe('plan_complete');
+    } finally {
+      events.close();
+    }
+  });
+
+  it('별도 프로세스에서 착수와 접수가 동시에 목적지를 잡아도 하나만 성공한다', async () => {
+    const { sessionId } = fx.plannedSession();
+    const planId = fx.engine.getSession(sessionId).executionPlan!.planId;
+    const moduleUrl = new URL('../../../src/execute/plan-destination.ts', import.meta.url).href;
+    const choose = (destination: { kind: 'local' } | { kind: 'conductor'; stateDir: string }) =>
+      promisify(execFile)(
+        process.execPath,
+        [
+          '--import',
+          'tsx',
+          '--input-type=module',
+          '-e',
+          `import { claimPlanDestination } from ${JSON.stringify(moduleUrl)}; claimPlanDestination(${JSON.stringify(planId)}, ${JSON.stringify(destination)});`,
+        ],
+        { cwd },
+      );
+    const outcomes = await Promise.allSettled([
+      choose({ kind: 'local' }),
+      choose({ kind: 'conductor', stateDir }),
+    ]);
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+    const rejected = outcomes.find((outcome) => outcome.status === 'rejected');
+    expect(rejected?.reason.stderr).toContain('이미 로컬 실행 또는 다른 컨덕터 접수');
+  });
+
   it('메일 전달 성공 뒤 접수 기록이 생기기 전에는 주문 ID를 만들지 않는다', async () => {
     changeBotOwner(stateDir, undefined, owner);
     const { sessionId } = fx.plannedSession();
@@ -290,7 +375,7 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
     const staged = JSON.parse(
       readFileSync(join(dir, '.gestalt', 'prepared-plans', `${planId}.json`), 'utf8'),
     );
-    expect(staged).toMatchObject({ sessionId, plan: { planId } });
+    expect(staged).toMatchObject({ prepared: { sessionId, plan: { planId } } });
     vi.stubEnv('ORCA_AGENT_SESSION_ID', owner.chatId);
     await cli('conductor', 'order', 'add', '--prepared-plan', planId, '--state-dir', stateDir);
     await delivery;
