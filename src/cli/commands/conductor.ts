@@ -131,6 +131,7 @@ import {
 } from '../../conductor/handoff-close.js';
 import type { ConductorConfig } from '../../conductor/scheduler.js';
 import { confirmSlackDelivery, draftSlack, pendingSlackDelivery } from '../../conductor/slack.js';
+import { isSlackChannelId } from '../../conductor/slack-state.js';
 import {
   claimWaitOwner,
   consumeWaitCarry,
@@ -1603,6 +1604,7 @@ export function conductorSlackDraftCommand(opts: ConductorSlackDraftOptions): vo
   run(() => {
     const ctx = open(opts);
     const { store } = ctx;
+    if (!isSlackChannelId(opts.channel)) throw new Error('Slack 채널 이름 대신 채널 ID를 주세요');
     const text = readFileSync(opts.textFile, 'utf-8').trim();
     if (!text) throw new Error('초안이 비었어요');
     const lock = acquireDecisionLock(ctx);
@@ -1645,17 +1647,17 @@ export async function conductorSlackDeliveryCommand(
 
 export async function conductorSlackPostedCommand(
   gateId: string,
-  opts: ConductorCommonOptions & { delivery: string; ref: string },
+  opts: ConductorCommonOptions & { resultFile: string },
 ): Promise<void> {
   try {
     const ctx = open(opts);
     assertConductorSession(ctx, 'slack posted');
     const caller = await tickBotCaller(ctx);
+    const resultData: unknown = JSON.parse(readFileSync(opts.resultFile, 'utf8'));
     const lock = acquireDecisionLock(ctx);
     try {
       assertBotOwner(ctx.store.dir, caller);
-      ctx.store.reload();
-      const result = confirmSlackDelivery(ctx.store, gateId, opts.delivery, opts.ref);
+      const result = confirmSlackDelivery(ctx.store, gateId, resultData);
       ctx.store.flushSnapshot();
       if (opts.json) return print({ gateId, ...result });
       console.log(

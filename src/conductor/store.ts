@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { withFileLock } from '../core/file-lock.js';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
 import { log } from '../core/log.js';
-import { orderHasPendingSlack } from './slack-state.js';
+import { orderHasPendingSlack, slackMessageKey, slackPublicationMatches } from './slack-state.js';
 import {
   ACTIVE_WORKER_STATUSES,
   TERMINAL_ORDER_STATUSES,
@@ -82,6 +82,7 @@ export function emptySnapshot(): ConductorSnapshot {
     bypasses: [],
     jiraTransitions: [],
     slackPosted: {},
+    slackMessageClaims: {},
     appliedReports: {},
     reports: {},
     ticks: 0,
@@ -197,6 +198,13 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       if (!s.gates[e.gateId]) return;
       s.slackPosted[e.gateId] = e.ref;
       return;
+    case 'slack-publication-confirmed': {
+      const gate = s.gates[e.gateId];
+      if (!gate || !e.evidence || !slackPublicationMatches(s, gate, e.evidence)) return;
+      s.slackMessageClaims[slackMessageKey(e.evidence.channel, e.evidence.ts)] = e.gateId;
+      s.slackPosted[e.gateId] = e.evidence.ts;
+      return;
+    }
     case 'order-removed':
       removeFromSnapshot(s, e.orderId, e.at);
       return;
@@ -355,6 +363,7 @@ export function orderOfEvent(e: ConductorEvent, s: ConductorSnapshot): string | 
     case 'gate-resolved':
     case 'gate-delivery':
     case 'slack-posted':
+    case 'slack-publication-confirmed':
       return s.gates[e.gateId]?.orderId;
     case 'gate-completed':
       return e.evidence.kind === 'orca-worker'
@@ -655,6 +664,11 @@ function validate(event: ConductorEvent, s: ConductorSnapshot): void {
     if (!g || !completionMatches(s, g, event.evidence))
       throw new Error(`현재 승인으로 완료를 남길 수 없는 게이트예요: ${event.gateId}`);
   }
+  if (event.type === 'slack-publication-confirmed') {
+    const gate = s.gates[event.gateId];
+    if (!gate || !slackPublicationMatches(s, gate, event.evidence))
+      throw new Error('현재 승인과 일치하는 Slack 게시 증빙이 아니에요');
+  }
 }
 
 function completionMatches(
@@ -818,6 +832,7 @@ export function readBase(dir: string): BaseFile | undefined {
   if (!isPlainObject(parsed.state.archivedOrders)) parsed.state.archivedOrders = {};
   // 게이트 색인이 들어가기 전에 쓴 base.json에는 이 칸이 없다
   if (!isPlainObject(parsed.state.askedSourceRefs)) parsed.state.askedSourceRefs = {};
+  if (!isPlainObject(parsed.state.slackMessageClaims)) parsed.state.slackMessageClaims = {};
   return parsed;
 }
 

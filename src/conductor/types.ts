@@ -217,6 +217,13 @@ export type GateDecision = 'approved' | 'rejected' | 'taken-over';
 
 export type GateDeliveryOutcome = 'delivered' | 'failed' | 'host-action' | 'no-worker';
 
+export interface SlackPublicationEvidence {
+  deliveryId: string;
+  channel: string;
+  ts: string;
+  threadTs?: string;
+}
+
 export interface ApprovedDeployment {
   repo: string;
   ref: string;
@@ -409,6 +416,12 @@ export type ConductorEvent =
   | { type: 'bypass'; at: string; record: BypassRecord }
   | { type: 'jira-transition'; at: string; record: JiraTransitionRecord }
   | { type: 'slack-posted'; at: string; gateId: string; ref: string }
+  | {
+      type: 'slack-publication-confirmed';
+      at: string;
+      gateId: string;
+      evidence: SlackPublicationEvidence;
+    }
   /** 사람이 끝난 주문을 지웠다. 그 주문의 워커, 체크포인트, 게이트, bypass 기록도 스냅샷에서 뺀다 */
   | { type: 'order-removed'; at: string; orderId: string }
   /**
@@ -459,6 +472,8 @@ export interface ConductorSnapshot {
   bypasses: BypassRecord[];
   jiraTransitions: JiraTransitionRecord[];
   slackPosted: Record<string, string>;
+  /** 먼저 붙은 게이트를 보관한 뒤에도 같은 메시지를 다른 작업에 쓰지 못하게 한다 */
+  slackMessageClaims: Record<string, string>;
   /** 적용한 보고 파일 이름과 시각 */
   appliedReports: Record<string, string>;
   reports: Record<string, (StoredReport & { at: string })[]>;

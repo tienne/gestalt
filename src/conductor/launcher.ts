@@ -106,6 +106,7 @@ export type HostAction =
       type: 'slack-post';
       gateId: string;
       deliveryId: string;
+      metadata: import('./slack.js').SlackDelivery['metadata'];
       orderId?: string;
       channel: string;
       text: string;

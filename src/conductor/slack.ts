@@ -1,14 +1,24 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { approvedSlackUnrecorded, SLACK_HOST_HANDOFF } from './slack-state.js';
+import { isPlainObject } from '../core/json-file.js';
+import {
+  approvedSlackUnrecorded,
+  isSlackChannelId,
+  SLACK_DELIVERY_EVENT,
+  SLACK_HOST_HANDOFF,
+  slackDeliveryId,
+  slackMessageKey,
+  slackPublicationMatches,
+} from './slack-state.js';
 import { newId, type ConductorStore } from './store.js';
-import type { Gate } from './types.js';
+import type { Gate, SlackPublicationEvidence } from './types.js';
 
 export interface SlackDelivery {
   gateId: string;
   deliveryId: string;
   orderId?: string;
+  metadata: { event_type: typeof SLACK_DELIVERY_EVENT; event_payload: { delivery_id: string } };
 }
 
 interface SlackHandoff {
@@ -85,10 +95,13 @@ function draftDigest(channel: string, threadTs: string | undefined, text: string
 export const SUPERSEDED_PREFIX = 'superseded:';
 
 function slackDelivery(gate: Gate): SlackDelivery {
-  const deliveryId = createHash('sha256')
-    .update(JSON.stringify([gate.id, gate.orderId, gate.resolvedAt, gate.payload?.digest]))
-    .digest('hex');
-  return { gateId: gate.id, deliveryId, ...(gate.orderId ? { orderId: gate.orderId } : {}) };
+  const deliveryId = slackDeliveryId(gate);
+  return {
+    gateId: gate.id,
+    deliveryId,
+    ...(gate.orderId ? { orderId: gate.orderId } : {}),
+    metadata: { event_type: SLACK_DELIVERY_EVENT, event_payload: { delivery_id: deliveryId } },
+  };
 }
 
 function approvedSlackGate(store: ConductorStore, gateId: string): Gate {
@@ -103,33 +116,65 @@ export function pendingSlackDelivery(store: ConductorStore, gateId: string) {
   if (store.snapshot.slackPosted[gateId] !== SLACK_HOST_HANDOFF)
     throw new Error('게시 결과를 기다리는 Slack 게이트가 아니에요');
   const { channel, draftFile, threadTs, digest } = gate.payload ?? {};
-  if (!channel || !draftFile) throw new Error('승인한 게시 대상이나 초안이 없어요');
+  if (!isSlackChannelId(channel) || !draftFile)
+    throw new Error('승인한 Slack 채널 ID나 초안이 없어요');
   const text = readFileSync(draftFile, 'utf-8');
   if (draftDigest(channel, threadTs, text) !== digest)
     throw new Error('승인한 Slack 초안과 현재 본문이 달라요');
   return { ...slackDelivery(gate), channel, text, ...(threadTs ? { threadTs } : {}) };
 }
 
+function parseSlackPublication(result: unknown): SlackPublicationEvidence {
+  if (
+    !isPlainObject(result) ||
+    result.ok !== true ||
+    !isSlackChannelId(result.channel) ||
+    typeof result.ts !== 'string' ||
+    !/^\d+\.\d{6}$/.test(result.ts) ||
+    !isPlainObject(result.message) ||
+    result.message.ts !== result.ts ||
+    (result.message.thread_ts !== undefined && typeof result.message.thread_ts !== 'string') ||
+    !isPlainObject(result.message.metadata) ||
+    result.message.metadata.event_type !== SLACK_DELIVERY_EVENT ||
+    !isPlainObject(result.message.metadata.event_payload) ||
+    typeof result.message.metadata.event_payload.delivery_id !== 'string'
+  )
+    throw new Error('채널과 게시 작업 메타데이터가 들어 있는 Slack 성공 응답을 주세요');
+  return {
+    channel: result.channel,
+    ts: result.ts,
+    deliveryId: result.message.metadata.event_payload.delivery_id,
+    ...(result.message.thread_ts !== undefined ? { threadTs: result.message.thread_ts } : {}),
+  };
+}
+
 export function confirmSlackDelivery(
   store: ConductorStore,
   gateId: string,
-  deliveryId: string,
-  ref: string,
+  result: unknown,
 ): { recorded: boolean; ref: string } {
-  const gate = approvedSlackGate(store, gateId);
-  if (slackDelivery(gate).deliveryId !== deliveryId)
-    throw new Error('Slack 게시 작업 식별자가 달라요');
-  if (
-    !/^\d+\.\d{6}$/.test(ref) &&
-    !/^https:\/\/[a-z0-9-]+\.slack\.com\/archives\/[A-Z0-9]+\/p\d+(?:\?[^\s]*)?$/.test(ref)
-  )
-    throw new Error('Slack 응답의 메시지 ts 또는 퍼머링크를 주세요');
-  const previous = store.snapshot.slackPosted[gateId];
-  if (previous === ref) return { recorded: false, ref };
-  if (previous !== SLACK_HOST_HANDOFF)
-    throw new Error('인계한 Slack 게시에만 결과를 남길 수 있어요');
-  store.append({ type: 'slack-posted', at: store.timestamp(), gateId, ref });
-  return { recorded: true, ref };
+  const evidence = parseSlackPublication(result);
+  const key = slackMessageKey(evidence.channel, evidence.ts);
+  const recorded = store.appendIfCurrent(
+    { type: 'slack-publication-confirmed', at: store.timestamp(), gateId, evidence },
+    () => {
+      const gate = approvedSlackGate(store, gateId);
+      if (
+        evidence.channel !== gate.payload?.channel ||
+        evidence.threadTs !== gate.payload?.threadTs
+      )
+        throw new Error('Slack 응답의 채널이나 스레드가 승인 대상과 달라요');
+      if (evidence.deliveryId !== slackDeliveryId(gate))
+        throw new Error('Slack 응답의 게시 작업 식별자가 달라요');
+      const claimed = store.snapshot.slackMessageClaims[key];
+      if (claimed === gateId && store.snapshot.slackPosted[gateId] === evidence.ts) return false;
+      if (claimed !== undefined) throw new Error('이미 다른 Slack 게시 작업에 연결된 메시지예요');
+      if (!slackPublicationMatches(store.snapshot, gate, evidence))
+        throw new Error('인계한 Slack 게시에만 결과를 남길 수 있어요');
+      return true;
+    },
+  );
+  return { recorded, ref: evidence.ts };
 }
 
 export interface PublishResult {
