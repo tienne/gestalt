@@ -6,7 +6,7 @@ import { GhAccounts } from './adapters.js';
 import { execRunner, type CommandRunner } from './launcher.js';
 import { normalizePrRef, repoOfPrRef } from './pr-ref.js';
 import type { ConductorStore } from './store.js';
-import type { Gate } from './types.js';
+import type { Gate, GateType } from './types.js';
 
 export const BOT_POLICY_FILE = 'bot-policy.json';
 
@@ -30,6 +30,37 @@ export function matchMergeGate(store: ConductorStore, id: string) {
     throw new Error('대상 레포의 PR이 연결된 머지 승인 게이트만 봇에서 처리할 수 있어요');
   const url = `https://github.com/${ref.replace('#', '/pull/')}`;
   return { gate, order, ref, url };
+}
+
+/** 봇 채팅에서 서명으로 닫을 수 있는 게이트. 머지 외에는 워커를 멈춰 세우는 확인 자리만 넣었다 */
+export const BOT_GATE_TYPES: readonly GateType[] = [
+  'merge',
+  'file-overlap',
+  'review-manual-switch',
+];
+
+export interface BotGate {
+  gate: Gate;
+  repo: string;
+  title?: string;
+  /** 머지 게이트만 있다 */
+  ref?: string;
+  url?: string;
+}
+
+export function matchBotGate(store: ConductorStore, id: string): BotGate {
+  const gate = store.snapshot.gates[id];
+  if (!gate || !BOT_GATE_TYPES.includes(gate.type))
+    throw new Error('봇에서는 머지 승인, 파일 중첩, 리뷰 수동 전환 게이트만 처리할 수 있어요');
+  if (gate.type === 'merge') {
+    const { order, ref, url } = matchMergeGate(store, id);
+    return { gate, repo: order.repo, title: order.title, ref, url };
+  }
+  const order = gate.orderId ? store.order(gate.orderId) : undefined;
+  const prRef = gate.payload?.['prRef'];
+  const repo = order?.repo ?? (prRef ? repoOfPrRef(prRef) : null);
+  if (!repo) throw new Error('레포를 알 수 없는 게이트는 봇에서 처리할 수 없어요');
+  return { gate, repo, ...(order ? { title: order.title } : {}) };
 }
 
 export async function readMergeEvidence(
@@ -66,10 +97,12 @@ export async function readMergeEvidence(
 
 type Decision = 'approved' | 'rejected';
 
-export function approvalMessage(gate: Gate, ref: string, head: string, decision: Decision): string {
-  const details = createHash('sha256')
+const gateDetails = (gate: Gate) =>
+  createHash('sha256')
     .update(JSON.stringify([gate.reason, gate.refs]))
     .digest('hex');
+
+export function approvalMessage(gate: Gate, ref: string, head: string, decision: Decision): string {
   return JSON.stringify([
     'gestalt/merge-approval/v1',
     gate.id,
@@ -77,7 +110,29 @@ export function approvalMessage(gate: Gate, ref: string, head: string, decision:
     ref,
     head,
     decision,
-    details,
+    gateDetails(gate),
+  ]);
+}
+
+/** 머지는 기존 서명 문자열을 그대로 쓴다. 다른 게이트는 유형과 레포를 넣어 다른 게이트 서명을 못 옮겨 쓰게 한다 */
+export function gateApprovalMessage(
+  target: BotGate,
+  head: string | undefined,
+  decision: Decision,
+): string {
+  const { gate, repo, ref } = target;
+  if (gate.type === 'merge') {
+    if (!ref || !head) throw new Error('머지 게이트는 PR과 HEAD가 있어야 서명을 확인할 수 있어요');
+    return approvalMessage(gate, ref, head, decision);
+  }
+  return JSON.stringify([
+    'gestalt/gate-approval/v1',
+    gate.id,
+    gate.type,
+    gate.openedAt,
+    repo.toLowerCase(),
+    decision,
+    gateDetails(gate),
   ]);
 }
 
@@ -88,14 +143,29 @@ export function verifyMergeApproval(
   message: string,
   signature: string,
 ): void {
-  const approvers = policy['mergeApprovers'];
+  verifyGateApproval(policy, 'merge', repo, signer, message, signature);
+}
+
+/** 머지 승인자는 mergeApprovers, 나머지 게이트 승인자는 gateApprovers에서 레포별로 찾는다 */
+export function verifyGateApproval(
+  policy: Record<string, unknown>,
+  type: GateType,
+  repo: string,
+  signer: string,
+  message: string,
+  signature: string,
+): void {
+  const approvers = policy[type === 'merge' ? 'mergeApprovers' : 'gateApprovers'];
   const allowed =
     isPlainObject(approvers) && Object.hasOwn(approvers, repo.toLowerCase())
       ? approvers[repo.toLowerCase()]
       : undefined;
   const pem =
     isPlainObject(allowed) && Object.hasOwn(allowed, signer) ? allowed[signer] : undefined;
-  if (typeof pem !== 'string') throw new Error('이 레포의 머지 승인 권한이 없는 서명자예요');
+  if (typeof pem !== 'string')
+    throw new Error(
+      `이 레포의 ${type === 'merge' ? '머지' : '게이트'} 승인 권한이 없는 서명자예요`,
+    );
   const key = createPublicKey(pem);
   if (
     key.asymmetricKeyType !== 'ed25519' ||

@@ -31,6 +31,7 @@ import {
 import {
   conductorBotBindCommand,
   conductorBotDecideCommand,
+  conductorBotItemDecideCommand,
   conductorBotGateCommand,
   conductorBotGithubCommand,
   conductorCheckBotMutation,
@@ -1117,17 +1118,28 @@ export function createCli(): Command {
 
   bot
     .command('gate <gateId>')
-    .description('머지 승인 게이트와 GitHub에서 확인한 검증 결과를 보여준다')
+    .description(
+      '머지, 파일 중첩, 리뷰 수동 전환 게이트와 서명할 문자열, Orca 항목에 실을 줄을 보여준다',
+    )
     .addOption(stateDir())
     .action(conductorBotGateCommand);
   bot
     .command('decide <gateId>')
-    .description('레포 승인자의 서명을 확인해 머지 게이트를 종료한다')
+    .description('레포 승인자의 서명을 확인해 게이트를 종료한다')
     .requiredOption('--decision <decision>', 'approved 또는 rejected')
     .requiredOption('--signer <id>', '레포 승인자 ID')
     .requiredOption('--signature <base64>', 'Ed25519 결정 서명')
     .addOption(stateDir())
     .action(conductorBotDecideCommand);
+
+  bot
+    .command('item-decide <gateId>')
+    .description('Orca 항목에 사람이 단 서명 답을 Orca에서 직접 읽어 게이트를 종료한다')
+    .requiredOption('--item <n>', 'Orca 항목 번호')
+    .requiredOption('--question <eventId>', '운영 봇이 게이트를 물은 이벤트 ID')
+    .requiredOption('--answer <eventId>', '사람이 답한 이벤트 ID')
+    .addOption(stateDir())
+    .action(conductorBotItemDecideCommand);
 
   bot
     .command('github <commentUrl>')

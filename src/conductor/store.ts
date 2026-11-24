@@ -151,6 +151,7 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
           ...(e.answer !== undefined ? { answer: e.answer } : {}),
           ...(e.deliveryPending ? { deliveryPending: true } : {}),
           ...(e.decisionBy ? { decisionBy: e.decisionBy } : {}),
+          ...(e.decisionSource ? { decisionSource: e.decisionSource } : {}),
         };
       }
       return;
