@@ -1159,7 +1159,10 @@ export function createCli(): Command {
       '--scope <scope>',
       'merge-through, approval, interview-first 중 하나. 없으면 설정의 기본값',
     )
-    .option('--skills <a,b>', '스킬 체인. 게슈탈트 스킬 이름만 받는다. 없으면 solve,ship')
+    .option(
+      '--skills <a,b>',
+      '스킬 체인. 게슈탈트 스킬 이름이나 대상 레포의 프로젝트 스킬(repo:<이름>)을 받는다. 없으면 solve,ship',
+    )
     .option('--worker-kind <kind>', 'subagent, orca-worktree, git-worktree 중 하나로 고정')
     .option('--agent <id>', '이 주문의 오르카 워커 에이전트')
     .option(

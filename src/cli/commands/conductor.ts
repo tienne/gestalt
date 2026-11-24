@@ -84,7 +84,13 @@ import {
 } from '../../conductor/archive.js';
 import { resolveGate } from '../../conductor/gates.js';
 import { terminalText } from '../../conductor/terminal-text.js';
-import { intakeOrder, ISSUE_KEY_RE, KNOWN_SKILLS, oneLine } from '../../conductor/intake.js';
+import {
+  intakeOrder,
+  isRepoSkill,
+  ISSUE_KEY_RE,
+  KNOWN_SKILLS,
+  oneLine,
+} from '../../conductor/intake.js';
 import { isAwaitingDeploy, type DeploySignal } from '../../conductor/jira.js';
 import {
   assertCanSpawn,
@@ -315,7 +321,7 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
             }
           : {}),
       },
-      { defaultScope: ctx.config.defaultScope },
+      { defaultScope: ctx.config.defaultScope, repoPaths: ctx.config.repoPaths },
       { trusted: true },
     );
     if ('removedAt' in out) {
@@ -1627,12 +1633,13 @@ function list(v: string): string[] {
 
 const DEPLOY_STATUSES = ['success', 'failed', 'pending', 'unknown'] as const;
 
+/** 레포 스킬(`repo:<이름>`)은 꼴과 존재를 접수가 대상 레포 경로에서 본다 */
 function skillList(v: string, flag: string): string[] {
   const skills = list(v);
-  const unknown = skills.filter((s) => !KNOWN_SKILLS.has(s));
+  const unknown = skills.filter((s) => !KNOWN_SKILLS.has(s) && !isRepoSkill(s));
   if (unknown.length > 0)
     throw new Error(
-      `${flag}에 모르는 스킬이 있어요: ${unknown.join(', ')}. ${[...KNOWN_SKILLS].join(', ')} 중에서 골라 주세요`,
+      `${flag}에 모르는 스킬이 있어요: ${unknown.join(', ')}. ${[...KNOWN_SKILLS].join(', ')} 중에서 고르거나 대상 레포의 프로젝트 스킬이면 repo:<이름>으로 적어 주세요`,
     );
   return skills;
 }

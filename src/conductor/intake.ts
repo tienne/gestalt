@@ -1,4 +1,5 @@
-import { isAbsolute } from 'node:path';
+import { statSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { log } from '../core/log.js';
 import type { ConductorConfig } from './scheduler.js';
 import { openOrReuse } from './gates.js';
@@ -47,6 +48,33 @@ export const KNOWN_SKILLS: ReadonlySet<string> = new Set([
   'doubt',
   'build-graph',
 ]);
+
+/**
+ * 대상 레포에만 있는 프로젝트 스킬을 체인에 넣을 때 붙이는 접두. 게슈탈트 스킬 이름과 섞이면
+ * 같은 이름의 레포 스킬이 게슈탈트 스킬 자리를 차지하거나 그 반대가 되므로 따로 받는다
+ */
+export const REPO_SKILL_PREFIX = 'repo:';
+
+/** 레포 스킬 이름. 경로 한 칸으로 붙으므로 `/`, `\`, `..`가 들어갈 수 없는 꼴만 받는다 */
+const REPO_SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+export function isRepoSkillName(name: string): boolean {
+  return REPO_SKILL_NAME_RE.test(name);
+}
+
+export function isRepoSkill(skill: string): boolean {
+  return skill.startsWith(REPO_SKILL_PREFIX);
+}
+
+/** `repo:<이름>`에서 이름만. 레포 스킬이 아니면 undefined */
+export function repoSkillName(skill: string): string | undefined {
+  return isRepoSkill(skill) ? skill.slice(REPO_SKILL_PREFIX.length) : undefined;
+}
+
+/** 레포 안에서 레포 스킬 문서가 있어야 할 상대 경로 */
+export function repoSkillPath(name: string): string {
+  return join('.claude', 'skills', name, 'SKILL.md');
+}
 
 export const ISSUE_KEY_RE = /^[A-Z][A-Z0-9_]*-\d+$/;
 
@@ -142,12 +170,13 @@ function capDescription(text: string): string {
 
 /**
  * 주문을 받는다. 범위와 스킬 체인을 그대로 믿는 건 컨덕터 세션이 CLI로 넣을 때(`trusted`)와
- * 말로 던진 주문뿐이다. 지라, 큐, PR 감시에서 온 값은 externalScope와 KNOWN_SKILLS로 거른다
+ * 말로 던진 주문뿐이다. 지라, 큐, PR 감시에서 온 값은 externalScope와 KNOWN_SKILLS로 거른다.
+ * 레포 스킬은 KNOWN_SKILLS에 없어 바깥 출처에서는 빠진다
  */
 export function intakeOrder(
   store: ConductorStore,
   input: IntakeInput,
-  config: Pick<ConductorConfig, 'defaultScope'>,
+  config: Pick<ConductorConfig, 'defaultScope'> & Partial<Pick<ConductorConfig, 'repoPaths'>>,
   opts: { trusted?: boolean } = {},
 ): IntakeResult {
   if (!REPO_RE.test(input.repo))
@@ -171,6 +200,7 @@ export function intakeOrder(
     ? checkDeployTargets(store, input.repo, input.deploys, trusted)
     : undefined;
   const skills = trusted ? input.skillChain : input.skillChain?.filter((s) => KNOWN_SKILLS.has(s));
+  if (trusted && skills?.some(isRepoSkill)) checkRepoSkills(skills, input, config.repoPaths ?? {});
 
   const description =
     input.description && opts.trusted !== true
@@ -214,6 +244,47 @@ export function intakeOrder(
   };
   store.addOrder(order);
   return { order, created: true };
+}
+
+/**
+ * 레포 스킬이 주문을 넣는 지금 대상 레포의 로컬 체크아웃에 있는지 본다. 부모 워크트리를 줬으면
+ * 워커 워크트리가 거기서 갈라지므로 그쪽을, 아니면 repoPaths의 경로를 본다
+ */
+function checkRepoSkills(
+  skills: string[],
+  input: IntakeInput,
+  repoPaths: Record<string, string>,
+): void {
+  // 서브에이전트는 컨덕터 자리에서 돌아 대상 레포 워크트리의 스킬 문서를 못 읽는다
+  if (input.workerKind === 'subagent')
+    throw new Error(
+      '레포 스킬이 있는 체인은 서브에이전트 워커로 못 띄워요. --worker-kind를 빼 주세요',
+    );
+  const root =
+    input.parentWorktree ??
+    (Object.hasOwn(repoPaths, input.repo) ? repoPaths[input.repo] : undefined);
+  for (const skill of skills) {
+    const name = repoSkillName(skill);
+    if (name === undefined) continue;
+    if (!isRepoSkillName(name))
+      throw new Error(
+        `레포 스킬 이름은 영문 소문자와 숫자, \`-\`만 쓴 64자 이하로 적어 주세요: ${oneLine(skill, 80)}`,
+      );
+    if (!root)
+      throw new Error(
+        `${input.repo}의 로컬 경로를 몰라 ${skill}이 있는지 못 봤어요. ~/.gestalt/conductor.json의 repoPaths에 적어 주세요`,
+      );
+    const file = join(root, repoSkillPath(name));
+    if (!isFile(file)) throw new Error(`${input.repo}에 ${skill} 스킬이 없어요: ${file}`);
+  }
+}
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /** 배포 대상이 같은 레포에 실제로 있는 주문인지 확인하고 겹친 id를 걷어 돌려준다 */
