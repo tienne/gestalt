@@ -21,6 +21,7 @@ interface EditJob {
 interface EditReceipt {
   outcome: 'dispatched' | 'applied' | 'rejected';
   detail?: string;
+  dispatchedAt?: string;
 }
 
 function requestDir(dir: string, approval: string): string {
@@ -67,10 +68,15 @@ export function readEditReceipt(
     (value['outcome'] !== 'dispatched' &&
       value['outcome'] !== 'applied' &&
       value['outcome'] !== 'rejected') ||
-    (value['detail'] !== undefined && typeof value['detail'] !== 'string')
+    (value['detail'] !== undefined && typeof value['detail'] !== 'string') ||
+    (value['dispatchedAt'] !== undefined && typeof value['dispatchedAt'] !== 'string')
   )
     throw new Error('Orca 편집 요청의 응답 기록을 읽을 수 없어요');
-  return { outcome: value['outcome'], ...(value['detail'] ? { detail: value['detail'] } : {}) };
+  return {
+    outcome: value['outcome'],
+    ...(value['detail'] ? { detail: value['detail'] } : {}),
+    ...(value['dispatchedAt'] ? { dispatchedAt: value['dispatchedAt'] } : {}),
+  };
 }
 
 /** 부모가 종료되어도 동일한 편집 시도가 중복 실행되지 않고 Orca 응답을 남길 수 있다. */
@@ -97,10 +103,11 @@ export async function runAutomationEdit(
       readEditReceipt(coordinationDir, approval, attempt)
     )
       return;
+    const dispatchedAt = new Date().toISOString();
     const save = (record: EditReceipt) =>
       writeJsonAtomic(
         join(attemptDir(coordinationDir, approval, attempt), 'receipt.json'),
-        record,
+        { ...record, dispatchedAt },
         {
           mode: 0o600,
         },

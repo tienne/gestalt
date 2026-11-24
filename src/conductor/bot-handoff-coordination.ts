@@ -17,8 +17,12 @@ export function automationCoordinationRoot(): string {
   return join(userInfo().homedir, '.gestalt', 'orca-handoffs');
 }
 
+export function automationCoordinationDir(root: string, automationId: string): string {
+  return join(root, digest(automationId));
+}
+
 export function lockAutomationHandoff(root: string, automationId: string) {
-  const dir = join(root, digest(automationId));
+  const dir = automationCoordinationDir(root, automationId);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const lock = acquireLock(dir);
   if (!lock.ok) return undefined;

@@ -5,6 +5,11 @@ import { dirname, join, resolve } from 'node:path';
 import { handleGithubOrder, readGithubOrder } from '../../conductor/bot-github.js';
 import { handoffBot, type BotHandoffOptions } from '../../conductor/bot-handoff.js';
 import {
+  automationCoordinationDir,
+  automationCoordinationRoot,
+} from '../../conductor/bot-handoff-coordination.js';
+import { readEditReceipt } from '../../conductor/bot-handoff-edit.js';
+import {
   gateApprovalMessage,
   matchBotGate,
   readBotPolicy,
@@ -19,6 +24,7 @@ import {
   currentBotOwner,
   targetBotOwner,
   readBotOwnership,
+  type BotHandoffRecord,
   type BotOwner,
 } from '../../conductor/bot-owner.js';
 import { loadConfig, WAIT_MAX_SEC_LIMIT } from '../../core/config.js';
@@ -777,10 +783,7 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
             fromChatId: latestHandoff.from,
             toChatId: latestHandoff.to,
             status: latestHandoff.outcome ?? 'partial',
-            ...(!latestHandoff.outcome && latestHandoff.editUncertain
-              ? { retryStage: 'reconcile-edit' }
-              : {}),
-            ...(latestHandoff.editAttempt ? { editAttemptId: latestHandoff.editAttempt } : {}),
+            ...botHandoffEditStatus(latestHandoff),
             responsibleChatId: botOwner?.chatId,
             verifiedNextRunAt: latestHandoff.nextRunAt,
           },
@@ -791,6 +794,31 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
           compactions: readCompactions(store.dir, session.sessionId).count,
           session: { id: session.sessionId, ...(session.cwd ? { cwd: session.cwd } : {}) },
         }
+      : {}),
+  };
+}
+
+function botHandoffEditStatus(handoff: BotHandoffRecord): Record<string, unknown> {
+  const editAttemptId = handoff.editAttempt;
+  if (!editAttemptId)
+    return !handoff.outcome && handoff.editUncertain !== undefined
+      ? { retryStage: 'reconcile-edit' }
+      : {};
+  let receipt: ReturnType<typeof readEditReceipt>;
+  let editReceipt: 'prepared' | 'dispatched' | 'applied' | 'rejected' | 'unreadable';
+  try {
+    const dir = automationCoordinationDir(automationCoordinationRoot(), handoff.automationId);
+    receipt = readEditReceipt(dir, handoff.approval, editAttemptId);
+    editReceipt = receipt?.outcome ?? 'prepared';
+  } catch {
+    editReceipt = 'unreadable';
+  }
+  return {
+    editAttemptId,
+    editReceipt,
+    ...(receipt?.dispatchedAt ? { editDispatchedAt: receipt.dispatchedAt } : {}),
+    ...(!handoff.outcome && (editReceipt === 'dispatched' || editReceipt === 'unreadable')
+      ? { retryStage: 'reconcile-edit' }
       : {}),
   };
 }
@@ -1790,6 +1818,7 @@ export async function conductorBotHandoffCommand(
       if (result.approval) console.log(`인계 승인: 같은 명령에 --approve ${result.approval}`);
       if (result.retryStage) console.log(`재개 단계: ${result.retryStage}`);
       if (result.editAttemptId) console.log(`Orca 편집 시도 ID ${result.editAttemptId}`);
+      if (result.editDispatchedAt) console.log(`Orca 편집 요청 시각 ${result.editDispatchedAt}`);
       if (result.detail) console.log(result.detail);
     }
     if (result.status === 'blocked' || result.status === 'partial') process.exitCode = 1;
