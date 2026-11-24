@@ -371,7 +371,7 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 18px; color: var(--t-dim); font-size: 11px; padding-bottom: 10px; }
 .legend i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; vertical-align: middle; }
 .alert { margin: 0 14px 10px; border: 1px solid var(--t-red); color: var(--t-red); padding: 6px 10px; }
-.grid { display: grid; grid-template-columns: 210px 1fr; gap: 14px; padding: 0 14px 12px; align-items: start; }
+.grid { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 14px; padding: 0 14px 12px; align-items: start; }
 .box { border: 1px solid var(--t-line); padding: 8px 10px; }
 .conductor { border-color: var(--t-purple); }
 .conductor h3 { margin: 0; color: var(--t-purple); font-size: 12px; }
@@ -460,7 +460,7 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .status b { font-weight: 700; } .b-green { color: var(--t-green); } .b-yellow { color: var(--t-yellow); } .b-purple { color: var(--t-purple); }
 .cursor { display: inline-block; width: 7px; height: 12px; background: var(--t-green); animation: blink 1s infinite; }
 .empty { color: var(--t-dim); padding: 24px; text-align: center; }
-@media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 /* 사이드바 폭. 머리글 한 줄, 컨덕터 요약, 카드 세로 목록, 게이트, 최근 이벤트 8줄, 상태줄 순으로 쌓는다 */
 @media (max-width: 480px) {
   .term { font-size: 11px; }
@@ -470,7 +470,8 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
   .grid { gap: 8px; padding: 0 8px 8px; }
   .conductor h3 { display: none; }
   .workers { grid-template-columns: 1fr; gap: 8px; }
-  .gates { flex-direction: column; gap: 6px; margin-top: 8px; }
+  /* 세로 방향에서 wrap을 켜두면 줄 폭이 가장 긴 한 줄 문구 길이까지 늘어나 가로 스크롤이 생긴다 */
+  .gates { flex-direction: column; flex-wrap: nowrap; gap: 6px; margin-top: 8px; }
   .gbox { max-width: none; text-align: left; padding: 6px 8px; }
   .alert { margin: 0 8px 8px; }
   .log { margin: 0 8px 8px; padding: 6px 8px; }
