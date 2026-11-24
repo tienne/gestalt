@@ -63,6 +63,11 @@ export interface BaseFile {
   /** 반영한 segment와 반영한 길이. 그 뒤에 늦게 붙은 줄만 재생한다 */
   foldedSegments: FoldedSegment[];
   state: ConductorSnapshot;
+  /**
+   * 주문별 로그(`order-logs/`)에 마지막으로 덧붙이고 이 base.json까지 쓴 반영의 id. 덧붙이기 전에 적어 둔
+   * `order-logs/.staging.json`의 id와 다르면 그 반영은 base.json을 못 쓰고 죽은 것이다
+   */
+  orderLogsFold?: string;
 }
 
 export function emptySnapshot(): ConductorSnapshot {
@@ -70,6 +75,7 @@ export function emptySnapshot(): ConductorSnapshot {
     orders: {},
     removedOrders: {},
     archivedOrders: {},
+    askedSourceRefs: {},
     workers: {},
     checkpoints: {},
     gates: {},
@@ -205,6 +211,55 @@ const REMOVAL_WORDS = {
 } as const;
 
 /**
+ * 주문 id로 찾는 워커와 게이트, 상태에 남은 게이트의 `payload.sourceRef`. 주문마다 배열을 훑으면 주문 수의
+ * 제곱으로 늘어서 한 번 모아 둔다. 상태를 고치면 다시 만든다. 다른 주문을 상태에서 빼는 건 괜찮다
+ */
+export interface OrderIndex {
+  workers: ReadonlyMap<string, Worker[]>;
+  gates: ReadonlyMap<string, Gate[]>;
+  gateSourceRefs: ReadonlySet<string>;
+}
+
+export function indexByOrder(s: ConductorSnapshot): OrderIndex {
+  const workers = new Map<string, Worker[]>();
+  for (const w of Object.values(s.workers)) {
+    const list = workers.get(w.orderId);
+    if (list) list.push(w);
+    else workers.set(w.orderId, [w]);
+  }
+  const gates = new Map<string, Gate[]>();
+  const gateSourceRefs = new Set<string>();
+  for (const g of Object.values(s.gates)) {
+    const ref = g.payload?.sourceRef;
+    if (ref !== undefined) gateSourceRefs.add(ref);
+    if (g.orderId === undefined) continue;
+    const list = gates.get(g.orderId);
+    if (list) list.push(g);
+    else gates.set(g.orderId, [g]);
+  }
+  return { workers, gates, gateSourceRefs };
+}
+
+function workersOfOrder(s: ConductorSnapshot, orderId: string, index?: OrderIndex): Worker[] {
+  if (index) return index.workers.get(orderId) ?? [];
+  return Object.values(s.workers).filter((w) => w.orderId === orderId);
+}
+
+function gatesOfOrder(s: ConductorSnapshot, orderId: string, index?: OrderIndex): Gate[] {
+  if (index) return index.gates.get(orderId) ?? [];
+  return Object.values(s.gates).filter((g) => g.orderId === orderId);
+}
+
+/** 주문과 지우거나 보관한 주문이 받은 출처. 하나라도 있으면 같은 출처로 주문을 다시 안 만든다 */
+export function takenSourceRefs(s: ConductorSnapshot): Set<string> {
+  return new Set([
+    ...Object.values(s.orders).map((o) => o.sourceRef),
+    ...Object.values(s.removedOrders).map((r) => r.sourceRef),
+    ...Object.values(s.archivedOrders).map((a) => a.sourceRef),
+  ]);
+}
+
+/**
  * 주문을 못 지우는 이유를 준다. 지울 수 있으면 undefined. 보관 명령은 `action`을 `archive`로 줘서 같은 규칙을
  * 옮기는 쪽 문구로 받는다.
  * 멈춘 워커도 막는다. 그 워크트리가 남아 있을 수 있어서 워커 기록을 지우면 workerAt 가드가 풀린다
@@ -213,15 +268,16 @@ export function removalBlocker(
   s: ConductorSnapshot,
   orderId: string,
   action: keyof typeof REMOVAL_WORDS = 'remove',
+  index?: OrderIndex,
 ): string | undefined {
   const { can, cannot } = REMOVAL_WORDS[action];
   const o = s.orders[orderId];
   if (!o) return `모르는 주문이에요: ${orderId}`;
   if (!TERMINAL_ORDER_STATUSES.has(o.status))
     return `끝난 주문만 ${can} 수 있어요: ${orderId}(${o.status})`;
-  if (Object.values(s.gates).some((g) => g.orderId === o.id && g.status === 'open'))
+  if (gatesOfOrder(s, o.id, index).some((g) => g.status === 'open'))
     return `열린 게이트가 있어서 못 ${cannot}: ${orderId}`;
-  const workers = Object.values(s.workers).filter((w) => w.orderId === o.id);
+  const workers = workersOfOrder(s, o.id, index);
   if (workers.some((w) => ACTIVE_WORKER_STATUSES.has(w.status)))
     return `도는 워커가 있어서 못 ${cannot}: ${orderId}`;
   if (workers.some((w) => w.status === 'stopped'))
@@ -246,13 +302,12 @@ function removeFromSnapshot(s: ConductorSnapshot, orderId: string, at: string): 
 }
 
 /** 주문과 거기 붙은 워커, 체크포인트, 게이트, 기록을 상태에서 뺀다. 지우기와 보관이 같은 규칙을 쓴다 */
-export function detachOrder(s: ConductorSnapshot, orderId: string): Order {
+export function detachOrder(s: ConductorSnapshot, orderId: string, index?: OrderIndex): Order {
   const o = s.orders[orderId]!;
   delete s.orders[orderId];
-  for (const w of Object.values(s.workers)) if (w.orderId === orderId) delete s.workers[w.id];
+  for (const w of workersOfOrder(s, orderId, index)) delete s.workers[w.id];
   delete s.checkpoints[orderId];
-  for (const g of Object.values(s.gates)) {
-    if (g.orderId !== orderId) continue;
+  for (const g of gatesOfOrder(s, orderId, index)) {
     delete s.gates[g.id];
     delete s.slackPosted[g.id];
   }
@@ -318,6 +373,7 @@ export class ConductorStore {
     removed: Map<string, string>;
     archived: Map<string, string>;
   };
+  private orderIndex?: { state: ConductorSnapshot; eventCount: number; index: OrderIndex };
 
   private constructor(dir: string, state: ConductorSnapshot, now: () => Date) {
     this.dir = dir;
@@ -441,9 +497,32 @@ export class ConductorStore {
   }
 
   openGates(orderId?: string): Gate[] {
-    return Object.values(this.state.gates).filter(
-      (g) => g.status === 'open' && (orderId === undefined || g.orderId === orderId),
+    const gates =
+      orderId === undefined
+        ? Object.values(this.state.gates)
+        : (this.byOrder().gates.get(orderId) ?? []);
+    return gates.filter((g) => g.status === 'open');
+  }
+
+  /**
+   * 같은 출처로 이미 게이트를 열어 물었는지. 상태에 남은 게이트와 보관하며 색인으로 옮긴 게이트를 함께 본다.
+   * 사람이 거절한 것도 물은 것으로 친다
+   */
+  askedSourceRef(sourceRef: string): boolean {
+    return (
+      this.byOrder().gateSourceRefs.has(sourceRef) ||
+      Object.hasOwn(this.state.askedSourceRefs, sourceRef)
     );
+  }
+
+  /** 상태는 이벤트로만 바뀌고 그때마다 eventCount가 는다. 다시 읽으면 상태 객체가 바뀐다 */
+  private byOrder(): OrderIndex {
+    const cached = this.orderIndex;
+    if (cached?.state === this.state && cached.eventCount === this.state.eventCount)
+      return cached.index;
+    const index = indexByOrder(this.state);
+    this.orderIndex = { state: this.state, eventCount: this.state.eventCount, index };
+    return index;
   }
 
   findOrderBySourceRef(sourceRef: string): Order | undefined {
@@ -501,9 +580,7 @@ export class ConductorStore {
   }
 
   workersOf(orderId: string): Worker[] {
-    return this.workers()
-      .filter((w) => w.orderId === orderId)
-      .sort((a, b) => a.attempt - b.attempt);
+    return [...(this.byOrder().workers.get(orderId) ?? [])].sort((a, b) => a.attempt - b.attempt);
   }
 }
 
@@ -678,6 +755,8 @@ export function readBase(dir: string): BaseFile | undefined {
   if (!isBaseFile(parsed)) throw new Error(`${path}를 못 읽어요. 저장소가 깨졌어요`);
   // 보관이 들어가기 전에 쓴 base.json에는 이 칸이 없다
   if (!isPlainObject(parsed.state.archivedOrders)) parsed.state.archivedOrders = {};
+  // 게이트 색인이 들어가기 전에 쓴 base.json에는 이 칸이 없다
+  if (!isPlainObject(parsed.state.askedSourceRefs)) parsed.state.askedSourceRefs = {};
   return parsed;
 }
 

@@ -116,10 +116,7 @@ export async function pollPrs(
     }
     if ((pr.repliesSinceReview ?? 0) > 0) {
       const sourceRef = `pr-watch:replies:${pr.ref}@${pr.headSha}:${pr.repliesSinceReview}`;
-      const asked = Object.values(store.snapshot.gates).some(
-        (g) => g.payload?.sourceRef === sourceRef,
-      );
-      if (asked) continue;
+      if (store.askedSourceRef(sourceRef)) continue;
       const { gate } = openOrReuse(store, {
         type: 'review-manual-switch',
         reason: `답글만 오고 코드는 그대로예요: ${pr.ref} (답 ${pr.repliesSinceReview}개)`,

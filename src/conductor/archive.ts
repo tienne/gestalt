@@ -15,10 +15,26 @@ import {
 import { join, sep } from 'node:path';
 import { ACTIVITY_DIR, safeId } from './activity.js';
 import { CLEANUP_FAILED, acquireLock } from './engine.js';
+import { approvedFollowUpRef } from './gates.js';
 import { HANDOFF_DIR } from './handoff.js';
-import { ORDER_LOGS_DIR, foldEvents, fsyncDir, writeDurable, type FoldResult } from './fold.js';
+import {
+  ORDER_LOGS_DIR,
+  foldEvents,
+  fsyncDir,
+  orderLogPath,
+  writeDurable,
+  type FoldResult,
+} from './fold.js';
 import { REFS_DIR, SAFE_ORDER_ID, removeOrderRefCopies } from './ref-copy.js';
-import { ConductorStore, detachOrder, removalBlocker, replayStore } from './store.js';
+import {
+  ConductorStore,
+  detachOrder,
+  indexByOrder,
+  removalBlocker,
+  replayStore,
+  takenSourceRefs,
+  type OrderIndex,
+} from './store.js';
 import {
   TERMINAL_ORDER_STATUSES,
   type ConductorSnapshot,
@@ -53,8 +69,8 @@ export interface ArchivePlan {
   /** 끝났고 기간도 지났지만 못 옮기는 주문. 사람이 게이트나 워커를 처리해야 옮긴다 */
   blocked: { id: string; reason: string }[];
   /**
-   * 주문에 안 붙는 컨덕터 게이트 중 닫히고 기간이 지나 상태에서 버리는 것.
-   * 후속 동작이 그 게이트가 있다는 사실에 기대면 남긴다(`keepsFollowUp`)
+   * 주문에 안 붙는 컨덕터 게이트 중 닫히고 기간이 지나 상태에서 버리는 것. `sourceRef`가 있으면
+   * `askedSourceRefs`에 출처와 닫힌 시각만 남긴다. 후속 동작이 그 게이트에 기대면 남긴다(`keepsFollowUp`)
    */
   gates: string[];
 }
@@ -93,10 +109,19 @@ export type ArchiveResult =
 export function planArchive(s: ConductorSnapshot, now: Date, days: number): ArchivePlan {
   const cutoff = now.getTime() - days * DAY_MS;
   const plan: ArchivePlan = { orders: [], removed: [], blocked: [], gates: [] };
+  const index = indexByOrder(s);
+  // 정리 실패 게이트는 주문 없이 열리고 payload에만 주문을 든다
+  const openCleanup = new Set(
+    Object.values(s.gates).flatMap((g) =>
+      g.status === 'open' && g.payload?.kind === CLEANUP_FAILED && g.payload.orderId
+        ? [g.payload.orderId]
+        : [],
+    ),
+  );
   for (const o of Object.values(s.orders)) {
     if (!TERMINAL_ORDER_STATUSES.has(o.status) || !olderThan(o.updatedAt, cutoff)) continue;
     const reason = SAFE_ORDER_ID.test(o.id)
-      ? (removalBlocker(s, o.id, 'archive') ?? archiveBlocker(s, o.id))
+      ? (removalBlocker(s, o.id, 'archive', index) ?? archiveBlocker(s, o.id, index, openCleanup))
       : `주문 id 꼴이 이상해 안 옮겨요: ${o.id.slice(0, 80)}`;
     if (reason) plan.blocked.push({ id: o.id, reason });
     else plan.orders.push({ id: o.id, month: monthOf(o.updatedAt, now), status: o.status });
@@ -105,9 +130,10 @@ export function planArchive(s: ConductorSnapshot, now: Date, days: number): Arch
     if (r.archived || !olderThan(r.removedAt, cutoff) || !SAFE_ORDER_ID.test(id)) continue;
     plan.removed.push({ id, month: monthOf(r.removedAt, now) });
   }
+  const taken = takenSourceRefs(s);
   for (const g of Object.values(s.gates)) {
     if (g.orderId !== undefined || g.status !== 'resolved') continue;
-    if (!olderThan(g.resolvedAt ?? '', cutoff) || keepsFollowUp(s, g)) continue;
+    if (!olderThan(g.resolvedAt ?? '', cutoff) || keepsFollowUp(s, g, taken)) continue;
     plan.gates.push(g.id);
   }
   const byId = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id);
@@ -124,19 +150,17 @@ export function planArchive(s: ConductorSnapshot, now: Date, days: number): Arch
  * - 그 주문 워커의 정리 실패 게이트가 열려 있다: 게이트가 주문을 `payload`에만 들고 있다
  * - 승인했는데 아직 슬랙에 안 올린 게이트: 게시가 그 게이트를 보고 돈다
  */
-function archiveBlocker(s: ConductorSnapshot, orderId: string): string | undefined {
-  const workers = Object.values(s.workers).filter((w) => w.orderId === orderId);
+function archiveBlocker(
+  s: ConductorSnapshot,
+  orderId: string,
+  index: OrderIndex,
+  openCleanup: ReadonlySet<string>,
+): string | undefined {
+  const workers = index.workers.get(orderId) ?? [];
   if (workers.some((w) => w.status === 'finished' || w.status === 'failed'))
     return `아직 정리 안 된 워커가 있어서 못 옮겨요: ${orderId}`;
-  const gates = Object.values(s.gates);
-  if (
-    gates.some(
-      (g) =>
-        g.status === 'open' && g.payload?.kind === CLEANUP_FAILED && g.payload.orderId === orderId,
-    )
-  )
-    return `워커 정리 실패 게이트가 열려 있어서 못 옮겨요: ${orderId}`;
-  if (gates.some((g) => g.orderId === orderId && unposted(s, g)))
+  if (openCleanup.has(orderId)) return `워커 정리 실패 게이트가 열려 있어서 못 옮겨요: ${orderId}`;
+  if ((index.gates.get(orderId) ?? []).some((g) => unposted(s, g)))
     return `아직 안 올린 슬랙 게시가 있어서 못 옮겨요: ${orderId}`;
   return undefined;
 }
@@ -146,14 +170,15 @@ function unposted(s: ConductorSnapshot, g: Gate): boolean {
 }
 
 /**
- * 닫힌 컨덕터 게이트를 버리면 안 되는 경우.
- * - `sourceRef`가 있다: 같은 출처에 질문을 다시 안 열고(PR 감시, 접수) 승인 뒤 주문을 만드는 근거다
+ * 닫힌 컨덕터 게이트를 상태에 남겨야 하는 경우. 남기지 않는 게이트 중 `sourceRef`가 있는 것은
+ * `askedSourceRefs` 색인으로 옮겨서 같은 출처에 질문을 다시 안 연다(PR 감시, 접수).
+ * - 승인한 `review-manual-switch`인데 후속 재리뷰 주문이 아직 없다: tick이 게이트를 보고 주문을 만든다
  * - 승인했는데 아직 슬랙에 안 올렸다: 게시가 그 게이트를 보고 돈다
  * - 정리 실패를 승인했는데 워커가 아직 released가 아니다: 다음 tick이 승인을 반영한다
  */
-function keepsFollowUp(s: ConductorSnapshot, g: Gate): boolean {
-  if (g.payload?.sourceRef !== undefined) return true;
+function keepsFollowUp(s: ConductorSnapshot, g: Gate, taken: ReadonlySet<string>): boolean {
   if (g.decision !== 'approved') return false;
+  if (g.type === 'review-manual-switch' && !taken.has(approvedFollowUpRef(g))) return true;
   if (unposted(s, g)) return true;
   if (g.payload?.kind === CLEANUP_FAILED) {
     const w = g.payload.workerId ? s.workers[g.payload.workerId] : undefined;
@@ -190,10 +215,12 @@ export async function archiveOrders(
       // 이번에 옮길 주문의 워커는 아직 상태에 남아 있으므로 다음 보관 때 지운다
       swept = sweepOpsFiles(dir, state, at, days);
       plan = planArchive(state, at, days);
+      // 주문을 하나씩 빼도 아직 안 뺀 주문의 항목은 그대로라 한 번만 만든다
+      const index = indexByOrder(state);
       for (const { id, month } of plan.orders) {
-        if (!writeOrderArchive(dir, state, id, month, at.toISOString()))
+        if (!writeOrderArchive(dir, state, index, id, month, at.toISOString()))
           warnings.push(`모아 둔 이벤트가 없어 빈 events.jsonl을 썼어요: ${id}`);
-        const o = detachOrder(state, id);
+        const o = detachOrder(state, id, index);
         state.archivedOrders[id] = {
           sourceRef: o.sourceRef,
           ...(o.parentOrderId ? { parentOrderId: o.parentOrderId } : {}),
@@ -213,6 +240,10 @@ export async function archiveOrders(
         state.removedOrders[id] = { ...state.removedOrders[id]!, archived: month };
       }
       for (const id of plan.gates) {
+        const g = state.gates[id]!;
+        const ref = g.payload?.sourceRef;
+        if (ref !== undefined && !Object.hasOwn(state.askedSourceRefs, ref))
+          state.askedSourceRefs[ref] = g.resolvedAt ?? at.toISOString();
         delete state.gates[id];
         delete state.slackPosted[id];
       }
@@ -238,6 +269,7 @@ export async function archiveOrders(
 function writeOrderArchive(
   dir: string,
   s: ConductorSnapshot,
+  index: OrderIndex,
   id: string,
   month: string,
   archivedAt: string,
@@ -248,9 +280,7 @@ function writeOrderArchive(
   const copied = copyRefs(dir, id, target);
 
   const order = s.orders[id]!;
-  const workers = Object.values(s.workers)
-    .filter((w) => w.orderId === id)
-    .sort((a, b) => a.attempt - b.attempt);
+  const workers = [...(index.workers.get(id) ?? [])].sort((a, b) => a.attempt - b.attempt);
   copySummaries(
     dir,
     workers.map((w) => w.id),
@@ -258,7 +288,7 @@ function writeOrderArchive(
   );
   const reports = (s.reports[id] ?? []).map((r) => (copied ? movedRefCopies(r, id, month) : r));
   const refs = [...new Set(reports.flatMap((r) => r.refs))];
-  const gates = Object.values(s.gates).filter((g) => g.orderId === id);
+  const gates = index.gates.get(id) ?? [];
   const bypasses = s.bypasses.filter((b) => b.orderId === id);
   // `order show --json`과 같은 꼴. stateDir 대신 보관한 시각을 둔다
   const shown = { order, workers, reports, refs, gates, bypasses, archivedAt };
@@ -277,19 +307,21 @@ function archiveTarget(dir: string, month: string, id: string): string {
   return target;
 }
 
-/** 모아 둔 이벤트를 로그 순서로 잇는다. 모으기 전에 반영한 이벤트는 없다 */
+/**
+ * 모아 둔 이벤트를 로그 순서로 잇는다. 0.158.0이 범위마다 쓴 `<주문 id>/` 아래 파일이 먼저고(이름 순서가 로그
+ * 순서다) 그 뒤에 `<주문 id>.jsonl`이다. 모으기 전에 반영한 이벤트는 없다
+ */
 function stagedEvents(dir: string, id: string): string {
-  const orderDir = join(dir, ORDER_LOGS_DIR, id);
-  let names: string[];
-  try {
-    names = readdirSync(orderDir).filter((n) => n.endsWith('.jsonl'));
-  } catch {
-    return '';
-  }
-  return names
+  const legacyDir = join(dir, ORDER_LOGS_DIR, id);
+  const legacy = listDir(legacyDir)
+    .filter((n) => n.endsWith('.jsonl'))
     .sort()
-    .map((n) => readFileSync(join(orderDir, n), 'utf-8'))
-    .join('');
+    .map((n) => readFileSync(join(legacyDir, n), 'utf-8'));
+  const path = orderLogPath(dir, id);
+  const current = lstatSync(path, { throwIfNoEntry: false })?.isFile()
+    ? readFileSync(path, 'utf-8')
+    : '';
+  return [...legacy, current].join('');
 }
 
 /**
@@ -372,8 +404,10 @@ function movedRefCopies(
 function cleanupArchived(dir: string, s: ConductorSnapshot): string[] {
   const done = (id: string) =>
     SAFE_ORDER_ID.test(id) && (id in s.archivedOrders || !!s.removedOrders[id]?.archived);
-  for (const id of listDir(join(dir, ORDER_LOGS_DIR)).filter(done))
-    rmSync(join(dir, ORDER_LOGS_DIR, id), { recursive: true, force: true });
+  for (const name of listDir(join(dir, ORDER_LOGS_DIR))) {
+    if (done(name.replace(/\.jsonl$/, '')))
+      rmSync(join(dir, ORDER_LOGS_DIR, name), { recursive: true, force: true });
+  }
   const warnings: string[] = [];
   for (const id of listDir(join(dir, REFS_DIR)).filter((id) => id in s.archivedOrders)) {
     if (!SAFE_ORDER_ID.test(id)) continue;
@@ -728,9 +762,8 @@ export async function runDailyArchive(
     ...(read.at !== undefined && read.at <= now ? { at: read.at } : {}),
     ...(read.failedAt !== undefined && read.failedAt <= now ? { failedAt: read.failedAt } : {}),
   };
-  if (last.at !== undefined && opts.now.getTime() - last.at < DAY_MS) return undefined;
-  if (last.failedAt !== undefined && opts.now.getTime() - last.failedAt < RETRY_AFTER_FAILURE_MS)
-    return undefined;
+  if (last.at !== undefined && now - last.at < DAY_MS) return undefined;
+  if (last.failedAt !== undefined && now - last.failedAt < RETRY_AFTER_FAILURE_MS) return undefined;
   let result: Awaited<ReturnType<typeof archiveAndCompress>>;
   try {
     result = await archiveAndCompress(dir, {

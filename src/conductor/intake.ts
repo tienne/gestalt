@@ -400,11 +400,8 @@ export function parseQueueBody(body: unknown): Omit<IntakeInput, 'source' | 'sou
   return out;
 }
 
-/** 같은 출처로 이미 물었으면 다시 묻지 않는다. 사람이 거절한 것도 다시 안 묻는다 */
+/** 같은 출처로 이미 물었으면 다시 묻지 않는다. 사람이 거절한 것도, 보관하며 색인으로 옮긴 것도 다시 안 묻는다 */
 function askOnce(store: ConductorStore, sourceRef: string, reason: string): void {
-  const asked = Object.values(store.snapshot.gates).some(
-    (g) => g.payload?.['sourceRef'] === sourceRef,
-  );
-  if (asked) return;
+  if (store.askedSourceRef(sourceRef)) return;
   openOrReuse(store, { type: 'no-procedure', reason, payload: { sourceRef } });
 }
