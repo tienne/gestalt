@@ -32,6 +32,7 @@ import {
 } from '../../../src/conductor/deployment-evidence.js';
 import { openOrReuse, resolveGate } from '../../../src/conductor/gates.js';
 import { saveSkillCheckpoint } from '../../../src/conductor/resume.js';
+import { draftSlack, SLACK_HOST_HANDOFF } from '../../../src/conductor/slack.js';
 import type { DeploySignal, JiraClient } from '../../../src/conductor/jira.js';
 import { repoContextPath } from '../../../src/conductor/context.js';
 import {
@@ -134,12 +135,19 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
   const ref = 'customer-stage-v.260101.2';
   const environment = 'customer-stage';
   const scope = { runId: 21, attempt: 2, deploymentId: 32, environment };
+  const workflowPath = '.github/workflows/customer-stage.yml';
+  const workflowRoute = `contents/${workflowPath}?ref=${sha}`;
+  const workflow = (yaml: string) => ({
+    content: Buffer.from(yaml).toString('base64'),
+    encoding: 'base64',
+  });
   const run = {
     id: 21,
     run_attempt: 2,
     head_sha: sha,
     event: 'push',
     head_branch: ref,
+    path: `${workflowPath}@${ref}`,
     repository: { full_name: repo },
     status: 'completed',
     conclusion: 'success',
@@ -188,6 +196,10 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
       [`repos/${repo}/actions/runs/21`, run],
       [`repos/${repo}/deployments/32`, deployment],
       [`repos/${repo}/deployments/32/statuses?per_page=1`, [status]],
+      [
+        `repos/${repo}/${workflowRoute}`,
+        workflow("on:\n  push:\n    tags: ['customer-stage-*']\n"),
+      ],
       [`repos/${repo}/actions/runs/21/attempts/2/jobs?per_page=100`, jobs],
     ]);
   }
@@ -269,7 +281,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     const done = await tick(store, d, { force: true });
     expect(done.errors).toEqual([]);
     expect(done.hostActions).toEqual([]);
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(6);
     expect(store.snapshot.gates[stage.id]?.completion?.evidence).toMatchObject({
       kind: 'github-deployment',
       statusId: 43,
@@ -288,7 +300,7 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     await tick(store, d, { force: true });
     const reopened = ConductorStore.open(store.dir);
     expect((await tick(reopened, d, { force: true })).errors).toEqual([]);
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(6);
     const events = readFileSync(join(store.dir, EVENTS_FILE), 'utf8')
       .trim()
       .split('\n')
@@ -309,6 +321,24 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     ['시도 불일치', 'actions/runs/21', { ...run, run_attempt: 3 }, /승인과 달라/],
     ['커밋 불일치', 'actions/runs/21', { ...run, head_sha: 'b'.repeat(40) }, /승인과 달라/],
     ['환경 불일치', 'deployments/32', { ...deployment, environment: 'production' }, /승인과 달라/],
+    [
+      '이름과 SHA가 같은 브랜치 실행',
+      workflowRoute,
+      workflow(`on:\n  push:\n    branches: ['${ref}']\n    tags: ['${ref}']\n`),
+      /태그 푸시에서 시작됐다는 근거가 없어/,
+    ],
+    [
+      '실행 경로에 명시된 브랜치 ref',
+      'actions/runs/21',
+      { ...run, path: `${workflowPath}@refs/heads/${ref}` },
+      /태그 푸시에서 시작됐다는 근거가 없어/,
+    ],
+    [
+      '워크플로 증빙 누락',
+      workflowRoute,
+      { encoding: 'none', content: '' },
+      /태그 푸시에서 시작됐다는 근거가 없어/,
+    ],
     [
       '최신 배포 실패',
       'deployments/32/statuses?per_page=1',
@@ -400,6 +430,74 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
     ]);
     expect(launcher.released).toEqual([]);
     expect(store.snapshot.gates[gate.id]?.completion).toBeUndefined();
+  });
+
+  it('Slack 게시에 실패하면 보류하고 게시 증빙이 생긴 뒤 워커 완료를 기록한다', async () => {
+    const { store } = clockedStore();
+    const cleanup = workerGate(store);
+    const { gate: slack } = draftSlack(
+      store,
+      { orderId: 'ord-worker', channel: 'C-fixture', text: '공유 완료' },
+      tempStateDir(),
+    );
+    resolveGate(store, cleanup.id, 'approved');
+    resolveGate(store, slack.id, 'approved');
+    const orca = fakeLauncher('orca-worktree');
+    let checks = 0;
+    orca.launcher.completion = async () => {
+      checks++;
+      return ended;
+    };
+    let posted = false;
+    const { deps: d } = deps({
+      launchers: { 'orca-worktree': orca.launcher },
+      slack: {
+        post: async () => {
+          if (!posted) throw new Error('게시 실패');
+          return '12345.000001';
+        },
+      },
+    });
+    expect((await tick(store, d, { force: true })).warnings).toEqual([
+      expect.stringContaining('남은 후속 작업'),
+    ]);
+    expect(store.worker('wrk-previous')?.status).toBe('finished');
+    expect(store.snapshot.gates[cleanup.id]?.completion).toBeUndefined();
+    expect(checks).toBe(0);
+
+    posted = true;
+    expect((await tick(store, d, { force: true })).slackPosted).toEqual([slack.id]);
+    expect(store.snapshot.gates[cleanup.id]?.completion?.evidence.kind).toBe('orca-worker');
+    expect(store.worker('wrk-previous')?.status).toBe('released');
+    expect(checks).toBe(1);
+    expect(orca.released).toEqual([]);
+  });
+
+  it('Slack 호스트에 요청만 넘긴 상태는 게시 완료로 보지 않는다', async () => {
+    const { store } = clockedStore();
+    const cleanup = workerGate(store);
+    const { gate: slack } = draftSlack(
+      store,
+      { orderId: 'ord-worker', channel: 'C-fixture', text: '공유 완료' },
+      tempStateDir(),
+    );
+    resolveGate(store, cleanup.id, 'approved');
+    resolveGate(store, slack.id, 'approved');
+    const orca = fakeLauncher('orca-worktree');
+    orca.launcher.completion = async () => ended;
+    const { deps: d } = deps({
+      launchers: { 'orca-worktree': orca.launcher },
+      slack: { post: async () => SLACK_HOST_HANDOFF },
+    });
+    for (let i = 0; i < 2; i++) {
+      expect((await tick(store, d, { force: true })).warnings).toEqual([
+        expect.stringContaining('남은 후속 작업'),
+      ]);
+    }
+    expect(store.snapshot.slackPosted[slack.id]).toBe(SLACK_HOST_HANDOFF);
+    expect(store.snapshot.gates[cleanup.id]?.completion).toBeUndefined();
+    expect(store.worker('wrk-previous')?.status).toBe('finished');
+    expect(orca.released).toEqual([]);
   });
 
   it('워크트리까지 정리해야 한다면 같은 워크트리가 없어졌는지 읽기 요청으로 확인한다', async () => {
