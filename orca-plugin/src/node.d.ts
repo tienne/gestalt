@@ -72,6 +72,7 @@ declare module 'node:os' {
 declare const process: {
   env: Record<string, string | undefined>
   execPath: string
+  platform: string
   cwd(): string
   kill(pid: number, signal?: number | string): true
 }

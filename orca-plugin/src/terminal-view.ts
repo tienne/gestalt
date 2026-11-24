@@ -102,7 +102,7 @@ async function openBrowseNow(orderId: string): Promise<void> {
   else statusRegion.textContent = '작업 내용을 브라우저에서 열었어요'
 }
 
-/** 주문 번호를 클립보드에 넣는다. 오르카 호스트 API에 클립보드가 없어 프레임의 브라우저 API를 쓰고, 막혀 있으면 선택 복사로 한 번 더 해 본다 */
+/** 오르카 호스트 API에 클립보드가 없어 프레임의 브라우저 API를 쓰고, 막혀 있으면 선택 복사로 한 번 더 해 본다 */
 async function copyText(text: string): Promise<void> {
   state.openNote = null
   let copied = false
@@ -174,6 +174,13 @@ async function openUrl(url: string): Promise<string | null> {
   } catch {
     return `브라우저를 못 열었어요. 다시 눌러 주세요. 주소: ${url}`
   }
+}
+
+async function openLink(url: string): Promise<void> {
+  state.openNote = await openUrl(url)
+  render()
+  statusRegion.textContent = state.openNote ? '' : '링크를 브라우저에서 열었어요'
+  alertRegion.textContent = state.openNote ?? ''
 }
 
 function openWorker(orderId: string): Promise<void> {
@@ -303,6 +310,7 @@ function render(): void {
   lastMarkup = markup
   const focused = document.activeElement
   const keep = focused instanceof HTMLElement && root.contains(focused) ? focused.dataset['focus'] : undefined
+  const openLinkMenu = root.querySelector('.link-actions:popover-open')?.id
   // 읽던 터미널 출력이 맨 아래에 있었으면 새 줄을 따라가고 위로 올려 읽던 중이면 그 자리를 지킨다
   const tails = new Map<string, number | 'end'>()
   for (const t of Array.from(root.querySelectorAll<HTMLElement>('.tail[data-tail]'))) {
@@ -310,6 +318,11 @@ function render(): void {
     tails.set(t.dataset['tail']!, atEnd ? 'end' : t.scrollTop)
   }
   root.innerHTML = markup
+  if (openLinkMenu) {
+    const trigger = Array.from(root.querySelectorAll<HTMLButtonElement>('.meta-link'))
+      .find((button) => button.popoverTargetElement?.id === openLinkMenu)
+    trigger?.click()
+  }
   const log = root.querySelector('.log-rows')
   if (log) log.scrollTop = log.scrollHeight
   for (const t of Array.from(root.querySelectorAll<HTMLElement>('.tail[data-tail]'))) {
@@ -325,7 +338,7 @@ function render(): void {
 /** 두 번 누른 카드의 주문 id. 워크트리가 없거나 워커가 끝난 카드는 data-open이 없고 상세 안은 제 할 일이 따로 있다 */
 function openTarget(e: Event): string | undefined {
   const target = e.target as Element | null
-  if (target?.closest('.more, .tid-row button')) return undefined
+  if (target?.closest('.more, button, .link-actions')) return undefined
   return target?.closest<HTMLElement>('.w[data-open]')?.dataset['order']
 }
 
@@ -359,8 +372,17 @@ export function mountTerminal(): void {
     if (browse?.dataset['browse']) void openBrowse(browse.dataset['browse'])
     if ((e.target as Element | null)?.closest('[data-viewer]')) void openViewer()
     if ((e.target as Element | null)?.closest('[data-go-conductor]')) void openConductor()
+    const link = (e.target as Element | null)?.closest<HTMLElement>('[data-open-link]')
+    const linkUrl = link?.dataset['openLink']
+    if (linkUrl) {
+      link?.closest<HTMLElement>('.link-actions')?.hidePopover()
+      void once('링크를 여는 중이에요', () => openLink(linkUrl))
+    }
     const copy = (e.target as Element | null)?.closest<HTMLElement>('[data-copy]')
-    if (copy?.dataset['copy']) void copyText(copy.dataset['copy'])
+    if (copy?.dataset['copy']) {
+      copy.closest<HTMLElement>('.link-actions')?.hidePopover()
+      void copyText(copy.dataset['copy'])
+    }
   })
   root.addEventListener('dblclick', (e) => {
     const id = openTarget(e)

@@ -37,6 +37,43 @@ test('에디터와 패널에서는 워크트리를 찾은 카드만 두 번 눌�
   has(html, 'data-order="ord-b" data-focus="card:ord-b" tabindex="0" role="group" aria-label="ord-b ord-b">')
 })
 
+test('데스크톱 카드의 PR을 누르면 전체 URL을 열거나 복사할 수 있다', () => {
+  const v = view([
+    order('ord-a', { pr: 'acme/web#12' }),
+    order('ord-b', { pr: 'https://github.com/acme/api/pull/34' }),
+    order('ord-c', { pr: 'https://example.com/acme/api/pull/56' })
+  ])
+  const opts = { now: NOW, interactive: true, private: true }
+  const html = terminalMarkup(v, opts)
+  has(html, 'popovertarget="pr:ord-a"')
+  has(html, 'id="pr:ord-a" popover')
+  has(html, 'data-open-link="https://github.com/acme/web/pull/12"')
+  has(html, 'data-copy="https://github.com/acme/web/pull/12"')
+  has(html, 'data-open-link="https://github.com/acme/api/pull/34"')
+  lacks(html, 'popovertarget="pr:ord-c"')
+  const mobile = terminalMarkup(v, { ...opts, interactive: false, private: false })
+  has(mobile, 'acme/web#12')
+  lacks(mobile, 'popovertarget')
+})
+
+test('티켓과 PR이 함께 있는 카드에서 각각의 링크를 열거나 복사할 수 있다', () => {
+  const orders = [
+    order('ord-a', { issue: 'PROJ-42', pr: 'acme/web#12' }),
+    order('ord-b', { issue: 'https://example.com' })
+  ]
+  const jiraSiteUrl = 'https://team.atlassian.net'
+  const v = view(orders, { jiraSiteUrl })
+  const opts = { now: NOW, interactive: true, private: true }
+  const html = terminalMarkup(v, opts)
+  has(html, 'popovertarget="issue:ord-a"')
+  has(html, 'popovertarget="pr:ord-a"')
+  has(html, `data-open-link="${jiraSiteUrl}/browse/PROJ-42"`)
+  has(html, `data-copy="${jiraSiteUrl}/browse/PROJ-42"`)
+  lacks(html, 'popovertarget="issue:ord-b"')
+  lacks(terminalMarkup(view(orders), opts), 'popovertarget="issue:ord-a"')
+  lacks(terminalMarkup(v, { ...opts, interactive: false, private: false }), jiraSiteUrl)
+})
+
 test('바깥 글은 제목과 게이트 사유, 이벤트 요약, 속성값까지 이스케이프한다', () => {
   const html = terminalMarkup(
     view([order('ord-"a', { title: '<img src=x onerror=alert(1)>', workspaceId: 'ws' })], {
