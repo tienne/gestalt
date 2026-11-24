@@ -248,7 +248,10 @@ export function intakeOrder(
   return { order, created: true };
 }
 
-/** 레포 스킬이 주문을 넣는 지금 워커 워크트리가 갈라질 로컬 체크아웃에 있는지 본다 */
+/**
+ * 레포 스킬이 주문을 넣는 지금 워커 워크트리가 갈라질 로컬 체크아웃에 있는지 본다. 작업 트리 파일을
+ * 보므로 커밋 안 된 문서는 통과해도 커밋에서 갈라지는 워커에는 없다. 그때는 워커가 needs other로 올린다
+ */
 function checkRepoSkills(
   skills: string[],
   input: IntakeInput,
