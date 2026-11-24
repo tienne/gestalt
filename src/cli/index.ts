@@ -1441,6 +1441,10 @@ export function createCli(): Command {
       '--defer-delivery',
       '직접 못 전하는 결정은 다음 tick에 넘긴다 (hostActions를 못 돌리는 호출자용)',
     )
+    .option(
+      '--completed-deploy <json>',
+      '끝난 배포의 승인 범위. JSON에 runId, attempt, deploymentId, environment를 지정한다',
+    )
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action(async (id, o) => {

@@ -36,6 +36,7 @@ import {
   writeDeploySignal,
   writeQueueMessage,
 } from '../../conductor/adapters.js';
+import { approveDeployment, readDeploymentEvidence } from '../../conductor/deployment-evidence.js';
 import {
   acquireLock,
   afterHumanMerge,
@@ -917,6 +918,7 @@ async function runConductorTick(
     jira: hostJiraClient(deferred),
     slack: hostSlackClient(deferred),
     deploy: fileDeploySource(join(ctx.store.dir, 'deploy')),
+    deploymentEvidence: (target) => readDeploymentEvidence(target, gh),
     ...(prSource ? { prSource } : {}),
     prState: new GhPrStateSource({ accounts: gh }),
     ...(queue ? { queue } : {}),
@@ -1336,6 +1338,7 @@ export interface ConductorGateResolveOptions extends ConductorCommonOptions {
   takeOver?: boolean;
   answer?: string;
   deferDelivery?: boolean;
+  completedDeploy?: string;
 }
 
 export async function conductorGateResolveCommand(
@@ -1345,6 +1348,8 @@ export async function conductorGateResolveCommand(
   try {
     const picked = [opts.approve, opts.reject, opts.takeOver].filter(Boolean).length;
     if (picked !== 1) throw new Error('--approve, --reject, --take-over 중 하나만 주세요');
+    if (opts.completedDeploy !== undefined && (!opts.approve || opts.deferDelivery))
+      throw new Error('--completed-deploy는 이미 끝난 배포 주문의 --approve에만 쓸 수 있어요');
     const ctx = open(opts);
     assertConductorSession(ctx, 'gate resolve');
     if (await tickBotCaller(ctx))
@@ -1357,6 +1362,18 @@ export async function conductorGateResolveCommand(
       const gate = ctx.store.snapshot.gates[gateId];
       if (!gate) throw new Error(`모르는 게이트예요: ${gateId}`);
       if (gate.status !== 'open') throw new Error(`이미 종료된 게이트예요: ${gateId}`);
+      if (opts.completedDeploy !== undefined) {
+        const order = gate.orderId ? ctx.store.order(gate.orderId) : undefined;
+        if (order?.scope !== 'approval' || order.status !== 'done')
+          throw new Error('끝난 승인 주문의 배포 게이트만 완료 대조를 예약할 수 있어요');
+        const approvedDeployment = approveDeployment(gate, order.repo, opts.completedDeploy);
+        const closed = resolveGate(ctx.store, gateId, 'approved', opts.answer, {
+          approvedDeployment,
+        });
+        if (opts.json) return print({ gate: closed });
+        console.log(`${gateId} 배포 범위를 승인했어요. 다음 tick에서 성공 증빙을 대조해요`);
+        return;
+      }
       if (opts.takeOver) {
         if (!gate.orderId)
           throw new Error(`${gateId}는 주문이 없는 게이트라 넘겨받을 주문이 없어요`);

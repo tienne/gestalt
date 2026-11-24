@@ -217,6 +217,27 @@ export type GateDecision = 'approved' | 'rejected' | 'taken-over';
 
 export type GateDeliveryOutcome = 'delivered' | 'failed' | 'host-action' | 'no-worker';
 
+export interface ApprovedDeployment {
+  repo: string;
+  ref: string;
+  sha: string;
+  environment: string;
+  runId: number;
+  attempt: number;
+  deploymentId: number;
+}
+
+export type GateCompletionEvidence =
+  | { kind: 'github-deployment'; target: ApprovedDeployment; statusId: number }
+  | {
+      kind: 'orca-worker';
+      workerId: string;
+      dispatchId: string;
+      runId: string;
+      state: string;
+      removedWorkspace?: string;
+    };
+
 export interface Gate {
   id: string;
   orderId?: string;
@@ -226,6 +247,8 @@ export interface Gate {
   refs: string[];
   /** 슬랙 초안의 채널과 본문 경로처럼 승인 뒤 다시 쓸 값 */
   payload?: Record<string, string>;
+  approvedDeployment?: ApprovedDeployment;
+  completion?: { at: string; evidence: GateCompletionEvidence };
   openedAt: string;
   resolvedAt?: string;
   decision?: GateDecision;
@@ -365,11 +388,13 @@ export type ConductorEvent =
       at: string;
       gateId: string;
       decision: GateDecision;
+      approvedDeployment?: ApprovedDeployment;
       answer?: string;
       deliveryPending?: boolean;
       decisionBy?: string;
       decisionSource?: OrcaItemSource;
     }
+  | { type: 'gate-completed'; at: string; gateId: string; evidence: GateCompletionEvidence }
   /** pending이 true면 결정 전달을 tick에 넘겼고 false면 tick이 그 일을 마쳤다 */
   | {
       type: 'gate-delivery';

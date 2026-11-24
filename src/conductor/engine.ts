@@ -26,6 +26,8 @@ import {
 import { updateWorkerInfo } from './activity.js';
 import { saveFinishedSummaries } from './work-log.js';
 import { existingRepoContext } from './context.js';
+import type { ReadDeploymentEvidence } from './deployment-evidence.js';
+import { reconcileDeployments, reconcileWorker } from './gate-completion.js';
 import { approvedFollowUpRef, handleNeed, openOrReuse, type BypassHandlers } from './gates.js';
 import {
   intakeOrder,
@@ -72,13 +74,13 @@ import type { ConductorConfig } from './scheduler.js';
 import { planSlots } from './scheduler.js';
 import { publishApprovedSlack, type SlackClient } from './slack.js';
 import { newId, type ConductorStore } from './store.js';
+import { CLEANUP_FAILED, CLEANUP_ORDER_STATUSES } from './worker-completion.js';
 import type {
   Gate,
   GateDeliveryOutcome,
   JiraStatus,
   Order,
   OrderScope,
-  OrderStatus,
   RefCopy,
   StoredReport,
   Worker,
@@ -110,6 +112,7 @@ export interface EngineDeps {
   prState?: PrStateSource;
   jira?: JiraClient;
   deploy?: DeploySource;
+  deploymentEvidence?: ReadDeploymentEvidence;
   slack?: SlackClient;
   accounts?: AccountSwitcher;
   bypass?: BypassHandlers;
@@ -221,7 +224,7 @@ const STEAL_STALE_MS = 60 * 1000;
 const RELEASE_RETRIES = 20;
 const RELEASE_RETRY_MS = 50;
 /** 정리에 실패한 워커의 게이트를 알아보는 표식 */
-export const CLEANUP_FAILED = 'cleanup-failed';
+export { CLEANUP_FAILED };
 /** 주문 하나의 워커들이 spawnRequest로 만들 수 있는 하위 주문 수. 넘는 요청은 거절해 워커에 알린다 */
 export const MAX_SPAWN_PER_ORDER = 3;
 /** 보고를 적용하다 실패한 원문을 남기는 자리. inbox 아래에 둔다 */
@@ -449,6 +452,7 @@ async function runTick(
   // 이번 tick에 남긴 배포 신호를 같은 tick의 정산이 바로 읽도록 정산 앞에 둔다
   await step(report, () => recordDeployTargets(store, deps, report));
   await step(report, () => settleMerged(store, deps, report));
+  await step(report, () => reconcileDeployments(store, deps.deploymentEvidence, report));
   if (deps.slack) {
     const slack = deps.slack;
     await step(report, async () => {
@@ -1424,16 +1428,6 @@ async function settleOne(
 }
 
 /**
- * 멈춘 워커를 거둘 주문 상태. parked는 끝 상태지만 사람이 PR과 워크트리를 쥐고 있을 수 있어 뺀다.
- * 취소하면 그때 거둔다
- */
-const RELEASE_STOPPED_ORDER_STATUSES: ReadonlySet<OrderStatus> = new Set([
-  'done',
-  'failed',
-  'cancelled',
-]);
-
-/**
  * 이번 tick에 거둘 워커인지. 멈춘 워커는 주문이 done, failed, cancelled이거나 머지돼 워크트리까지
  * 지울 때만 거둔다. 워크트리까지 지울 때는 주문 상태를 안 본다
  */
@@ -1441,7 +1435,7 @@ function isCleanupTarget(w: Worker, order: Order | undefined, removeWorktree: bo
   if (w.status === 'finished' || w.status === 'failed') return true;
   if (w.status !== 'stopped') return false;
   if (removeWorktree) return true;
-  return order !== undefined && RELEASE_STOPPED_ORDER_STATUSES.has(order.status);
+  return order !== undefined && CLEANUP_ORDER_STATUSES.has(order.status);
 }
 
 /**
@@ -1472,7 +1466,8 @@ function worktreeRemoval(
  *
  * 정리가 실패하면 주문 없는 게이트로 올린다. 주문에 붙이면 주문이 waiting-gate로 바뀌어 머지 뒤
  * 정산까지 멈추는데 정리는 주문 진행과 무관하다. 그 게이트가 열린 동안은 다시 시도하지 않는다.
- * 사람이 승인하면 직접 정리한 것으로 보고 released로 두고 거절하면 다음 tick에 다시 시도한다.
+ * 사람이 승인한 Orca 워커는 종료와 정리 증빙까지 맞으면 released로 둔다.
+ * 거절한 게이트는 기존 자동 정리 경로에서 다시 시도한다.
  */
 async function cleanupWorkers(
   store: ConductorStore,
@@ -1489,12 +1484,30 @@ async function cleanupWorkers(
     const removeWorktree = mode !== undefined;
     if (!isCleanupTarget(w, order, removeWorktree)) continue;
     const mine = cleanupGates.filter((g) => g.payload?.workerId === w.id);
-    if (mine.some((g) => g.status === 'open')) continue;
-    if (mine.some((g) => g.decision === 'approved')) {
-      store.updateWorker(w.id, {
-        status: 'released',
-        ...(w.releaseRefusedAt ? { releaseRefusedAt: undefined } : {}),
-      });
+    const open = mine.find((g) => g.status === 'open');
+    if (open) {
+      if (w.kind === 'orca-worktree')
+        report.warnings.push(`${open.id} 워커 정리 보류: 승인 결정이 없어요`);
+      continue;
+    }
+    const latest = mine.at(-1);
+    if (latest?.decision === 'approved') {
+      if (w.kind === 'orca-worktree') {
+        if (!latest.completion)
+          await reconcileWorker(
+            store,
+            deps.launchers['orca-worktree'],
+            report,
+            w,
+            latest,
+            removeWorktree,
+          );
+      } else {
+        store.updateWorker(w.id, {
+          status: 'released',
+          ...(w.releaseRefusedAt ? { releaseRefusedAt: undefined } : {}),
+        });
+      }
       continue;
     }
     targets.push({
@@ -1549,7 +1562,13 @@ async function cleanupWorkers(
     const { gate } = openOrReuse(store, {
       type: 'no-procedure',
       reason: `${w.id} 정리에 실패했어요: ${message(r.reason)}`,
-      payload: { kind: CLEANUP_FAILED, workerId: w.id, orderId: w.orderId },
+      payload: {
+        kind: CLEANUP_FAILED,
+        workerId: w.id,
+        orderId: w.orderId,
+        ...(w.handle ? { dispatchId: w.handle } : {}),
+        ...(opts.removeWorktree ? { removeWorktree: 'true' } : {}),
+      },
     });
     report.escalated.push(gate.id);
   });

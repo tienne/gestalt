@@ -146,6 +146,7 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
         s.gates[e.gateId] = {
           ...g,
           status: 'resolved',
+          ...(e.approvedDeployment ? { approvedDeployment: e.approvedDeployment } : {}),
           decision: e.decision,
           resolvedAt: e.at,
           ...(e.answer !== undefined ? { answer: e.answer } : {}),
@@ -153,6 +154,19 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
           ...(e.decisionBy ? { decisionBy: e.decisionBy } : {}),
           ...(e.decisionSource ? { decisionSource: e.decisionSource } : {}),
         };
+      }
+      return;
+    }
+    case 'gate-completed': {
+      const g = s.gates[e.gateId];
+      if (!g || g.completion || g.decision !== 'approved') return;
+      s.gates[e.gateId] = { ...g, completion: { at: e.at, evidence: e.evidence } };
+      if (e.evidence.kind === 'orca-worker') {
+        const w = s.workers[e.evidence.workerId];
+        if (!w || w.handle !== e.evidence.dispatchId) return;
+        const next: Worker = { ...w, status: 'released' };
+        delete next.releaseRefusedAt;
+        s.workers[w.id] = next;
       }
       return;
     }
@@ -272,8 +286,11 @@ export function removalBlocker(
   if (!o) return `모르는 주문이에요: ${orderId}`;
   if (!TERMINAL_ORDER_STATUSES.has(o.status))
     return `끝난 주문만 ${can} 수 있어요: ${orderId}(${o.status})`;
-  if (gatesOfOrder(s, o.id, index).some((g) => g.status === 'open'))
+  const gates = gatesOfOrder(s, o.id, index);
+  if (gates.some((g) => g.status === 'open'))
     return `열린 게이트가 있어서 못 ${cannot}: ${orderId}`;
+  if (action === 'archive' && gates.some((g) => g.approvedDeployment && !g.completion))
+    return `배포 완료 증빙을 대조 중이라 못 ${cannot}: ${orderId}`;
   const workers = workersOfOrder(s, o.id, index);
   if (workers.some((w) => ACTIVE_WORKER_STATUSES.has(w.status)))
     return `도는 워커가 있어서 못 ${cannot}: ${orderId}`;
@@ -340,6 +357,10 @@ export function orderOfEvent(e: ConductorEvent, s: ConductorSnapshot): string | 
     case 'gate-delivery':
     case 'slack-posted':
       return s.gates[e.gateId]?.orderId;
+    case 'gate-completed':
+      return e.evidence.kind === 'orca-worker'
+        ? s.workers[e.evidence.workerId]?.orderId
+        : s.gates[e.gateId]?.orderId;
     case 'bypass':
     case 'jira-transition':
       return e.record.orderId;
@@ -612,6 +633,31 @@ function validate(event: ConductorEvent, s: ConductorSnapshot): void {
     const g = s.gates[event.gateId];
     if (!g) throw new Error(`모르는 게이트예요: ${event.gateId}`);
     if (g.status !== 'open') throw new Error(`이미 종료된 게이트예요: ${event.gateId}`);
+  }
+  if (event.type === 'gate-completed') {
+    const g = s.gates[event.gateId];
+    if (!g || g.status !== 'resolved' || g.decision !== 'approved' || g.completion)
+      throw new Error(`현재 승인으로 완료를 남길 수 없는 게이트예요: ${event.gateId}`);
+    const evidence = event.evidence;
+    if (evidence.kind === 'orca-worker') {
+      const worker = s.workers[evidence.workerId];
+      if (
+        g.type !== 'no-procedure' ||
+        g.payload?.kind !== 'cleanup-failed' ||
+        g.payload.workerId !== evidence.workerId ||
+        !worker ||
+        worker.kind !== 'orca-worktree' ||
+        worker.handle !== evidence.dispatchId ||
+        worker.orderId !== g.payload.orderId ||
+        !['finished', 'failed', 'stopped'].includes(worker.status)
+      )
+        throw new Error(`현재 워커와 종료 증빙이 맞지 않아요: ${event.gateId}`);
+    } else if (
+      !g.approvedDeployment ||
+      JSON.stringify(g.approvedDeployment) !== JSON.stringify(evidence.target)
+    ) {
+      throw new Error(`현재 배포 승인과 성공 증빙이 맞지 않아요: ${event.gateId}`);
+    }
   }
 }
 
