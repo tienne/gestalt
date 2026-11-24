@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.159.0] - 2026-11-24
+
+### Changed
+
+- **컨덕터 상태에 sourceRef 게이트가 끝없이 쌓이지 않게 색인으로 옮겨요(#170).** 0.158.0에서 다음 PR로 미룬 상한이에요. PR 감시의 리뷰 수동 전환 게이트와 접수의 `no-procedure` 게이트가 base.json과 snapshot.json에 계속 남았어요.
+  - 닫히고 보관 기간이 지난 sourceRef 게이트는 출처를 키로, 닫힌 시각을 값으로 하는 `askedSourceRefs`로 옮겨요. 접수와 PR 감시는 게이트와 이 색인을 함께 보고 같은 질문을 다시 열지 않아요.
+  - 승인한 리뷰 수동 전환 게이트는 후속 주문이 생긴 뒤에만 옮겨요.
+  - 출처가 `__proto__`면 색인에서 빠지던 문제도 함께 고쳤어요.
+- **워커와 게이트를 주문 id로 찾을 때 배열을 매번 훑지 않아요(#170).** 상태가 바뀔 때 한 번 만드는 Map 인덱스로 바꿨어요. 주문 400개 기준으로 37ms에서 1.8ms로 줄었어요.
+- **주문별 로그를 주문마다 파일 하나에 덧붙여요(#170).** 전에는 반영할 때마다 `<segment>.<from>.jsonl` 파일이 하나씩 늘었어요.
+  - 덧붙이기 전 크기를 적어 두고 반영하다 죽으면 그 크기로 되돌려요.
+  - 반영 한 번의 fsync는 주문 수 + 4번을 넘지 않아요.
+
+### 검증 범위
+
+- 컨덕터 워커가 로컬 리뷰 2라운드로 끝냈어요. 1라운드에서 5건을 반영했고 2라운드는 이슈가 없었어요. CI는 macOS와 Ubuntu에서 Node 22, 24로 통과했어요.
+
 ## [0.158.0] - 2026-11-24
 
 ### Added
