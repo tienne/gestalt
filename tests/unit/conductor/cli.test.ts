@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import {
   appendFileSync,
   chmodSync,
@@ -14,6 +14,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   conductorArchiveAction,
@@ -819,37 +820,35 @@ describe('gestalt conductor', () => {
     }
   });
 
-  it('끊긴 성공 기록은 이후 쓰기와 재시작 뒤에도 가장 최근 성공을 가리지 않는다', () => {
+  it('끊긴 성공 기록은 이후 쓰기와 재시작 뒤에도 가장 최근 성공을 가리지 않는다', async () => {
     const stateDir = tempStateDir();
     const first = '2026-11-24T16:00:00.000Z';
     const latest = '2026-11-24T16:25:00.000Z';
     const torn = '2026-11-24T16:50:00.000Z';
-    const status = () =>
-      JSON.parse(
-        execFileSync(
-          process.execPath,
-          [
-            '--import',
-            'tsx',
-            'bin/gestalt.ts',
-            'conductor',
-            'status',
-            '--state-dir',
-            stateDir,
-            '--json',
-          ],
-          { encoding: 'utf8' },
-        ),
-      ) as { lastSuccessfulTickAt: string | null };
-
     recordSuccessfulTick(stateDir, first);
     appendFileSync(join(stateDir, 'successful-ticks.log'), torn);
-    expect(status().lastSuccessfulTickAt).toBe(first);
+    conductorStatusCommand({ stateDir, json: true });
+    expect(last()['lastSuccessfulTickAt']).toBe(first);
 
     recordSuccessfulTick(stateDir, latest);
     recordSuccessfulTick(stateDir, first);
-    expect(status().lastSuccessfulTickAt).toBe(latest);
-  });
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        'bin/gestalt.ts',
+        'conductor',
+        'status',
+        '--state-dir',
+        stateDir,
+        '--json',
+      ],
+      { encoding: 'utf8', timeout: 8_000 },
+    );
+    const restarted = JSON.parse(stdout) as { lastSuccessfulTickAt: string | null };
+    expect(restarted.lastSuccessfulTickAt).toBe(latest);
+  }, 10_000);
 
   it('wait는 할 일 없는 tick엔 아무것도 출력하지 않다가 게이트가 열린 tick에서 그 게이트를 내고 끝난다', async () => {
     const stateDir = tempStateDir();
