@@ -45,6 +45,55 @@ describe('classifyNeed', () => {
   });
 });
 
+describe('레포 스킬 체인의 승인', () => {
+  it('ship이 없는 레포 스킬 체인의 simple-approval은 단계 값이 붙어도 사람에게 간다', () => {
+    for (const scope of ['approval', 'merge-through'] as const) {
+      const release = order({ skillChain: ['repo:release'], scope });
+      expect(classifyNeed(release, 'simple-approval')).toEqual({
+        kind: 'gate',
+        type: 'no-procedure',
+      });
+      expect(classifyNeed(release, 'simple-approval', 'ship-ready')).toEqual({
+        kind: 'gate',
+        type: 'no-procedure',
+      });
+    }
+    // ship이 같이 있어도 단계 값 없이 올린 릴리즈 승인은 사람에게 간다
+    expect(
+      classifyNeed(order({ skillChain: ['repo:release', 'ship'] }), 'simple-approval'),
+    ).toEqual({ kind: 'gate', type: 'no-procedure' });
+  });
+
+  it('bypass 절차가 있어도 태그 푸시 승인을 게이트로 올리고 기록을 남기지 않는다', async () => {
+    const s = ConductorStore.open(tempStateDir());
+    s.addOrder(
+      order({
+        id: 'ord-1',
+        scope: 'merge-through',
+        status: 'running',
+        workerId: 'wrk-1',
+        skillChain: ['repo:release'],
+      }),
+    );
+    s.startWorker(worker('ord-1', { id: 'wrk-1' }));
+    let called = false;
+    const out = await handleNeed(
+      s,
+      { orderId: 'ord-1', need: 'simple-approval', detail: 'v1.2.0 태그 푸시', step: 'ship-draft' },
+      {
+        'simple-approval': async () => {
+          called = true;
+          return '워커에 승인을 전했어요';
+        },
+      },
+    );
+    expect(out.kind === 'gate' && out.gate.type).toBe('no-procedure');
+    expect(out.kind === 'gate' && out.gate.reason).toContain('v1.2.0 태그 푸시');
+    expect(called).toBe(false);
+    expect(s.snapshot.bypasses).toEqual([]);
+  });
+});
+
 describe('handleNeed', () => {
   function storeWithRunning(scope: OrderScope = 'approval') {
     const s = ConductorStore.open(tempStateDir());

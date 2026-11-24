@@ -312,6 +312,36 @@ describe('컨덕터 tick', () => {
     expect(store.openGates('ord-etc').map((g) => g.type)).toEqual(['no-procedure']);
   });
 
+  it('PR 없는 레포 스킬 체인은 태그 푸시 전에 사람을 거치고 done 보고로 끝난다', async () => {
+    const { store } = clockedStore();
+    store.addOrder(order({ id: 'ord-rel', scope: 'merge-through', skillChain: ['repo:release'] }));
+    const { deps: d, git } = deps();
+    await tick(store, d, { force: true });
+    const workerId = store.order('ord-rel')!.workerId!;
+    expect(store.worker(workerId)!.kind).not.toBe('subagent');
+
+    report(store, d, {
+      workerId,
+      status: 'needs',
+      need: { kind: 'simple-approval', detail: 'v1.2.0 태그 푸시', step: 'ship-ready' },
+    });
+    await tick(store, d, { force: true });
+    expect(git.sent).toEqual([]);
+    const gates = store.openGates('ord-rel');
+    expect(gates.map((g) => g.type)).toEqual(['no-procedure']);
+    expect(store.order('ord-rel')!.status).toBe('waiting-gate');
+    expect(store.snapshot.bypasses).toEqual([]);
+
+    const closed = resolveGate(store, gates[0]!.id, 'approved');
+    await deliverGateDecision(store, closed, d);
+    expect(git.sent.at(-1)!.workerId).toBe(workerId);
+
+    report(store, d, { workerId, status: 'done', summary: 'v1.2.0 배포' });
+    await tick(store, d, { force: true });
+    expect(store.order('ord-rel')).toMatchObject({ status: 'done' });
+    expect(store.order('ord-rel')!.mergedAt).toBeUndefined();
+  });
+
   it('주문 설명과 레포 공통 맥락 경로가 prompts/의 워커 지시 파일에 들어간다', async () => {
     const { store } = clockedStore();
     const description = ['## 배경', '긴 대화에서 나온 요구사항', '- 참고: docs/a.md'].join('\n');
