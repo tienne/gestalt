@@ -76,6 +76,7 @@ import {
 } from '../../conductor/session-owner.js';
 import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
 import { readRecentEvents, type RecentEvent } from '../../conductor/recent-events.js';
+import { readConductorMonitor } from '../../conductor/monitor.js';
 import { removeOrderRefCopies } from '../../conductor/ref-copy.js';
 import {
   archiveAndCompress,
@@ -622,6 +623,19 @@ export interface ConductorStatusOptions extends ConductorCommonOptions {
   all?: boolean;
   /** JSON 주문마다 작업 내용(지금 tool, 고친 파일, todo, 서브에이전트)을 싣는다. 기본 출력은 그대로 둔다 */
   withActivity?: boolean;
+}
+
+export async function conductorMonitorCommand(
+  opts: Pick<ConductorCommonOptions, 'stateDir'>,
+): Promise<void> {
+  try {
+    const dir = resolveStateDir(opts.stateDir, loadConfig().conductor);
+    const owner = readBotOwnership(dir).active;
+    const orca = await readConductorMonitor(owner);
+    print({ owner: owner ?? null, orca });
+  } catch (e) {
+    exitWithError(e);
+  }
 }
 
 export function conductorStatusCommand(opts: ConductorStatusOptions): void {
