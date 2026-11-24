@@ -1,4 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -34,6 +36,7 @@ import {
   conductorWorkerReportCommand,
 } from '../../../src/cli/commands/conductor.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
+import { recordSuccessfulTick } from '../../../src/conductor/successful-tick.js';
 import { registerSession } from '../../../src/conductor/handoff.js';
 import { touchSessionTick } from '../../../src/conductor/session-owner.js';
 import { claimWaitOwner } from '../../../src/conductor/wait.js';
@@ -814,6 +817,38 @@ describe('gestalt conductor', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('끊긴 성공 기록은 이후 쓰기와 재시작 뒤에도 가장 최근 성공을 가리지 않는다', () => {
+    const stateDir = tempStateDir();
+    const first = '2026-11-24T16:00:00.000Z';
+    const latest = '2026-11-24T16:25:00.000Z';
+    const torn = '2026-11-24T16:50:00.000Z';
+    const status = () =>
+      JSON.parse(
+        execFileSync(
+          process.execPath,
+          [
+            '--import',
+            'tsx',
+            'bin/gestalt.ts',
+            'conductor',
+            'status',
+            '--state-dir',
+            stateDir,
+            '--json',
+          ],
+          { encoding: 'utf8' },
+        ),
+      ) as { lastSuccessfulTickAt: string | null };
+
+    recordSuccessfulTick(stateDir, first);
+    appendFileSync(join(stateDir, 'successful-ticks.log'), torn);
+    expect(status().lastSuccessfulTickAt).toBe(first);
+
+    recordSuccessfulTick(stateDir, latest);
+    recordSuccessfulTick(stateDir, first);
+    expect(status().lastSuccessfulTickAt).toBe(latest);
   });
 
   it('wait는 할 일 없는 tick엔 아무것도 출력하지 않다가 게이트가 열린 tick에서 그 게이트를 내고 끝난다', async () => {
