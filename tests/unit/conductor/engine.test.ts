@@ -42,6 +42,7 @@ import {
 import type { PrStateSource } from '../../../src/conductor/ownership.js';
 import type { ConductorConfig } from '../../../src/conductor/scheduler.js';
 import { ConductorStore, EVENTS_FILE, replay } from '../../../src/conductor/store.js';
+import { readLastSuccessfulTick } from '../../../src/conductor/successful-tick.js';
 import type { Worker, WorkerKind } from '../../../src/conductor/types.js';
 import { cleanupStateDirs, clockedStore, order, tempStateDir, worker } from './fixtures.js';
 
@@ -1022,7 +1023,7 @@ describe('컨덕터 tick', () => {
         advance(7_199_000);
         expect((await tick(store, d, { force: true })).escalated).toEqual([]);
         expect(store.worker('wrk-1')?.releaseRefusedAt).toBe(first.at);
-        expect(store.snapshot.eventCount).toBe(eventCount + 2); // tick과 성공 기록만 추가된다
+        expect(store.snapshot.eventCount).toBe(eventCount + 1);
 
         advance(1000);
         const expired = await tick(store, d, { force: true });
@@ -2203,6 +2204,79 @@ describe('파일 겹침', () => {
 });
 
 describe('tick 끝의 보관', () => {
+  function barrier() {
+    let open!: () => void;
+    const wait = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    return { open, wait };
+  }
+
+  it('보관에서 돌아온 정상 tick은 후속 실패 tick이 잠금을 쥐고 있어도 성공 근거를 남긴다', async () => {
+    const { store, dir, now } = clockedStore();
+    const next = clockedStore(dir, now().getTime() + 1_500_000);
+    const archiving = barrier();
+    const archiveDone = barrier();
+    const reading = barrier();
+    const queueFailed = barrier();
+    const { deps: firstDeps } = deps({
+      archive: async () => {
+        archiving.open();
+        await archiveDone.wait;
+        return undefined;
+      },
+    });
+    const { deps: nextDeps } = deps({
+      queue: {
+        receive: async () => {
+          reading.open();
+          await queueFailed.wait;
+          throw new Error('큐 읽기 실패 fixture');
+        },
+        ack: async () => {},
+      },
+    });
+    const firstTick = tick(store, firstDeps);
+    await archiving.wait;
+    const nextTick = tick(next.store, nextDeps);
+    await reading.wait;
+    archiveDone.open();
+    const success = await firstTick;
+    const proofWhileLocked = readLastSuccessfulTick(dir);
+    queueFailed.open();
+    const failed = await nextTick;
+
+    expect(success.errors).toEqual([]);
+    expect(proofWhileLocked).toBe(success.at);
+    expect(failed.errors).toEqual(['큐 읽기 실패 fixture']);
+    expect(ConductorStore.open(dir).snapshot.lastTickAt).toBe(failed.at);
+    expect(readLastSuccessfulTick(dir)).toBe(success.at);
+  });
+
+  it('오래된 tick의 보관이 늦게 끝나도 더 최근의 성공 시각을 유지한다', async () => {
+    const { store, dir, now } = clockedStore();
+    const archiveStarted = barrier();
+    const archiveDone = barrier();
+    const { deps: earlier } = deps({
+      archive: async () => {
+        archiveStarted.open();
+        await archiveDone.wait;
+        return undefined;
+      },
+    });
+    const { deps: later } = deps();
+    const firstTick = tick(store, earlier);
+    await archiveStarted.wait;
+    const newer = await tick(clockedStore(dir, now().getTime() + 1_500_000).store, later);
+    archiveDone.open();
+    const older = await firstTick;
+
+    expect(older.errors).toEqual([]);
+    expect(newer.errors).toEqual([]);
+    expect(older.at < newer.at).toBe(true);
+    expect(readLastSuccessfulTick(dir)).toBe(newer.at);
+  });
+
   it('잠금을 놓은 뒤 보관을 부르고 결과를 보고에 싣는다', async () => {
     const { store } = clockedStore();
     let lockFree = false;
@@ -2229,7 +2303,7 @@ describe('tick 끝의 보관', () => {
     expect(r.archive?.orders).toEqual(['ord-a']);
     expect(r.warnings).toContain('보관: 빈 events.jsonl');
     expect(r.warnings.some((w) => w.includes('못 옮긴 주문 1개: ord-b'))).toBe(true);
-    expect(store.snapshot.lastSuccessfulTickAt).toBe(r.at);
+    expect(readLastSuccessfulTick(store.dir)).toBe(r.at);
   });
 
   it('보관이 실패해도 tick 결과는 그대로 두고 오류만 남긴다', async () => {
@@ -2245,7 +2319,7 @@ describe('tick 끝의 보관', () => {
     expect(r.errors).toContain('보관 실패: 디스크가 찼어요');
     expect(r.archive).toBeUndefined();
     expect(store.snapshot.lastTickAt).toBe(r.at);
-    expect(store.snapshot.lastSuccessfulTickAt).toBeUndefined();
+    expect(readLastSuccessfulTick(store.dir)).toBeNull();
   });
 
   it('보관이 상태를 바꾸고 던져도 store를 다시 읽는다', async () => {
