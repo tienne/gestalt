@@ -238,6 +238,11 @@ Orca GitHub 커넥터가 연결된 팀 접수 봇은 운영 봇과 별도로 둔
     "acme/app": {
       "release-owner": "-----BEGIN PUBLIC KEY-----\n<공개키>\n-----END PUBLIC KEY-----\n"
     }
+  },
+  "gateApprovers": {
+    "acme/app": {
+      "review-owner": "-----BEGIN PUBLIC KEY-----\n<공개키>\n-----END PUBLIC KEY-----\n"
+    }
   }
 }
 ```
