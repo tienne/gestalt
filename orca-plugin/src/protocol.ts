@@ -129,6 +129,7 @@ export type ConductorView = {
   unassignedBypasses: Bypass[]
   /** 컨덕터 레포(owner/name)마다 찾은 오르카 프로젝트 이름. 못 찾은 레포는 빠진다 */
   projects?: Record<string, string>
+  jiraSiteUrl?: string
   /** 워커가 붙은 주문에 workerKind가 없다. 워크트리를 못 이어 주문을 눌러도 워커로 못 가는 옛 CLI다 */
   outdatedCli?: boolean
   /** 주문은 있는데 conductor와 recentEvents가 둘 다 없다. 터미널 화면을 그리기엔 낡은 CLI다 */

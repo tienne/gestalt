@@ -176,10 +176,10 @@ async function openUrl(url: string): Promise<string | null> {
   }
 }
 
-async function openPr(url: string): Promise<void> {
+async function openLink(url: string): Promise<void> {
   state.openNote = await openUrl(url)
   render()
-  statusRegion.textContent = state.openNote ? '' : 'PR을 브라우저에서 열었어요'
+  statusRegion.textContent = state.openNote ? '' : '링크를 브라우저에서 열었어요'
   alertRegion.textContent = state.openNote ?? ''
 }
 
@@ -310,7 +310,7 @@ function render(): void {
   lastMarkup = markup
   const focused = document.activeElement
   const keep = focused instanceof HTMLElement && root.contains(focused) ? focused.dataset['focus'] : undefined
-  const openPrMenu = root.querySelector('.pr-actions:popover-open')?.id
+  const openLinkMenu = root.querySelector('.link-actions:popover-open')?.id
   // 읽던 터미널 출력이 맨 아래에 있었으면 새 줄을 따라가고 위로 올려 읽던 중이면 그 자리를 지킨다
   const tails = new Map<string, number | 'end'>()
   for (const t of Array.from(root.querySelectorAll<HTMLElement>('.tail[data-tail]'))) {
@@ -318,9 +318,9 @@ function render(): void {
     tails.set(t.dataset['tail']!, atEnd ? 'end' : t.scrollTop)
   }
   root.innerHTML = markup
-  if (openPrMenu) {
-    const trigger = Array.from(root.querySelectorAll<HTMLButtonElement>('.pr-link'))
-      .find((button) => button.popoverTargetElement?.id === openPrMenu)
+  if (openLinkMenu) {
+    const trigger = Array.from(root.querySelectorAll<HTMLButtonElement>('.meta-link'))
+      .find((button) => button.popoverTargetElement?.id === openLinkMenu)
     trigger?.click()
   }
   const log = root.querySelector('.log-rows')
@@ -338,7 +338,7 @@ function render(): void {
 /** 두 번 누른 카드의 주문 id. 워크트리가 없거나 워커가 끝난 카드는 data-open이 없고 상세 안은 제 할 일이 따로 있다 */
 function openTarget(e: Event): string | undefined {
   const target = e.target as Element | null
-  if (target?.closest('.more, button, .pr-actions')) return undefined
+  if (target?.closest('.more, button, .link-actions')) return undefined
   return target?.closest<HTMLElement>('.w[data-open]')?.dataset['order']
 }
 
@@ -372,15 +372,15 @@ export function mountTerminal(): void {
     if (browse?.dataset['browse']) void openBrowse(browse.dataset['browse'])
     if ((e.target as Element | null)?.closest('[data-viewer]')) void openViewer()
     if ((e.target as Element | null)?.closest('[data-go-conductor]')) void openConductor()
-    const pr = (e.target as Element | null)?.closest<HTMLElement>('[data-open-pr]')
-    const prUrl = pr?.dataset['openPr']
-    if (prUrl) {
-      pr?.closest<HTMLElement>('.pr-actions')?.hidePopover()
-      void once('PR을 여는 중이에요', () => openPr(prUrl))
+    const link = (e.target as Element | null)?.closest<HTMLElement>('[data-open-link]')
+    const linkUrl = link?.dataset['openLink']
+    if (linkUrl) {
+      link?.closest<HTMLElement>('.link-actions')?.hidePopover()
+      void once('링크를 여는 중이에요', () => openLink(linkUrl))
     }
     const copy = (e.target as Element | null)?.closest<HTMLElement>('[data-copy]')
     if (copy?.dataset['copy']) {
-      copy.closest<HTMLElement>('.pr-actions')?.hidePopover()
+      copy.closest<HTMLElement>('.link-actions')?.hidePopover()
       void copyText(copy.dataset['copy'])
     }
   })

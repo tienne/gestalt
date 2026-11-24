@@ -6,6 +6,7 @@ import { existsSync, watch, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CliError, CliResolver } from './cli'
+import { readJiraSite } from './jira-site'
 import { MobileServer } from './mobile-server'
 import { isClosed } from './model'
 import { ResultsViewer, type ViewerRecord } from './viewer'
@@ -152,6 +153,7 @@ class Conductor {
   private activityPoll: ReturnType<typeof setTimeout> | null = null
   private readonly mobile = new MobileServer(() => this.view)
   private readonly cli = new CliResolver(STATUS_TIMEOUT_MS)
+  private jiraSite: { url: string | undefined; expiresAt: number } | undefined
   private mobilePort = 0
 
   constructor(private readonly orca: OrcaWorkerApi) {}
@@ -251,7 +253,12 @@ class Conductor {
           view = emptyView('missing', dir, now)
         } else {
           this.raw = raw
-          view = toView(raw, dir, await this.workspaces(raw), now)
+          const [workspaces, jiraSiteUrl] = await Promise.all([
+            this.workspaces(raw),
+            raw.orders.some((o) => o.issue) ? this.currentJiraSite() : undefined
+          ])
+          view = toView(raw, dir, workspaces, now)
+          if (jiraSiteUrl) view.jiraSiteUrl = jiraSiteUrl
         }
       } catch (e) {
         this.raw = null
@@ -265,6 +272,13 @@ class Conductor {
     if (view.state === 'ok') await this.notify(view.gates)
     this.arm(view.stateDir)
     this.armActivityPoll(view)
+  }
+
+  private async currentJiraSite(): Promise<string | undefined> {
+    if (this.jiraSite && Date.now() < this.jiraSite.expiresAt) return this.jiraSite.url
+    const url = await readJiraSite()
+    this.jiraSite = { url, expiresAt: Date.now() + 60_000 }
+    return url
   }
 
   private async status(cfg: Config): Promise<string> {
