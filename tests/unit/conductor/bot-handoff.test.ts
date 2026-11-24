@@ -253,6 +253,24 @@ console.log(JSON.stringify({ ok: true, result }));
     expect(deps.retarget).toHaveBeenCalledTimes(1);
   });
 
+  it('편집 도중 새 채팅이 닫히면 운영권을 유지하고 채팅이 준비된 뒤 이어 간다', async () => {
+    const { deps, dir, automation, run, approval } = fixture();
+    const approve = await approval();
+    deps.retarget.mockImplementationOnce(async (_id, chat) => {
+      automation.bot.chat.sessionId = chat;
+      deps.chat.mockRejectedValueOnce(new Error('채팅 닫힘'));
+    });
+    expect(await run({ approve })).toMatchObject({
+      status: 'partial',
+      retryStage: 'verify',
+      automationChatId: target.chatId,
+      responsibleChatId: source.chatId,
+    });
+    expect(readBotOwnership(dir).active).toEqual(source);
+    expect(await run({ approve })).toMatchObject({ status: 'completed' });
+    expect(deps.retarget).toHaveBeenCalledTimes(1);
+  });
+
   it('편집 뒤 보고 정책이 달라졌으면 책임을 유지하고 운영자가 복구한 뒤 취소할 수 있다', async () => {
     const { dir, deps, automation, run, approval } = fixture();
     const approve = await approval();
