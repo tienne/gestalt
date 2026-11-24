@@ -152,8 +152,9 @@ export async function foldEvents(dir: string, opts: FoldOptions = {}): Promise<F
 /**
  * 이번 반영에서 모은 줄을 주문별 파일에 덧붙인다. 덧붙이기 전에 주문별 파일 크기와 반영 id를 적어 둔다.
  * base.json이 같은 id를 들고 있으면 덧붙인 줄이 반영된 것이고 다르면 다음 반영이 그 크기로 되돌린다.
- * fsync는 반영 한 번에 줄이 닿은 주문 수 + 4번이 상한이다(기록 파일, 그 rename, 주문마다 덧붙인 파일,
- * 새 파일 엔트리, `order-logs/`를 새로 만들었으면 저장소 디렉토리). 덧붙인 줄이 있으면 true다
+ * fsync는 반영 한 번에 줄이 닿은 주문 수 + 4번이다(기록 파일, 그 rename, 주문마다 덧붙인 파일,
+ * 새 파일 엔트리, `order-logs/`를 새로 만들었으면 저장소 디렉토리). 끝나지 않은 줄을 자른 파일은 한 번씩 더 든다.
+ * 덧붙인 줄이 있으면 true다
  */
 function stageOrderLogs(
   dir: string,
