@@ -1,3 +1,4 @@
+import matter from 'gray-matter';
 import { isPlainObject } from '../core/json-file.js';
 import type { GhAccounts } from './adapters.js';
 import { execRunner, type CommandRunner } from './launcher.js';
@@ -59,6 +60,36 @@ export function approveDeployment(
 type DeploymentResult = { statusId: number; jobId: number } | { reason: string };
 export type ReadDeploymentEvidence = (target: ApprovedDeployment) => Promise<DeploymentResult>;
 
+function tagOnlyPush(workflow: unknown): boolean {
+  if (
+    !isPlainObject(workflow) ||
+    workflow.encoding !== 'base64' ||
+    typeof workflow.content !== 'string'
+  )
+    return false;
+  const source = Buffer.from(workflow.content, 'base64').toString('utf8');
+  const delimiter = '\u0000';
+  if (source.includes(delimiter)) return false;
+  const { data } = matter(`${delimiter}\n${source}\n${delimiter}`, {
+    delimiters: delimiter,
+    language: 'yaml',
+  });
+  const trigger: unknown = data.on;
+  if (!isPlainObject(trigger) || !isPlainObject(trigger.push)) return false;
+  const { push } = trigger;
+  return (
+    Object.keys(push).every((key) =>
+      ['tags', 'tags-ignore', 'paths', 'paths-ignore'].includes(key),
+    ) &&
+    [push.tags, push['tags-ignore']].some(
+      (filter) =>
+        Array.isArray(filter) &&
+        filter.length > 0 &&
+        filter.every((tag: unknown) => typeof tag === 'string'),
+    )
+  );
+}
+
 export async function readDeploymentEvidence(
   target: ApprovedDeployment,
   accounts: GhAccounts,
@@ -100,6 +131,17 @@ export async function readDeploymentEvidence(
     return { reason: 'GitHub 실행, 시도, 커밋, 태그 또는 배포 환경이 승인과 달라요' };
   if (run.status !== 'completed' || run.conclusion !== 'success')
     return { reason: '승인한 GitHub 실행의 성공이 확인되지 않았어요' };
+
+  const [workflowPath, workflowRef, extraRef] =
+    typeof run.path === 'string' ? run.path.split('@') : [];
+  if (
+    !workflowPath ||
+    extraRef !== undefined ||
+    !/^\.github\/workflows\/[\w.-]+\.ya?ml$/.test(workflowPath) ||
+    (workflowRef !== undefined && workflowRef !== ref && workflowRef !== `refs/tags/${ref}`) ||
+    !(await get(`contents/${workflowPath}?ref=${sha}`).then(tagOnlyPush))
+  )
+    return { reason: '해당 GitHub 실행이 태그 푸시에서 시작됐다는 근거가 없어요' };
 
   const latest: unknown = Array.isArray(statuses) ? statuses[0] : undefined;
   if (!isPlainObject(latest) || !positiveId(latest.id) || latest.environment !== environment)
