@@ -21,6 +21,8 @@ export interface BotHandoffRecord {
   settings: string;
   revision: number;
   editUncertain?: boolean;
+  editAttempt?: string;
+  cancelledWithoutEdit?: boolean;
   outcome?: 'completed' | 'cancelled';
   nextRunAt?: number;
 }
@@ -44,7 +46,7 @@ function ownerRecord(value: unknown): value is BotOwner {
 
 const ownershipPath = (dir: string) => join(dir, 'bot-owner.json');
 
-function handoffRecord(value: unknown): value is BotHandoffRecord {
+export function isBotHandoffRecord(value: unknown): value is BotHandoffRecord {
   return (
     isPlainObject(value) &&
     ['id', 'approval', 'automationId', 'from', 'to', 'botId', 'settings'].every(
@@ -53,6 +55,10 @@ function handoffRecord(value: unknown): value is BotHandoffRecord {
     typeof value['revision'] === 'number' &&
     Number.isSafeInteger(value['revision']) &&
     (value['editUncertain'] === undefined || typeof value['editUncertain'] === 'boolean') &&
+    (value['editAttempt'] === undefined ||
+      (typeof value['editAttempt'] === 'string' && isSessionId(value['editAttempt']))) &&
+    (value['cancelledWithoutEdit'] === undefined ||
+      typeof value['cancelledWithoutEdit'] === 'boolean') &&
     (value['outcome'] === undefined ||
       value['outcome'] === 'completed' ||
       value['outcome'] === 'cancelled') &&
@@ -79,7 +85,7 @@ export function readBotOwnership(dir: string): BotOwnership {
         !Number.isSafeInteger(data['revision']) ||
         data['revision'] < 0)) ||
     (data['handoffs'] !== undefined &&
-      (!Array.isArray(data['handoffs']) || !data['handoffs'].every(handoffRecord)))
+      (!Array.isArray(data['handoffs']) || !data['handoffs'].every(isBotHandoffRecord)))
   ) {
     throw new Error('봇 운영권 파일을 읽을 수 있어야 컨덕터를 실행할 수 있어요');
   }

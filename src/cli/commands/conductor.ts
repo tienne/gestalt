@@ -780,6 +780,7 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
             ...(!latestHandoff.outcome && latestHandoff.editUncertain
               ? { retryStage: 'reconcile-edit' }
               : {}),
+            ...(latestHandoff.editAttempt ? { editAttemptId: latestHandoff.editAttempt } : {}),
             responsibleChatId: botOwner?.chatId,
             verifiedNextRunAt: latestHandoff.nextRunAt,
           },
@@ -1788,6 +1789,7 @@ export async function conductorBotHandoffCommand(
         );
       if (result.approval) console.log(`인계 승인: 같은 명령에 --approve ${result.approval}`);
       if (result.retryStage) console.log(`재개 단계: ${result.retryStage}`);
+      if (result.editAttemptId) console.log(`Orca 편집 시도 ID ${result.editAttemptId}`);
       if (result.detail) console.log(result.detail);
     }
     if (result.status === 'blocked' || result.status === 'partial') process.exitCode = 1;

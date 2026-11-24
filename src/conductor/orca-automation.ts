@@ -102,5 +102,8 @@ export async function showScheduledBotAutomation(id: string): Promise<ScheduledB
 }
 
 export async function retargetBotAutomation(id: string, chat: string): Promise<void> {
-  await callOrcaAutomation(['edit', '--id', id, '--runs-in', `chat:${chat}`]);
+  const response = await callOrcaAutomation(['edit', '--id', id, '--runs-in', `chat:${chat}`]);
+  const edited = readScheduledBotAutomation(response);
+  if (edited.id !== id || edited.chatId !== chat)
+    throw new Error('Orca 편집 응답에서 요청한 자동화 ID와 대상 채팅을 확인하지 못했어요');
 }
