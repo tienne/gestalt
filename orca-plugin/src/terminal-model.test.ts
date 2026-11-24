@@ -67,10 +67,14 @@ test('workerEnded는 해제됐거나 끝난 워커만 고른다', () => {
   assert.equal(workerEnded({}), false)
 })
 
-test('canReachWorker는 워크트리가 있고 워커가 안 끝난 주문만 고른다', () => {
-  assert.equal(canReachWorker({ workspaceId: 'ws', workerStatus: 'running' }), true)
-  assert.equal(canReachWorker({ workspaceId: 'ws', workerStatus: 'released' }), false)
-  assert.equal(canReachWorker({ workerStatus: 'running' }), false)
+test('canReachWorker는 워크트리가 있고 워커가 안 끝났고 주문이 안 닫힌 것만 고른다', () => {
+  assert.equal(canReachWorker({ workspaceId: 'ws', workerStatus: 'running', status: 'running' }), true)
+  assert.equal(canReachWorker({ workspaceId: 'ws', workerStatus: 'released', status: 'running' }), false)
+  assert.equal(canReachWorker({ workerStatus: 'running', status: 'running' }), false)
+  // 머지나 취소로 닫힌 주문은 워크트리가 남아 있어도 옮겨 가지 않는다
+  assert.equal(canReachWorker({ workspaceId: 'ws', workerStatus: 'running', status: 'merged' }), false)
+  assert.equal(canReachWorker({ workspaceId: 'ws', workerStatus: 'running', status: 'cancelled' }), false)
+  assert.equal(canReachWorker({ workspaceId: 'ws', workerStatus: 'running', status: 'parked' }), true)
 })
 
 test('stateLine은 한도, 게이트, 대기, 그 밖 순으로 고른다', () => {

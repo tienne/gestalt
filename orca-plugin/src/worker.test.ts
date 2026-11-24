@@ -601,6 +601,20 @@ test('worker.open은 주문의 워크트리를 찾아 연다', async () => {
   })
 })
 
+test('worker.open은 머지됐거나 취소된 주문이면 워크트리가 남아 있어도 열지 않는다', async () => {
+  for (const status of ['merged', 'cancelled']) {
+    const s = store({ ...STATUS, orders: [{ ...STATUS.orders[0]!, status }] })
+    const h = host(s.dir)
+    await run(s, h, async (worker) => {
+      await worker.request('conductor.refresh')
+      const out = await worker.request('worker.open', { orderId: 'ord-a' })
+      assert.equal(out.opened, false, status)
+      assert.match(out.error ?? '', /머지됐거나 취소된/)
+      assert.deepEqual(h.callsOf('workspace.open'), [])
+    })
+  }
+})
+
 function liveHost(dir: string, results: Record<string, unknown>, capabilities?: string[]) {
   return mockHost({
     settings: { gestaltPath: FAKE, stateDir: dir },
