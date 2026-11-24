@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.159.1] - 2026-11-24
+
+### Fixed
+
+- **오르카 컨덕터 화면에서 머지됐거나 취소된 주문은 워커로 옮겨 가는 버튼을 숨겨요.** 머지 뒤 워크트리가 정리된 주문을 누르면 "이 주문의 워크트리를 오르카에서 못 찾았어요"가 상단에 남았어요.
+  - 터미널 화면의 이동 버튼과 두 번 누르기, 보드의 ↗ 버튼과 상세의 "워크트리로 이동", 사이드 패널의 카드 누르기가 같은 판정을 써요.
+  - 상태가 바뀌기 전에 그려 둔 버튼이 남을 수 있어서 `worker.open`도 닫힌 주문이면 이유를 붙여 거절해요.
+
+### 남긴 것
+
+- `parked`, `done`, `failed` 주문은 워크트리가 남아 있을 수 있어 이동 버튼을 그대로 둬요.
+
 ## [0.159.0] - 2026-11-24
 
 ### Changed
