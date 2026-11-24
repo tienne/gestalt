@@ -7,6 +7,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CliError, CliResolver } from './cli'
 import { MobileServer } from './mobile-server'
+import { isClosed } from './model'
 import { ResultsViewer, type ViewerRecord } from './viewer'
 import type {
   AgentState,
@@ -487,6 +488,9 @@ class Conductor {
   }
 
   async openWorker(orderId: string): Promise<WorkerOpenResult> {
+    // 화면은 닫힌 주문에 버튼을 안 띄우지만 상태가 바뀌기 전에 그려 둔 버튼은 남아 있을 수 있다
+    const status = this.raw?.orders.find((o) => o.id === orderId)?.status
+    if (status && isClosed(status)) return { opened: false, error: '머지됐거나 취소된 주문이라 워크트리로 옮겨 가지 않아요' }
     const ws = await this.workspaceOf(orderId)
     if ('error' in ws) return { opened: false, error: ws.error }
     let missed = '이 오르카는 터미널로 옮기는 기능을 지원하지 않아요.'

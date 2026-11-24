@@ -8,6 +8,7 @@ import {
 } from './hierarchy'
 import {
   ago,
+  canOpenWorktree,
   isTerminal,
   ms,
   OUTDATED_CLI_TEXT,
@@ -215,9 +216,9 @@ function orderButton(o: OrderView, gates: number): HTMLElement {
       class: `node order tone-${tone}${state.selected === key ? ' selected' : ''}${isTerminal(o.status) ? ' faded' : ''}`,
       'data-focus': `node:${key}`,
       'aria-pressed': state.selected === key ? 'true' : 'false',
-      title: o.workspaceId ? `${o.id} 자세히 보기, 두 번 누르면 워크트리로 이동` : `${o.id} 자세히 보기`,
+      title: canOpenWorktree(o) ? `${o.id} 자세히 보기, 두 번 누르면 워크트리로 이동` : `${o.id} 자세히 보기`,
       onClick: () => select(key),
-      onDblclick: o.workspaceId ? () => void openWorker(o.id) : undefined
+      onDblclick: canOpenWorktree(o) ? () => void openWorker(o.id) : undefined
     },
     el(
       'span',
@@ -238,7 +239,7 @@ function orderButton(o: OrderView, gates: number): HTMLElement {
 
 function orderRow(o: OrderView, gates: number): HTMLElement {
   const node = orderButton(o, gates)
-  if (!o.workspaceId) return node
+  if (!canOpenWorktree(o)) return node
   return el(
     'div',
     { class: 'node-row' },
@@ -526,11 +527,11 @@ function orderDetail(o: OrderView, v: ConductorView): HTMLElement {
       field('부모 워크트리', o.parentWorktree ? `${o.parentWorktree}${o.parentBranch ? ` · ${o.parentBranch}` : ''}` : undefined),
       field('갱신', ago(ms(o.updatedAt)))
     ),
-    o.workspaceId || isTerminal(o.status)
+    canOpenWorktree(o) || isTerminal(o.status)
       ? el(
           'div',
           { class: 'row' },
-          o.workspaceId ? el('button', { class: 'btn', 'data-focus': `open-detail:${o.id}`, onClick: () => void openWorker(o.id) }, '워크트리로 이동') : null,
+          canOpenWorktree(o) ? el('button', { class: 'btn', 'data-focus': `open-detail:${o.id}`, onClick: () => void openWorker(o.id) }, '워크트리로 이동') : null,
           isTerminal(o.status)
             ? el('button', { class: 'btn danger-outline', 'data-focus': `remove:${orderKey(o.id)}`, disabled: state.removeBusy, onClick: () => askRemove(orderKey(o.id), [o.id]) }, '주문 지우기')
             : null

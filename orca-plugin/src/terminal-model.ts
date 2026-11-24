@@ -1,5 +1,5 @@
 // 컨덕터 터미널 화면의 계산. DOM과 오르카 런타임을 모르는 순수 함수만 둔다.
-import { AWAITING_DEPLOY, displayStatus, GROUP_ORDER, isTerminal, ms, splitRepo, STATUS_LABEL } from './model'
+import { AWAITING_DEPLOY, canOpenWorktree, displayStatus, GROUP_ORDER, isTerminal, ms, splitRepo, STATUS_LABEL } from './model'
 import { type ConductorView, type EventView, type GateView, type OrderView, type WaitingView } from './protocol'
 
 export type KindKey = 'orca' | 'git' | 'sub' | 'none'
@@ -26,8 +26,8 @@ export const workerEnded = (o: Pick<OrderView, 'workerStatus'>) =>
   o.workerStatus !== undefined && ENDED_WORKER_STATUSES.has(o.workerStatus)
 
 /** 워커 터미널을 읽거나 그쪽으로 이동할 수 있는 주문. 카드 이동과 상세 폴링이 같은 판정을 쓴다 */
-export const canReachWorker = (o: Pick<OrderView, 'workspaceId' | 'workerStatus'>) =>
-  Boolean(o.workspaceId) && !workerEnded(o)
+export const canReachWorker = (o: Pick<OrderView, 'workspaceId' | 'workerStatus' | 'status'>) =>
+  canOpenWorktree(o) && !workerEnded(o)
 
 const stepText = (o: OrderView) => {
   const c = o.checkpoint!

@@ -2,7 +2,7 @@
 // 계산은 terminal-model이 하고 여기는 이스케이프한 HTML 문자열만 만든다. DOM과 오르카 런타임은 모른다.
 // 주문 제목이나 게이트 사유는 지라나 PR에서 온 바깥 글이라 전부 esc를 거친다.
 import { esc } from './html'
-import { displayStatus, ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
+import { displayStatus, isClosed, ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
 import type { AgentState, ConductorView, EventView, WorkerLive, WorkView } from './protocol'
 import { canReachWorker, clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, terminalModel, waitText, workerEnded, type Card, type TerminalModel } from './terminal-model'
 
@@ -74,7 +74,7 @@ function copyOrderButton(orderId: string): string {
 const AGENT_STATE: Record<AgentState, string> = { working: '작업 중', blocked: '권한 대기', waiting: '입력 대기', done: '끝남' }
 
 function liveBlock(o: Card['order'], live: WorkerLive | 'loading' | undefined, now: number): string {
-  if (workerEnded(o)) return div('muted', '워커 종료')
+  if (workerEnded(o) || isClosed(o.status)) return div('muted', '워커 종료')
   if (!o.workspaceId) return div('muted', '오르카 워크트리 워커가 아니라 터미널을 못 읽어요.')
   if (!live || live === 'loading') return div('muted', '워커 터미널을 읽는 중')
   if (!live.found) return div('muted', esc(live.error ?? '이 주문의 워크트리를 오르카에서 못 찾았어요.'))

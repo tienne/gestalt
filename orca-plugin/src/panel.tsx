@@ -28,6 +28,7 @@ import {
 } from 'orca'
 import { buildHierarchy, hasNesting, type HierarchyNode } from './hierarchy'
 import {
+  canOpenWorktree,
   countByStatus,
   filterOrders,
   groupOrders,
@@ -362,7 +363,7 @@ function OrderRow({ order }: { order: OrderView }) {
     <Box border radius="sm" padding="none">
       <Box direction="row" align="start">
         <Box grow padding="none">
-          {order.workspaceId ? (
+          {canOpenWorktree(order) ? (
             // 카드 어디를 눌러도 워커로 가게 ListItem으로 감싼다. ListItem 안에는 버튼을 못 두므로 지우기 버튼은 옆에 둔다
             <List label={order.title || order.id}>
               <ListItem key={`order:${order.id}`} onPress={() => openWorker(order.id)}>
@@ -553,7 +554,7 @@ function allKeys(nodes: readonly HierarchyNode[]): string[] {
 function Hierarchy({ orders }: { orders: readonly OrderView[] }) {
   const roots = buildHierarchy(orders)
   if (!hasNesting(roots)) return null
-  const opener = new Map(orders.filter((o) => o.workspaceId).map((o) => [`order:${o.id}`, o.id]))
+  const opener = new Map(orders.filter(canOpenWorktree).map((o) => [`order:${o.id}`, o.id]))
   return (
     <Stack gap="xs">
       <Heading level={3}>위계</Heading>

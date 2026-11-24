@@ -72,6 +72,13 @@ export const STATUS_TONE: Record<string, Tone> = {
 
 export const isTerminal = (status: string) => TERMINAL_ORDER_STATUSES.includes(status)
 
+/** 머지나 취소로 닫힌 주문. 워크트리가 정리됐을 수 있어 워커로 옮겨 가는 버튼을 안 띄운다 */
+const CLOSED_ORDER_STATUSES: ReadonlySet<string> = new Set(['merged', 'cancelled'])
+export const isClosed = (status: string) => CLOSED_ORDER_STATUSES.has(status)
+
+/** 워커 워크트리로 옮겨 갈 수 있는 주문. 보드와 패널, 터미널이 같은 판정을 쓴다 */
+export const canOpenWorktree = (o: Pick<OrderView, 'workspaceId' | 'status'>) => Boolean(o.workspaceId) && !isClosed(o.status)
+
 /** 묶는 순서. 배포 대기는 아직 진행 중인 주문이라 머지됨보다 앞에 둔다 */
 export const GROUP_ORDER: readonly string[] = ORDER_STATUSES.flatMap((s): string[] =>
   s === 'merged' ? [AWAITING_DEPLOY, s] : [s]
