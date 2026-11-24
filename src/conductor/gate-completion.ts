@@ -4,6 +4,7 @@ import {
   type ReadDeploymentEvidence,
 } from './deployment-evidence.js';
 import type { Launcher } from './launcher.js';
+import { slackAwaitingPublication } from './slack.js';
 import type { ConductorStore } from './store.js';
 import type { Gate, Worker } from './types.js';
 import {
@@ -86,7 +87,10 @@ function workerCleanupBlocker(
     Object.values(store.snapshot.gates).some(
       (g) =>
         g.orderId === order.id &&
-        (g.status === 'open' || g.deliveryPending || (g.approvedDeployment && !g.completion)),
+        (g.status === 'open' ||
+          g.deliveryPending ||
+          (g.approvedDeployment && !g.completion) ||
+          slackAwaitingPublication(store.snapshot, g)),
     ) ||
     store.activeWorkers().some((w) => w.orderId === order.id) ||
     store

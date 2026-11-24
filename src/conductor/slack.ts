@@ -2,7 +2,32 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { newId, type ConductorStore } from './store.js';
-import type { Gate } from './types.js';
+import type { ConductorSnapshot, Gate } from './types.js';
+
+export const SLACK_HOST_HANDOFF = 'host';
+
+export function approvedSlackUnrecorded(
+  s: Pick<ConductorSnapshot, 'slackPosted'>,
+  gate: Gate,
+): boolean {
+  return (
+    gate.type === 'slack-post' &&
+    gate.decision === 'approved' &&
+    s.slackPosted[gate.id] === undefined
+  );
+}
+
+export function slackAwaitingPublication(
+  s: Pick<ConductorSnapshot, 'slackPosted'>,
+  gate: Gate,
+): boolean {
+  return (
+    approvedSlackUnrecorded(s, gate) ||
+    (gate.type === 'slack-post' &&
+      gate.decision === 'approved' &&
+      s.slackPosted[gate.id] === SLACK_HOST_HANDOFF)
+  );
+}
 
 /** 슬랙에 실제로 쓰는 어댑터. 컨덕터는 승인된 초안만 이걸로 보낸다 */
 export interface SlackClient {
@@ -89,11 +114,7 @@ export async function publishApprovedSlack(
 ): Promise<PublishResult> {
   const result: PublishResult = { posted: [], failed: [], reopened: [] };
   const pending = Object.values(store.snapshot.gates).filter(
-    (g) =>
-      g.type === 'slack-post' &&
-      g.status === 'resolved' &&
-      g.decision === 'approved' &&
-      store.snapshot.slackPosted[g.id] === undefined,
+    (g) => g.status === 'resolved' && approvedSlackUnrecorded(store.snapshot, g),
   );
   for (const gate of pending) {
     const channel = gate.payload?.channel;

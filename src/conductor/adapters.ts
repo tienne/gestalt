@@ -25,7 +25,7 @@ import {
 import type { PrState, PrStateSource } from './ownership.js';
 import { normalizePrRef } from './pr-ref.js';
 import type { PrWatchSource, WatchedPr } from './pr-watch.js';
-import type { SlackClient } from './slack.js';
+import { SLACK_HOST_HANDOFF, type SlackClient } from './slack.js';
 import type { Order } from './types.js';
 
 /**
@@ -55,7 +55,7 @@ export function hostSlackClient(actions: HostAction[]): SlackClient {
         text: m.text,
         ...(m.threadTs ? { threadTs: m.threadTs } : {}),
       });
-      return 'host';
+      return SLACK_HOST_HANDOFF;
     },
   };
 }
