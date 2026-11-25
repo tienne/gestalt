@@ -296,8 +296,12 @@ describe('새 위젯 렌더', () => {
 
   it('사라진 요소는 흐리게 하지 않고 점선과 취소선으로 보이고 단계 버튼에 포커스 테두리가 있다', () => {
     expect(FLOW_WIDGET_CSS).not.toMatch(/\.w-gone\{opacity/);
-    expect(FLOW_WIDGET_CSS).toContain('.wc-span.w-gone{background:none;border:1px dashed var(--muted);text-decoration:line-through}');
+    expect(FLOW_WIDGET_CSS).toContain(
+      '.wc-span.w-gone{background:none;border:1px dashed var(--muted);text-decoration:line-through}',
+    );
     expect(FLOW_WIDGET_CSS).toContain('.wst-card.w-gone b{text-decoration:line-through}');
-    expect(FLOW_WIDGET_CSS).toContain('.w-nav button:focus-visible{outline:2px solid var(--accent)');
+    expect(FLOW_WIDGET_CSS).toContain(
+      '.w-nav button:focus-visible{outline:2px solid var(--accent)',
+    );
   });
 });

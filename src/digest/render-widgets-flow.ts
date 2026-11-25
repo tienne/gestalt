@@ -339,7 +339,10 @@ export function flowWidgetMarkdown(w: FlowWidget): string[] {
     }
     out.push(...stepsMarkdown(w.steps));
   } else if (w.kind === 'calendar') {
-    out.push(`| | ${w.columns.map(cell).join(' | ')} |`, `| --- |${w.columns.map(() => ' --- |').join('')}`);
+    out.push(
+      `| | ${w.columns.map(cell).join(' | ')} |`,
+      `| --- |${w.columns.map(() => ' --- |').join('')}`,
+    );
     for (const t of w.tracks) {
       const cells = w.columns.map((_, c) =>
         w.spans

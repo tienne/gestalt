@@ -379,7 +379,11 @@ function nameInSource(name: string, allText: string): boolean {
     found = new RegExp(`(?<![a-z0-9])(?:${alt})(?:e?s)?(?![a-z0-9])`).test(nameCacheLower);
   } else {
     found = false;
-    for (let at = nameCacheLower.indexOf(key); at !== -1; at = nameCacheLower.indexOf(key, at + 1)) {
+    for (
+      let at = nameCacheLower.indexOf(key);
+      at !== -1;
+      at = nameCacheLower.indexOf(key, at + 1)
+    ) {
       const before = nameCacheLower[at - 1] ?? '';
       const after = nameCacheLower[at + key.length] ?? '';
       if (!/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after)) {

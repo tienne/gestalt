@@ -204,13 +204,18 @@ describe('상태 전이, 순서도, 역할별 줄 렌더', () => {
     const long = '버그가 나오면 수정 PR을 다시 squash 머지하고 alpha QA를 처음부터 다시 돌린다';
     const state = prState();
     state.transitions[2]!.label = long;
-    const edge = html(state).match(/<text class="wg-elabel"[^>]*>((?:<tspan[^>]*>[^<]*<\/tspan>)+)<\/text>/g) ?? [];
+    const edge =
+      html(state).match(
+        /<text class="wg-elabel"[^>]*>((?:<tspan[^>]*>[^<]*<\/tspan>)+)<\/text>/g,
+      ) ?? [];
     const wrapped = edge.find((t) => t.includes('…'));
     expect(wrapped?.match(/<tspan/g)).toHaveLength(2);
     const seq = rebase();
     seq.messages[0]!.label = long;
     const msg = html(seq);
-    expect(msg).toMatch(/<text class="wg-elabel"[^>]*><tspan[^>]*>1\. [^<]*<\/tspan><tspan[^>]*>[^<]*…<\/tspan><\/text>/);
+    expect(msg).toMatch(
+      /<text class="wg-elabel"[^>]*><tspan[^>]*>1\. [^<]*<\/tspan><tspan[^>]*>[^<]*…<\/tspan><\/text>/,
+    );
   });
 
   it('일부 상태에만 자리 힌트를 줘도 자동 배치가 끝나고 칸이 안 겹친다', () => {

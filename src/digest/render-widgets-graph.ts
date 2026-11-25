@@ -2,7 +2,14 @@ import type { ElementLook } from './lens-steps.js';
 import type { Widget } from './lens-widget-schema.js';
 import { sequenceSteps, stepElementIds } from './lens-widgets.js';
 import type { LensHtmlContext } from './render-lens.js';
-import { f1, framed, ill as named, lookClass, srText, stepsMarkdown } from './render-widgets-flow.js';
+import {
+  f1,
+  framed,
+  ill as named,
+  lookClass,
+  srText,
+  stepsMarkdown,
+} from './render-widgets-flow.js';
 
 /**
  * 상자와 화살표로 그리는 단계형 그림(stateMachine, sequence, swimlane). 자리는 렌더러가 잡는다.
@@ -158,7 +165,13 @@ const ARROW_LABEL_LINES = 2;
 
 const edgeLabel = (e: Edge, text: string | undefined, ctx: LensHtmlContext) =>
   text
-    ? textLines(wrapLabel(text, ARROW_LABEL_MAX, ARROW_LABEL_LINES), e.lx, e.ly - 4, ctx, 'wg-elabel')
+    ? textLines(
+        wrapLabel(text, ARROW_LABEL_MAX, ARROW_LABEL_LINES),
+        e.lx,
+        e.ly - 4,
+        ctx,
+        'wg-elabel',
+      )
     : '';
 
 const svgOpen = (w: number, h: number, title: string, ctx: LensHtmlContext) =>
