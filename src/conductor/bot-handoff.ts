@@ -4,6 +4,8 @@ import {
   automationCoordinationRoot,
   handoffCancellationPending,
   lockAutomationHandoff,
+  matchesApproval,
+  type AutomationClaim,
 } from './bot-handoff-coordination.js';
 import {
   hasEditAttempts,
@@ -11,6 +13,7 @@ import {
   lockEditAttempt,
   readEditReceipt,
 } from './bot-handoff-edit.js';
+import { handoffApproval } from './bot-handoff-record.js';
 import {
   readBotOwnership,
   targetBotOwner,
@@ -215,24 +218,18 @@ async function handoffLocked(
     }
     if (options.cancel && journal?.cancelPending && !ownsInitialClaim) {
       stage = 'reconcile-edit';
+      if (handoffApproval(dir, journal) !== journal.approval)
+        throw new Error('로컬 취소 기록의 승인 스냅샷이 현재 요청과 달라요');
       const localReceipt = journal.editAttempt
         ? readEditReceipt(coordination.dir, journal.approval, journal.editAttempt)
         : undefined;
       if (journal.editUncertain !== undefined || localReceipt?.outcome === 'dispatched')
         throw new Error('이 요청의 Orca 편집 응답을 확인한 뒤 로컬 취소를 복구해 주세요');
-      const released = coordination.readRelease(journal.approval);
       if (
-        released &&
-        (released.store !== dir ||
-          released.request !== journal.id ||
-          (released.intent && released.intent.approval !== journal.approval))
-      )
-        throw new Error('Orca 공유 예약 해제 기록이 현재 요청과 달라요');
-      if (
-        released ||
+        coordination.hasMatchingRelease(dir, journal) ||
         (claim?.store &&
           claim.store !== dir &&
-          completedForeignHandoff(claim.store, journal, coordination.dir))
+          completedForeignHandoff(claim, journal, coordination.dir))
       ) {
         const source = assertSource(ownership, options, journal);
         if (source.name !== options.bot) throw new Error('현재 운영 봇 이름과 달라요');
@@ -249,6 +246,8 @@ async function handoffLocked(
     let attempt = journal?.editAttempt;
     if (options.cancel && journal && (!journal.outcome || settlingCancellation)) {
       stage = 'reconcile-edit';
+      if (ownsInitialClaim && !matchesApproval(claim, dir, journal))
+        throw new Error('Orca 공유 예약의 승인 스냅샷이 현재 요청과 달라요');
       if (attempt) {
         cancelLock = lockEditAttempt(coordination.dir, journal.approval, attempt);
         if (!cancelLock.ok)
@@ -278,6 +277,10 @@ async function handoffLocked(
         intent.to !== options.chat
       )
         throw new Error('예약한 인계 요청 또는 승인값과 달라요');
+      if (options.cancel && !matchesApproval(claim, dir, intent)) {
+        stage = 'reconcile-edit';
+        throw new Error('Orca 공유 예약의 승인 스냅샷이 현재 요청과 달라요');
+      }
       if (hasEditAttempts(coordination.dir, intent.approval)) {
         stage = 'reconcile-edit';
         throw new Error(
@@ -360,7 +363,7 @@ async function handoffLocked(
       settings: automation.settings,
       revision: ownership.revision,
     };
-    const approval = digest({ store: dir, ...proposed });
+    const approval = handoffApproval(dir, proposed);
     if (!options.approve) {
       return {
         ...base,
@@ -459,7 +462,7 @@ async function handoffLocked(
       const { outcome: _outcome, cancelPending: _cancelPending, ...intent } = cancelRecord;
       if (ownsInitialClaim) {
         if (!journal?.cancelPending) save({ ...intent, cancelPending: true });
-        coordination.releaseClaim(intent.approval);
+        coordination.releaseClaim(dir, intent);
       }
       save({ ...intent, outcome: 'cancelled' });
       return {
@@ -559,11 +562,11 @@ async function handoffLocked(
 }
 
 function completedForeignHandoff(
-  store: string,
+  claim: AutomationClaim,
   local: BotHandoffRecord,
   coordinationDir: string,
 ): boolean {
-  const foreign = readBotOwnership(store);
+  const foreign = readBotOwnership(claim.store);
   const completed = foreign.handoffs.find(
     (record) =>
       record.automationId === local.automationId &&
@@ -575,6 +578,7 @@ function completedForeignHandoff(
   );
   return (
     !!completed?.editAttempt &&
+    matchesApproval(claim, claim.store, completed) &&
     readEditReceipt(coordinationDir, completed.approval, completed.editAttempt)?.outcome ===
       'applied'
   );

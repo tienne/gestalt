@@ -2,11 +2,15 @@ import { mkdirSync, readFileSync, realpathSync, renameSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
-import { isBotHandoffRecord, type BotHandoffRecord } from './bot-handoff-record.js';
+import {
+  handoffApproval,
+  isBotHandoffRecord,
+  type BotHandoffRecord,
+} from './bot-handoff-record.js';
 import { acquireLock } from './engine.js';
 import { digest } from './orca-automation.js';
 
-interface AutomationClaim {
+export interface AutomationClaim {
   store: string;
   request: string;
   intent?: BotHandoffRecord;
@@ -37,16 +41,37 @@ export function lockAutomationHandoff(root: string, automationId: string) {
         { mode: 0o600 },
       );
     },
-    readRelease(approval: string) {
-      return readClaimFile(releasePath(dir, approval));
+    hasMatchingRelease(store: string, record: BotHandoffRecord) {
+      const released = readClaimFile(releasePath(dir, record.approval));
+      if (!released) return false;
+      if (!matchesApproval(released, store, record))
+        throw new Error('Orca 공유 예약 해제 기록의 승인 스냅샷이 현재 요청과 달라요');
+      return true;
     },
-    releaseClaim(approval: string) {
-      const released = releasePath(dir, approval);
+    releaseClaim(store: string, record: BotHandoffRecord) {
+      if (!matchesApproval(readAutomationClaim(dir), store, record))
+        throw new Error('Orca 공유 예약의 승인 스냅샷이 현재 요청과 달라요');
+      const released = releasePath(dir, record.approval);
       if (readClaimFile(released)) throw new Error('같은 인계 요청의 예약 해제 기록이 이미 있어요');
       mkdirSync(join(dir, 'released'), { recursive: true, mode: 0o700 });
       renameSync(join(dir, 'claim.json'), released);
     },
   };
+}
+
+/** 공유 예약과 해제 기록을 같은 승인 근거로 확인한다. */
+export function matchesApproval(
+  claim: AutomationClaim | undefined,
+  store: string,
+  record: BotHandoffRecord,
+): boolean {
+  return (
+    claim?.store === store &&
+    claim.request === record.id &&
+    claim.intent?.approval === record.approval &&
+    handoffApproval(store, claim.intent) === record.approval &&
+    handoffApproval(store, record) === record.approval
+  );
 }
 
 export function readAutomationClaim(dir: string): AutomationClaim | undefined {
