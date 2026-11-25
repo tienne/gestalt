@@ -17,6 +17,9 @@ type AnalogyMap = Extract<Widget, { kind: 'analogyMap' }>;
 
 export const ILL_TAG = '예시';
 
+/** 원문에 없는 요소 이름 뒤에 예시 꼬리표를 붙인다 */
+export const ill = (label: string, on?: boolean) => (on ? `${label} (${ILL_TAG})` : label);
+
 export const f1 = (n: number) => n.toFixed(1);
 
 /** 요소 출처 칩. 표 칸이면 그 표가 실린 문단을 연다 */
@@ -125,7 +128,7 @@ function laneSvg(w: LaneGraph, looks: Map<string, ElementLook>, ctx: LensHtmlCon
       if (look === 'hidden' || look === undefined) return '';
       const p = pos.get(n.id)!;
       const color = laneIdx.get(originLane(w, n.id)) ?? 0;
-      const label = n.illustrative ? `${n.label} (${ILL_TAG})` : n.label;
+      const label = ill(n.label, n.illustrative);
       // 이웃 점 글자가 겹치지 않게 위아래로 번갈아 둔다
       const ty = k % 2 === 0 ? p.y - 13 : p.y + 21;
       return `<g class="wl-node wl-c${color}${lookClass(look)}${n.illustrative ? ' w-ill' : ''}"${n.cite ? ` data-unit="${n.cite.key}"` : ''}><title>${ctx.escape(label)}</title><circle cx="${f1(p.x)}" cy="${f1(p.y)}" r="${look === 'focus' ? 9 : 7}"/><text x="${f1(p.x)}" y="${f1(ty)}" text-anchor="middle">${ctx.escape(label)}</text></g>`;
@@ -182,7 +185,7 @@ function calendarTable(w: Calendar, looks: Map<string, ElementLook>, ctx: LensHt
             }
             const sp = spans[it.k]!;
             const look = sp.id ? looks.get(sp.id) : 'shown';
-            const label = sp.illustrative ? `${sp.label} (${ILL_TAG})` : sp.label;
+            const label = ill(sp.label, sp.illustrative);
             const cls = `wc-span${sp.at !== undefined ? ' wc-at' : ''}${sp.marker ? ` wc-${sp.marker}` : ''}${sp.illustrative ? ' w-ill' : ''}${lookClass(look)}`;
             cells.push(
               `<td colspan="${it.to - it.from + 1}"><span class="${cls}">${ctx.escape(label)}${look === 'hidden' ? '' : refChip(sp.cite, ctx)}</span></td>`,
@@ -298,8 +301,6 @@ export function flowWidgetHtml(w: FlowWidget, ctx: LensHtmlContext): string {
   if (w.kind === 'stepper') return stepperHtml(w, ctx);
   return analogyHtml(w, ctx);
 }
-
-const ill = (label: string, on?: boolean) => (on ? `${label} (${ILL_TAG})` : label);
 
 export function stepsMarkdown(steps: Step[] | undefined): string[] {
   if (!steps?.length) return [];

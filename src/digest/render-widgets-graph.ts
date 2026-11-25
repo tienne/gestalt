@@ -2,7 +2,7 @@ import type { ElementLook } from './lens-steps.js';
 import type { Widget } from './lens-widget-schema.js';
 import { sequenceSteps, stepElementIds } from './lens-widgets.js';
 import type { LensHtmlContext } from './render-lens.js';
-import { f1, framed, ILL_TAG, lookClass, stepsMarkdown } from './render-widgets-flow.js';
+import { f1, framed, ill as named, lookClass, stepsMarkdown } from './render-widgets-flow.js';
 
 /**
  * 상자와 화살표로 그리는 단계형 그림(stateMachine, sequence, swimlane). 자리는 렌더러가 잡는다.
@@ -76,9 +76,6 @@ export function wrapLabel(label: string, max = 9.8, lines = 3): string[] {
   kept[lines - 1] = `${fit(kept[lines - 1]!, max - 1)}…`;
   return kept;
 }
-
-const named = (label: string, illustrative?: boolean) =>
-  illustrative ? `${label} (${ILL_TAG})` : label;
 
 function textLines(lines: string[], x: number, cy: number, ctx: LensHtmlContext, cls = ''): string {
   const top = cy - ((lines.length - 1) * LINE) / 2 + 4;

@@ -4,6 +4,7 @@ import type { Widget, WidgetValue } from './lens-widget-schema.js';
 import {
   FLOW_WIDGET_CSS,
   ILL_TAG,
+  ill,
   flowWidgetHtml,
   flowWidgetMarkdown,
   isFlowWidget,
@@ -119,7 +120,7 @@ function stepSvg(
         {
           x: W / 2 + R * Math.cos(a),
           y: H / 2 + R * Math.sin(a),
-          label: n.illustrative ? `${n.label} (${ILL_TAG})` : n.label,
+          label: ill(n.label, n.illustrative),
           ill: n.illustrative === true,
         },
       ];
@@ -213,7 +214,6 @@ export function widgetMarkdown(w: Widget, ctx: { cell: (v: WidgetValue) => strin
       '',
     );
   }
-  const ill = (label: string, on?: boolean) => (on ? `${label} (${ILL_TAG})` : label);
   if (isFlowWidget(w)) {
     out.push(...flowWidgetMarkdown(w));
   } else if (isGraphWidget(w)) {
