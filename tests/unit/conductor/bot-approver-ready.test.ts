@@ -100,21 +100,21 @@ const cases = [
     type: 'file-overlap' as const,
     policy: { gateApprovers: { 'acme/other': { 'approver-1': pem } } },
     gap: 'no-repo',
-    says: 'acme/app 레포는 승인자가 등록되지 않았어요',
+    says: 'acme/app 레포에는 게이트를 닫을 승인자가 등록되지 않았어요',
   },
   {
     name: '머지 승인자만 있고 파일 겹침 승인자가 없으면',
     type: 'file-overlap' as const,
     policy: { mergeApprovers: { [repo]: { 'approver-1': pem } } },
     gap: 'no-type-approvers',
-    says: 'acme/app 레포는 파일 겹침 승인자가 등록되지 않았어요',
+    says: 'acme/app 레포에는 파일 겹침 게이트를 닫을 승인자가 등록되지 않았어요',
   },
   {
     name: '게이트 승인자만 있고 머지 승인자가 없으면',
     type: 'merge' as const,
     policy: { gateApprovers: { [repo]: { 'approver-1': pem } } },
     gap: 'no-type-approvers',
-    says: 'acme/app 레포는 머지 승인자가 등록되지 않았어요',
+    says: 'acme/app 레포에는 머지 게이트를 닫을 승인자가 등록되지 않았어요',
   },
 ];
 
@@ -198,6 +198,26 @@ describe('승인자 미등록 안내', () => {
       ready: false,
       gap: 'no-repo',
     });
+  });
+
+  it('쓸 수 없는 승인자 값만 있으면 approverStatus는 준비되지 않았다고 본다', () => {
+    const broken = { gateApprovers: { [repo]: { pem: 'not a key', web: { webauthn: { x: 1 } } } } };
+    expect(approverStatus(broken, 'file-overlap', repo)).toMatchObject({
+      ready: false,
+      gap: 'no-repo',
+    });
+    const mixed = { gateApprovers: { [repo]: { pem: 'not a key', ok: pem } } };
+    expect(approverStatus(mixed, 'file-overlap', repo)).toEqual({ ready: true, count: 1 });
+  });
+
+  it('정책 파일이 깨졌으면 bot gate가 unreadable 안내를 주고 gh를 부르지 않는다', async () => {
+    fakeOrca();
+    ghMustNotRun();
+    const { store, gate } = fixture('file-overlap', undefined);
+    writeFileSync(join(store.dir, BOT_POLICY_FILE), '{');
+    await conductorBotGateCommand(gate.id, { stateDir: store.dir });
+    expect(last()).toMatchObject({ approverReady: false, approverGap: 'unreadable' });
+    expect(last().guidance).toContain('승인자 정책 파일');
   });
 
   it('readBotPolicy는 파일이 없을 때 ENOENT 대신 만들 곳을 알려준다', () => {

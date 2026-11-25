@@ -22,9 +22,27 @@ export function loadBotPolicy(dir: string): Record<string, unknown> | undefined 
     if (isMissing(error)) return undefined;
     throw error;
   }
-  const policy: unknown = JSON.parse(raw);
+  let policy: unknown;
+  try {
+    policy = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      `봇 정책 파일(${join(dir, BOT_POLICY_FILE)})을 JSON으로 읽지 못했어요. 파일을 고친 뒤 다시 시도해 주세요`,
+    );
+  }
   if (!isPlainObject(policy)) throw new Error('봇 정책 파일이 JSON 객체여야 해요');
   return policy;
+}
+
+/** 안내용으로 정책을 읽는다. 깨진 파일은 에러 대신 unreadable로 돌려줘 터미널 안내로 이어지게 한다 */
+export function peekBotPolicy(
+  dir: string,
+): { policy: Record<string, unknown> | undefined } | { unreadable: true } {
+  try {
+    return { policy: loadBotPolicy(dir) };
+  } catch {
+    return { unreadable: true };
+  }
 }
 
 export function readBotPolicy(dir: string): Record<string, unknown> {
@@ -36,7 +54,7 @@ export function readBotPolicy(dir: string): Record<string, unknown> {
   return policy;
 }
 
-export type ApproverGap = 'no-policy' | 'no-repo' | 'no-type-approvers';
+export type ApproverGap = 'no-policy' | 'unreadable' | 'no-repo' | 'no-type-approvers';
 
 export interface ApproverStatus {
   ready: boolean;
@@ -45,10 +63,12 @@ export interface ApproverStatus {
   count: number;
 }
 
-const approverField = (type: GateType) => (type === 'merge' ? 'mergeApprovers' : 'gateApprovers');
+/** 머지 게이트는 mergeApprovers, 나머지 게이트는 gateApprovers 칸을 쓴다 */
+export const approverField = (type: GateType | 'gate') =>
+  type === 'merge' ? ('mergeApprovers' as const) : ('gateApprovers' as const);
 
 /** 정책 한 칸에서 레포의 승인자 표를 꺼낸다. 키는 소문자 레포 이름이다 */
-function repoApprovers(
+export function repoApprovers(
   policy: Record<string, unknown>,
   field: 'mergeApprovers' | 'gateApprovers',
   repo: string,
@@ -70,19 +90,44 @@ export function approverStatus(
   repo: string,
 ): ApproverStatus {
   if (!policy) return { ready: false, gap: 'no-policy', count: 0 };
-  const own = repoApprovers(policy, approverField(type), repo);
-  const count = own ? Object.keys(own).length : 0;
+  const usable = (row: Record<string, unknown> | undefined) =>
+    row ? Object.values(row).filter(usableApprover).length : 0;
+  const count = usable(repoApprovers(policy, approverField(type), repo));
   if (count > 0) return { ready: true, count };
-  const other = repoApprovers(
-    policy,
-    approverField(type) === 'mergeApprovers' ? 'gateApprovers' : 'mergeApprovers',
-    repo,
+  const other = usable(
+    repoApprovers(
+      policy,
+      approverField(type) === 'mergeApprovers' ? 'gateApprovers' : 'mergeApprovers',
+      repo,
+    ),
   );
-  return {
-    ready: false,
-    gap: other && Object.keys(other).length > 0 ? 'no-type-approvers' : 'no-repo',
-    count: 0,
-  };
+  return { ready: false, gap: other > 0 ? 'no-type-approvers' : 'no-repo', count: 0 };
+}
+
+/**
+ * 서명 확인에 실제로 쓸 수 있는 승인자 값인가. Ed25519 PEM 문자열이나 P-256 공개키를 담은 Touch ID 항목만 센다.
+ * webauthn-approval.ts의 credentialSchema와 같은 모양을 보지만 그 모듈이 이 모듈을 가져다 써서 여기서 따로 본다
+ */
+function usableApprover(value: unknown): boolean {
+  try {
+    if (typeof value === 'string') return createPublicKey(value).asymmetricKeyType === 'ed25519';
+    if (!isPlainObject(value) || !isPlainObject(value['webauthn'])) return false;
+    const credential = value['webauthn'];
+    const { credentialId, publicKey, origin } = credential;
+    if (
+      Object.keys(credential).length !== 3 ||
+      typeof credentialId !== 'string' ||
+      !/^[A-Za-z0-9_-]+$/.test(credentialId) ||
+      typeof publicKey !== 'string' ||
+      typeof origin !== 'string'
+    )
+      return false;
+    new URL(origin);
+    const key = createPublicKey(publicKey);
+    return key.asymmetricKeyType === 'ec' && key.asymmetricKeyDetails?.namedCurve === 'prime256v1';
+  } catch {
+    return false;
+  }
 }
 
 const GATE_TYPE_LABELS: Partial<Record<GateType, string>> = {
@@ -101,10 +146,15 @@ export function approverGuidance(gate: Pick<Gate, 'id' | 'type'>, repo: string, 
   const why =
     gap === 'no-policy'
       ? `승인자 정책 파일(${BOT_POLICY_FILE})이 없어서 봇에서는 게이트를 닫을 수 없어요.`
-      : gap === 'no-repo'
-        ? `${repo} 레포는 승인자가 등록되지 않았어요.`
-        : `${repo} 레포는 ${label} 승인자가 등록되지 않았어요.`;
-  return `${why} 터미널에서 \`${terminalResolveCommand(gate.id)}\`(거절은 --reject)로 닫아 주세요`;
+      : gap === 'unreadable'
+        ? `승인자 정책 파일(${BOT_POLICY_FILE})을 읽지 못해서 봇에서는 게이트를 닫을 수 없어요.`
+        : gap === 'no-repo'
+          ? `${repo} 레포에는 게이트를 닫을 승인자가 등록되지 않았어요.`
+          : `${repo} 레포에는 ${label} 게이트를 닫을 승인자가 등록되지 않았어요.`;
+  const close = `터미널에서 \`${terminalResolveCommand(gate.id)}\`(거절은 --reject)로 닫아 주세요.`;
+  if (gap === 'unreadable') return `${why} ${close}`;
+  const enroll = `gestalt conductor approver enroll --repo ${repo} --type ${gate.type === 'merge' ? 'merge' : 'gate'} --id <이름>`;
+  return `${why} ${close} Touch ID 승인자는 운영자 터미널에서 \`${enroll}\`로 등록할 수 있어요`;
 }
 
 /** 승인자가 없으면 서명 검사 전에 할 일을 알려주는 에러로 멈춘다 */
