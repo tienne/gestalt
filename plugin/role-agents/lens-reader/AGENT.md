@@ -128,9 +128,9 @@ video-digest 리포트와 같은 꼴에 렌즈 칸을 더한다. 영상 칸 `fra
 | `class` | 무엇 | 쓸 수 있는 `kind` |
 | --- | --- | --- |
 | `A` 원문 데이터 그림 | 원문 표 숫자로 만든 그림 | `toggleBars`, `heatmap`, `beforeAfter` |
-| `B` 개념 설명 그림 | 원문 개념을 설명용으로 꾸민 작은 예시로 보여 주는 그림 | `stepSlider`, `beforeAfter` |
-| `C` 원문 그림 재구성 | 원문 그림을 이해한 대로 움직이는 그림으로 다시 그린 것 | 넷 다 |
-| `D` 원문 서술 그림 | 원문이 글로 설명한 절차나 사례, 구조를 그림으로 옮긴 것 | `stepSlider`, `beforeAfter` |
+| `B` 개념 설명 그림 | 원문 개념을 설명용으로 꾸민 작은 예시로 보여 주는 그림 | `stepSlider`, `beforeAfter`, `laneGraph`, `stepper`, `analogyMap` |
+| `C` 원문 그림 재구성 | 원문 그림을 이해한 대로 움직이는 그림으로 다시 그린 것 | `analogyMap`을 뺀 일곱 |
+| `D` 원문 서술 그림 | 원문이 글로 설명한 절차나 사례, 구조를 그림으로 옮긴 것 | `stepSlider`, `beforeAfter`, `laneGraph`, `calendar`, `stepper` |
 
 | `kind` | 모양 |
 | --- | --- |
@@ -138,6 +138,23 @@ video-digest 리포트와 같은 꼴에 렌즈 칸을 더한다. 영상 칸 `fra
 | `heatmap` | `{ "x": { "title"?, "labels" }, "y": { "title"?, "labels" }, "cells": [[값]], "better"?: "low" \| "high" }`. `cells`는 y줄 × x칸 |
 | `stepSlider` | `{ "steps": [{ "label", "note"?, "cite"?, "nodes": [{ "id", "label", "illustrative"? }], "edges": [{ "from", "to", "strength": "strong" \| "weak" }] }] }`. 단계 2~12개 |
 | `beforeAfter` | `{ "before": { "title", "items": [{ "label", "value"?: 값, "illustrative"? }] }, "after": 같은 꼴 }` |
+| `laneGraph` | `{ "lanes": [{ "id", "label" }], "nodes": [{ "id", "lane", "label", "parents"?: [id], "copyOf"?: id, "cite"?, "illustrative"? }], "steps"?: 공통 단계 }`. 브랜치나 트랙마다 한 줄씩 점을 놓는다. 가로 순서는 `nodes` 순서라 부모는 자식보다 앞에 적는다. rebase나 cherry-pick으로 복사한 점은 `copyOf`로 원래 점을 가리키면 점선으로 잇는다 |
+| `calendar` | `{ "columns": [칸 이름], "tracks": [{ "id", "label" }], "spans": [{ "id"?, "track", "from"?, "to"?, "at"?, "label", "cite"?, "marker"?: "release" \| "warn", "illustrative"? }], "note"?, "steps"?: 공통 단계 }`. 요일이나 날짜 칸 위에 기간 막대(`from`~`to`, 칸 번호는 0부터)나 한 칸짜리 사건(`at`)을 놓는다. 둘 중 하나만 쓴다 |
+| `stepper` | `{ "items": [{ "id", "label", "detail"?, "cite"?, "optional"?, "illustrative"? }], "loops"?: [{ "from", "to", "label"? }], "steps"?: 공통 단계 }`. 단계 카드를 순서대로 놓는다. 순번은 렌더러가 붙이니 `label`에 번호를 쓰지 않는다. `loops`는 뒤 카드에서 앞 카드로 돌아가는 화살표다 |
+| `analogyMap` | `{ "domain", "rows": [{ "term", "termCite", "analog" }], "breaks": [문장] }`. 원문 말과 비유를 3~8줄 나란히 놓는다. `breaks`에 비유가 원문과 안 맞는 지점을 한 줄 이상 적는다 |
+
+**공통 단계.** `laneGraph`, `calendar`, `stepper`는 `steps`를 달면 단계별로 넘겨 보는 그림이 된다. 요소(점, 기간, 카드)는 위젯에 한 번만 적고 단계에는 변화만 적는다. 단계는 2~16개다.
+
+```json
+"steps": [
+  { "label": "release/20260728이 갈라진다", "cite": { "key": 12, "from": 12, "to": 12 }, "show": [], "state": [{ "key": "production", "value": "main" }] },
+  { "label": "release/20260721이 나간다", "cite": { "key": 13, "from": 13, "to": 13 }, "show": ["m1"], "gone": ["a1"], "focus": ["m1"], "state": [{ "key": "production", "value": "release/20260721" }] }
+]
+```
+
+- `show`는 그 단계에서 처음 보일 요소다. 어느 단계의 `show`에도 없는 요소는 처음부터 보인다. `gone`은 그 단계에서 점선으로 남고 다음 단계부터 숨는다. 숨긴 요소를 다시 보이려면 새 id로 요소를 하나 더 둔다(`STEP_REVIVES_GONE`). 없는 id를 가리키면 `STEP_REF_UNKNOWN`이다.
+- `state`는 그림 옆 상태 칸이다. 키는 첫 단계에 다 적고 뒤 단계는 값만 바꾼다(`STEP_STATE_KEY_UNKNOWN`). 값을 안 적은 단계는 앞 단계 값을 이어 쓴다.
+- 렌더러가 단계마다 그림을 미리 그리고 뷰어는 이전, 다음 버튼과 좌우 화살표로 넘긴다. 단계 사이를 움직이는 효과는 없다.
 
 공통 칸은 `id`, `class`, `kind`, `title`, `cite`(무엇을 설명하는 그림인지 원문 문단), `caption`(선택)이다. 값은 `{ "value": 0.2862, "src": { "table": "table-4", "row": 8, "col": 1 } }`처럼 숫자와 출처를 함께 쓴다. 출처는 표 칸이나 `{ "cite": { key, from, to } }`(그 숫자가 적힌 문단)다.
 
@@ -166,9 +183,14 @@ video-digest 리포트와 같은 꼴에 렌즈 칸을 더한다. 영상 칸 `fra
 - **C**는 `figure`에 원문 그림 id를 달고 `differences`에 원문 그림과 다르게 그린 점을 한 줄 이상 적는다. 비면 `C_DIFFERENCES_EMPTY`로 막힌다. 무엇을 빼고 무엇을 단순하게 했는지, 원문 그림이 보여 주는 결과와 다르게 보일 수 있는 자리를 적는다. 원문 그림이 정답에 덜 가까운데 재구성이 더 가깝게 그려졌다면 그 점을 숨기지 않고 적는다.
 - **D**는 원문 그림 없이 글로만 설명된 절차나 사례를 옮길 때 쓴다. 원문 그림이 있으면 C로 만든다(`D_FIGURE_REF`). 슬라이더 단계마다 그 단계가 옮긴 원문 문단을 `cite`로 단다(`D_STEP_NO_CITE`). 그림 속 영문 이름(`release/20260728`, `main`, `force push` 같은)은 원문에 글자 그대로 있어야 한다(`D_NAME_UNKNOWN`). 숫자는 그 단계나 그림의 출처 문단에 있는 것만 쓴다(`D_NUMBER_UNKNOWN`). 원문이 `release/20260721`만 쓰면 "0721"로 줄이지 않는다. 지표 말은 A처럼 원문에 나온 것만 쓴다.
 - D에서 원문에 없는 요소를 하나 끼워야 이해가 쉬우면(예를 들어 "내 수정 커밋") 그 노드나 항목에 `"illustrative": true`를 단다. 렌더러가 점선과 "예시" 꼬리표로 그리고 그 글자는 B 규칙(숫자 없음, 지표 말 없음)을 받는다. 원문을 단순하게 옮긴 자리가 있으면 `differences`에 적는다. D에서는 선택이다.
-- C 슬라이더 칸 수는 원문 그림 장면 수(`source.json`의 `panels`)를 넘지 않는다(`C_STEPS_EXCEED_PANELS`). 원문 장면 가운데 몇 개를 골라도 되지만 원문에 없는 중간 단계를 만들지 않는다. `panels`가 없으면 `C_PANELS_UNKNOWN`으로 막히니 스킬에 알린다.
+- D의 `laneGraph`와 `calendar`, `stepper`도 단계를 달면 단계마다 `cite`를 단다. 요소마다 `cite`를 달면 그 요소의 숫자는 그 문단과도 대조한다. 첫 단계 상태 키도 원문 이름이어야 한다.
+- `calendar`는 A로 못 쓴다. 칸 위에 놓는 건 원문 표 숫자가 아니라 일정이어서 대조할 값이 없다. 원문 표에서 옮긴 일정이면 D로 만들고 기간마다 `cite`에 표 칸(`{ "table", "row", "col" }`)을 단다. 칸 번호가 `columns` 밖이면 `CALENDAR_SPAN_OUT_OF_RANGE`, `at`과 `from`/`to`를 같이 쓰거나 둘 다 비우면 `CALENDAR_SPAN_SHAPE`다.
+- `laneGraph`에서 없는 줄을 쓰면 `LANE_UNKNOWN`, 없는 부모를 가리키면 `LANE_PARENT_UNKNOWN`, 부모를 자식보다 뒤에 적으면 `LANE_PARENT_ORDER`다. `stepper`의 `loops`가 없는 카드를 가리키면 `STEPPER_LOOP_UNKNOWN`이다. 한 그림 안의 id가 겹치면 `WIDGET_ID_DUPLICATE`다.
+- **비유 표**(`analogyMap`)는 B로만 만든다. 배지는 구분과 상관없이 "비유, 원문에 없는 설명"으로 고정이다. 원문 말 칸(`term`)은 원문에 글자 그대로 있는 이름이고 `termCite`에 그 문단을 단다. 비유 칸(`analog`)은 B 규칙을 받는다. 숫자, 지표 말, 원문 이름을 쓰지 않는다. `breaks`가 비면 `ANALOGY_BREAKS_EMPTY`로 막힌다. 비유가 어디서 깨지는지 적어야 읽는 사람이 비유를 원문으로 착각하지 않는다.
+- C 슬라이더 칸 수와 공통 단계 수는 원문 그림 장면 수(`source.json`의 `panels`)를 넘지 않는다(`C_STEPS_EXCEED_PANELS`). 원문 장면 가운데 몇 개를 골라도 되지만 원문에 없는 중간 단계를 만들지 않는다. `panels`가 없으면 `C_PANELS_UNKNOWN`으로 막히니 스킬에 알린다.
 - C는 원문 캡션과 본문 설명으로 다시 그린다. 원문 그림에만 있고 글자로 안 적힌 값은 읽어 내지 않는다. 그 자리는 `strong`, `weak` 같은 숫자 없는 모양으로만 그린다.
 - 원문 표가 둘 이상의 조건을 견주면 `toggleBars`(조건 하나를 켜고 끄기)나 `heatmap`(두 설정을 가로세로로)을 먼저 생각한다. 의심 표시를 단 표라면 그 어긋남이 그림에서 바로 보이게 고른다.
+- 원문 글이 브랜치나 버전이 갈라지고 합쳐지는 흐름을 설명하면 `laneGraph`, 요일이나 날짜별 일정을 설명하면 `calendar`, 순서가 있는 절차를 설명하면 `stepper`를 먼저 생각한다. 시간에 따라 바뀌는 흐름이면 공통 단계를 단다.
 
 ## 의심 표시
 
