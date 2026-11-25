@@ -3,7 +3,7 @@
 // 주문 제목이나 게이트 사유는 지라나 PR에서 온 바깥 글이라 전부 esc를 거친다.
 import { esc } from './html'
 import { displayStatus, isClosed, ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
-import type { AgentState, ConductorView, EventView, WorkerLive, WorkView } from './protocol'
+import type { AgentState, ConductorView, EventView, OrderView, WorkerLive, WorkView } from './protocol'
 import { canReachWorker, clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, terminalModel, waitText, workerEnded, type ApprovalEntry, type Card, type GateItem, type TerminalModel } from './terminal-model'
 
 export type TerminalMarkupOptions = {
@@ -193,7 +193,7 @@ function detail(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string 
     o.waiting && dkv('대기', `${orderWaitText(o.waiting, opts.private)} · ${clock(o.waiting.since)}부터`),
     o.branch && dkv('브랜치', o.branch),
     opts.private && o.worktreePath && dkv('경로', o.worktreePath),
-    ...v.gates.filter((g) => g.orderId === o.id).map((g) => dkv(gateLabel(g.type), g.reason)),
+    ...v.gates.filter((g) => g.orderId === o.id).map((g) => dkv(gateLabel(g.type), opts.private ? g.reason : '사람 승인 대기')),
     events.length > 0 && div('d-ev', div('muted', '최근 이벤트'), ...events.map((e) => detailEvent(e, opts.private))),
     o.work && workBlock(o.id, o.work, opts),
     opts.interactive && div('live', liveBlock(o, opts.live?.[o.id], opts.now))
@@ -223,9 +223,9 @@ function repoGroups(cards: readonly Card[], v: ConductorView, opts: TerminalMark
 
 /**
  * 승인 칸 카드 머리의 게이트 줄과 사유. 머지면 PR, 파일 겹침이면 겹친 파일 수, 서버가 주면 봇 채팅으로 닫을 수 있는지를 붙인다.
- * 사유는 컨덕터가 쓴 글이라 폰에도 싣는다. 파일 겹침의 상대 주문은 사유에만 있다
+ * 사유는 워커가 넘긴 detail로 만들어 경로나 토큰이 섞일 수 있어서 데스크톱에서만 싣는다. 파일 겹침의 상대 주문은 사유에만 있다
  */
-function gateLines(gates: readonly GateItem[]): string {
+function gateLines(gates: readonly GateItem[], showPrivate: boolean): string {
   return div(
     'gate-info',
     ...gates.map((g) =>
@@ -235,13 +235,20 @@ function gateLines(gates: readonly GateItem[]): string {
           span('g', g.label),
           g.waited && span('muted', `${g.waited}째`),
           g.pr && span('', g.pr),
-          g.overlapFiles !== undefined && span('', `겹친 파일 ${g.overlapFiles}개`),
+          g.overlapFiles !== undefined && span('', `지금 겹친 파일 ${g.overlapFiles}개`),
           g.approverReady !== undefined && span(g.approverReady ? 'ready' : 'muted', g.approverReady ? '봇 채팅으로 닫기' : '터미널 필요')
         ),
-        `<div class="muted ell" title="${esc(g.gate.reason)}">${esc(g.gate.reason)}</div>`
+        showPrivate && `<div class="muted ell" title="${esc(g.gate.reason)}">${esc(g.gate.reason)}</div>`
       )
     )
   )
+}
+
+/** 카드와 줄이 함께 쓰는 포커스, 이동 속성. 데스크톱(interactive)에서만 붙인다 */
+function openAttrs(o: OrderView, focus: string, canOpen: boolean): string {
+  return ` data-order="${esc(o.id)}" data-focus="${esc(focus)}" tabindex="0" role="group" aria-label="${esc(`${o.id} ${o.title}${workerEnded(o) ? ' · 워커 종료' : ''}`)}"${
+    canOpen ? ' data-open aria-keyshortcuts="Enter" title="두 번 누르거나 Enter를 누르면 워커 터미널로 가요"' : ''
+  }`
 }
 
 function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions, gates?: readonly GateItem[]): string {
@@ -249,14 +256,10 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions, gates?: re
   const interactive = opts.interactive
   const canOpen = interactive && canReachWorker(o)
   const pct = c.progress === null ? null : Math.round(c.progress * 100)
-  const attrs = interactive
-    ? ` data-order="${esc(o.id)}" data-focus="${esc(`card:${o.id}`)}" tabindex="0" role="group" aria-label="${esc(`${o.id} ${o.title}${workerEnded(o) ? ' · 워커 종료' : ''}`)}"${
-        canOpen ? ' data-open aria-keyshortcuts="Enter" title="두 번 누르거나 Enter를 누르면 워커 터미널로 가요"' : ''
-      }`
-    : ''
+  const attrs = interactive ? openAttrs(o, `card:${o.id}`, canOpen) : ''
   const body = join(
     div('t', div('tid-row', span('tid', o.id), interactive && copyOrderButton(o.id), canOpen && goButton(o.id)), span('ttl', o.title)),
-    gates && gateLines(gates),
+    gates && gateLines(gates, opts.private),
     c.meta.some((r) => r.label !== '레포') &&
       div('meta', ...c.meta.filter((r) => r.label !== '레포').map((r) =>
         div('mrow', span('muted', r.label), interactive ? metaValue(r.label, r.value, o.id, v.jiraSiteUrl) : span('ell', r.value))
@@ -282,20 +285,16 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions, gates?: re
 }
 
 /** 주문 카드가 없는 게이트. 컨덕터 게이트이거나 화면에 없는 주문의 게이트다 */
-function gateOnly(e: ApprovalEntry): string {
+function gateOnly(e: ApprovalEntry, showPrivate: boolean): string {
   const g = e.gates[0]!.gate
-  return `<div class="w gate-only">${join(g.orderId && div('t', div('tid-row', span('tid', g.orderId))), gateLines(e.gates))}</div>`
+  return `<div class="w gate-only">${join(g.orderId && div('t', div('tid-row', span('tid', g.orderId))), gateLines(e.gates, showPrivate))}</div>`
 }
 
-/** 대기와 끝남 칸의 한 줄. 카드처럼 두 번 누르면 워커로 가고 상세도 펼칠 수 있다 */
+/** 대기와 끝남 칸의 한 줄. 상세는 펼칠 수 있고, 워커에 닿을 수 있는 줄만 두 번 누르거나 Enter로 워커로 간다(끝남 칸 줄은 안 간다) */
 function row(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
   const o = c.order
   const canOpen = opts.interactive && canReachWorker(o)
-  const attrs = opts.interactive
-    ? ` data-order="${esc(o.id)}" data-focus="${esc(`row:${o.id}`)}" tabindex="0" role="group" aria-label="${esc(`${o.id} ${o.title}${workerEnded(o) ? ' · 워커 종료' : ''}`)}"${
-        canOpen ? ' data-open aria-keyshortcuts="Enter" title="두 번 누르거나 Enter를 누르면 워커 터미널로 가요"' : ''
-      }`
-    : ''
+  const attrs = opts.interactive ? openAttrs(o, `row:${o.id}`, canOpen) : ''
   const repo = o.repo ? (v.projects?.[o.repo] ?? splitRepo(o.repo).name) : ''
   return `<div class="w row ${c.kind}${canOpen ? ' openable' : ''}"${attrs}>${join(
     div('rt', span('tid', o.id), span('ttl ell', o.title), repo && span('muted', repo)),
@@ -328,7 +327,7 @@ function lanes(m: TerminalModel, v: ConductorView, opts: TerminalMarkupOptions):
       laneHead('approval', m.approval.length),
       m.approval.length === 0
         ? div('muted lane-empty', '사람 확인을 기다리는 게이트가 없어요.')
-        : div('workers', ...m.approval.map((e) => (e.card ? card(e.card, v, opts, e.gates) : gateOnly(e))))
+        : div('workers', ...m.approval.map((e) => (e.card ? card(e.card, v, opts, e.gates) : gateOnly(e, opts.private))))
     )}</section>`,
     `<section class="lane running" data-key="lane:running">${join(
       laneHead('running', m.running.length),
@@ -351,10 +350,10 @@ const EVENT_TONE: Record<string, string> = {
 const EVENT_LABEL: Record<string, string> = { bypass: BYPASS_LABEL, 'gate-opened': 'gate', 'gate-resolved': 'gate ✓' }
 
 /**
- * 인증 없는 폰 페이지에 요약을 싣는 이벤트. report, waiting, bypass 요약은 워커가 쓴 글이라
+ * 인증 없는 폰 페이지에 요약을 싣는 이벤트. report, waiting, bypass 요약과 gate-opened의 사유는 워커가 쓴 글이라
  * 경로나 토큰이 섞일 수 있어서 시각과 유형, 주문 id만 남긴다
  */
-const PUBLIC_SUMMARY = new Set(['checkpoint', 'gate-opened', 'gate-resolved'])
+const PUBLIC_SUMMARY = new Set(['checkpoint', 'gate-resolved'])
 const showSummary = (e: EventView, showPrivate: boolean) => showPrivate || PUBLIC_SUMMARY.has(e.type)
 const eventTag = (e: EventView) => span(lookup(EVENT_TONE, e.type) ?? '', lookup(EVENT_LABEL, e.type) ?? e.type)
 
@@ -572,7 +571,7 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .cursor { display: inline-block; width: 7px; height: 12px; background: var(--t-green); animation: blink 1s infinite; }
 .empty { color: var(--t-dim); padding: 24px; text-align: center; }
 @media (max-width: 720px) { .grid { grid-template-columns: minmax(0, 1fr); } }
-/* 사이드바 폭. 머리글 한 줄, 컨덕터 요약, 카드 세로 목록, 게이트, 최근 이벤트 8줄, 상태줄 순으로 쌓는다 */
+/* 사이드바 폭. 머리글 한 줄, 컨덕터 요약, 네 칸, 최근 이벤트 8줄, 상태줄 순으로 쌓는다 */
 @media (max-width: 480px) {
   .term { font-size: 11px; }
   .bar, .legend, .motto, .cmd { display: none; }

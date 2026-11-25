@@ -152,7 +152,10 @@ test('웹 페이지는 워커가 쓴 다음 할 일과 대기 사유, bypass, �
   // 대기 사유가 있으면 대기 칸의 줄로 간다
   const waiting = order('ord-w', { waiting: { reason: 'ghp_waitTOKEN 만료', since: '2026-11-12T01:00:00.000Z', until: '2026-11-12T03:00:00.000Z' } })
   const v = view([o, waiting], {
+    // 게이트 사유는 워커가 넘긴 detail로 만들어 경로나 토큰이 섞일 수 있다
+    gates: [{ id: 'gx', type: 'merge', orderId: 'ord-a', reason: 'ghp_gateTOKEN · /Users/someone/gate', openedAt: '2026-11-12T01:30:00.000Z' }],
     recentEvents: [
+      { at: '2026-11-12T01:19:00.000Z', type: 'gate-opened', orderId: 'ord-a', summary: 'merge · ghp_gateTOKEN' },
       { at: '2026-11-12T01:20:00.000Z', type: 'report', orderId: 'ord-a', summary: 'done · ghp_reportTOKEN' },
       { at: '2026-11-12T01:21:00.000Z', type: 'waiting', orderId: 'ord-a', summary: '/Users/someone/wait' },
       { at: '2026-11-12T01:22:00.000Z', type: 'bypass', orderId: 'ord-a', summary: 'cleanup · /Users/someone/bypass' },
@@ -165,9 +168,11 @@ test('웹 페이지는 워커가 쓴 다음 할 일과 대기 사유, bypass, �
   has(web, '자동 처리 내역 <b class="b-purple">[1]</b>')
   has(web, 'ship → ci')
   has(web, '대기 ~')
+  has(web, '<span class="g">머지 승인</span>')
+  has(web, '사람 승인 대기')
 
   const desk = terminalMarkup(v, { now: NOW, interactive: true, private: true })
-  for (const shown of ['cat /Users/someone/.npmrc', 'ghp_waitTOKEN', '<span class="muted">계정</span><span class="ell">work-acct</span>', 'ghp_reportTOKEN', '자동 처리 내역 › rm -rf /Users/someone/tmp']) has(desk, shown)
+  for (const shown of ['cat /Users/someone/.npmrc', 'ghp_waitTOKEN', 'ghp_gateTOKEN · /Users/someone/gate', 'merge · ghp_gateTOKEN', '<span class="muted">계정</span><span class="ell">work-acct</span>', 'ghp_reportTOKEN', '자동 처리 내역 › rm -rf /Users/someone/tmp']) has(desk, shown)
 })
 
 test('모르는 이벤트 유형은 Object 원형에서 클래스나 이름을 꺼내지 않는다', () => {
