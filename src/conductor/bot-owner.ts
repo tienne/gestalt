@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
+import {
+  automationCoordinationRoot,
+  handoffCancellationPending,
+} from './bot-handoff-coordination.js';
+import { isBotHandoffRecord, type BotHandoffRecord } from './bot-handoff-record.js';
 import { acquireLock } from './engine.js';
 import { isSessionId } from './handoff.js';
 import { detectOrca, execRunner, type CommandRunner } from './launcher.js';
@@ -11,9 +16,13 @@ export interface BotOwner {
   chatId: string;
 }
 
-interface BotOwnership {
+export type { BotHandoffRecord } from './bot-handoff-record.js';
+
+export interface BotOwnership {
   active?: BotOwner;
   retired: string[];
+  revision: number;
+  handoffs: BotHandoffRecord[];
 }
 
 function ownerRecord(value: unknown): value is BotOwner {
@@ -33,29 +42,54 @@ export function readBotOwnership(dir: string): BotOwnership {
   try {
     data = JSON.parse(readFileSync(ownershipPath(dir), 'utf8'));
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { retired: [] };
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT')
+      return { retired: [], revision: 0, handoffs: [] };
     throw err;
   }
   if (
     !isPlainObject(data) ||
     (data['active'] !== undefined && !ownerRecord(data['active'])) ||
     !Array.isArray(data['retired']) ||
-    !data['retired'].every((id: unknown) => typeof id === 'string' && isSessionId(id))
+    !data['retired'].every((id: unknown) => typeof id === 'string' && isSessionId(id)) ||
+    (data['revision'] !== undefined &&
+      (typeof data['revision'] !== 'number' ||
+        !Number.isSafeInteger(data['revision']) ||
+        data['revision'] < 0)) ||
+    (data['handoffs'] !== undefined &&
+      (!Array.isArray(data['handoffs']) || !data['handoffs'].every(isBotHandoffRecord)))
   ) {
     throw new Error('봇 운영권 파일을 읽을 수 있어야 컨덕터를 실행할 수 있어요');
   }
   return {
     ...(data['active'] ? { active: data['active'] } : {}),
     retired: data['retired'] as string[],
+    revision: data['revision'] ?? 0,
+    handoffs: data['handoffs'] ?? [],
   };
 }
 
+/** tick 잠금을 잡은 호출자만 운영권과 인계 기록을 함께 저장한다. */
+export function writeBotOwnership(dir: string, ownership: BotOwnership): void {
+  writeJsonAtomic(ownershipPath(dir), ownership, { mode: 0o600 });
+}
+
 /** 운영권 교체와 tick 진입이 같은 잠금을 써야 앞 채팅이 뒤늦게 tick을 시작할 수 없다. */
-export function changeBotOwner(dir: string, previous: string | undefined, next?: BotOwner): void {
+export function changeBotOwner(
+  dir: string,
+  previous: string | undefined,
+  next?: BotOwner,
+  coordinationRoot = automationCoordinationRoot(),
+): void {
   const lock = acquireLock(dir);
   if (!lock.ok) throw new Error('tick이 끝난 뒤 운영권 변경을 다시 시도해 주세요');
   try {
-    const { active, retired } = readBotOwnership(dir);
+    const { active, retired, revision, handoffs } = readBotOwnership(dir);
+    if (
+      handoffs.some(
+        (record) => !record.outcome || handoffCancellationPending(dir, record, coordinationRoot),
+      )
+    )
+      throw new Error('진행 중인 bot handoff를 먼저 완료하거나 취소해 주세요');
     if (active?.chatId !== previous) throw new Error('현재 운영 채팅이 바뀌었어요');
     if (next && retired.includes(next.chatId))
       throw new Error('인계한 채팅은 다시 등록할 수 없어요');
@@ -63,8 +97,10 @@ export function changeBotOwner(dir: string, previous: string | undefined, next?:
     const record: BotOwnership = {
       ...(next ? { active: next } : {}),
       retired: active ? [...retired, active.chatId] : retired,
+      revision: revision + 1,
+      handoffs,
     };
-    writeJsonAtomic(ownershipPath(dir), record, { mode: 0o600 });
+    writeBotOwnership(dir, record);
   } finally {
     lock.release();
   }

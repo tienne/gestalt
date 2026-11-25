@@ -3,6 +3,13 @@ import { mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { handleGithubOrder, readGithubOrder } from '../../conductor/bot-github.js';
+import { handoffBot, type BotHandoffOptions } from '../../conductor/bot-handoff.js';
+import {
+  automationCoordinationDir,
+  automationCoordinationRoot,
+  handoffCancellationPending,
+} from '../../conductor/bot-handoff-coordination.js';
+import { readEditReceipt } from '../../conductor/bot-handoff-edit.js';
 import {
   gateApprovalMessage,
   matchBotGate,
@@ -18,6 +25,7 @@ import {
   currentBotOwner,
   targetBotOwner,
   readBotOwnership,
+  type BotHandoffRecord,
   type BotOwner,
 } from '../../conductor/bot-owner.js';
 import { loadConfig, WAIT_MAX_SEC_LIMIT } from '../../core/config.js';
@@ -773,7 +781,11 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
         store.order(w.orderId)?.workerId === w.id &&
         !TERMINAL_ORDER_STATUSES.has(store.order(w.orderId)!.status),
     ).length;
-  const botOwner = readBotOwnership(store.dir).active;
+  const { active: botOwner, revision: botOwnerRevision, handoffs } = readBotOwnership(store.dir);
+  const latestHandoff = handoffs.at(-1);
+  const cancelCleanupPending =
+    latestHandoff &&
+    handoffCancellationPending(store.dir, latestHandoff, automationCoordinationRoot());
   const session = botOwner
     ? undefined
     : findActiveConductor(store.dir, '', Date.now(), activeConductorWindowMs(config));
@@ -784,12 +796,55 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
     queuedOrders: store.queuedOrders().length,
     prWatchRepos: config.prWatchRepos,
     disconnectedWorkers: disconnected,
-    ...(botOwner ? { botOwner } : {}),
+    ...(botOwner ? { botOwner, botOwnerRevision } : {}),
+    ...(latestHandoff
+      ? {
+          botHandoff: {
+            requestId: latestHandoff.id,
+            automationId: latestHandoff.automationId,
+            fromChatId: latestHandoff.from,
+            toChatId: latestHandoff.to,
+            status: cancelCleanupPending ? 'partial' : (latestHandoff.outcome ?? 'partial'),
+            ...(!cancelCleanupPending && latestHandoff.outcome === 'cancelled'
+              ? { cancelScope: 'gestalt' }
+              : {}),
+            ...botHandoffEditStatus(latestHandoff),
+            ...(cancelCleanupPending ? { retryStage: 'reconcile-edit' } : {}),
+            responsibleChatId: botOwner?.chatId,
+            verifiedNextRunAt: latestHandoff.nextRunAt,
+          },
+        }
+      : {}),
     ...(session
       ? {
           compactions: readCompactions(store.dir, session.sessionId).count,
           session: { id: session.sessionId, ...(session.cwd ? { cwd: session.cwd } : {}) },
         }
+      : {}),
+  };
+}
+
+function botHandoffEditStatus(handoff: BotHandoffRecord): Record<string, unknown> {
+  const editAttemptId = handoff.editAttempt;
+  if (!editAttemptId)
+    return !handoff.outcome && handoff.editUncertain !== undefined
+      ? { retryStage: 'reconcile-edit' }
+      : {};
+  let receipt: ReturnType<typeof readEditReceipt>;
+  let editReceipt: 'prepared' | 'dispatched' | 'applied' | 'rejected' | 'unreadable';
+  try {
+    const dir = automationCoordinationDir(automationCoordinationRoot(), handoff.automationId);
+    receipt = readEditReceipt(dir, handoff.approval, editAttemptId);
+    editReceipt = receipt?.outcome ?? 'prepared';
+  } catch {
+    editReceipt = 'unreadable';
+  }
+  return {
+    editAttemptId,
+    editReceipt,
+    ...(receipt?.dispatchedAt ? { editDispatchedAt: receipt.dispatchedAt } : {}),
+    ...(!handoff.outcome && (editReceipt === 'dispatched' || editReceipt === 'unreadable')
+      ? { retryStage: 'reconcile-edit' }
       : {}),
   };
 }
@@ -1820,6 +1875,51 @@ export async function conductorBotReleaseCommand(
     changeBotOwner(ctx.store.dir, opts.fromChat);
     if (opts.json) return print({ released: opts.fromChat });
     console.log('봇의 운영권을 종료했어요');
+  } catch (error) {
+    exitWithError(error);
+  }
+}
+
+export async function conductorBotHandoffCommand(
+  opts: ConductorCommonOptions & BotHandoffOptions,
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'bot handoff');
+    if (await tickBotCaller(ctx)) throw new Error('인계는 운영자 터미널에서 실행해 주세요');
+    const result = await handoffBot(ctx.store.dir, opts);
+    if (opts.json) print(result);
+    else {
+      const labels = {
+        ready: '승인 가능',
+        blocked: '인계 보류',
+        partial: '인계 진행 중',
+        completed: '인계 완료',
+        cancelled: '로컬 인계 요청 취소',
+      };
+      console.log(`${labels[result.status]} · 요청 ${result.requestId}`);
+      console.log(`인계 채팅 ${result.fromChatId} → ${result.toChatId}`);
+      console.log(
+        `현재 책임 채팅: ${result.responsibleChatId ?? '등록 없음'} (리비전 ${result.ownerRevision})`,
+      );
+      const automationLabel = result.replayed ? '종료 당시 자동화' : '자동화';
+      console.log(
+        `${automationLabel} ${result.automationId}: ${result.automationChatId ?? '현재 대상 미확인'}`,
+      );
+      if (result.schedule) console.log(`주기: ${result.schedule}`);
+      if (result.orcaVerification === 'observed')
+        console.log('Orca의 채팅과 일정은 별도로 조회했어요');
+      if (result.verifiedNextRunAt !== undefined)
+        console.log(
+          `조회 당시 다음 정기 실행: ${new Date(result.verifiedNextRunAt).toISOString()}`,
+        );
+      if (result.approval) console.log(`인계 승인: 같은 명령에 --approve ${result.approval}`);
+      if (result.retryStage) console.log(`재개 단계: ${result.retryStage}`);
+      if (result.editAttemptId) console.log(`Orca 편집 시도 ID ${result.editAttemptId}`);
+      if (result.editDispatchedAt) console.log(`Orca 편집 요청 시각 ${result.editDispatchedAt}`);
+      if (result.detail) console.log(result.detail);
+    }
+    if (result.status === 'blocked' || result.status === 'partial') process.exitCode = 1;
   } catch (error) {
     exitWithError(error);
   }
