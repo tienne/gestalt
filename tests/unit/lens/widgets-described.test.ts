@@ -68,6 +68,15 @@ describe('D 원문 서술 그림 lint', () => {
     expect(codes(w)).toContain('D_NAME_UNKNOWN');
   });
 
+  it('영문 이름은 복수형도 같은 이름으로 본다', () => {
+    const plural = flow();
+    if (plural.kind === 'stepSlider') plural.steps[0]!.nodes[0]!.label = 'mains';
+    expect(codes(plural)).not.toContain('D_NAME_UNKNOWN');
+    const other = flow();
+    if (other.kind === 'stepSlider') other.steps[0]!.nodes[0]!.label = 'mainline';
+    expect(codes(other)).toContain('D_NAME_UNKNOWN');
+  });
+
   it('단계 출처 문단에 없는 숫자를 쓰면 D_NUMBER_UNKNOWN', () => {
     const w = flow();
     if (w.kind === 'stepSlider') w.steps[0]!.note = '0723에 production에 나간다.';

@@ -352,8 +352,44 @@ function nameTokens(text: string): string[] {
     .filter((t) => t.length >= 2 && /[A-Za-z]/.test(t));
 }
 
+let nameCacheText: string | null = null;
+let nameCacheLower = '';
+const nameCache = new Map<string, boolean>();
+
+/**
+ * 영문자로만 된 이름은 복수형까지 같은 이름으로 본다(commit과 commits, branch와 branches).
+ * 원문 글자가 바뀌기 전까지 같은 이름은 다시 찾지 않는다
+ */
 function nameInSource(name: string, allText: string): boolean {
-  return new RegExp(`(?<![A-Za-z0-9])${escapeRe(name)}(?![A-Za-z0-9])`, 'i').test(allText);
+  if (allText !== nameCacheText) {
+    nameCacheText = allText;
+    nameCacheLower = allText.toLowerCase();
+    nameCache.clear();
+  }
+  const key = name.toLowerCase();
+  const hit = nameCache.get(key);
+  if (hit !== undefined) return hit;
+  let found: boolean;
+  if (/^[a-z]+$/.test(key)) {
+    const stems = new Set([key]);
+    for (const end of ['s', 'es']) {
+      if (key.endsWith(end) && key.length - end.length >= 3) stems.add(key.slice(0, -end.length));
+    }
+    const alt = [...stems].map(escapeRe).join('|');
+    found = new RegExp(`(?<![a-z0-9])(?:${alt})(?:e?s)?(?![a-z0-9])`).test(nameCacheLower);
+  } else {
+    found = false;
+    for (let at = nameCacheLower.indexOf(key); at !== -1; at = nameCacheLower.indexOf(key, at + 1)) {
+      const before = nameCacheLower[at - 1] ?? '';
+      const after = nameCacheLower[at + key.length] ?? '';
+      if (!/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after)) {
+        found = true;
+        break;
+      }
+    }
+  }
+  nameCache.set(key, found);
+  return found;
 }
 
 /** 요소 출처의 원문 글자. 표 칸이면 표 번호와 머리줄, 그 칸이 든 줄이다(근거 숫자를 고를 때와 같은 범위) */
