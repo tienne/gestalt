@@ -1152,7 +1152,7 @@ export function createCli(): Command {
 
   bot
     .command('item-decide <gateId>')
-    .description('Orca 항목에 사람이 단 서명 답을 Orca에서 직접 읽어 게이트를 종료한다')
+    .description('Orca 항목의 답을 읽고 승인자 서명이나 공식 증빙을 확인해 게이트를 종료한다')
     .requiredOption('--item <n>', 'Orca 항목 번호')
     .requiredOption('--question <eventId>', '운영 봇이 게이트를 물은 이벤트 ID')
     .requiredOption('--answer <eventId>', '사람이 답한 이벤트 ID')

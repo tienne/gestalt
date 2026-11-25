@@ -309,6 +309,7 @@ export interface OrcaItemSource {
   itemUid: string;
   question: string;
   answer: string;
+  attestation?: { issuer: string };
 }
 
 export const NEED_KINDS = [
