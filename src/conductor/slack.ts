@@ -4,23 +4,22 @@ import { dirname, join } from 'node:path';
 import { isPlainObject } from '../core/json-file.js';
 import {
   approvedSlackUnrecorded,
-  canReplaceSlackDraft,
   isSlackChannelId,
   openSlackReplacementCandidates,
-  SLACK_AMBIGUOUS_REPLACEMENT,
   SLACK_DELIVERY_EVENT,
   SLACK_HOST_HANDOFF,
   SLACK_UNVERIFIED_RESPONSE,
   SUPERSEDED_PREFIX,
   slackClaimOwner,
   slackDeliveryId,
+  slackDraftReplacementStatus,
   slackMessageKey,
   slackPublicationBlocker,
   slackPublicationConfirmed,
   slackPublicationMatches,
 } from './slack-state.js';
 import { newId, type ConductorStore } from './store.js';
-import type { Gate, SlackPublicationEvidence } from './types.js';
+import type { Gate, SlackDraftReplacement, SlackPublicationEvidence } from './types.js';
 
 export interface SlackDelivery {
   gateId: string;
@@ -200,20 +199,23 @@ export interface PublishResult {
   reopened: { gateId: string; newGateId: string }[];
 }
 
-function holdAmbiguousReplacement(store: ConductorStore, gate: Gate): never {
+function holdAmbiguousReplacement(
+  store: ConductorStore,
+  gate: Gate,
+  replacement: SlackDraftReplacement,
+): never {
   store.appendIfCurrent(
     {
-      type: 'slack-posted',
+      type: 'slack-draft-replacement-held',
       at: store.timestamp(),
       gateId: gate.id,
-      ref: SLACK_AMBIGUOUS_REPLACEMENT,
+      replacement,
     },
     () => {
       const current = store.snapshot.gates[gate.id];
       return (
         current !== undefined &&
-        approvedSlackUnrecorded(store.snapshot, current) &&
-        slackDeliveryId(current) === slackDeliveryId(gate)
+        slackDraftReplacementStatus(store.snapshot, current, replacement) === 'ambiguous'
       );
     },
   );
@@ -251,7 +253,6 @@ export async function publishApprovedSlack(
       const replacementDigest = draftDigest(channel, threadTs, text);
       if (replacementDigest !== previousDigest) {
         const candidates = openSlackReplacementCandidates(store.snapshot, gate, replacementDigest);
-        if (candidates.length > 1) holdAmbiguousReplacement(store, gate);
         const next =
           candidates[0] ??
           draftSlack(
@@ -270,12 +271,14 @@ export async function publishApprovedSlack(
           previousDigest,
           replacementDigest,
         };
+        if (candidates.length > 1) holdAmbiguousReplacement(store, gate, replacement);
         const recorded = store.appendIfCurrent(
           { type: 'slack-draft-replaced', at: store.timestamp(), gateId: gate.id, replacement },
           () => {
             const current = store.snapshot.gates[gate.id];
             return (
-              current !== undefined && canReplaceSlackDraft(store.snapshot, current, replacement)
+              current !== undefined &&
+              slackDraftReplacementStatus(store.snapshot, current, replacement) === 'ready'
             );
           },
         );
@@ -283,9 +286,9 @@ export async function publishApprovedSlack(
           const current = store.snapshot.gates[gate.id];
           if (
             current &&
-            openSlackReplacementCandidates(store.snapshot, current, replacementDigest).length > 1
+            slackDraftReplacementStatus(store.snapshot, current, replacement) === 'ambiguous'
           )
-            holdAmbiguousReplacement(store, gate);
+            holdAmbiguousReplacement(store, gate, replacement);
           throw new Error('Slack 초안을 교체하는 사이 게이트가 바뀌었어요');
         }
         result.reopened.push({ gateId: gate.id, newGateId: next.id });

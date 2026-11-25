@@ -15,10 +15,8 @@ import { withFileLock } from '../core/file-lock.js';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
 import { log } from '../core/log.js';
 import {
-  approvedSlackUnrecorded,
-  canReplaceSlackDraft,
-  openSlackReplacementCandidates,
   orderHasPendingSlack,
+  slackDraftReplacementStatus,
   slackMessageKey,
   slackPublicationConfirmed,
   slackPublicationMatches,
@@ -94,6 +92,7 @@ export function emptySnapshot(): ConductorSnapshot {
     jiraTransitions: [],
     slackPosted: {},
     slackDraftReplacements: {},
+    slackDraftReplacementHolds: {},
     slackMessageClaims: {},
     appliedReports: {},
     reports: {},
@@ -218,19 +217,19 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
         s.slackPosted[e.gateId] = e.ref;
       return;
     }
-    case 'slack-draft-replaced': {
+    case 'slack-draft-replaced':
+    case 'slack-draft-replacement-held': {
       const gate = s.gates[e.gateId];
       if (!gate || !e.replacement) return;
-      if (!canReplaceSlackDraft(s, gate, e.replacement)) {
-        if (
-          typeof e.replacement.replacementDigest === 'string' &&
-          approvedSlackUnrecorded(s, gate) &&
-          openSlackReplacementCandidates(s, gate, e.replacement.replacementDigest).length > 1
-        )
-          s.slackPosted[e.gateId] = SLACK_AMBIGUOUS_REPLACEMENT;
+      const status = slackDraftReplacementStatus(s, gate, e.replacement);
+      if (status === 'ambiguous') {
+        s.slackDraftReplacementHolds[e.gateId] = e.replacement.approvedDeliveryId;
+        s.slackPosted[e.gateId] = SLACK_AMBIGUOUS_REPLACEMENT;
         return;
       }
+      if (status !== 'ready' || e.type !== 'slack-draft-replaced') return;
       s.slackDraftReplacements[e.gateId] = { ...e.replacement };
+      delete s.slackDraftReplacementHolds[e.gateId];
       s.slackPosted[e.gateId] = `${SUPERSEDED_PREFIX}${e.replacement.replacementGateId}`;
       return;
     }
@@ -371,6 +370,7 @@ export function detachOrder(s: ConductorSnapshot, orderId: string, index?: Order
     delete s.gates[g.id];
     delete s.slackPosted[g.id];
     delete s.slackDraftReplacements[g.id];
+    delete s.slackDraftReplacementHolds[g.id];
   }
   s.bypasses = s.bypasses.filter((b) => b.orderId !== orderId);
   s.jiraTransitions = s.jiraTransitions.filter((t) => t.orderId !== orderId);
@@ -404,6 +404,7 @@ export function orderOfEvent(e: ConductorEvent, s: ConductorSnapshot): string | 
     case 'gate-delivery':
     case 'slack-posted':
     case 'slack-draft-replaced':
+    case 'slack-draft-replacement-held':
     case 'slack-publication-confirmed':
       return s.gates[e.gateId]?.orderId;
     case 'gate-completed':
@@ -710,9 +711,10 @@ function validate(event: ConductorEvent, s: ConductorSnapshot): void {
     if (!gate || !slackPublicationMatches(s, gate, event.evidence))
       throw new Error('현재 승인과 일치하는 Slack 게시 증빙이 아니에요');
   }
-  if (event.type === 'slack-draft-replaced') {
+  if (event.type === 'slack-draft-replaced' || event.type === 'slack-draft-replacement-held') {
     const gate = s.gates[event.gateId];
-    if (!gate || !canReplaceSlackDraft(s, gate, event.replacement))
+    const expected = event.type === 'slack-draft-replaced' ? 'ready' : 'ambiguous';
+    if (!gate || slackDraftReplacementStatus(s, gate, event.replacement) !== expected)
       throw new Error('이전 승인과 새 Slack 초안의 교체 관계가 맞지 않아요');
   }
 }
@@ -880,6 +882,8 @@ export function readBase(dir: string): BaseFile | undefined {
   if (!isPlainObject(parsed.state.askedSourceRefs)) parsed.state.askedSourceRefs = {};
   if (!isPlainObject(parsed.state.slackMessageClaims)) parsed.state.slackMessageClaims = {};
   if (!isPlainObject(parsed.state.slackDraftReplacements)) parsed.state.slackDraftReplacements = {};
+  if (!isPlainObject(parsed.state.slackDraftReplacementHolds))
+    parsed.state.slackDraftReplacementHolds = {};
   return parsed;
 }
 

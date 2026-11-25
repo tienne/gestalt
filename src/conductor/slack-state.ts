@@ -18,6 +18,10 @@ export function slackDeliveryId(gate: Gate): string {
     .digest('hex');
 }
 
+function hasCurrentReplacementHold(state: ConductorSnapshot, gate: Gate): boolean {
+  return state.slackDraftReplacementHolds[gate.id] === slackDeliveryId(gate);
+}
+
 export function isSlackChannelId(channel: unknown): channel is string {
   return typeof channel === 'string' && /^[CGD][A-Z0-9]+$/.test(channel);
 }
@@ -76,19 +80,24 @@ function replacementMatches(
   );
 }
 
-export function canReplaceSlackDraft(
+export function slackDraftReplacementStatus(
   state: ConductorSnapshot,
   gate: Gate,
   proof: SlackDraftReplacement,
-): boolean {
+): 'ready' | 'ambiguous' | 'invalid' {
   const next = state.gates[proof.replacementGateId];
-  return (
-    !state.slackDraftReplacements[gate.id] &&
-    state.slackPosted[gate.id] === undefined &&
-    next?.status === 'open' &&
-    replacementMatches(gate, next, proof) &&
-    openSlackReplacementCandidates(state, gate, proof.replacementDigest).length === 1
-  );
+  const ref = state.slackPosted[gate.id];
+  if (
+    state.slackDraftReplacements[gate.id] ||
+    hasCurrentReplacementHold(state, gate) ||
+    (ref !== undefined && ref !== SLACK_AMBIGUOUS_REPLACEMENT) ||
+    next?.status !== 'open' ||
+    !replacementMatches(gate, next, proof)
+  )
+    return 'invalid';
+  return openSlackReplacementCandidates(state, gate, proof.replacementDigest).length === 1
+    ? 'ready'
+    : 'ambiguous';
 }
 
 export function openSlackReplacementCandidates(
@@ -151,6 +160,7 @@ export function approvedSlackUnrecorded(state: ConductorSnapshot, gate: Gate): b
     gate.type === 'slack-post' &&
     gate.decision === 'approved' &&
     state.slackPosted[gate.id] === undefined &&
+    !hasCurrentReplacementHold(state, gate) &&
     !slackReplacementConfirmed(state, gate)
   );
 }
@@ -158,11 +168,13 @@ export function approvedSlackUnrecorded(state: ConductorSnapshot, gate: Gate): b
 export function slackPublicationBlocker(state: ConductorSnapshot, gate: Gate): string | undefined {
   if (gate.type !== 'slack-post' || gate.decision !== 'approved') return;
   if (slackReplacementConfirmed(state, gate) || slackPublicationConfirmed(state, gate)) return;
+  if (hasCurrentReplacementHold(state, gate)) return 'Slack 초안 교체 후보가 여러 개예요';
   const ref = state.slackPosted[gate.id];
   if (ref === undefined) return 'Slack 게시 결과를 기다리고 있어요';
   if (ref === SLACK_HOST_HANDOFF) return '호스트에 넘긴 Slack 게시의 증빙을 기다리고 있어요';
   if (ref === SLACK_UNVERIFIED_RESPONSE) return '직접 게시 응답에서 승인 범위를 확인하지 못했어요';
-  if (ref === SLACK_AMBIGUOUS_REPLACEMENT) return 'Slack 초안 교체 후보가 여러 개예요';
+  if (ref === SLACK_AMBIGUOUS_REPLACEMENT)
+    return '이전 Slack 교체 보류가 현재 승인에 속하는지 확인하지 못했어요';
   if (ref.startsWith(SUPERSEDED_PREFIX))
     return '이전 Slack 기록에서 초안 교체 증빙을 확인하지 못했어요';
   return '이전 Slack 게시 기록에 채널, 스레드와 작업 증빙이 없어요';
