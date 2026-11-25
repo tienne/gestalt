@@ -45,7 +45,9 @@ describe('이름 속 숫자', () => {
   it('리포트 쪽은 이름 속 숫자를 세지 않고 원문 쪽은 모은다', () => {
     expect(numbersIn('release/20260721 배포')).toEqual([]);
     expect(sourceNumbersIn('release/20260721 배포')).toContain(20260721);
-    expect(sourceNumbersIn('ResNet-34와 ViT-L/16')).toEqual(expect.arrayContaining([34, 16]));
+    // 짧은 이름 속 숫자는 모델 이름이라 원문 쪽에서도 안 모은다
+    expect(sourceNumbersIn('ResNet-34와 ViT-L/16')).toEqual([]);
+    expect(sourceNumbersIn('GPT-4로 실험했다')).not.toContain(4);
   });
 
   it('줄임 꼴은 원문에 직접 없으면 받지 않는다', () => {
