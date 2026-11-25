@@ -4,7 +4,7 @@ import { stepsSchema } from './lens-steps.js';
 import { citeSchema, idSchema, textSchema } from './schema-base.js';
 
 /**
- * 읽기 렌즈 인터랙티브 그림. 모델은 미리 정한 네 종류 가운데 하나를 고르고 데이터 JSON만 채운다.
+ * 읽기 렌즈 인터랙티브 그림. 모델은 미리 정한 종류 가운데 하나를 고르고 데이터 JSON만 채운다.
  * 렌더러가 상태마다 그림을 미리 그려 두고 뷰어 스크립트는 어느 상태를 보일지만 바꾼다.
  * 그래서 난수나 단계 사이 보간으로 값을 만드는 자리가 없다
  *
@@ -25,6 +25,9 @@ export const WIDGET_KINDS = [
   'calendar',
   'stepper',
   'analogyMap',
+  'stateMachine',
+  'sequence',
+  'swimlane',
 ] as const;
 
 const label = z.string().min(1).max(40);
@@ -193,6 +196,103 @@ export const widgetSchema = z.discriminatedUnion('kind', [
     steps: stepsSchema.optional(),
   }),
   analogyMapSchema,
+  /** 상태와 전이. 자리는 렌더러가 시작 상태에서 층을 나눠 잡고 pos가 있으면 따른다 */
+  z.object({
+    ...base,
+    kind: z.literal('stateMachine'),
+    states: z
+      .array(
+        z.object({
+          id: idSchema,
+          label,
+          initial: z.boolean().optional(),
+          final: z.boolean().optional(),
+          pos: z
+            .object({
+              row: z.number().int().min(0).max(9),
+              col: z.number().int().min(0).max(5),
+            })
+            .optional(),
+          cite: citeSchema.optional(),
+          illustrative,
+        }),
+      )
+      .min(2)
+      .max(10),
+    transitions: z
+      .array(
+        z.object({
+          id: idSchema,
+          from: idSchema,
+          to: idSchema,
+          label: label.optional(),
+          cite: citeSchema.optional(),
+          illustrative,
+        }),
+      )
+      .min(1)
+      .max(20),
+    steps: stepsSchema.optional(),
+  }),
+  /** 참여자 사이에 순서대로 오가는 메시지. steps가 없으면 렌더러가 메시지 하나를 한 단계로 보인다 */
+  z.object({
+    ...base,
+    kind: z.literal('sequence'),
+    actors: z
+      .array(z.object({ id: idSchema, label, illustrative }))
+      .min(2)
+      .max(6),
+    messages: z
+      .array(
+        z.object({
+          id: idSchema,
+          from: idSchema,
+          to: idSchema,
+          label,
+          cite: citeSchema.optional(),
+          /** 응답 메시지. 점선으로 그린다 */
+          reply: z.boolean().optional(),
+          illustrative,
+        }),
+      )
+      .min(1)
+      .max(16),
+    steps: stepsSchema.optional(),
+  }),
+  /** 역할별 줄에 놓인 활동과 줄을 넘는 화살표. col은 가로 칸 번호다 */
+  z.object({
+    ...base,
+    kind: z.literal('swimlane'),
+    lanes: z
+      .array(z.object({ id: idSchema, label }))
+      .min(1)
+      .max(5),
+    activities: z
+      .array(
+        z.object({
+          id: idSchema,
+          lane: idSchema,
+          col: z.number().int().min(0).max(11),
+          label,
+          cite: citeSchema.optional(),
+          illustrative,
+        }),
+      )
+      .min(1)
+      .max(24),
+    arrows: z
+      .array(
+        z.object({
+          id: idSchema.optional(),
+          from: idSchema,
+          to: idSchema,
+          label: label.optional(),
+        }),
+      )
+      .max(30)
+      .optional(),
+    steps: stepsSchema.optional(),
+  }),
 ]);
 
 export type Widget = z.infer<typeof widgetSchema>;

@@ -10,10 +10,39 @@ import type { Cite } from './schema-base.js';
 
 const ALLOWED_KINDS: Record<Widget['class'], readonly Widget['kind'][]> = {
   A: ['toggleBars', 'heatmap', 'beforeAfter'],
-  B: ['stepSlider', 'beforeAfter', 'laneGraph', 'stepper', 'analogyMap'],
-  C: ['stepSlider', 'toggleBars', 'heatmap', 'beforeAfter', 'laneGraph', 'calendar', 'stepper'],
+  B: [
+    'stepSlider',
+    'beforeAfter',
+    'laneGraph',
+    'stepper',
+    'analogyMap',
+    'stateMachine',
+    'sequence',
+    'swimlane',
+  ],
+  C: [
+    'stepSlider',
+    'toggleBars',
+    'heatmap',
+    'beforeAfter',
+    'laneGraph',
+    'calendar',
+    'stepper',
+    'stateMachine',
+    'sequence',
+    'swimlane',
+  ],
   // calendar는 값 칸이 없어 A로 대조할 숫자가 없다. 원문 표에서 온 일정은 D로 쓰고 기간마다 표 칸 출처를 단다
-  D: ['stepSlider', 'beforeAfter', 'laneGraph', 'calendar', 'stepper'],
+  D: [
+    'stepSlider',
+    'beforeAfter',
+    'laneGraph',
+    'calendar',
+    'stepper',
+    'stateMachine',
+    'sequence',
+    'swimlane',
+  ],
 };
 
 /** 한국어 리포트가 영어 원문의 지표를 옮겨 쓴 경우를 받으려고 짝을 둔다. 어느 쪽이든 원문에 있으면 원문 지표다 */
@@ -80,11 +109,30 @@ export interface WidgetLabel {
   role?: 'analog' | 'break';
 }
 
-/** laneGraph, calendar, stepper가 쓰는 공통 단계. stepSlider는 단계마다 노드를 통째로 적는 옛 꼴이다 */
+/** 모델이 적은 공통 단계. stepSlider는 단계마다 노드를 통째로 적는 옛 꼴이라 빠진다 */
 export function commonSteps(w: Widget): Step[] | undefined {
-  return w.kind === 'laneGraph' || w.kind === 'calendar' || w.kind === 'stepper'
-    ? w.steps
-    : undefined;
+  return w.kind === 'stepSlider' ||
+    w.kind === 'toggleBars' ||
+    w.kind === 'heatmap' ||
+    w.kind === 'beforeAfter' ||
+    w.kind === 'analogyMap'
+    ? undefined
+    : w.steps;
+}
+
+/**
+ * sequence가 화면에 보일 단계. 모델이 단계를 안 적었으면 메시지 하나를 한 단계로 만든다.
+ * 메시지를 하나씩 드러낼 뿐 새 내용을 지어내지 않아서 D 단계 출처와 C 장면 수 검사는 모델이 적은 단계만 받는다
+ */
+export function sequenceSteps(w: Extract<Widget, { kind: 'sequence' }>): Step[] | undefined {
+  if (w.steps) return w.steps;
+  if (w.messages.length < 2) return undefined;
+  return w.messages.map((m, k) => ({
+    label: m.label,
+    ...(m.cite ? { cite: m.cite } : {}),
+    ...(k > 0 ? { show: [m.id] } : {}),
+    focus: [m.id],
+  }));
 }
 
 /** 공통 단계가 가리킬 수 있는 요소 id */
@@ -92,6 +140,18 @@ export function stepElementIds(w: Widget): string[] {
   if (w.kind === 'laneGraph') return w.nodes.map((n) => n.id);
   if (w.kind === 'calendar') return w.spans.flatMap((sp) => (sp.id ? [sp.id] : []));
   if (w.kind === 'stepper') return w.items.map((it) => it.id);
+  if (w.kind === 'stateMachine') {
+    return [...w.states.map((s) => s.id), ...w.transitions.map((t) => t.id)];
+  }
+  if (w.kind === 'sequence') {
+    return [...w.actors.map((a) => a.id), ...w.messages.map((m) => m.id)];
+  }
+  if (w.kind === 'swimlane') {
+    return [
+      ...w.activities.map((a) => a.id),
+      ...(w.arrows ?? []).flatMap((ar) => (ar.id ? [ar.id] : [])),
+    ];
+  }
   return [];
 }
 
@@ -164,6 +224,49 @@ export function widgetLabels(w: Widget, wp: string): WidgetLabel[] {
     });
     w.loops?.forEach((l, k) => {
       if (l.label) out.push({ text: l.label, path: `${wp}.loops.${k}.label` });
+    });
+  } else if (w.kind === 'stateMachine') {
+    w.states.forEach((st, k) =>
+      out.push({
+        text: st.label,
+        path: `${wp}.states.${k}.label`,
+        ...(st.cite ? { cite: st.cite } : {}),
+        ...mark(st.illustrative),
+      }),
+    );
+    w.transitions.forEach((t, k) => {
+      if (!t.label) return;
+      out.push({
+        text: t.label,
+        path: `${wp}.transitions.${k}.label`,
+        ...(t.cite ? { cite: t.cite } : {}),
+        ...mark(t.illustrative),
+      });
+    });
+  } else if (w.kind === 'sequence') {
+    w.actors.forEach((a, k) =>
+      out.push({ text: a.label, path: `${wp}.actors.${k}.label`, ...mark(a.illustrative) }),
+    );
+    w.messages.forEach((m, k) =>
+      out.push({
+        text: m.label,
+        path: `${wp}.messages.${k}.label`,
+        ...(m.cite ? { cite: m.cite } : {}),
+        ...mark(m.illustrative),
+      }),
+    );
+  } else if (w.kind === 'swimlane') {
+    w.lanes.forEach((l, k) => out.push({ text: l.label, path: `${wp}.lanes.${k}.label` }));
+    w.activities.forEach((a, k) =>
+      out.push({
+        text: a.label,
+        path: `${wp}.activities.${k}.label`,
+        ...(a.cite ? { cite: a.cite } : {}),
+        ...mark(a.illustrative),
+      }),
+    );
+    w.arrows?.forEach((ar, k) => {
+      if (ar.label) out.push({ text: ar.label, path: `${wp}.arrows.${k}.label` });
     });
   } else {
     out.push({ text: w.domain, path: `${wp}.domain`, role: 'analog' });
@@ -371,12 +474,16 @@ function metricChecks(labels: WidgetLabel[], ctx: WidgetLintContext, err: Err): 
 
 /** 새 종류의 모양 검사. 구분과 상관없이 본다 */
 function lintShape(w: Widget, wp: string, ctx: WidgetLintContext, err: Err, issues: DigestIssue[]) {
-  const dupes = (ids: string[], path: string) => {
+  // 단계가 요소를 id 하나로 가리켜서 상태와 전이처럼 다른 목록끼리도 id가 겹치면 안 된다
+  const dupes = (ids: string[], path: string, more: Array<[string[], string]> = []) => {
     const seen = new Set<string>();
-    ids.forEach((id, k) => {
-      if (seen.has(id)) err(`${path}.${k}.id`, 'WIDGET_ID_DUPLICATE', `id ${id}가 두 번 나온다`);
-      seen.add(id);
-    });
+    for (const [list, at] of [[ids, path] as [string[], string], ...more]) {
+      list.forEach((id, k) => {
+        if (!id) return;
+        if (seen.has(id)) err(`${at}.${k}.id`, 'WIDGET_ID_DUPLICATE', `id ${id}가 두 번 나온다`);
+        seen.add(id);
+      });
+    }
   };
   if (w.kind === 'laneGraph') {
     dupes(
@@ -457,6 +564,92 @@ function lintShape(w: Widget, wp: string, ctx: WidgetLintContext, err: Err, issu
           `${wp}.loops.${k}`,
           'STEPPER_LOOP_UNKNOWN',
           `되돌아가는 화살표 ${l.from}→${l.to}의 카드가 items에 없다`,
+        );
+      }
+    });
+  } else if (w.kind === 'stateMachine') {
+    dupes(
+      w.states.map((st) => st.id),
+      `${wp}.states`,
+      [[w.transitions.map((t) => t.id), `${wp}.transitions`]],
+    );
+    const states = new Set(w.states.map((st) => st.id));
+    w.transitions.forEach((t, k) => {
+      if (!states.has(t.from) || !states.has(t.to)) {
+        err(
+          `${wp}.transitions.${k}`,
+          'STATE_TRANSITION_UNKNOWN',
+          `전이 ${t.from}→${t.to}의 상태가 states에 없다`,
+        );
+      }
+    });
+    if (w.states.filter((st) => st.initial).length > 1) {
+      err(`${wp}.states`, 'STATE_INITIAL_MANY', '시작 상태(initial)는 하나만 둔다');
+    }
+    const taken = new Map<string, string>();
+    w.states.forEach((st, k) => {
+      if (!st.pos) return;
+      const key = `${st.pos.row}:${st.pos.col}`;
+      const other = taken.get(key);
+      if (other) {
+        err(
+          `${wp}.states.${k}.pos`,
+          'STATE_POS_OVERLAP',
+          `${st.id}와 ${other}가 같은 자리(${st.pos.row}행 ${st.pos.col}열)에 있다`,
+        );
+      }
+      taken.set(key, st.id);
+    });
+  } else if (w.kind === 'sequence') {
+    dupes(
+      w.actors.map((a) => a.id),
+      `${wp}.actors`,
+      [[w.messages.map((m) => m.id), `${wp}.messages`]],
+    );
+    const actors = new Set(w.actors.map((a) => a.id));
+    w.messages.forEach((m, k) => {
+      if (!actors.has(m.from) || !actors.has(m.to)) {
+        err(
+          `${wp}.messages.${k}`,
+          'SEQUENCE_ACTOR_UNKNOWN',
+          `메시지 ${m.from}→${m.to}의 참여자가 actors에 없다`,
+        );
+      }
+    });
+  } else if (w.kind === 'swimlane') {
+    dupes(
+      w.lanes.map((l) => l.id),
+      `${wp}.lanes`,
+    );
+    dupes(
+      w.activities.map((a) => a.id),
+      `${wp}.activities`,
+      [[(w.arrows ?? []).map((ar) => ar.id ?? ''), `${wp}.arrows`]],
+    );
+    const lanes = new Set(w.lanes.map((l) => l.id));
+    const acts = new Set(w.activities.map((a) => a.id));
+    const taken = new Map<string, string>();
+    w.activities.forEach((a, k) => {
+      if (!lanes.has(a.lane)) {
+        err(`${wp}.activities.${k}.lane`, 'SWIMLANE_LANE_UNKNOWN', `줄 ${a.lane}가 lanes에 없다`);
+      }
+      const key = `${a.lane}:${a.col}`;
+      const other = taken.get(key);
+      if (other) {
+        err(
+          `${wp}.activities.${k}.col`,
+          'SWIMLANE_CELL_TAKEN',
+          `${a.id}와 ${other}가 같은 줄 같은 칸(${a.col})에 있다`,
+        );
+      }
+      taken.set(key, a.id);
+    });
+    w.arrows?.forEach((ar, k) => {
+      if (!acts.has(ar.from) || !acts.has(ar.to)) {
+        err(
+          `${wp}.arrows.${k}`,
+          'SWIMLANE_ARROW_UNKNOWN',
+          `화살표 ${ar.from}→${ar.to}의 활동이 activities에 없다`,
         );
       }
     });
