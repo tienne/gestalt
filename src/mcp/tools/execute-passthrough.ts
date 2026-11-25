@@ -1,9 +1,15 @@
+import { ExecuteSessionNotFoundError } from '../../core/errors.js';
 import type { PassthroughExecuteEngine } from '../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../schemas.js';
 import { createHostAdapter, type IHostAdapter } from '../host-adapter.js';
 import type { ClientType } from '../../execute/rule-writer.js';
 import type { ExecuteHandler } from './execute/types.js';
-import { handleStart, handlePlanStep, handlePlanComplete } from './execute/planning.js';
+import {
+  handleStart,
+  handlePlanStep,
+  handlePlanComplete,
+  handlePrepareConductor,
+} from './execute/planning.js';
 import { handleExecuteStart, handleExecuteTask } from './execute/execution.js';
 import { handleEvaluate } from './execute/evaluate.js';
 import {
@@ -23,10 +29,11 @@ import {
   handleSpawn,
   handleEvolutionViz,
 } from './execute/utility.js';
-import { formatError, resolveExecuteSessionInput } from './execute/utils.js';
+import { formatError, formatPlanError, resolveExecuteSessionInput } from './execute/utils.js';
 
 const handlers: Record<string, ExecuteHandler> = {
   start: handleStart,
+  prepare_conductor: handlePrepareConductor,
   plan_step: handlePlanStep,
   plan_complete: handlePlanComplete,
   execute_start: handleExecuteStart,
@@ -55,18 +62,30 @@ export async function handleExecutePassthrough(
 ): Promise<string> {
   const handler = handlers[input.action];
   if (!handler) return formatError(`Unknown action: ${input.action}`);
-  const adapter =
-    typeof clientOrAdapter === 'string'
-      ? createHostAdapter(clientOrAdapter, input.cwd)
-      : clientOrAdapter;
-
   const resolved = resolveExecuteSessionInput(engine, input);
   if (!resolved.ok) return formatError(resolved.error);
-
-  const blocked = blockWhileAwaitingHuman(engine, resolved.input);
+  const params = resolved.input;
+  const blocked = blockWhileAwaitingHuman(engine, params);
   if (blocked) return blocked;
 
-  return handler(engine, resolved.input, adapter);
+  let assignedWorktree: string | undefined;
+  if (params.sessionId && params.action !== 'status' && params.action !== 'prepare_conductor') {
+    try {
+      const session = engine.getSession(params.sessionId);
+      assignedWorktree = session.assignedWorktree;
+      engine.getSessionManager().assertPlanRepository(params.sessionId, params.cwd);
+    } catch (error) {
+      if (!(error instanceof ExecuteSessionNotFoundError))
+        return formatPlanError(error, params.sessionId);
+    }
+  }
+
+  const bound = assignedWorktree ? { ...params, cwd: assignedWorktree } : params;
+  const adapter =
+    typeof clientOrAdapter === 'string'
+      ? createHostAdapter(clientOrAdapter, bound.cwd)
+      : clientOrAdapter;
+  return handler(engine, bound, adapter);
 }
 
 // 사람의 답을 기다리는 동안에는 흐름을 앞으로 미는 action을 막는다. 상태 조회와 해소만 통과시킨다

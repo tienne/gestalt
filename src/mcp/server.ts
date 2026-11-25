@@ -27,7 +27,6 @@ import { handleInterviewPassthrough } from './tools/interview-passthrough.js';
 import { handleSpec } from './tools/spec.js';
 import { handleSpecPassthrough } from './tools/spec-passthrough.js';
 import { handleExecutePassthrough } from './tools/execute-passthrough.js';
-import { createHostAdapter } from './host-adapter.js';
 import { resolveStatusSessionId } from './session-selector.js';
 import { handleCreateAgentPassthrough } from './tools/create-agent-passthrough.js';
 import { handleStatus, buildStatusConfigInfo } from './tools/status.js';
@@ -243,7 +242,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
       (params) => {
         const input = specInputSchema.parse(params);
-        const result = handleSpecPassthrough(ptEngine, ptSpecGen, input, agentRegistry);
+        const result = handleSpecPassthrough(ptEngine, ptSpecGen, input, agentRegistry, eventStore);
         return toolReply(result);
       },
     );
@@ -282,9 +281,9 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       'ges_generate_spec',
       'Generate a Spec specification from a completed interview session.',
       {
-        sessionId: z
-          .string()
-          .describe("The interview session ID. 'latest'(가장 최근 갱신)도 가능."),
+        sessionId: specInputSchema.shape.sessionId,
+        specId: specInputSchema.shape.specId,
+        reuse: specInputSchema.shape.reuse,
         force: z
           .boolean()
           .optional()
@@ -293,7 +292,7 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
       },
       async (params) => {
         const input = specInputSchema.parse(params);
-        const result = await handleSpec(engine, specGenerator, input);
+        const result = await handleSpec(engine, specGenerator, input, eventStore);
         return toolReply(result);
       },
     );
@@ -338,8 +337,11 @@ export async function createMcpServer(configOverrides?: Partial<GestaltConfig>) 
         );
         return toolReply(result);
       }
-      const adapter = createHostAdapter(input.client ?? config.client, input.cwd);
-      const result = await handleExecutePassthrough(ptExecuteEngine, input, adapter);
+      const result = await handleExecutePassthrough(
+        ptExecuteEngine,
+        input,
+        input.client ?? config.client,
+      );
       return toolReply(result);
     },
   );

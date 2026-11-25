@@ -1,9 +1,15 @@
+import { PlanRepositoryError } from '../../../core/errors.js';
+import { real } from '../../../conductor/parent-worktree.js';
+import { githubRepositoryName } from '../../../harness-review/related-repos.js';
+import { isDeepStrictEqual } from 'node:util';
 import type { PassthroughExecuteEngine } from '../../../execute/passthrough-engine.js';
 import type { ExecuteInput } from '../../schemas.js';
-import type { PlanningStepResult, NextActionGuide } from '../../../core/types.js';
+import type { ExecuteSession, PlanningStepResult, NextActionGuide } from '../../../core/types.js';
 import type { IHostAdapter } from '../../host-adapter.js';
-import { formatError, stripContextPrompts } from './utils.js';
+import { formatError, formatPlanError, stripContextPrompts } from './utils.js';
 import { sanitizeSurfaceContext, getStageLabel } from '../../../gestalt/surface-labels.js';
+import { specSchema } from '../../../spec/schema.js';
+import { validateFinalizedSession } from '../../../conductor/prepared-plan.js';
 import { PlanningRewoundError } from '../../../execute/orchestrators/planning.js';
 
 export function handleStart(
@@ -17,8 +23,9 @@ export function handleStart(
 
   const result = engine.start(input.spec as Parameters<typeof engine.start>[0], {
     codeGraphRepoRoot: input.codeGraphRepoRoot,
+    conductorPlan: input.action === 'prepare_conductor',
   });
-  if (!result.ok) return formatError(result.error.message);
+  if (!result.ok) return formatPlanError(result.error);
 
   const { session, executeContext } = result.value;
   const startGuide: NextActionGuide = {
@@ -43,6 +50,106 @@ export function handleStart(
   );
 }
 
+export function handlePrepareConductor(
+  engine: PassthroughExecuteEngine,
+  input: ExecuteInput,
+  adapter: IHostAdapter,
+): string {
+  try {
+    if ((input.spec && (input.sessionId || input.planId)) || (input.sessionId && input.planId))
+      return formatError('Select one of spec, sessionId or planId');
+    const root = real(input.codeGraphRepoRoot ?? input.cwd ?? process.cwd());
+    const target = githubRepositoryName(root);
+    const belongsToTarget = (candidate: ExecuteSession) =>
+      candidate.targetRepository?.name === target &&
+      candidate.targetRepository &&
+      githubRepositoryName(candidate.targetRepository.root) === target;
+    let session: ExecuteSession | undefined;
+    if (input.sessionId) {
+      session = engine.getSession(input.sessionId);
+    } else {
+      const spec = input.spec ? specSchema.parse(input.spec) : undefined;
+      if (!spec && !input.planId) return formatError('spec, sessionId or planId is required');
+      const matches = engine
+        .getSessionManager()
+        .listPersisted()
+        .filter(
+          (candidate) =>
+            !candidate.assignedWorktree &&
+            (input.planId
+              ? candidate.executionPlan?.planId === input.planId
+              : candidate.specId === spec?.metadata.specId &&
+                (candidate.status === 'planning' || candidate.status === 'plan_complete') &&
+                belongsToTarget(candidate)),
+        );
+      const ready = input.planId
+        ? matches
+        : matches.filter((candidate) => {
+            try {
+              return Boolean(validateFinalizedSession(candidate));
+            } catch {
+              return false;
+            }
+          });
+      const candidates = ready.length
+        ? ready
+        : matches.filter((candidate) => candidate.status === 'planning');
+      if (candidates.length > 1)
+        return formatError('실행 세션이 여러 개예요. 세션이나 계획 ID를 골라 주세요');
+      session = candidates[0];
+      if (session && spec && !isDeepStrictEqual(specSchema.parse(session.spec), spec))
+        return formatError('저장된 실행 세션의 Spec 내용이 선택한 Spec과 달라요');
+      if (!session && spec) {
+        if (!target) {
+          throw new PlanRepositoryError(
+            '현재 작업 위치의 대상 레포를 확인할 수 없어요',
+            '대상 레포의 origin을 확인한 뒤 Spec으로 계획을 준비해 주세요',
+          );
+        }
+        return handleStart(engine, { ...input, codeGraphRepoRoot: root, spec }, adapter);
+      }
+    }
+    if (!session) return formatError('지정한 실행 계획을 찾지 못했어요');
+    if (
+      session.assignedWorktree ||
+      (session.status !== 'planning' && session.status !== 'plan_complete')
+    )
+      return formatError('구현을 시작하기 전의 원본 실행 세션을 골라 주세요');
+    engine.getSessionManager().selectConductorPlan(session.sessionId, root, target);
+    if (session.status === 'plan_complete' && session.executionPlan)
+      return formatConductorReady(session);
+    const executeContext = engine.resumePlanning(session);
+    const context = executeContext
+      ? sanitizeSurfaceContext(executeContext as unknown as Record<string, unknown>)
+      : undefined;
+    return JSON.stringify({
+      status: 'planning',
+      sessionId: session.sessionId,
+      specId: session.specId,
+      stepsCompleted: session.planningSteps.length,
+      executeContext: input.verbose === false ? stripContextPrompts(context) : context,
+      nextAction: context ? 'plan_step' : 'plan_complete',
+      nextActionParams: { sessionId: session.sessionId },
+    });
+  } catch (error) {
+    return formatPlanError(error, input.sessionId);
+  }
+}
+
+function formatConductorReady(session: ExecuteSession): string {
+  if (!session.conductorPlan || !session.targetRepository)
+    throw new Error(
+      '계획의 기준 레포가 기록되지 않았어요. 현재 레포에서 Spec으로 계획을 다시 준비해 주세요',
+    );
+  const plan = validateFinalizedSession(session);
+  return JSON.stringify({
+    status: 'ready_for_conductor',
+    sessionId: session.sessionId,
+    specId: plan.specId,
+    planId: plan.planId,
+  });
+}
+
 export function handlePlanStep(
   engine: PassthroughExecuteEngine,
   input: ExecuteInput,
@@ -62,7 +169,7 @@ export function handlePlanStep(
     if (result.error instanceof PlanningRewoundError) {
       return formatRewound(input.sessionId, result.error, verbose);
     }
-    return formatError(result.error.message);
+    return formatPlanError(result.error, input.sessionId);
   }
 
   const { session, executeContext, isLastStep } = result.value;
@@ -119,12 +226,30 @@ export function handlePlanComplete(
   if (!input.sessionId) return formatError('sessionId is required for plan_complete action');
   const verbose = input.verbose !== false;
 
+  if (input.conductor) {
+    try {
+      engine
+        .getSessionManager()
+        .selectConductorPlan(input.sessionId, input.codeGraphRepoRoot ?? input.cwd);
+    } catch (error) {
+      return formatPlanError(error, input.sessionId);
+    }
+  }
+
   const result = engine.planComplete(input.sessionId);
   if (!result.ok) {
     if (result.error instanceof PlanningRewoundError) {
       return formatRewound(input.sessionId, result.error, verbose);
     }
-    return formatError(result.error.message);
+    return formatPlanError(result.error, input.sessionId);
+  }
+
+  if (input.conductor) {
+    try {
+      return formatConductorReady(result.value.session);
+    } catch (error) {
+      return formatPlanError(error, input.sessionId);
+    }
   }
 
   const { executionPlan } = result.value;

@@ -1,3 +1,4 @@
+import { PlanRepositoryError } from '../../../core/errors.js';
 import { getConsistencyHint } from '../../../gestalt/surface-labels.js';
 import { resolveSessionId, type SessionRef } from '../../session-selector.js';
 import type { ExecuteInput } from '../../schemas.js';
@@ -64,6 +65,12 @@ export function applyTaskContextFilters(
 
 export function formatError(message: string): string {
   return JSON.stringify({ error: message }, null, 2);
+}
+
+export function formatPlanError(error: unknown, sessionId?: string): string {
+  if (error instanceof PlanRepositoryError)
+    return JSON.stringify({ error: error.message, sessionId, nextStep: error.nextStep });
+  return formatError(error instanceof Error ? error.message : String(error));
 }
 
 /**

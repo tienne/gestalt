@@ -6,7 +6,7 @@ import { gestaltNotify } from '../../../utils/notifier.js';
 import { deleteActiveSession } from '../../../execute/rule-writer.js';
 import type { IHostAdapter } from '../../host-adapter.js';
 import { log } from '../../../core/log.js';
-import { formatError, stripContextPrompts } from './utils.js';
+import { formatError, formatPlanError, stripContextPrompts } from './utils.js';
 
 export function handleEvaluate(
   engine: PassthroughExecuteEngine,
@@ -20,7 +20,7 @@ export function handleEvaluate(
   // Call 3: Submit contextual evaluation result
   if (input.evaluationResult) {
     const result = engine.submitEvaluation(input.sessionId, input.evaluationResult);
-    if (!result.ok) return formatError(result.error.message);
+    if (!result.ok) return formatPlanError(result.error, input.sessionId);
 
     const { evaluationResult } = result.value;
     const completedSession = result.value.session;
@@ -97,7 +97,7 @@ export function handleEvaluate(
   // Call 2: Submit structural results
   if (input.structuralResult) {
     const result = engine.submitStructuralResult(input.sessionId, input.structuralResult);
-    if (!result.ok) return formatError(result.error.message);
+    if (!result.ok) return formatPlanError(result.error, input.sessionId);
 
     const { stage, shortCircuited, contextualContext, evaluationResult } = result.value;
 
@@ -151,7 +151,7 @@ export function handleEvaluate(
 
   // Call 1: Start evaluation → return structural commands
   const result = engine.startEvaluation(input.sessionId, input.cwd);
-  if (!result.ok) return formatError(result.error.message);
+  if (!result.ok) return formatPlanError(result.error, input.sessionId);
 
   const evalStructuralGuide: NextActionGuide = {
     nextAction: 'evaluate',

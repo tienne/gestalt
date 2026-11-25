@@ -85,6 +85,7 @@ export class SpecGenerator {
 
         this.eventStore.append('spec', spec.metadata.specId, EventType.SPEC_GENERATED, {
           sessionId: session.sessionId,
+          spec,
           goal: spec.goal,
           constraintCount: spec.constraints.length,
           criteriaCount: spec.acceptanceCriteria.length,

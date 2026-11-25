@@ -27,6 +27,7 @@ import { EvaluationOrchestrator } from './orchestrators/evaluation.js';
 import { EvolutionOrchestrator } from './orchestrators/evolution.js';
 import type { ExecuteConfig } from '../core/config.js';
 import type {
+  ExecuteContext,
   PassthroughStartResult,
   PassthroughPlanStepResult,
   PassthroughPlanCompleteResult,
@@ -127,11 +128,15 @@ export class PassthroughExecuteEngine {
     return this.evaluateThresholds;
   }
 
+  resumePlanning(session: ExecuteSession): ExecuteContext | undefined {
+    return this.planningOrch.resumePlanning(session);
+  }
+
   // ─── Planning ────────────────────────────────────────────────
 
   start(
     spec: Spec,
-    opts: { codeGraphRepoRoot?: string } = {},
+    opts: { codeGraphRepoRoot?: string; conductorPlan?: boolean } = {},
   ): Result<PassthroughStartResult, ExecuteError> {
     return this.planningOrch.start(spec, opts);
   }

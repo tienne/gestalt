@@ -15,6 +15,7 @@ import {
   ExecuteError,
   ExecuteSessionNotFoundError,
   InvalidPlanningStepError,
+  PlanRepositoryError,
 } from '../../core/errors.js';
 import { type Result, ok, err } from '../../core/result.js';
 import {
@@ -84,17 +85,19 @@ export class PlanningOrchestrator {
 
   start(
     spec: Spec,
-    opts: { codeGraphRepoRoot?: string } = {},
+    opts: { codeGraphRepoRoot?: string; conductorPlan?: boolean } = {},
   ): Result<PassthroughStartResult, ExecuteError> {
     try {
       const session = this.sessionManager.create(spec, {
         codeGraphRepoRoot: opts.codeGraphRepoRoot,
+        conductorPlan: opts.conductorPlan,
       });
 
       const executeContext = this.buildExecuteContext(spec, 1, []);
 
       return ok({ session, executeContext });
     } catch (e) {
+      if (e instanceof PlanRepositoryError) return err(e);
       return err(
         new ExecuteError(
           `Failed to start execute session: ${e instanceof Error ? e.message : String(e)}`,
@@ -103,12 +106,19 @@ export class PlanningOrchestrator {
     }
   }
 
+  resumePlanning(session: ExecuteSession): ExecuteContext | undefined {
+    if (session.status !== 'planning' || session.planningSteps.length >= PLANNING_TOTAL_STEPS)
+      return undefined;
+    return this.buildExecuteContext(session.spec, session.currentStep, session.planningSteps);
+  }
+
   planStep(
     sessionId: string,
     stepResult: PlanningStepResult,
   ): Result<PassthroughPlanStepResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
+      this.sessionManager.assertPlanRepository(sessionId);
 
       if (session.status !== 'planning') {
         return err(new ExecuteError(`Session is not in planning state: ${session.status}`));
@@ -171,7 +181,11 @@ export class PlanningOrchestrator {
         isLastStep: false,
       });
     } catch (e) {
-      if (e instanceof ExecuteSessionNotFoundError || e instanceof InvalidPlanningStepError) {
+      if (
+        e instanceof ExecuteSessionNotFoundError ||
+        e instanceof InvalidPlanningStepError ||
+        e instanceof PlanRepositoryError
+      ) {
         return err(e);
       }
       return err(
@@ -185,6 +199,12 @@ export class PlanningOrchestrator {
   planComplete(sessionId: string): Result<PassthroughPlanCompleteResult, ExecuteError> {
     try {
       const session = this.sessionManager.get(sessionId);
+      this.sessionManager.assertPlanRepository(sessionId);
+
+      if (session.status === 'plan_complete' && session.executionPlan)
+        return ok({ session, executionPlan: session.executionPlan });
+      if (session.status !== 'planning')
+        return err(new ExecuteError(`Cannot finalize plan in state "${session.status}"`));
 
       if (session.planningSteps.length < PLANNING_TOTAL_STEPS) {
         return err(
@@ -243,7 +263,7 @@ export class PlanningOrchestrator {
         executionPlan: plan,
       });
     } catch (e) {
-      if (e instanceof ExecuteSessionNotFoundError) {
+      if (e instanceof ExecuteSessionNotFoundError || e instanceof PlanRepositoryError) {
         return err(e);
       }
       return err(

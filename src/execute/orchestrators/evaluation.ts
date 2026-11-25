@@ -1,7 +1,12 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ExecuteSession, EvaluationResult, StructuralResult } from '../../core/types.js';
-import { ExecuteError, ExecuteSessionNotFoundError, EvaluationError } from '../../core/errors.js';
+import {
+  ExecuteError,
+  ExecuteSessionNotFoundError,
+  EvaluationError,
+  PlanRepositoryError,
+} from '../../core/errors.js';
 import { type Result, ok, err } from '../../core/result.js';
 import { EventStore } from '../../events/store.js';
 import { ExecuteSessionManager } from '../session.js';
@@ -48,7 +53,9 @@ export class EvaluationOrchestrator {
         return err(new EvaluationError('No execution plan found'));
       }
 
-      const projectRoot = session.codeGraphRepoRoot ?? cwd ?? process.cwd();
+      this.sessionManager.assertPlanRepository(sessionId, cwd);
+      const projectRoot =
+        session.assignedWorktree ?? session.codeGraphRepoRoot ?? cwd ?? process.cwd();
       const commands = buildStructuralCommands(projectRoot, this.findAffectedTests(session));
       this.sessionManager.startStructuralEvaluation(sessionId, commands);
 
@@ -64,7 +71,8 @@ export class EvaluationOrchestrator {
         },
       });
     } catch (e) {
-      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      if (e instanceof ExecuteSessionNotFoundError || e instanceof PlanRepositoryError)
+        return err(e);
       return err(
         new EvaluationError(
           `Failed to start evaluation: ${e instanceof Error ? e.message : String(e)}`,

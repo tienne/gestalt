@@ -80,6 +80,25 @@ tick은 `GESTALT_CONDUCTOR_WORKER_ID`가 있는 세션이나 살아 있는 워�
 
 범위를 말로 정해 주면 그 값으로 넣고 말하지 않으면 `defaultScope`를 쓴다. 범위마다 사람에게 묻는 자리는 [주문 범위와 사람 확인](#주문-범위와-사람-확인)의 표에 있다.
 
+#### 인터뷰, 스펙, 실행에서 계획 넘기기
+
+플러그인 스킬에서 `--conductor`를 붙이면 공식 실행 계획을 확정한 다음 [등록된 Orca 운영 채팅](#orca-봇-운영과-인계)에 승인 범위 주문을 보낸다. 세 진입점 모두 이미 확정된 계획이 있으면 재사용한다.
+
+```text
+/gestalt:interview --conductor 예약 취소 사유를 수집하고 싶어
+/gestalt:spec <인터뷰-ID> --conductor
+/gestalt:spec --spec <Spec-ID> --conductor
+/gestalt:execute <Spec-ID> --conductor
+/gestalt:execute --plan <계획-ID> --conductor
+```
+
+기본 인터뷰는 요구사항을 확정한다. 기본 스펙은 Spec을 검증한다. 실행은 구현과 평가까지 진행한다.
+접수에 실패하면 원래 Spec과 계획이 보관된다.
+`gestalt conductor plan submit <실행-세션-ID> --check --json`으로 접수 여부를 확인한다. 미접수라면 `--check`를 빼고 다시 실행한다.
+같은 계획 ID를 두 번 접수해도 주문은 하나다.
+
+운영 채팅은 메일의 `order add --prepared-plan <계획-ID>`로 일반 승인 주문을 받는다. 운영자 셸과 워커에서 이 접수 명령을 직접 호출하면 거절한다. 플러그인과 운영 채팅은 같은 머신의 Gestalt 홈을 사용해야 한다. 워커는 배정된 워크트리에서 원본 Spec과 계획 ID를 복원해 구현과 수용 기준 검증을 한다. PR 리뷰와 CI를 마쳐도 머지는 기존 승인 게이트를 기다린다.
+
 ## 컨덕터가 들고 있는 맥락
 
 주문이 늘수록 컨덕터 세션 하나에 맥락이 쌓인다. 쌓이는 맥락을 둘로 나눠서 대화 밖으로 뺀다.

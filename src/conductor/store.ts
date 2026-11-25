@@ -1,3 +1,5 @@
+import { claimPlanDestination } from '../execute/plan-destination.js';
+import { real } from './parent-worktree.js';
 import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
@@ -601,8 +603,20 @@ export class ConductorStore {
     }
   }
 
-  addOrder(order: Order): void {
-    this.append({ type: 'order-added', at: this.timestamp(), order });
+  addOrder(order: Order): Order {
+    const plan = order.preparedPlan?.plan;
+    const accepted = plan
+      ? {
+          ...order,
+          id: claimPlanDestination(plan.planId, {
+            kind: 'conductor',
+            stateDir: real(this.dir),
+            orderId: order.id,
+          }).orderId,
+        }
+      : order;
+    this.append({ type: 'order-added', at: this.timestamp(), order: accepted });
+    return accepted;
   }
 
   updateOrder(orderId: string, patch: Partial<Omit<Order, 'id'>>): void {

@@ -4,6 +4,7 @@ import { log } from '../core/log.js';
 import type { ConductorConfig } from './scheduler.js';
 import { openOrReuse } from './gates.js';
 import { real } from './parent-worktree.js';
+import { preparedPlanSourceRef, type PreparedPlan } from './prepared-plan.js';
 import { newId, type ConductorStore } from './store.js';
 import {
   AGENT_ID_RE,
@@ -114,6 +115,7 @@ export interface IntakeInput {
   source: IntakeKind;
   /** 비우면 말로 던진 주문으로 보고 새로 만든다 */
   sourceRef?: string;
+  preparedPlan?: PreparedPlan;
   repo: string;
   title: string;
   description?: string;
@@ -208,7 +210,17 @@ export function intakeOrder(
       : input.description;
 
   const id = newId('ord');
-  const sourceRef = input.sourceRef ?? `${input.source}:${id}`;
+  const prepared = input.preparedPlan;
+  if (
+    prepared &&
+    (opts.trusted !== true || input.source !== 'spoken' || input.repo !== prepared.repo)
+  )
+    throw new Error('준비된 계획은 운영 채팅에서 같은 레포의 일반 주문으로만 받아요');
+  if (input.sourceRef?.startsWith('prepared-plan:'))
+    throw new Error('준비된 계획이 사용하는 주문 출처예요');
+  const sourceRef = prepared
+    ? preparedPlanSourceRef(prepared.plan.planId)
+    : (input.sourceRef ?? `${input.source}:${id}`);
   const existing = store.findOrderBySourceRef(sourceRef);
   if (existing) return { order: existing, created: false };
   const removedAt = store.removedAtOf(sourceRef);
@@ -225,17 +237,24 @@ export function intakeOrder(
     sourceRef,
     repo: input.repo,
     title,
-    scope: trusted
-      ? (input.scope ?? config.defaultScope)
-      : externalScope(input.scope, config.defaultScope),
-    skillChain: skills?.length ? skills : [...DEFAULT_SKILL_CHAIN],
+    ...(prepared ? { preparedPlan: prepared } : {}),
+    scope: prepared
+      ? 'approval'
+      : trusted
+        ? (input.scope ?? config.defaultScope)
+        : externalScope(input.scope, config.defaultScope),
+    skillChain: prepared ? ['execute', 'ship'] : skills?.length ? skills : [...DEFAULT_SKILL_CHAIN],
     status: 'queued',
     createdAt: at,
     updatedAt: at,
     ...(description ? { description } : {}),
     ...(input.issueKey ? { issueKey: input.issueKey } : {}),
     ...(input.issueType ? { issueType: input.issueType } : {}),
-    ...(input.workerKind ? { workerKind: input.workerKind } : {}),
+    ...(prepared
+      ? { workerKind: 'orca-worktree' as const }
+      : input.workerKind
+        ? { workerKind: input.workerKind }
+        : {}),
     ...(input.agent !== undefined ? { agent: input.agent } : {}),
     ...(input.parentWorktree ? { parentWorktree: input.parentWorktree } : {}),
     ...(input.baseBranch ? { baseBranch: input.baseBranch } : {}),
@@ -244,8 +263,7 @@ export function intakeOrder(
     ...(input.parentOrderId ? { parentOrderId: input.parentOrderId } : {}),
     ...(deploys ? { deploys } : {}),
   };
-  store.addOrder(order);
-  return { order, created: true };
+  return { order: store.addOrder(order), created: true };
 }
 
 /**

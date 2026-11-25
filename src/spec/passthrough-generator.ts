@@ -129,6 +129,7 @@ export class PassthroughSpecGenerator {
 
       this.eventStore.append('spec', spec.metadata.specId, EventType.SPEC_GENERATED, {
         sessionId: session.sessionId,
+        spec,
         goal: spec.goal,
         constraintCount: spec.constraints.length,
         criteriaCount: spec.acceptanceCriteria.length,
@@ -176,6 +177,7 @@ export class PassthroughSpecGenerator {
 
       this.eventStore.append('spec', spec.metadata.specId, EventType.SPEC_GENERATED, {
         sessionId: TEXT_INPUT_SESSION_ID,
+        spec,
         goal: spec.goal,
         constraintCount: spec.constraints.length,
         criteriaCount: spec.acceptanceCriteria.length,

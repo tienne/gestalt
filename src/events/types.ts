@@ -17,6 +17,8 @@ export enum EventType {
   EXECUTE_PLANNING_REWOUND = 'execute.planning.rewound',
   EXECUTE_PLAN_VALIDATED = 'execute.plan.validated',
   EXECUTE_PLAN_COMPLETED = 'execute.plan.completed',
+  EXECUTE_CONDUCTOR_SELECTED = 'execute.conductor.selected',
+  EXECUTE_REPOSITORY_CHECKED = 'execute.repository.checked',
   EXECUTE_SESSION_FAILED = 'execute.session.failed',
   EXECUTE_EXECUTION_STARTED = 'execute.execution.started',
   EXECUTE_TASK_COMPLETED = 'execute.task.completed',

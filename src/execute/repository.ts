@@ -95,14 +95,23 @@ export class ExecuteSessionRepository {
       goal: string;
       spec?: Spec;
       codeGraphRepoRoot?: string;
+      preparedPlan?: ExecutionPlan;
+      targetRepository?: ExecuteSession['targetRepository'];
+      conductorPlan?: true;
     };
 
     const session: ExecuteSession = {
       sessionId,
       specId: startPayload.specId ?? '',
       spec: startPayload.spec ?? this.buildMinimalSpec(startPayload),
-      status: 'planning',
-      currentStep: 1,
+      status: startPayload.preparedPlan ? 'plan_complete' : 'planning',
+      currentStep: startPayload.preparedPlan ? 5 : 1,
+      ...(startPayload.preparedPlan
+        ? {
+            executionPlan: startPayload.preparedPlan,
+            assignedWorktree: startPayload.codeGraphRepoRoot,
+          }
+        : {}),
       planningSteps: [],
       taskResults: [],
       completedTaskIds: [],
@@ -116,6 +125,8 @@ export class ExecuteSessionRepository {
       lateralAttempts: 0,
       humanGates: [],
       codeGraphRepoRoot: startPayload.codeGraphRepoRoot,
+      targetRepository: startPayload.targetRepository,
+      ...(startPayload.conductorPlan ? { conductorPlan: true } : {}),
       createdAt: firstEvent.timestamp,
       updatedAt: firstEvent.timestamp,
     };
@@ -153,6 +164,14 @@ export class ExecuteSessionRepository {
         }
         break;
       }
+
+      case EventType.EXECUTE_CONDUCTOR_SELECTED:
+        session.conductorPlan = true;
+        break;
+
+      case EventType.EXECUTE_REPOSITORY_CHECKED:
+        session.planBoundaryError = typeof payload.error === 'string' ? payload.error : undefined;
+        break;
 
       case EventType.EXECUTE_PLAN_COMPLETED: {
         const executionPlan = payload.executionPlan as ExecutionPlan | undefined;
