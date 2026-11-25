@@ -81,6 +81,8 @@ export interface BotHandoffResult {
   retryStage?: Stage;
   editAttemptId?: string;
   editDispatchedAt?: string;
+  cancelScope?: 'gestalt';
+  orcaVerification?: 'observed' | 'not-checked';
   detail?: string;
 }
 
@@ -116,11 +118,9 @@ function recordResult(
   return {
     ...resultBase(options, ownership),
     status: record.outcome!,
-    ...(record.cancelledWithoutEdit
-      ? {}
-      : {
-          automationChatId: record.outcome === 'completed' ? record.to : record.from,
-        }),
+    ...(record.outcome === 'completed'
+      ? { automationChatId: record.to }
+      : { cancelScope: 'gestalt', orcaVerification: 'not-checked' }),
     ...(record.nextRunAt ? { verifiedNextRunAt: record.nextRunAt } : {}),
   };
 }
@@ -212,6 +212,39 @@ async function handoffLocked(
     }
     if (journal?.outcome === 'cancelled' && !settlingCancellation) {
       return { ...recordResult(ownership, options, journal), replayed: true };
+    }
+    if (options.cancel && journal?.cancelPending && !ownsInitialClaim) {
+      stage = 'reconcile-edit';
+      const localReceipt = journal.editAttempt
+        ? readEditReceipt(coordination.dir, journal.approval, journal.editAttempt)
+        : undefined;
+      if (journal.editUncertain !== undefined || localReceipt?.outcome === 'dispatched')
+        throw new Error('이 요청의 Orca 편집 응답을 확인한 뒤 로컬 취소를 복구해 주세요');
+      const released = coordination.readRelease(journal.approval);
+      if (
+        released &&
+        (released.store !== dir ||
+          released.request !== journal.id ||
+          (released.intent && released.intent.approval !== journal.approval))
+      )
+        throw new Error('Orca 공유 예약 해제 기록이 현재 요청과 달라요');
+      if (
+        released ||
+        (claim?.store &&
+          claim.store !== dir &&
+          completedForeignHandoff(claim.store, journal, coordination.dir))
+      ) {
+        const source = assertSource(ownership, options, journal);
+        if (source.name !== options.bot) throw new Error('현재 운영 봇 이름과 달라요');
+        const { cancelPending: _cancelPending, ...intent } = journal;
+        const cancelled = { ...intent, outcome: 'cancelled' } as const;
+        save(cancelled);
+        return {
+          ...recordResult(ownership, options, cancelled),
+          detail:
+            '로컬 인계 요청의 취소를 복구했어요. Orca 일정을 조회하지 않고 현재 담당 예약을 보존했어요',
+        };
+      }
     }
     let attempt = journal?.editAttempt;
     if (options.cancel && journal && (!journal.outcome || settlingCancellation)) {
@@ -385,6 +418,9 @@ async function handoffLocked(
         throw new Error('취소 전에 기존 책임 채팅이 메일을 받을 수 있는지 확인해 주세요');
       observed = await show();
       verifyCancellationSchedule(observed);
+      const lastReceiving = await deps.chat(options.bot, source.chatId);
+      if (lastReceiving.botId !== receiving.botId || lastReceiving.chatId !== receiving.chatId)
+        throw new Error('마지막 일정 조회 뒤 기존 책임 채팅이 메일을 받을 수 있는지 확인해 주세요');
       const currentClaim = coordination.read();
       if (digest(currentClaim ?? null) !== digest(claim ?? null))
         throw new Error('취소를 검증하는 동안 Orca 자동화의 담당 예약이 바뀌었어요');
@@ -423,10 +459,16 @@ async function handoffLocked(
       const { outcome: _outcome, cancelPending: _cancelPending, ...intent } = cancelRecord;
       if (ownsInitialClaim) {
         if (!journal?.cancelPending) save({ ...intent, cancelPending: true });
-        coordination.clear();
+        coordination.releaseClaim(intent.approval);
       }
       save({ ...intent, outcome: 'cancelled' });
-      return { ...base, status: 'cancelled', automationChatId: observed.chatId };
+      return {
+        ...base,
+        status: 'cancelled',
+        cancelScope: 'gestalt',
+        orcaVerification: 'observed',
+        automationChatId: observed.chatId,
+      };
     }
     if (!journal) {
       stage = 'write-intent';
@@ -514,4 +556,26 @@ async function handoffLocked(
   } finally {
     if (cancelLock?.ok) cancelLock.release();
   }
+}
+
+function completedForeignHandoff(
+  store: string,
+  local: BotHandoffRecord,
+  coordinationDir: string,
+): boolean {
+  const foreign = readBotOwnership(store);
+  const completed = foreign.handoffs.find(
+    (record) =>
+      record.automationId === local.automationId &&
+      record.botId === local.botId &&
+      record.outcome === 'completed' &&
+      record.to === foreign.active?.chatId &&
+      record.botId === foreign.active.botId &&
+      record.revision + 1 === foreign.revision,
+  );
+  return (
+    !!completed?.editAttempt &&
+    readEditReceipt(coordinationDir, completed.approval, completed.editAttempt)?.outcome ===
+      'applied'
+  );
 }

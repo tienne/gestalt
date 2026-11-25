@@ -805,6 +805,9 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
             fromChatId: latestHandoff.from,
             toChatId: latestHandoff.to,
             status: cancelCleanupPending ? 'partial' : (latestHandoff.outcome ?? 'partial'),
+            ...(!cancelCleanupPending && latestHandoff.outcome === 'cancelled'
+              ? { cancelScope: 'gestalt' }
+              : {}),
             ...botHandoffEditStatus(latestHandoff),
             ...(cancelCleanupPending ? { retryStage: 'reconcile-edit' } : {}),
             responsibleChatId: botOwner?.chatId,
@@ -1892,7 +1895,7 @@ export async function conductorBotHandoffCommand(
         blocked: '인계 보류',
         partial: '인계 진행 중',
         completed: '인계 완료',
-        cancelled: '인계 취소',
+        cancelled: '로컬 인계 요청 취소',
       };
       console.log(`${labels[result.status]} · 요청 ${result.requestId}`);
       console.log(`인계 채팅 ${result.fromChatId} → ${result.toChatId}`);
@@ -1904,6 +1907,8 @@ export async function conductorBotHandoffCommand(
         `${automationLabel} ${result.automationId}: ${result.automationChatId ?? '현재 대상 미확인'}`,
       );
       if (result.schedule) console.log(`주기: ${result.schedule}`);
+      if (result.orcaVerification === 'observed')
+        console.log('Orca의 채팅과 일정은 별도로 조회했어요');
       if (result.verifiedNextRunAt !== undefined)
         console.log(
           `조회 당시 다음 정기 실행: ${new Date(result.verifiedNextRunAt).toISOString()}`,

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, renameSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
@@ -37,16 +37,31 @@ export function lockAutomationHandoff(root: string, automationId: string) {
         { mode: 0o600 },
       );
     },
-    clear() {
-      rmSync(join(dir, 'claim.json'), { force: true });
+    readRelease(approval: string) {
+      return readClaimFile(releasePath(dir, approval));
+    },
+    releaseClaim(approval: string) {
+      const released = releasePath(dir, approval);
+      if (readClaimFile(released)) throw new Error('같은 인계 요청의 예약 해제 기록이 이미 있어요');
+      mkdirSync(join(dir, 'released'), { recursive: true, mode: 0o700 });
+      renameSync(join(dir, 'claim.json'), released);
     },
   };
 }
 
 export function readAutomationClaim(dir: string): AutomationClaim | undefined {
+  return readClaimFile(join(dir, 'claim.json'));
+}
+
+function releasePath(dir: string, approval: string): string {
+  if (!/^[a-f0-9]{64}$/.test(approval)) throw new Error('Orca 인계 승인값을 확인해 주세요');
+  return join(dir, 'released', `${approval}.json`);
+}
+
+function readClaimFile(path: string): AutomationClaim | undefined {
   let value: unknown;
   try {
-    value = JSON.parse(readFileSync(join(dir, 'claim.json'), 'utf8'));
+    value = JSON.parse(readFileSync(path, 'utf8'));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw error;
