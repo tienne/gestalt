@@ -291,22 +291,34 @@ export function widgetLabels(w: Widget, wp: string): WidgetLabel[] {
  * B가 빌리면 안 되는 원문 표 이름. 머리줄은 Model이나 모델 같은 일반어가 많아 라벨 전체와 같을 때만 잡는다.
  * 본문 칸은 4자 이상이면 라벨 안에 들어 있어도 잡는다
  */
-function sourceNames(source: LensSource | null): { exact: Set<string>; contained: RegExp[] } {
+type SourceNames = { exact: Set<string>; contained: RegExp | null };
+
+// 위젯마다 원문 표 전체를 다시 훑지 않게 원문 하나에 한 번만 만든다
+const sourceNamesCache = new WeakMap<LensSource, SourceNames>();
+
+function sourceNames(source: LensSource | null): SourceNames {
+  const cached = source && sourceNamesCache.get(source);
+  if (cached) return cached;
   const exact = new Set<string>();
-  const contained: RegExp[] = [];
+  const contained: string[] = [];
   for (const t of source?.tables ?? []) {
     t.rows.forEach((row, r) => {
       for (const cell of row) {
         const c = cell.trim().toLowerCase();
         if (c.length < 3 || cellNumber(cell) !== null) continue;
         exact.add(c);
-        if (r > 0 && c.length >= 4) {
-          contained.push(new RegExp(`(?<![A-Za-z0-9])${escapeRe(c)}(?![A-Za-z0-9])`, 'i'));
-        }
+        if (r > 0 && c.length >= 4) contained.push(escapeRe(c));
       }
     });
   }
-  return { exact, contained };
+  const names: SourceNames = {
+    exact,
+    contained: contained.length
+      ? new RegExp(`(?<![A-Za-z0-9])(?:${contained.join('|')})(?![A-Za-z0-9])`, 'i')
+      : null,
+  };
+  if (source) sourceNamesCache.set(source, names);
+  return names;
 }
 
 type Err = (path: string, code: string, message: string) => void;
@@ -740,7 +752,7 @@ export function lintWidget(
     for (const l of labels) {
       illustrativeChecks(l, err);
       const t = l.text.trim().toLowerCase();
-      if (names.exact.has(t) || names.contained.some((re) => re.test(t))) {
+      if (names.exact.has(t) || names.contained?.test(t)) {
         err(
           l.path,
           'B_BORROWS_NAME',
