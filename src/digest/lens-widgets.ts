@@ -1,6 +1,8 @@
 import type { Widget, WidgetValue } from './lens-widget-schema.js';
 import { cellNumber, type LensSource } from './lens-source.js';
 import { numbersIn, sourceNumbersIn } from './lint-lens.js';
+import type { CellRef } from './lens-schema.js';
+import { lintSteps, type Step } from './lens-steps.js';
 import type { DigestIssue } from './lint.js';
 import type { Cite } from './schema-base.js';
 
@@ -8,9 +10,10 @@ import type { Cite } from './schema-base.js';
 
 const ALLOWED_KINDS: Record<Widget['class'], readonly Widget['kind'][]> = {
   A: ['toggleBars', 'heatmap', 'beforeAfter'],
-  B: ['stepSlider', 'beforeAfter'],
-  C: ['stepSlider', 'toggleBars', 'heatmap', 'beforeAfter'],
-  D: ['stepSlider', 'beforeAfter'],
+  B: ['stepSlider', 'beforeAfter', 'laneGraph', 'stepper', 'analogyMap'],
+  C: ['stepSlider', 'toggleBars', 'heatmap', 'beforeAfter', 'laneGraph', 'calendar', 'stepper'],
+  // calendar는 값 칸이 없어 A로 대조할 숫자가 없다. 원문 표에서 온 일정은 D로 쓰고 기간마다 표 칸 출처를 단다
+  D: ['stepSlider', 'beforeAfter', 'laneGraph', 'calendar', 'stepper'],
 };
 
 /**
@@ -73,14 +76,34 @@ export function widgetValues(w: Widget, wp: string): Array<{ v: WidgetValue; pat
 
 /**
  * 그림 안 글자. 윤문과 지표 검사가 같은 목록을 본다.
- * step은 그 글자가 속한 단계 번호이고 illustrative는 원문에 없는 예시 요소의 글자다. D 검사가 쓴다
+ * step은 그 글자가 속한 단계 번호, cite는 그 글자가 속한 요소의 원문 출처다. D 검사가 숫자를 대조할 범위로 쓴다.
+ * illustrative는 원문에 없는 예시 요소의 글자, role은 비유 표에서 비유 쪽 칸(analog)과 안 맞는 지점(break)이다
  */
 export interface WidgetLabel {
   text: string;
   path: string;
   step?: number;
   illustrative?: boolean;
+  cite?: Cite | CellRef;
+  role?: 'analog' | 'break';
 }
+
+/** laneGraph, calendar, stepper가 쓰는 공통 단계. stepSlider는 단계마다 노드를 통째로 적는 옛 꼴이다 */
+export function commonSteps(w: Widget): Step[] | undefined {
+  return w.kind === 'laneGraph' || w.kind === 'calendar' || w.kind === 'stepper'
+    ? w.steps
+    : undefined;
+}
+
+/** 공통 단계가 가리킬 수 있는 요소 id */
+export function stepElementIds(w: Widget): string[] {
+  if (w.kind === 'laneGraph') return w.nodes.map((n) => n.id);
+  if (w.kind === 'calendar') return w.spans.flatMap((sp) => (sp.id ? [sp.id] : []));
+  if (w.kind === 'stepper') return w.items.map((it) => it.id);
+  return [];
+}
+
+const mark = (illustrative?: boolean) => (illustrative ? { illustrative: true } : {});
 
 export function widgetLabels(w: Widget, wp: string): WidgetLabel[] {
   const out: WidgetLabel[] = [];
@@ -104,22 +127,68 @@ export function widgetLabels(w: Widget, wp: string): WidgetLabel[] {
           text: n.label,
           path: `${wp}.steps.${k}.nodes.${j}.label`,
           step: k,
-          ...(n.illustrative ? { illustrative: true } : {}),
+          ...mark(n.illustrative),
         }),
       );
     });
-  } else {
+  } else if (w.kind === 'beforeAfter') {
     for (const side of ['before', 'after'] as const) {
       out.push({ text: w[side].title, path: `${wp}.${side}.title` });
       w[side].items.forEach((it, k) =>
         out.push({
           text: it.label,
           path: `${wp}.${side}.items.${k}.label`,
-          ...(it.illustrative ? { illustrative: true } : {}),
+          ...mark(it.illustrative),
         }),
       );
     }
+  } else if (w.kind === 'laneGraph') {
+    w.lanes.forEach((l, k) => out.push({ text: l.label, path: `${wp}.lanes.${k}.label` }));
+    w.nodes.forEach((n, k) =>
+      out.push({
+        text: n.label,
+        path: `${wp}.nodes.${k}.label`,
+        ...(n.cite ? { cite: n.cite } : {}),
+        ...mark(n.illustrative),
+      }),
+    );
+  } else if (w.kind === 'calendar') {
+    w.columns.forEach((c, k) => out.push({ text: c, path: `${wp}.columns.${k}` }));
+    w.tracks.forEach((t, k) => out.push({ text: t.label, path: `${wp}.tracks.${k}.label` }));
+    w.spans.forEach((sp, k) =>
+      out.push({
+        text: sp.label,
+        path: `${wp}.spans.${k}.label`,
+        ...(sp.cite ? { cite: sp.cite } : {}),
+        ...mark(sp.illustrative),
+      }),
+    );
+    if (w.note) out.push({ text: w.note, path: `${wp}.note` });
+  } else if (w.kind === 'stepper') {
+    w.items.forEach((it, k) => {
+      const own = { ...(it.cite ? { cite: it.cite } : {}), ...mark(it.illustrative) };
+      out.push({ text: it.label, path: `${wp}.items.${k}.label`, ...own });
+      if (it.detail) out.push({ text: it.detail, path: `${wp}.items.${k}.detail`, ...own });
+    });
+    w.loops?.forEach((l, k) => {
+      if (l.label) out.push({ text: l.label, path: `${wp}.loops.${k}.label` });
+    });
+  } else {
+    out.push({ text: w.domain, path: `${wp}.domain`, role: 'analog' });
+    w.rows.forEach((r, k) => {
+      out.push({ text: r.term, path: `${wp}.rows.${k}.term`, cite: r.termCite });
+      out.push({ text: r.analog, path: `${wp}.rows.${k}.analog`, role: 'analog' });
+    });
+    w.breaks.forEach((b, k) => out.push({ text: b, path: `${wp}.breaks.${k}`, role: 'break' }));
   }
+  // 상태 칸 키는 단계끼리 맞춰야 해서 윤문에 넘기지 않는다. 값만 넘긴다
+  commonSteps(w)?.forEach((s, k) => {
+    out.push({ text: s.label, path: `${wp}.steps.${k}.label`, step: k });
+    if (s.note) out.push({ text: s.note, path: `${wp}.steps.${k}.note`, step: k });
+    s.state?.forEach((kv, j) =>
+      out.push({ text: kv.value, path: `${wp}.steps.${k}.state.${j}.value`, step: k }),
+    );
+  });
   return out;
 }
 
@@ -180,10 +249,53 @@ function nameInSource(name: string, allText: string): boolean {
   return new RegExp(`(?<![A-Za-z0-9])${escapeRe(name)}(?![A-Za-z0-9])`, 'i').test(allText);
 }
 
+/** 요소 출처의 원문 글자. 표 칸이면 표 번호와 머리줄, 그 칸이 든 줄이다(근거 숫자를 고를 때와 같은 범위) */
+function refText(ref: Cite | CellRef, ctx: WidgetLintContext): string {
+  if (!('table' in ref)) return ctx.unitText(ref);
+  const t = ctx.source?.tables.find((x) => x.id === ref.table);
+  if (!t) return '';
+  return [t.number, ...(t.rows[0] ?? []), ...(t.rows[ref.row] ?? [])].join(' ');
+}
+
 /**
- * D 그림 검사. 이름은 원문 어디에든 있으면 된다. 한 번 정의한 이름을 여러 문단에서 가리키기 때문이다.
- * 숫자는 그 단계의 출처 문단과 위젯 출처 문단 안에 있어야 한다
+ * 원문에서 온 글자의 이름과 숫자를 본다. 이름은 원문 어디에든 있으면 된다. 한 번 정의한 이름을 여러 문단에서 가리키기 때문이다.
+ * 숫자는 그림 출처 문단과 그 글자가 속한 단계, 요소의 출처 안에 있어야 한다
  */
+function describedLabelChecks(
+  labels: WidgetLabel[],
+  widgetCite: Cite,
+  stepCites: Array<Cite | undefined>,
+  ctx: WidgetLintContext,
+  err: Err,
+): void {
+  const widgetNumbers = sourceNumbersIn(ctx.unitText(widgetCite));
+  for (const l of labels) {
+    for (const name of new Set(nameTokens(l.text))) {
+      if (nameInSource(name, ctx.allText)) continue;
+      err(
+        l.path,
+        'D_NAME_UNKNOWN',
+        `"${name}"가 원문에 없다. 원문 이름을 글자 그대로 쓴다. 원문에 없는 요소면 illustrative를 단다`,
+      );
+    }
+    const stepCite = l.step === undefined ? undefined : stepCites[l.step];
+    const allowed = new Set([
+      ...widgetNumbers,
+      ...(stepCite ? sourceNumbersIn(ctx.unitText(stepCite)) : []),
+      ...(l.cite ? sourceNumbersIn(refText(l.cite, ctx)) : []),
+    ]);
+    const unknown = [...new Set(numbersIn(l.text))].filter((n) => n !== 0 && !allowed.has(n));
+    if (unknown.length > 0) {
+      err(
+        l.path,
+        'D_NUMBER_UNKNOWN',
+        `숫자 ${unknown.join(', ')}이 그 단계나 요소, 그림의 출처에 없다. 원문 숫자만 그대로 쓴다`,
+      );
+    }
+  }
+}
+
+/** D 그림 검사. 원문 그림이 있으면 C로 보내고 단계마다 출처를 받는다 */
 function lintDescribed(
   w: Widget,
   wp: string,
@@ -194,7 +306,8 @@ function lintDescribed(
   if (w.figure) {
     err(`${wp}.figure`, 'D_FIGURE_REF', '원문 그림을 다시 그리는 자리면 C로 만든다');
   }
-  const stepCites = w.kind === 'stepSlider' ? w.steps.map((s) => s.cite) : [];
+  const steps = w.kind === 'stepSlider' ? w.steps : (commonSteps(w) ?? []);
+  const stepCites = steps.map((s) => s.cite);
   stepCites.forEach((c, k) => {
     if (!c) {
       err(
@@ -204,33 +317,160 @@ function lintDescribed(
       );
     }
   });
-  const widgetNumbers = new Set(sourceNumbersIn(ctx.unitText(w.cite)));
-  for (const l of labels) {
-    if (l.illustrative) {
-      illustrativeChecks(l, err);
-      continue;
-    }
-    for (const name of new Set(nameTokens(l.text))) {
-      if (nameInSource(name, ctx.allText)) continue;
+  // 상태 칸 키는 윤문에 안 넘겨서 labels에 없다. 이름 대조만 따로 한다
+  const keyLabels: WidgetLabel[] = (commonSteps(w)?.[0]?.state ?? []).map((kv, j) => ({
+    text: kv.key,
+    path: `${wp}.steps.0.state.${j}.key`,
+    step: 0,
+  }));
+  const plain = [...labels, ...keyLabels].filter((l) => !l.illustrative);
+  labels.filter((l) => l.illustrative).forEach((l) => illustrativeChecks(l, err));
+  describedLabelChecks(plain, w.cite, stepCites, ctx, err);
+}
+
+/**
+ * 비유 표 검사. 원문 말 칸은 D 규칙, 비유 칸은 B 규칙을 받는다. 비유 칸에는 원문 이름도 못 쓴다.
+ * 비유가 어디서 안 맞는지(breaks)를 한 줄 이상 적어야 비유를 믿고 틀리게 이해하는 걸 막는다
+ */
+function lintAnalogy(
+  w: Extract<Widget, { kind: 'analogyMap' }>,
+  wp: string,
+  labels: WidgetLabel[],
+  ctx: WidgetLintContext,
+  err: Err,
+): void {
+  if (w.figure) err(`${wp}.figure`, 'B_FIGURE_REF', '원문 그림을 다시 그리려면 C로 만든다');
+  if (!w.breaks.some((b) => b.trim())) {
+    err(
+      `${wp}.breaks`,
+      'ANALOGY_BREAKS_EMPTY',
+      '비유가 원문과 안 맞는 지점을 한 줄 이상 적는다. 모르면 비유를 믿고 틀리게 이해한다',
+    );
+  }
+  for (const l of labels.filter((x) => x.role === 'analog')) {
+    illustrativeChecks(l, err);
+    const borrowed = nameTokens(l.text).find((n) => nameInSource(n, ctx.allText));
+    if (borrowed) {
       err(
         l.path,
-        'D_NAME_UNKNOWN',
-        `"${name}"가 원문에 없다. 원문 이름을 글자 그대로 쓴다. 원문에 없는 요소면 illustrative를 단다`,
-      );
-    }
-    const stepCite = l.step === undefined ? undefined : stepCites[l.step];
-    const allowed = stepCite
-      ? new Set([...widgetNumbers, ...sourceNumbersIn(ctx.unitText(stepCite))])
-      : widgetNumbers;
-    const unknown = [...new Set(numbersIn(l.text))].filter((n) => n !== 0 && !allowed.has(n));
-    if (unknown.length > 0) {
-      err(
-        l.path,
-        'D_NUMBER_UNKNOWN',
-        `숫자 ${unknown.join(', ')}이 그 단계나 그림의 출처 문단에 없다. 원문 숫자만 그대로 쓴다`,
+        'B_BORROWS_NAME',
+        `"${borrowed}"는 원문에 있는 이름이다. 비유 칸에는 원문 이름을 쓰지 않는다`,
       );
     }
   }
+  const sourceSide = labels.filter((x) => x.role === undefined);
+  describedLabelChecks(sourceSide, w.cite, [], ctx, err);
+  metricChecks(sourceSide, ctx, err);
+}
+
+/** 원문에서 온 글자의 지표 말은 원문에 나온 것만 쓴다 */
+function metricChecks(labels: WidgetLabel[], ctx: WidgetLintContext, err: Err): void {
+  for (const l of labels) {
+    for (const word of new Set(metricWords(l.text))) {
+      if (metricInSource(word, ctx.allText)) continue;
+      err(
+        l.path,
+        'WIDGET_METRIC_UNKNOWN',
+        `"${word}"는 원문에 없는 지표다. 원문에 나온 지표 이름만 쓴다`,
+      );
+    }
+  }
+}
+
+/** 새 종류의 모양 검사. 구분과 상관없이 본다 */
+function lintShape(w: Widget, wp: string, ctx: WidgetLintContext, err: Err, issues: DigestIssue[]) {
+  const dupes = (ids: string[], path: string) => {
+    const seen = new Set<string>();
+    ids.forEach((id, k) => {
+      if (seen.has(id)) err(`${path}.${k}.id`, 'WIDGET_ID_DUPLICATE', `id ${id}가 두 번 나온다`);
+      seen.add(id);
+    });
+  };
+  if (w.kind === 'laneGraph') {
+    dupes(
+      w.lanes.map((l) => l.id),
+      `${wp}.lanes`,
+    );
+    dupes(
+      w.nodes.map((n) => n.id),
+      `${wp}.nodes`,
+    );
+    const lanes = new Set(w.lanes.map((l) => l.id));
+    const order = new Map(w.nodes.map((n, k) => [n.id, k]));
+    w.nodes.forEach((n, k) => {
+      if (!lanes.has(n.lane)) {
+        err(`${wp}.nodes.${k}.lane`, 'LANE_UNKNOWN', `줄 ${n.lane}가 lanes에 없다`);
+      }
+      const refs = [...(n.parents ?? []), ...(n.copyOf ? [n.copyOf] : [])];
+      for (const ref of refs) {
+        const at = order.get(ref);
+        if (at === undefined) {
+          err(
+            `${wp}.nodes.${k}`,
+            'LANE_PARENT_UNKNOWN',
+            `${n.id}가 가리키는 ${ref}가 nodes에 없다`,
+          );
+        } else if (at >= k) {
+          err(
+            `${wp}.nodes.${k}`,
+            'LANE_PARENT_ORDER',
+            `${n.id}가 가리키는 ${ref}가 자기보다 뒤에 있다. 가로 순서는 nodes 배열 순서다`,
+          );
+        }
+      }
+    });
+  } else if (w.kind === 'calendar') {
+    dupes(
+      w.tracks.map((t) => t.id),
+      `${wp}.tracks`,
+    );
+    dupes(stepElementIds(w), `${wp}.spans`);
+    const tracks = new Set(w.tracks.map((t) => t.id));
+    const last = w.columns.length - 1;
+    w.spans.forEach((sp, k) => {
+      const at = `${wp}.spans.${k}`;
+      if (!tracks.has(sp.track)) {
+        err(`${at}.track`, 'CALENDAR_TRACK_UNKNOWN', `트랙 ${sp.track}가 tracks에 없다`);
+      }
+      const ranged = sp.from !== undefined && sp.to !== undefined;
+      if (ranged === (sp.at !== undefined)) {
+        err(at, 'CALENDAR_SPAN_SHAPE', '기간은 from과 to, 한 칸짜리 사건은 at 하나만 쓴다');
+      } else if (ranged ? sp.from! > sp.to! || sp.to! > last : sp.at! > last) {
+        err(
+          at,
+          'CALENDAR_SPAN_OUT_OF_RANGE',
+          `칸 번호가 columns(0~${last}) 밖이거나 from이 to보다 크다`,
+        );
+      }
+      if (sp.cite && 'table' in sp.cite) {
+        const ref = sp.cite;
+        const table = ctx.source?.tables.find((t) => t.id === ref.table);
+        if (!table) {
+          err(`${at}.cite`, 'TABLE_REF_UNKNOWN', `표 ${ref.table}가 source.json에 없다`);
+        } else if (table.rows[ref.row]?.[ref.col] === undefined) {
+          err(
+            `${at}.cite`,
+            'CELL_REF_OUT_OF_RANGE',
+            `${ref.table}에 ${ref.row}행 ${ref.col}열이 없다`,
+          );
+        }
+      }
+    });
+  } else if (w.kind === 'stepper') {
+    dupes(stepElementIds(w), `${wp}.items`);
+    const ids = new Set(stepElementIds(w));
+    w.loops?.forEach((l, k) => {
+      if (!ids.has(l.from) || !ids.has(l.to)) {
+        err(
+          `${wp}.loops.${k}`,
+          'STEPPER_LOOP_UNKNOWN',
+          `되돌아가는 화살표 ${l.from}→${l.to}의 카드가 items에 없다`,
+        );
+      }
+    });
+  }
+  const steps = commonSteps(w);
+  if (steps) lintSteps(steps, stepElementIds(w), `${wp}.steps`, issues);
 }
 
 export interface WidgetLintContext {
@@ -273,6 +513,7 @@ export function lintWidget(
       });
     });
   }
+  lintShape(w, wp, ctx, err, issues);
   if (w.kind === 'heatmap') {
     const rowsOk = w.cells.length === w.y.labels.length;
     const colsOk = w.cells.every((r) => r.length === w.x.labels.length);
@@ -288,6 +529,11 @@ export function lintWidget(
   const values = widgetValues(w, wp);
   const labels: WidgetLabel[] = [{ text: w.title, path: `${wp}.title` }, ...widgetLabels(w, wp)];
   if (w.caption) labels.push({ text: w.caption, path: `${wp}.caption` });
+
+  if (w.kind === 'analogyMap') {
+    lintAnalogy(w, wp, labels, ctx, err);
+    return;
+  }
 
   if (w.class === 'B') {
     if (values.length > 0) {
@@ -360,17 +606,11 @@ export function lintWidget(
   }
   if (w.class === 'D') lintDescribed(w, wp, labels, ctx, err);
   // heatmap 축 라벨도 widgetLabels에 들어 있어 같이 본다. D의 예시 요소는 위에서 B 규칙으로 봤다
-  for (const l of labels) {
-    if (l.illustrative) continue;
-    for (const word of new Set(metricWords(l.text))) {
-      if (metricInSource(word, ctx.allText)) continue;
-      err(
-        l.path,
-        'WIDGET_METRIC_UNKNOWN',
-        `"${word}"는 원문에 없는 지표다. 원문에 나온 지표 이름만 쓴다`,
-      );
-    }
-  }
+  metricChecks(
+    labels.filter((l) => !l.illustrative),
+    ctx,
+    err,
+  );
 
   if (w.class === 'C') {
     const fig = w.figure ? ctx.source?.figures.find((f) => f.id === w.figure) : undefined;
@@ -385,18 +625,19 @@ export function lintWidget(
         '원문 그림과 다르게 그린 점을 한 줄 이상 적는다. 무엇을 빼고 무엇을 단순하게 했는지, 원문 결과와 다르게 보이는 자리가 있는지다',
       );
     }
-    if (fig && w.kind === 'stepSlider') {
+    const stepCount = w.kind === 'stepSlider' ? w.steps.length : commonSteps(w)?.length;
+    if (fig && stepCount !== undefined) {
       if (fig.panels === undefined) {
         err(
           `${wp}.figure`,
           'C_PANELS_UNKNOWN',
           `원문 그림 ${fig.id}의 장면 수를 모른다. 원문에서 잘라낸 그림을 보고 gestalt lens panels로 먼저 적는다`,
         );
-      } else if (w.steps.length > fig.panels) {
+      } else if (stepCount > fig.panels) {
         err(
           `${wp}.steps`,
           'C_STEPS_EXCEED_PANELS',
-          `원문 그림은 ${fig.panels}장면인데 슬라이더가 ${w.steps.length}칸이다. 원문에 없는 중간 단계를 만들지 않는다`,
+          `원문 그림은 ${fig.panels}장면인데 단계가 ${stepCount}칸이다. 원문에 없는 중간 단계를 만들지 않는다`,
         );
       }
     }

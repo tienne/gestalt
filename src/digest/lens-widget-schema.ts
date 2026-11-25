@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { cellRefSchema } from './lens-schema.js';
+import { stepsSchema } from './lens-steps.js';
 import { citeSchema, idSchema, textSchema } from './schema-base.js';
 
 /**
@@ -15,7 +16,16 @@ import { citeSchema, idSchema, textSchema } from './schema-base.js';
  */
 
 export const WIDGET_CLASSES = ['A', 'B', 'C', 'D'] as const;
-export const WIDGET_KINDS = ['stepSlider', 'toggleBars', 'heatmap', 'beforeAfter'] as const;
+export const WIDGET_KINDS = [
+  'stepSlider',
+  'toggleBars',
+  'heatmap',
+  'beforeAfter',
+  'laneGraph',
+  'calendar',
+  'stepper',
+  'analogyMap',
+] as const;
 
 const label = z.string().min(1).max(40);
 
@@ -93,6 +103,94 @@ export const widgetSchema = z.discriminatedUnion('kind', [
       .max(12),
   }),
   z.object({ ...base, kind: z.literal('beforeAfter'), before: sideSchema, after: sideSchema }),
+  /** 줄(브랜치, 트랙)마다 놓인 점과 부모 연결, 복사 관계. 가로 순서는 nodes 배열 순서다 */
+  z.object({
+    ...base,
+    kind: z.literal('laneGraph'),
+    lanes: z
+      .array(z.object({ id: idSchema, label }))
+      .min(1)
+      .max(6),
+    nodes: z
+      .array(
+        z.object({
+          id: idSchema,
+          lane: idSchema,
+          label,
+          parents: z.array(idSchema).max(3).optional(),
+          /** rebase나 cherry-pick처럼 다른 점을 복사해 새로 쌓은 점 */
+          copyOf: idSchema.optional(),
+          cite: citeSchema.optional(),
+          illustrative,
+        }),
+      )
+      .min(1)
+      .max(40),
+    steps: stepsSchema.optional(),
+  }),
+  /** 칸(요일, 날짜) 위에 놓인 기간 막대와 한 칸짜리 사건 */
+  z.object({
+    ...base,
+    kind: z.literal('calendar'),
+    columns: z.array(label).min(2).max(14),
+    tracks: z
+      .array(z.object({ id: idSchema, label }))
+      .min(1)
+      .max(6),
+    spans: z
+      .array(
+        z.object({
+          id: idSchema.optional(),
+          track: idSchema,
+          from: z.number().int().nonnegative().optional(),
+          to: z.number().int().nonnegative().optional(),
+          at: z.number().int().nonnegative().optional(),
+          label,
+          cite: z.union([citeSchema, cellRefSchema]).optional(),
+          marker: z.enum(['release', 'warn']).optional(),
+          illustrative,
+        }),
+      )
+      .min(1)
+      .max(30),
+    note: textSchema.optional(),
+    steps: stepsSchema.optional(),
+  }),
+  /** 번호 없는 단계 카드와 되돌아가는 화살표. 순번은 렌더러가 붙인다 */
+  z.object({
+    ...base,
+    kind: z.literal('stepper'),
+    items: z
+      .array(
+        z.object({
+          id: idSchema,
+          label,
+          detail: textSchema.optional(),
+          cite: citeSchema.optional(),
+          optional: z.boolean().optional(),
+          illustrative,
+        }),
+      )
+      .min(2)
+      .max(12),
+    loops: z
+      .array(z.object({ from: idSchema, to: idSchema, label: label.optional() }))
+      .max(4)
+      .optional(),
+    steps: stepsSchema.optional(),
+  }),
+  /** 원문 말과 비유를 나란히 놓은 표. 배지는 구분과 상관없이 비유로 고정이고 B만 받는다 */
+  z.object({
+    ...base,
+    kind: z.literal('analogyMap'),
+    domain: label,
+    rows: z
+      .array(z.object({ term: label, termCite: citeSchema, analog: z.string().min(1).max(80) }))
+      .min(3)
+      .max(8),
+    /** 비유가 원문과 안 맞는 지점. 비어 있으면 lint가 막는다 */
+    breaks: z.array(z.string().max(200)).max(4),
+  }),
 ]);
 
 export type Widget = z.infer<typeof widgetSchema>;
