@@ -3,6 +3,7 @@ import type { CellRef } from './lens-schema.js';
 import { stepFrames, type ElementLook, type Step, type StepFrame } from './lens-steps.js';
 import type { Widget } from './lens-widget-schema.js';
 import type { Cite } from './schema-base.js';
+import { mdCell as cell } from './format.js';
 
 /**
  * 단계형 그림(laneGraph, calendar, stepper)과 비유 표 렌더러. 단계마다 그림을 미리 그려 두고
@@ -307,7 +308,7 @@ export function stepsMarkdown(steps: Step[] | undefined): string[] {
     const state = s.state?.length
       ? ` (${s.state.map((kv) => `${kv.key}: ${kv.value}`).join(', ')})`
       : '';
-    out.push(`${k + 1}. ${s.label}${s.note ? `. ${s.note}` : ''}${state}`);
+    out.push(`${k + 1}. ${cell(s.label)}${s.note ? `. ${cell(s.note)}` : ''}${state}`);
   });
   return out;
 }
@@ -327,7 +328,7 @@ export function flowWidgetMarkdown(w: FlowWidget): string[] {
     }
     out.push(...stepsMarkdown(w.steps));
   } else if (w.kind === 'calendar') {
-    out.push(`| | ${w.columns.join(' | ')} |`, `| --- |${w.columns.map(() => ' --- |').join('')}`);
+    out.push(`| | ${w.columns.map(cell).join(' | ')} |`, `| --- |${w.columns.map(() => ' --- |').join('')}`);
     for (const t of w.tracks) {
       const cells = w.columns.map((_, c) =>
         w.spans
@@ -335,10 +336,10 @@ export function flowWidgetMarkdown(w: FlowWidget): string[] {
             (sp) =>
               sp.track === t.id && (sp.at ?? sp.from ?? -1) <= c && c <= (sp.at ?? sp.to ?? -1),
           )
-          .map((sp) => ill(sp.label, sp.illustrative))
+          .map((sp) => cell(ill(sp.label, sp.illustrative)))
           .join(', '),
       );
-      out.push(`| ${t.label} | ${cells.join(' | ')} |`);
+      out.push(`| ${cell(t.label)} | ${cells.join(' | ')} |`);
     }
     if (w.note) out.push('', w.note);
     out.push(...stepsMarkdown(w.steps));
@@ -357,8 +358,8 @@ export function flowWidgetMarkdown(w: FlowWidget): string[] {
     }
     out.push(...stepsMarkdown(w.steps));
   } else {
-    out.push(`| 원문 말 | ${w.domain}에 빗대면 |`, '| --- | --- |');
-    for (const r of w.rows) out.push(`| ${r.term} | ${r.analog} |`);
+    out.push(`| 원문 말 | ${cell(w.domain)}에 빗대면 |`, '| --- | --- |');
+    for (const r of w.rows) out.push(`| ${cell(r.term)} | ${cell(r.analog)} |`);
     const breaks = w.breaks.filter((b) => b.trim());
     if (breaks.length) out.push('', '비유가 안 맞는 곳:', ...breaks.map((b) => `- ${b}`));
   }

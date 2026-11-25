@@ -1,4 +1,5 @@
 import type { LensHtmlContext } from './render-lens.js';
+import { mdCell } from './format.js';
 import type { Widget, WidgetValue } from './lens-widget-schema.js';
 import {
   FLOW_WIDGET_CSS,
@@ -218,16 +219,16 @@ export function widgetMarkdown(w: Widget, ctx: { cell: (v: WidgetValue) => strin
   } else if (isGraphWidget(w)) {
     out.push(...graphWidgetMarkdown(w));
   } else if (w.kind === 'toggleBars') {
-    out.push(`| 항목 | ${w.toggle.off} | ${w.toggle.on} |`, '| --- | --- | --- |');
+    out.push(`| 항목 | ${mdCell(w.toggle.off)} | ${mdCell(w.toggle.on)} |`, '| --- | --- | --- |');
     for (const it of w.items)
-      out.push(`| ${it.label} | ${ctx.cell(it.off)} | ${ctx.cell(it.on)} |`);
+      out.push(`| ${mdCell(it.label)} | ${ctx.cell(it.off)} | ${ctx.cell(it.on)} |`);
   } else if (w.kind === 'heatmap') {
     out.push(
-      `| | ${w.x.labels.join(' | ')} |`,
+      `| | ${w.x.labels.map(mdCell).join(' | ')} |`,
       `| --- |${w.x.labels.map(() => ' --- |').join('')}`,
     );
     w.cells.forEach((row, r) =>
-      out.push(`| ${w.y.labels[r] ?? ''} | ${row.map(ctx.cell).join(' | ')} |`),
+      out.push(`| ${mdCell(w.y.labels[r] ?? '')} | ${row.map(ctx.cell).join(' | ')} |`),
     );
   } else if (w.kind === 'stepSlider') {
     for (const s of w.steps) {

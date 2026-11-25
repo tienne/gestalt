@@ -245,6 +245,16 @@ describe('새 위젯 렌더', () => {
     expect(md(parcel())).toContain('비유가 안 맞는 곳:');
   });
 
+  it('마크다운 표 칸의 세로줄과 줄바꿈은 표를 깨지 않는다', () => {
+    const w = week();
+    w.tracks[0]!.label = 'release | 브랜치';
+    w.spans[1]!.label = 'alpha\nQA';
+    const out = md(w);
+    expect(out).toContain('| release \\| 브랜치 |');
+    expect(out).toContain('alpha QA');
+    expect(out).not.toContain('alpha\nQA');
+  });
+
   it('윤문은 상태 키를 빼고 값만 받는다', () => {
     const r = withWidget(lanes());
     const paths = extractProse(lensDigest(r)).map((p) => p.path);

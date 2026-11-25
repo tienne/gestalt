@@ -3,7 +3,7 @@ import { slideLabel } from './render-slides.js';
 import { SLIDES_FAILED_NOTICE, type SlideContext } from './slides.js';
 import type { Extension } from './blocks.js';
 import { frameFileName, shotFileName } from './frames.js';
-import { CAPTION_LABEL, formatTime, stripNumbering, watchUrlAt } from './format.js';
+import { CAPTION_LABEL, formatTime, mdCell as cell, stripNumbering, watchUrlAt } from './format.js';
 import { blockMarkdown, mdInline, sectionDiagramMd } from './render-blocks.js';
 import { isCellRef, type Evidence } from './lens-schema.js';
 import type { LensSource } from './lens-source.js';
@@ -265,9 +265,6 @@ export function renderExtensionMarkdown(
   for (const b of ext.blocks) out.push(...blockMarkdown(b, { cite, time }));
   return finish(out);
 }
-
-/** 마크다운 표 칸에서 세로줄과 줄바꿈이 표를 깨지 않게 한다 */
-const cell = (text: string) => text.replace(/\|/g, '\\|').replace(/\s+/g, ' ');
 
 function tableMd(num: string, caption: string, rows: string[][]): string[] {
   const [head, ...body] = rows;
