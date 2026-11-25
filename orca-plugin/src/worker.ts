@@ -12,6 +12,7 @@ import { isClosed } from './model'
 import { ResultsViewer, type ViewerRecord } from './viewer'
 import type {
   AgentState,
+  BotOwnerView,
   ConductorView,
   GateResolveInput,
   GateResolveResult,
@@ -28,6 +29,7 @@ import {
   findWorkspace,
   isSafeId,
   parseJsonOutput,
+  parseMonitor,
   workspaceForPath,
   parseStatus,
   statusBarOf,
@@ -50,7 +52,9 @@ const RETRY_MS = 5000
  * 도는 주문이 있을 때만 이 간격으로 다시 읽는다
  */
 const ACTIVITY_POLL_MS = 10_000
+const MONITOR_POLL_MS = 60_000
 const STATUS_TIMEOUT_MS = 20_000
+const MONITOR_TIMEOUT_MS = 8_000
 const RESOLVE_TIMEOUT_MS = 100_000
 const MAX_ANSWER = 4000
 const MAX_REMOVE = 200
@@ -150,7 +154,8 @@ class Conductor {
   private stopped = false
   /** 옛 CLI가 --with-activity를 몰랐다. 워커가 다시 뜰 때까지 플래그 없이 부른다 */
   private activityUnsupported = false
-  private activityPoll: ReturnType<typeof setTimeout> | null = null
+  private monitorUnsupported = false
+  private statusPoll: ReturnType<typeof setTimeout> | null = null
   private readonly mobile = new MobileServer(() => this.view)
   private readonly cli = new CliResolver(STATUS_TIMEOUT_MS)
   private jiraSite: { url: string | undefined; expiresAt: number } | undefined
@@ -253,12 +258,14 @@ class Conductor {
           view = emptyView('missing', dir, now)
         } else {
           this.raw = raw
-          const [workspaces, jiraSiteUrl] = await Promise.all([
+          const [workspaces, jiraSiteUrl, monitor] = await Promise.all([
             this.workspaces(raw),
-            raw.orders.some((o) => o.issue) ? this.currentJiraSite() : undefined
+            raw.orders.some((o) => o.issue) ? this.currentJiraSite() : undefined,
+            raw.conductor?.botOwner ? this.monitor(cfg, dir, raw.conductor.botOwner) : undefined
           ])
           view = toView(raw, dir, workspaces, now)
           if (jiraSiteUrl) view.jiraSiteUrl = jiraSiteUrl
+          if (monitor) view.monitor = monitor
         }
       } catch (e) {
         this.raw = null
@@ -271,7 +278,7 @@ class Conductor {
     await this.paintStatusBar(view)
     if (view.state === 'ok') await this.notify(view.gates)
     this.arm(view.stateDir)
-    this.armActivityPoll(view)
+    this.armStatusPoll(view)
   }
 
   private async currentJiraSite(): Promise<string | undefined> {
@@ -279,6 +286,20 @@ class Conductor {
     const url = await readJiraSite()
     this.jiraSite = { url, expiresAt: Date.now() + 60_000 }
     return url
+  }
+
+  private async monitor(cfg: Config, dir: string, owner: BotOwnerView) {
+    if (this.monitorUnsupported) return undefined
+    try {
+      const json = await this.cli.run(cfg.command, ['conductor', 'monitor', '--json', `--state-dir=${dir}`], {
+        cwd: this.cwd(dir),
+        timeoutMs: MONITOR_TIMEOUT_MS
+      })
+      return parseMonitor(parseJsonOutput(json), owner)
+    } catch (e) {
+      if (/unknown command.*monitor/.test(message(e))) this.monitorUnsupported = true
+      return undefined
+    }
   }
 
   private async status(cfg: Config): Promise<string> {
@@ -298,15 +319,17 @@ class Conductor {
     }
   }
 
-  private armActivityPoll(view: ConductorView): void {
-    if (this.activityPoll) clearTimeout(this.activityPoll)
-    this.activityPoll = null
-    if (this.stopped || this.activityUnsupported) return
-    if (!view.orders.some((o) => o.status === 'running' && o.work)) return
-    this.activityPoll = setTimeout(() => {
-      this.activityPoll = null
+  private armStatusPoll(view: ConductorView): void {
+    if (this.statusPoll) clearTimeout(this.statusPoll)
+    this.statusPoll = null
+    if (this.stopped) return
+    const active = !this.activityUnsupported && view.orders.some((o) => o.status === 'running' && o.work)
+    const monitor = !this.monitorUnsupported && view.conductor?.botOwner
+    if (!active && !monitor) return
+    this.statusPoll = setTimeout(() => {
+      this.statusPoll = null
       this.schedule()
-    }, ACTIVITY_POLL_MS)
+    }, active ? ACTIVITY_POLL_MS : MONITOR_POLL_MS)
   }
 
   private async workspaces(raw: RawStatus): Promise<Workspace[]> {
@@ -656,6 +679,7 @@ class Conductor {
   /** 설정이 바뀌면 gestalt 경로를 다시 찾는다. 명령이 그대로여도 그 뒤의 설치가 바뀌었을 수 있다 */
   settingsChanged(): Promise<void> {
     this.cli.invalidate()
+    this.monitorUnsupported = false
     return this.refresh()
   }
 
@@ -664,8 +688,8 @@ class Conductor {
     await this.viewer.stop()
     this.closeWatcher()
     this.clearRetry()
-    if (this.activityPoll) clearTimeout(this.activityPoll)
-    this.activityPoll = null
+    if (this.statusPoll) clearTimeout(this.statusPoll)
+    this.statusPoll = null
     if (this.debounce) clearTimeout(this.debounce)
     this.debounce = null
     this.debounceSince = null

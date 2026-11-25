@@ -77,6 +77,8 @@ import {
 } from '../../conductor/session-owner.js';
 import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
 import { readRecentEvents, type RecentEvent } from '../../conductor/recent-events.js';
+import { readConductorMonitor } from '../../conductor/monitor.js';
+import { readLastSuccessfulTick } from '../../conductor/successful-tick.js';
 import { removeOrderRefCopies } from '../../conductor/ref-copy.js';
 import {
   archiveAndCompress,
@@ -626,6 +628,19 @@ export interface ConductorStatusOptions extends ConductorCommonOptions {
   withActivity?: boolean;
 }
 
+export async function conductorMonitorCommand(
+  opts: Pick<ConductorCommonOptions, 'stateDir'>,
+): Promise<void> {
+  try {
+    const dir = resolveStateDir(opts.stateDir, loadConfig().conductor);
+    const owner = readBotOwnership(dir).active;
+    const orca = await readConductorMonitor(owner);
+    print({ owner: owner ?? null, orca });
+  } catch (e) {
+    exitWithError(e);
+  }
+}
+
 export function conductorStatusCommand(opts: ConductorStatusOptions): void {
   run(() => {
     const { store, config } = open(opts);
@@ -643,6 +658,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
       return print({
         stateDir: store.dir,
         lastTickAt: store.snapshot.lastTickAt ?? null,
+        lastSuccessfulTickAt: readLastSuccessfulTick(store.dir),
         orders: orders.map((o) => {
           const w = o.workerId ? store.worker(o.workerId) : undefined;
           return {
@@ -931,12 +947,15 @@ async function runConductorTick(
   const report = await tick(ctx.store, deps, {
     force: opts.force === true,
     admit: () => assertBotOwner(ctx.store.dir, caller),
+    inputErrors: () => [
+      ...(queue?.errors ?? []),
+      ...(watch?.errors ?? []),
+      ...[...(prSource?.truncatedRepos ?? [])].map(
+        (repo) => `${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`,
+      ),
+    ],
   });
   report.hostActions.push(...deferred);
-  // 건너뛴 tick은 감시를 안 돌았다. 경로 누락 오류를 붙이면 출력이 그걸 건너뛴 이유로 보여 준다
-  if (!report.skipped) report.errors.push(...(queue?.errors ?? []), ...(watch?.errors ?? []));
-  for (const repo of prSource?.truncatedRepos ?? [])
-    report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
   const handoff = sessionId ? sessionHandoff(ctx, sessionId) : undefined;
   return { report, ...(handoff ? { handoff } : {}), handoffClose };
 }
