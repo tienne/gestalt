@@ -10,9 +10,111 @@ import type { DecisionReceipt, Gate, GateType } from './types.js';
 
 export const BOT_POLICY_FILE = 'bot-policy.json';
 
-export function readBotPolicy(dir: string): Record<string, unknown> {
-  const policy: unknown = JSON.parse(readFileSync(join(dir, BOT_POLICY_FILE), 'utf8'));
+const isMissing = (error: unknown) =>
+  error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT';
+
+/** 정책 파일이 없으면 undefined. 승인자 미등록 안내처럼 없는 것 자체를 판단에 쓰는 자리용이다 */
+export function loadBotPolicy(dir: string): Record<string, unknown> | undefined {
+  let raw: string;
+  try {
+    raw = readFileSync(join(dir, BOT_POLICY_FILE), 'utf8');
+  } catch (error) {
+    if (isMissing(error)) return undefined;
+    throw error;
+  }
+  const policy: unknown = JSON.parse(raw);
   if (!isPlainObject(policy)) throw new Error('봇 정책 파일이 JSON 객체여야 해요');
+  return policy;
+}
+
+export function readBotPolicy(dir: string): Record<string, unknown> {
+  const policy = loadBotPolicy(dir);
+  if (!policy)
+    throw new Error(
+      `봇 정책 파일(${BOT_POLICY_FILE})이 상태 저장소에 없어요. docs/conductor.md의 bot-policy 예시로 만들어 주세요`,
+    );
+  return policy;
+}
+
+export type ApproverGap = 'no-policy' | 'no-repo' | 'no-type-approvers';
+
+export interface ApproverStatus {
+  ready: boolean;
+  gap?: ApproverGap;
+  /** 이 레포와 유형에 등록된 승인자 수 */
+  count: number;
+}
+
+const approverField = (type: GateType) => (type === 'merge' ? 'mergeApprovers' : 'gateApprovers');
+
+/** 정책 한 칸에서 레포의 승인자 표를 꺼낸다. 키는 소문자 레포 이름이다 */
+function repoApprovers(
+  policy: Record<string, unknown>,
+  field: 'mergeApprovers' | 'gateApprovers',
+  repo: string,
+): Record<string, unknown> | undefined {
+  const table = policy[field];
+  const key = repo.toLowerCase();
+  if (!isPlainObject(table) || !Object.hasOwn(table, key)) return undefined;
+  const row = table[key];
+  return isPlainObject(row) ? row : undefined;
+}
+
+/**
+ * 봇 경로로 이 레포와 유형의 게이트를 닫을 수 있는지 본다. 레포가 어느 승인자 칸에도 없으면 no-repo,
+ * 다른 유형 칸에만 있으면 no-type-approvers다
+ */
+export function approverStatus(
+  policy: Record<string, unknown> | undefined,
+  type: GateType,
+  repo: string,
+): ApproverStatus {
+  if (!policy) return { ready: false, gap: 'no-policy', count: 0 };
+  const own = repoApprovers(policy, approverField(type), repo);
+  const count = own ? Object.keys(own).length : 0;
+  if (count > 0) return { ready: true, count };
+  const other = repoApprovers(
+    policy,
+    approverField(type) === 'mergeApprovers' ? 'gateApprovers' : 'mergeApprovers',
+    repo,
+  );
+  return {
+    ready: false,
+    gap: other && Object.keys(other).length > 0 ? 'no-type-approvers' : 'no-repo',
+    count: 0,
+  };
+}
+
+const GATE_TYPE_LABELS: Partial<Record<GateType, string>> = {
+  merge: '머지',
+  'file-overlap': '파일 겹침',
+  'review-manual-switch': '리뷰 수동 전환',
+};
+
+/** 봇 경로로 못 닫는 게이트를 터미널에서 닫는 명령 */
+export function terminalResolveCommand(gateId: string, decision: Decision = 'approved'): string {
+  return `gestalt conductor gate resolve ${gateId} ${decision === 'approved' ? '--approve' : '--reject'}`;
+}
+
+export function approverGuidance(gate: Pick<Gate, 'id' | 'type'>, repo: string, gap: ApproverGap) {
+  const label = GATE_TYPE_LABELS[gate.type] ?? gate.type;
+  const why =
+    gap === 'no-policy'
+      ? `승인자 정책 파일(${BOT_POLICY_FILE})이 없어서 봇에서는 게이트를 닫을 수 없어요.`
+      : gap === 'no-repo'
+        ? `${repo} 레포는 승인자가 등록되지 않았어요.`
+        : `${repo} 레포는 ${label} 승인자가 등록되지 않았어요.`;
+  return `${why} 터미널에서 \`${terminalResolveCommand(gate.id)}\`(거절은 --reject)로 닫아 주세요`;
+}
+
+/** 승인자가 없으면 서명 검사 전에 할 일을 알려주는 에러로 멈춘다 */
+export function assertApproverReady(
+  policy: Record<string, unknown> | undefined,
+  gate: Pick<Gate, 'id' | 'type'>,
+  repo: string,
+): Record<string, unknown> {
+  const status = approverStatus(policy, gate.type, repo);
+  if (!status.ready || !policy) throw new Error(approverGuidance(gate, repo, status.gap!));
   return policy;
 }
 
@@ -343,13 +445,8 @@ export function requireGateApprover(
   repo: string,
   signer: string,
 ): KeyObject {
-  const approvers = policy[type === 'merge' ? 'mergeApprovers' : 'gateApprovers'];
-  const allowed =
-    isPlainObject(approvers) && Object.hasOwn(approvers, repo.toLowerCase())
-      ? approvers[repo.toLowerCase()]
-      : undefined;
-  const pem =
-    isPlainObject(allowed) && Object.hasOwn(allowed, signer) ? allowed[signer] : undefined;
+  const allowed = repoApprovers(policy, approverField(type), repo);
+  const pem = allowed && Object.hasOwn(allowed, signer) ? allowed[signer] : undefined;
   if (typeof pem !== 'string')
     throw new Error(
       `이 레포의 ${type === 'merge' ? '머지' : '게이트'} 승인 권한이 없는 서명자예요`,
@@ -366,4 +463,31 @@ export function verifyEd25519(key: KeyObject, message: string, signature: string
     /^[A-Za-z0-9+/]{86}==$/.test(signature) &&
     verify(null, Buffer.from(message), key, Buffer.from(signature, 'base64'))
   );
+}
+
+export interface ApproverRegistry {
+  policy: 'present' | 'missing' | 'unreadable';
+  repos: { repo: string; merge: number; gate: number }[];
+}
+
+/** status 화면용. 레포마다 머지와 나머지 게이트 승인자가 몇 명 등록됐는지 센다. 정책이 깨져도 status는 멈추지 않는다 */
+export function approverRegistry(dir: string, repos: Iterable<string>): ApproverRegistry {
+  let policy: Record<string, unknown> | undefined;
+  try {
+    policy = loadBotPolicy(dir);
+  } catch {
+    return { policy: 'unreadable', repos: [] };
+  }
+  const names = new Set([...repos].map((r) => r.toLowerCase()));
+  for (const field of ['mergeApprovers', 'gateApprovers'] as const) {
+    const table = policy?.[field];
+    if (isPlainObject(table)) for (const repo of Object.keys(table)) names.add(repo);
+  }
+  const count = (type: GateType, repo: string) => approverStatus(policy, type, repo).count;
+  return {
+    policy: policy ? 'present' : 'missing',
+    repos: [...names]
+      .sort()
+      .map((repo) => ({ repo, merge: count('merge', repo), gate: count('file-overlap', repo) })),
+  };
 }

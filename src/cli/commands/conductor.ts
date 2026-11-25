@@ -18,6 +18,13 @@ import {
   gateApprovalMessage,
   matchBotGate,
   readBotPolicy,
+  loadBotPolicy,
+  approverStatus,
+  approverGuidance,
+  assertApproverReady,
+  terminalResolveCommand,
+  approverRegistry,
+  type ApproverRegistry,
   readMergeEvidence,
   verifyGateApproval,
   type BotGate,
@@ -740,6 +747,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
           openedAt: g.openedAt,
         })),
         conductor: conductorSummary({ store, config }),
+        approvers: statusApprovers(store, config, orders),
         ...recentEventsField(store),
       });
     }
@@ -768,6 +776,16 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
         console.log(`  bypass ${b.at}  ${b.need}  ${b.action}`);
     }
     for (const b of bypassesOf.get('') ?? []) console.log(`bypass ${b.at}  ${b.need}  ${b.action}`);
+    const approvers = statusApprovers(store, config, orders);
+    if (approvers.policy !== 'present')
+      console.log(
+        `승인자: 봇 정책 파일이 ${approvers.policy === 'missing' ? '없어요' : '깨져서 못 읽어요'}. 봇 채팅에서는 게이트를 못 닫아요`,
+      );
+    else
+      for (const a of approvers.repos)
+        console.log(
+          `승인자 ${a.repo}  머지 ${a.merge ? `${a.merge}명` : '미등록'}  게이트 ${a.gate ? `${a.gate}명` : '미등록'}`,
+        );
     for (const g of gates) console.log(`게이트 ${g.id}  ${g.type}  ${g.reason}`);
   });
 }
@@ -793,6 +811,18 @@ function checkpointOf(store: ConductorStore, orderId: string): { checkpoint?: ob
  * 컴팩트 횟수와 세션 id, 작업 디렉토리는 살아 있는 컨덕터 세션을 찾았을 때만 싣는다.
  * 오르카 플러그인이 세션 id와 디렉토리로 컨덕터 탭을 찾아간다
  */
+/** 지금 보이는 주문과 경로를 등록한 레포, 정책에 적힌 레포의 승인자 등록 상태 */
+function statusApprovers(
+  store: Ctx['store'],
+  config: Ctx['config'],
+  orders: readonly { repo: string }[],
+): ApproverRegistry {
+  return approverRegistry(store.dir, [
+    ...orders.map((o) => o.repo),
+    ...Object.keys(config.repoPaths ?? {}),
+  ]);
+}
+
 function conductorSummary(ctx: Ctx): Record<string, unknown> {
   const { store, config } = ctx;
   const disconnected = store
@@ -2235,10 +2265,24 @@ export async function conductorBotGateCommand(
       refs: gate.refs,
     };
     if (gate.status === 'resolved') return print(base);
+    // 승인자가 없으면 서명을 요구할 이유가 없다. 봇이 터미널 안내로 바로 가게 서명 재료를 싣지 않는다
+    const approver = approverStatus(loadBotPolicy(ctx.store.dir), gate.type, target.repo);
+    if (!approver.ready)
+      return print({
+        ...base,
+        approverReady: false,
+        approverGap: approver.gap,
+        guidance: approverGuidance(gate, target.repo, approver.gap!),
+        terminal: {
+          approved: terminalResolveCommand(gate.id, 'approved'),
+          rejected: terminalResolveCommand(gate.id, 'rejected'),
+        },
+      });
     const evidence = await botGateEvidence(ctx, target);
     const issuer = await officialOrcaApprovalIssuer(caller);
     print({
       ...base,
+      approverReady: true,
       ...(evidence ? { evidence } : {}),
       messages: {
         approved: gateApprovalMessage(target, evidence?.head, 'approved', evidence?.base),
@@ -2326,7 +2370,7 @@ async function applyBotDecision(
     const head = evidence?.head;
     const { decision } = request;
     const approval = verifyBotDecision(
-      readBotPolicy(ctx.store.dir),
+      assertApproverReady(loadBotPolicy(ctx.store.dir), current.gate, current.repo),
       current,
       receiptTarget,
       evidence,
@@ -2381,6 +2425,9 @@ export async function conductorBotDecideCommand(
       ? undefined
       : matchBotGate(ctx.store, gateId);
     const beforeTarget = target ? decisionTarget(ctx.store, target) : undefined;
+    // 승인자가 없으면 GitHub를 읽기 전에 터미널 안내로 멈춘다. 잠금 안에서 한 번 더 본다
+    if (target?.gate.status === 'open')
+      assertApproverReady(loadBotPolicy(ctx.store.dir), target.gate, target.repo);
     const evidence =
       target?.gate.status === 'open' ? await botGateEvidence(ctx, target) : undefined;
     await applyBotDecision(ctx, caller, gateId, beforeTarget, evidence, {
@@ -2421,6 +2468,7 @@ export async function conductorBotItemDecideCommand(
       });
     if (!target) throw new Error('결정할 게이트를 찾을 수 없어요');
     const beforeTarget = decisionTarget(ctx.store, target);
+    assertApproverReady(loadBotPolicy(ctx.store.dir), target.gate, target.repo);
     const evidence = await botGateEvidence(ctx, target);
     const read = readItemDecision({
       show: await readOrcaItem(item),
