@@ -205,7 +205,7 @@ jq -jr .messages.approved gate.json > decision.txt
 openssl pkeyutl -sign -rawin -inkey approver.key -in decision.txt | openssl base64 -A
 ```
 
-거절할 때는 `messages.rejected`와 `--decision rejected`를 사용한다. 머지 문자열은 이전과 같은 `gestalt/merge-approval/v1`이다. 다른 게이트 문자열은 `gestalt/gate-approval/v1`에 게이트 유형과 레포를 넣어서 한 게이트에 한 서명을 다른 게이트에 옮겨 쓸 수 없다. 게이트 내용이나 PR HEAD가 바뀌면 새 문자열에 서명한다. 머지는 잠금을 잡은 뒤 GitHub HEAD를 한 번 더 읽어 서명한 HEAD와 다르면 닫지 않는다. 승인된 HEAD는 워커에게 전달된다. 패널에서 먼저 처리했거나 답을 다시 보냈으면 이미 기록된 결정을 보여 준다. 접수 응답과 이후 `bot gate` 조회에는 결정 ID(`decisionId`), 접수 시각(`receivedAt`), 게이트 반영(`gateApplication`, `appliedAt`), 전달 ID(`deliveryId`)와 다음 조치가 표시된다. 접수와 게이트 반영은 한 기록으로 남는다. 기존 머지 게이트의 서명 문자열은 그대로 둔다. 머지와 재리뷰는 서명을 접수할 때 확인한 HEAD와 base 브랜치를 전달 전에 다시 대조한다. 파일 중첩은 두 워크트리에서 전체 겹침을 다시 읽고 달라졌으면 현재 범위로 다시 묻는다.
+거절할 때는 `messages.rejected`와 `--decision rejected`를 사용한다. 머지 문자열은 이전과 같은 `gestalt/merge-approval/v1`이다. 파일 중첩은 `gestalt/gate-approval/v1`을 사용한다. 재리뷰의 `gestalt/review-approval/v1`에는 게이트와 레포 외에 승인자가 본 PR, HEAD와 base 브랜치가 들어간다. 세 값 중 하나가 달라졌으면 다시 조회해 새 문자열에 서명한다. 게이트 내용이나 PR HEAD가 바뀌면 새 문자열에 서명한다. 머지는 잠금을 잡은 뒤 GitHub HEAD를 한 번 더 읽어 서명한 HEAD와 다르면 닫지 않는다. 승인된 HEAD는 워커에게 전달된다. 패널에서 먼저 처리했거나 답을 다시 보냈으면 이미 기록된 결정을 보여 준다. 접수 응답과 이후 `bot gate` 조회에는 결정 ID(`decisionId`), 접수 시각(`receivedAt`), 게이트 반영(`gateApplication`, `appliedAt`), 전달 ID(`deliveryId`)와 다음 조치가 표시된다. 접수와 게이트 반영은 한 기록으로 남는다. 기존 머지 게이트의 서명 문자열은 그대로 둔다. 머지와 재리뷰는 서명을 접수할 때 확인한 HEAD와 base 브랜치를 전달 전에 다시 대조한다. 파일 중첩은 두 워크트리에서 전체 겹침을 다시 읽고 달라졌으면 현재 범위로 다시 묻는다. 접수 뒤 재리뷰 범위가 바뀌면 PR 감시에서 올린 주문 없는 게이트에도 현재 HEAD와 base로 새 질문을 낸다.
 
 | 전달 상태                | 다음 조치                                                                                                               |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
@@ -234,7 +234,7 @@ Orca가 답을 알려 주면 봇은 메일에 적힌 항목 번호와 질문, �
 gestalt conductor bot item-decide <게이트-ID> --item <항목-번호> --question <질문-이벤트> --answer <답-이벤트>
 ```
 
-Gestalt는 봇이 옮겨 적은 말 대신 `orca bot item show`로 Orca가 저장한 항목을 직접 읽는다. 항목이 등록된 운영 봇과 채팅의 것인지, 질문이 그 봇이 쓴 것이고 지금 게이트의 `binding` 줄(게이트 ID, 유형, 연 시각, 레포, 머지면 PR과 HEAD)을 담았는지, 답이 질문 뒤에 사람(`owner`)이 단 것인지, 사이에 더 새 게이트 질문이 없는지 본다. 그다음 `bot decide`와 같은 승인자 서명 검사를 거쳐 게이트를 닫고 항목, 질문, 답 이벤트를 `decisionSource`로 남긴다. 같은 답이 다시 오면 `alreadyResolved`와 `sameAnswer: true`로 기존 결정을 돌려준다. 다른 경로로 먼저 닫혔으면 `sameAnswer: false`다.
+Gestalt는 봇이 옮겨 적은 말 대신 `orca bot item show`로 Orca가 저장한 항목을 직접 읽는다. 항목이 등록된 운영 봇과 채팅의 것인지, 질문이 그 봇이 쓴 것이고 지금 게이트의 `binding` 줄(게이트 ID, 유형, 연 시각, 레포, 머지면 PR과 HEAD, 재리뷰면 PR과 HEAD 및 base 브랜치)를 담았는지, 답이 질문 뒤에 사람(`owner`)이 단 것인지, 사이에 더 새 게이트 질문이 없는지 본다. 그다음 `bot decide`와 같은 승인자 서명 검사를 거쳐 게이트를 닫고 항목, 질문, 답 이벤트를 `decisionSource`로 남긴다. 같은 답이 다시 오면 `alreadyResolved`와 `sameAnswer: true`로 기존 결정을 돌려준다. 다른 경로로 먼저 닫혔으면 `sameAnswer: false`다.
 
 서명 줄이 없는 답(선택지 클릭만)은 게이트를 그대로 두고 실패로 끝난다. Orca 1.4.269의 항목 이벤트는 답한 쪽을 `owner` 하나로만 적는다. 사람마다 다른 식별자, 레포별 권한, Orca 밖에서 확인할 서명이 없어서 같은 계정으로 도는 봇 에이전트가 만든 기록과 사람의 답을 가를 수 없다. 서명 없는 답을 받으려면 Orca가 승인자 식별자와 레포별 권한 확인 결과, 항목과 질문, 답, 결정을 묶은 서명을 줘야 한다. 이 계약이 생기기 전까지는 서명이 승인 근거다.
 
