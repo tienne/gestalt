@@ -147,16 +147,19 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       if (e.gate.orderId !== undefined && isRetired(s, e.gate.orderId)) return;
       s.gates[e.gate.id] = { ...e.gate };
       Reflect.deleteProperty(s.gates[e.gate.id]!, 'slackReplacement');
+      invalidateReplacedReview(s, e.gate);
       return;
     case 'gate-updated': {
       const g = s.gates[e.gateId];
-      if (g)
-        s.gates[e.gateId] = {
-          ...g,
-          reason: e.reason,
-          refs: [...e.refs],
-          ...(e.payload ? { payload: e.payload } : {}),
-        };
+      if (!g) return;
+      const next = {
+        ...g,
+        reason: e.reason,
+        refs: [...e.refs],
+        ...(e.payload ? { payload: e.payload } : {}),
+      };
+      s.gates[e.gateId] = next;
+      invalidateReplacedReview(s, next);
       return;
     }
     case 'gate-resolved': {
@@ -200,7 +203,7 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       return;
     case 'gate-delivery': {
       const g = s.gates[e.gateId];
-      if (!g) return;
+      if (!g || (e.pending && g.receipt && g.deliveryOutcome === 'superseded')) return;
       const next: Gate = { ...g };
       if (e.pending) {
         next.deliveryPending = true;
@@ -275,6 +278,35 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     case 'tail-repaired':
       return;
   }
+}
+
+function invalidateReplacedReview(s: ConductorSnapshot, replacement: Gate): void {
+  const priorId = replacement.payload?.reapprovalOf;
+  if (
+    replacement.type !== 'review-manual-switch' ||
+    replacement.status !== 'open' ||
+    replacement.orderId ||
+    !priorId ||
+    priorId === replacement.id
+  )
+    return;
+  const prior = s.gates[priorId];
+  if (
+    prior?.type !== 'review-manual-switch' ||
+    prior.orderId ||
+    !prior.receipt ||
+    !prior.deliveryPending
+  )
+    return;
+  // 새 질문을 쓴 순간부터 기존 서명은 재시작 뒤에도 효력이 없다.
+  const reason = replacement.payload?.reapprovalReason ?? replacement.reason;
+  const next: Gate = {
+    ...prior,
+    deliveryOutcome: 'superseded',
+    deliveryDetail: `${reason}. 새 게이트 ${replacement.id}에서 다시 결정해 주세요`,
+  };
+  delete next.deliveryPending;
+  s.gates[prior.id] = next;
 }
 
 function applyDecisionToOrder(

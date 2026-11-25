@@ -61,7 +61,12 @@ import {
 } from './launcher.js';
 import { watchHumanOwned, type HumanOwnedChange, type PrStateSource } from './ownership.js';
 import { repoOfPrRef } from './pr-ref.js';
-import { openReviewReapproval, pollPrs, type PrWatchSource } from './pr-watch.js';
+import {
+  openReviewReapproval,
+  pollPrs,
+  recordedReviewReapproval,
+  type PrWatchSource,
+} from './pr-watch.js';
 import { copyReportRefs } from './ref-copy.js';
 import { parseWorkerReport } from './result.js';
 import {
@@ -1011,12 +1016,15 @@ async function deliverSignedDecisions(
   deps: EngineDeps,
   report: TickReport,
 ): Promise<void> {
-  for (const gate of Object.values(store.snapshot.gates)) {
+  for (const id of Object.keys(store.snapshot.gates)) {
+    const gate = store.snapshot.gates[id]!;
     if (!gate.receipt || !gate.deliveryPending) continue;
     try {
       await deliverSignedDecision(store, gate, deps, report);
     } catch (error) {
       const detail = message(error);
+      report.errors.push(`${gate.id}: ${detail}`);
+      if (!store.snapshot.gates[gate.id]?.deliveryPending) continue;
       store.append({
         type: 'gate-delivery',
         at: store.timestamp(),
@@ -1026,7 +1034,6 @@ async function deliverSignedDecisions(
           store.snapshot.gates[gate.id]?.deliveryOutcome === 'unknown' ? 'unknown' : 'failed',
         detail,
       });
-      report.errors.push(`${gate.id}: ${detail}`);
     }
   }
 }
@@ -1132,6 +1139,11 @@ export async function recheckSignedDecision(
   gate: Gate,
   deps: Pick<EngineDeps, 'gitRunner' | 'launchers' | 'readApprovalEvidence'>,
 ): Promise<{ detail: string; replacement?: string } | undefined> {
+  const recorded = recordedReviewReapproval(store, gate);
+  if (recorded) {
+    recordGateDelivery(store, gate.id, 'superseded', recorded.detail);
+    return recorded;
+  }
   const overlap = await changedApprovalOverlap(
     store,
     gate,
@@ -1171,7 +1183,10 @@ export async function recheckSignedDecision(
       }).gate
     ).id;
   } else if (!gate.orderId && change.reviewScope) {
-    replacement = openReviewReapproval(store, gate, change.reviewScope);
+    replacement = openReviewReapproval(store, gate, change.reviewScope, reason);
+    const current = store.snapshot.gates[gate.id];
+    if (replacement && current?.deliveryOutcome === 'superseded' && current.deliveryDetail)
+      return { detail: current.deliveryDetail, replacement };
   }
   if (replacement) detail = `${reason}. 새 게이트 ${replacement}에서 다시 결정해 주세요`;
   recordGateDelivery(store, gate.id, 'superseded', detail);

@@ -50,6 +50,7 @@ export function openReviewReapproval(
   store: ConductorStore,
   previous: Gate,
   scope: ReviewApprovalScope,
+  reapprovalReason: string,
 ): string | undefined {
   const sourceRef = `${reviewReapprovalPrefix(scope.ref, scope.head)}${previous.id}`;
   const gates = Object.values(store.snapshot.gates);
@@ -68,11 +69,15 @@ export function openReviewReapproval(
     prRef: scope.ref,
     sourceRef,
     reapprovalOf: previous.id,
+    reapprovalReason,
     approvalBase: scope.base,
   };
   if (existing) {
     // 범위 확인 뒤 새 게이트를 쓴 시점에 끊겨도 같은 요청을 다시 쓴다.
-    if (existing.status === 'open' && existing.reason !== reason)
+    if (
+      existing.status === 'open' &&
+      (existing.reason !== reason || existing.payload?.reapprovalOf !== previous.id)
+    )
       store.append({
         type: 'gate-updated',
         at: store.timestamp(),
@@ -86,6 +91,31 @@ export function openReviewReapproval(
   if (store.askedSourceRef(sourceRef)) return;
   return openOrReuse(store, { type: 'review-manual-switch', reason, refs: [scope.ref], payload })
     .gate.id;
+}
+
+export function recordedReviewReapproval(
+  store: ConductorStore,
+  previous: Gate,
+): { detail: string; replacement?: string } | undefined {
+  if (previous.type !== 'review-manual-switch' || previous.orderId) return;
+  // 이전 버전에서 접힌 상태 파일은 교체와 무효화를 별도 기록으로 저장했다.
+  const gate = Object.values(store.snapshot.gates).find(
+    (g) =>
+      g.type === 'review-manual-switch' && !g.orderId && g.payload?.reapprovalOf === previous.id,
+  );
+  if (gate) {
+    const reason = gate.payload?.reapprovalReason ?? gate.reason;
+    return {
+      detail: `${reason}. 새 게이트 ${gate.id}에서 다시 결정해 주세요`,
+      replacement: gate.id,
+    };
+  }
+  if (
+    Object.keys(store.snapshot.askedSourceRefs).some(
+      (ref) => ref.startsWith('pr-watch:reapproval:') && ref.endsWith(`:${previous.id}`),
+    )
+  )
+    return { detail: '재리뷰 승인 범위 변경으로 교체 게이트를 기록했어요' };
 }
 
 function requiresReviewReapproval(store: ConductorStore, pr: WatchedPr): boolean {
