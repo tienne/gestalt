@@ -3,8 +3,8 @@
 // 주문 제목이나 게이트 사유는 지라나 PR에서 온 바깥 글이라 전부 esc를 거친다.
 import { esc } from './html'
 import { displayStatus, isClosed, ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
-import type { AgentState, ConductorView, EventView, WorkerLive, WorkView } from './protocol'
-import { canReachWorker, clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, terminalModel, waitText, workerEnded, type Card, type TerminalModel } from './terminal-model'
+import type { AgentState, ConductorView, EventView, OrderView, WorkerLive, WorkView } from './protocol'
+import { canReachWorker, clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, terminalModel, waitText, workerEnded, type ApprovalEntry, type Card, type GateItem, type TerminalModel } from './terminal-model'
 
 export type TerminalMarkupOptions = {
   now: number
@@ -20,6 +20,8 @@ export type TerminalMarkupOptions = {
   viewerNote?: string | null
   /** 상세를 펼쳐 둔 주문. 웹 페이지는 폴링 스크립트가 data-key로 펼침을 지키니 안 넘긴다 */
   open?: ReadonlySet<string>
+  /** 펼쳐 둔 칸(waiting, ended). 기본은 둘 다 접혀 있다. 웹 페이지는 open처럼 안 넘긴다 */
+  lanes?: ReadonlySet<string>
   /** 펼친 카드에 붙일 워커 터미널. interactive일 때만 그린다 */
   live?: Readonly<Record<string, WorkerLive | 'loading'>>
 }
@@ -191,7 +193,7 @@ function detail(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string 
     o.waiting && dkv('대기', `${orderWaitText(o.waiting, opts.private)} · ${clock(o.waiting.since)}부터`),
     o.branch && dkv('브랜치', o.branch),
     opts.private && o.worktreePath && dkv('경로', o.worktreePath),
-    ...v.gates.filter((g) => g.orderId === o.id).map((g) => dkv(gateLabel(g.type), g.reason)),
+    ...v.gates.filter((g) => g.orderId === o.id).map((g) => dkv(gateLabel(g.type), opts.private ? g.reason : '사람 승인 대기')),
     events.length > 0 && div('d-ev', div('muted', '최근 이벤트'), ...events.map((e) => detailEvent(e, opts.private))),
     o.work && workBlock(o.id, o.work, opts),
     opts.interactive && div('live', liveBlock(o, opts.live?.[o.id], opts.now))
@@ -208,9 +210,9 @@ function todoBar(t: NonNullable<Card['todo']>, tone: string): string {
 }
 
 /** 레포별 묶음. 묶음 머리에 레포가 나오니 카드에서는 레포 줄을 뺀다 */
-function repoGroups(m: TerminalModel, v: ConductorView, opts: TerminalMarkupOptions): string {
+function repoGroups(cards: readonly Card[], v: ConductorView, opts: TerminalMarkupOptions): string {
   return join(
-    ...groupByRepo(m.cards, v.projects).map((g) =>
+    ...groupByRepo(cards, v.projects).map((g) =>
       `<section class="rg" data-key="${esc(`repo:${g.repo}`)}">${join(
         div('rg-head', span('rg-name', g.label), span('rg-count', `${g.cards.length}`)),
         div('workers', ...g.cards.map((c) => card(c, v, opts)))
@@ -219,18 +221,45 @@ function repoGroups(m: TerminalModel, v: ConductorView, opts: TerminalMarkupOpti
   )
 }
 
-function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
+/**
+ * 승인 칸 카드 머리의 게이트 줄과 사유. 머지면 PR, 파일 겹침이면 겹친 파일 수, 서버가 주면 봇 채팅으로 닫을 수 있는지를 붙인다.
+ * 사유는 워커가 넘긴 detail로 만들어 경로나 토큰이 섞일 수 있어서 데스크톱에서만 싣는다. 파일 겹침의 상대 주문은 사유에만 있다
+ */
+function gateLines(gates: readonly GateItem[], showPrivate: boolean): string {
+  return div(
+    'gate-info',
+    ...gates.map((g) =>
+      join(
+        div(
+          'gi',
+          span('g', g.label),
+          g.waited && span('muted', `${g.waited}째`),
+          g.pr && span('', g.pr),
+          g.overlapFiles !== undefined && span('', `지금 겹친 파일 ${g.overlapFiles}개`),
+          g.approverReady !== undefined && span(g.approverReady ? 'ready' : 'muted', g.approverReady ? '봇 채팅으로 닫기' : '터미널 필요')
+        ),
+        showPrivate && `<div class="muted ell" title="${esc(g.gate.reason)}">${esc(g.gate.reason)}</div>`
+      )
+    )
+  )
+}
+
+/** 카드와 줄이 함께 쓰는 포커스, 이동 속성. 데스크톱(interactive)에서만 붙인다 */
+function openAttrs(o: OrderView, focus: string, canOpen: boolean): string {
+  return ` data-order="${esc(o.id)}" data-focus="${esc(focus)}" tabindex="0" role="group" aria-label="${esc(`${o.id} ${o.title}${workerEnded(o) ? ' · 워커 종료' : ''}`)}"${
+    canOpen ? ' data-open aria-keyshortcuts="Enter" title="두 번 누르거나 Enter를 누르면 워커 터미널로 가요"' : ''
+  }`
+}
+
+function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions, gates?: readonly GateItem[]): string {
   const o = c.order
   const interactive = opts.interactive
   const canOpen = interactive && canReachWorker(o)
   const pct = c.progress === null ? null : Math.round(c.progress * 100)
-  const attrs = interactive
-    ? ` data-order="${esc(o.id)}" data-focus="${esc(`card:${o.id}`)}" tabindex="0" role="group" aria-label="${esc(`${o.id} ${o.title}${workerEnded(o) ? ' · 워커 종료' : ''}`)}"${
-        canOpen ? ' data-open aria-keyshortcuts="Enter" title="두 번 누르거나 Enter를 누르면 워커 터미널로 가요"' : ''
-      }`
-    : ''
+  const attrs = interactive ? openAttrs(o, `card:${o.id}`, canOpen) : ''
   const body = join(
     div('t', div('tid-row', span('tid', o.id), interactive && copyOrderButton(o.id), canOpen && goButton(o.id)), span('ttl', o.title)),
+    gates && gateLines(gates, opts.private),
     c.meta.some((r) => r.label !== '레포') &&
       div('meta', ...c.meta.filter((r) => r.label !== '레포').map((r) =>
         div('mrow', span('muted', r.label), interactive ? metaValue(r.label, r.value, o.id, v.jiraSiteUrl) : span('ell', r.value))
@@ -245,6 +274,7 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
       span(`st ${c.state.tone}`, c.state.text),
       span('muted', [c.subagents > 0 ? `서브 ${c.subagents}` : '', c.state.aside].filter(Boolean).join(' · '))
     ),
+    c.stalled && div('stall', esc(`⚠ 멈춘 것 같아요 · ${c.stalled}째 활동 없음`)),
     c.next && div('muted ell', esc(`next › ${c.next}`)),
     c.bypass && div('muted ell', esc(`${BYPASS_LABEL} › ${c.bypass}`)),
     c.children.length > 0 &&
@@ -254,19 +284,57 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
   return `<div class="w ${c.kind}${canOpen ? ' openable' : ''}"${attrs}>${body}</div>`
 }
 
-function gateBoxes(m: TerminalModel, v: ConductorView): string {
-  if (m.gates.length === 0) return div('gates', div('gbox none', div('muted', '사람 확인'), div('muted', '없음')))
-  return div(
-    'gates',
-    ...m.gates.map((g) => {
-      const order = v.orders.find((o) => o.id === g.orderId)
-      const target = order?.pr ?? order?.issue ?? g.orderId ?? ''
-      return `<div class="gbox" title="${esc(g.reason)}">${join(
-        div('g', esc(`${gateLabel(g.type)}${target ? ` · ${target}` : ''}`)),
-        div('muted ell', esc(g.reason)),
-        div('muted', '사람에게 · approve / reject')
-      )}</div>`
-    })
+/** 주문 카드가 없는 게이트. 컨덕터 게이트이거나 화면에 없는 주문의 게이트다 */
+function gateOnly(e: ApprovalEntry, showPrivate: boolean): string {
+  const g = e.gates[0]!.gate
+  return `<div class="w gate-only">${join(g.orderId && div('t', div('tid-row', span('tid', g.orderId))), gateLines(e.gates, showPrivate))}</div>`
+}
+
+/** 대기와 끝남 칸의 한 줄. 상세는 펼칠 수 있고, 워커에 닿을 수 있는 줄만 두 번 누르거나 Enter로 워커로 간다(끝남 칸 줄은 안 간다) */
+function row(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
+  const o = c.order
+  const canOpen = opts.interactive && canReachWorker(o)
+  const attrs = opts.interactive ? openAttrs(o, `row:${o.id}`, canOpen) : ''
+  const repo = o.repo ? (v.projects?.[o.repo] ?? splitRepo(o.repo).name) : ''
+  return `<div class="w row ${c.kind}${canOpen ? ' openable' : ''}"${attrs}>${join(
+    div('rt', span('tid', o.id), span('ttl ell', o.title), repo && span('muted', repo)),
+    div('state', span(`st ${c.state.tone}`, c.state.text), span('muted', c.state.aside)),
+    detail(c, v, opts)
+  )}</div>`
+}
+
+const LANE_TITLE = { approval: '승인 필요', running: '진행 중', waiting: '대기', ended: '끝남' } as const
+
+function laneHead(name: keyof typeof LANE_TITLE, count: number): string {
+  return div(`lane-head ${name}`, span('lane-name', LANE_TITLE[name]), span('rg-count', String(count)))
+}
+
+/** 접어 두는 칸. 펼침은 데스크톱이 opts.lanes로, 웹 페이지는 폴링 스크립트가 data-key로 지킨다 */
+function foldedLane(name: 'waiting' | 'ended', cards: readonly Card[], v: ConductorView, opts: TerminalMarkupOptions): string {
+  if (cards.length === 0) return ''
+  const open = opts.lanes?.has(name) ? ' open' : ''
+  return `<details class="lane fold ${name}" data-key="${esc(`lane:${name}`)}"${open}><summary data-focus="${esc(`lane:${name}`)}">${laneHead(name, cards.length)}</summary>${div(
+    'rows',
+    ...cards.map((c) => row(c, v, opts))
+  )}</details>`
+}
+
+/** 승인 필요, 진행 중, 대기, 끝남 순으로 칸을 쌓는다. 승인과 진행은 늘 펼치고 대기와 끝남은 접어 둔다 */
+function lanes(m: TerminalModel, v: ConductorView, opts: TerminalMarkupOptions): string {
+  if (m.cards.length === 0 && m.approval.length === 0) return div('box muted', '진행 중인 주문이 없어요.')
+  return join(
+    `<section class="lane approval" data-key="lane:approval">${join(
+      laneHead('approval', m.approval.length),
+      m.approval.length === 0
+        ? div('muted lane-empty', '사람 확인을 기다리는 게이트가 없어요.')
+        : div('workers', ...m.approval.map((e) => (e.card ? card(e.card, v, opts, e.gates) : gateOnly(e, opts.private))))
+    )}</section>`,
+    `<section class="lane running" data-key="lane:running">${join(
+      laneHead('running', m.running.length),
+      m.running.length === 0 ? div('muted lane-empty', '지금 일하는 워커가 없어요.') : repoGroups(m.running, v, opts)
+    )}</section>`,
+    foldedLane('waiting', m.waiting, v, opts),
+    foldedLane('ended', m.ended, v, opts)
   )
 }
 
@@ -282,10 +350,10 @@ const EVENT_TONE: Record<string, string> = {
 const EVENT_LABEL: Record<string, string> = { bypass: BYPASS_LABEL, 'gate-opened': 'gate', 'gate-resolved': 'gate ✓' }
 
 /**
- * 인증 없는 폰 페이지에 요약을 싣는 이벤트. report, waiting, bypass 요약은 워커가 쓴 글이라
+ * 인증 없는 폰 페이지에 요약을 싣는 이벤트. report, waiting, bypass 요약과 gate-opened의 사유는 워커가 쓴 글이라
  * 경로나 토큰이 섞일 수 있어서 시각과 유형, 주문 id만 남긴다
  */
-const PUBLIC_SUMMARY = new Set(['checkpoint', 'gate-opened', 'gate-resolved'])
+const PUBLIC_SUMMARY = new Set(['checkpoint', 'gate-resolved'])
 const showSummary = (e: EventView, showPrivate: boolean) => showPrivate || PUBLIC_SUMMARY.has(e.type)
 const eventTag = (e: EventView) => span(lookup(EVENT_TONE, e.type) ?? '', lookup(EVENT_LABEL, e.type) ?? e.type)
 
@@ -344,9 +412,9 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
     div(
       'head',
       span('', 'GESTALT CONDUCTOR'),
-      span('k-orca', `ORCA ${m.kinds.orca}`),
-      span('k-git', `GIT ${m.kinds.git}`),
-      span('k-sub', `SUBAGENT ${m.kinds.sub}`)
+      span('k-gate', `승인 ${m.approval.length}`),
+      span('k-run', `진행 ${m.running.length}`),
+      span('k-wait', `대기 ${m.waiting.length}`)
     ),
     div('legend', ...LEGEND.map(([color, label]) => `<span><i style="background:${color}"></i>${esc(label)}</span>`)),
     v.state === 'error' &&
@@ -358,12 +426,7 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
     div(
       'grid',
       conductorBox(v, m, opts.now, opts.interactive),
-      div(
-        '',
-        m.cards.length > 0 ? repoGroups(m, v, opts) : div('box muted', '진행 중인 주문이 없어요.'),
-        div('flow', '──────── ● ──────── 결과 보고 → tick ──────── ● ────────'),
-        gateBoxes(m, v)
-      )
+      div('', lanes(m, v, opts))
     ),
     div('log', div('muted', 'event log'), m.events.length ? div('log-rows', ...m.events.map((e) => eventRow(e, opts.private))) : div('muted', '아직 이벤트가 없어요.')),
     div(
@@ -390,7 +453,7 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .tools { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 8px 14px 0; min-width: 0; }
 .tools .go { margin-top: 0; flex: none; }
 .viewer-note { color: var(--t-red); min-width: 0; overflow-wrap: anywhere; }
-.k-orca { color: var(--t-orange); } .k-git { color: var(--t-blue); } .k-sub { color: var(--t-green); }
+.k-gate { color: var(--t-yellow); } .k-run { color: var(--t-blue); } .k-wait { color: var(--t-dim); }
 .legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 18px; color: var(--t-dim); font-size: 11px; padding-bottom: 10px; }
 .legend i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; vertical-align: middle; }
 .alert { margin: 0 14px 10px; border: 1px solid var(--t-red); color: var(--t-red); padding: 6px 10px; }
@@ -471,11 +534,31 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .link-actions button { display: block; width: 100%; border: 0; border-radius: 3px; padding: 4px 8px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .link-actions button:hover, .link-actions button:focus-visible { background: var(--orca-accent, var(--t-line)); }
 .copy:focus-visible, .go:focus-visible, .more > summary:focus-visible { outline: 1px solid var(--t-fg); outline-offset: 2px; }
-.flow { display: flex; justify-content: center; color: var(--t-dim); margin: 6px 0; font-size: 11px; white-space: nowrap; overflow: hidden; }
-.gates { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-.gbox { border: 1px solid var(--t-yellow); padding: 6px 12px; text-align: center; max-width: 340px; }
-.gbox.none { border-color: var(--t-line); }
-.gbox .g { color: var(--t-yellow); font-weight: 700; }
+.lane + .lane { margin-top: 16px; }
+.lane-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-weight: 700; }
+.lane-head::after { content: ''; flex: 1; border-top: 1px solid var(--t-line); }
+.lane-head.approval .lane-name { color: var(--t-yellow); } .lane-head.running .lane-name { color: var(--t-blue); }
+.lane-head.waiting .lane-name, .lane-head.ended .lane-name { color: var(--t-dim); }
+.lane-empty { margin-bottom: 4px; }
+.lane.fold > summary { cursor: pointer; list-style: none; }
+.lane.fold > summary::-webkit-details-marker { display: none; }
+.lane.fold > summary .lane-name::before { content: '▸ '; } .lane.fold[open] > summary .lane-name::before { content: '▾ '; }
+.lane.fold > summary:focus-visible { outline: 1px solid var(--t-fg); outline-offset: 2px; }
+.lane.approval .w { border-color: var(--t-yellow); }
+.gate-info { display: grid; gap: 1px; margin: 2px 0 4px; }
+.gi { display: flex; flex-wrap: wrap; gap: 0 10px; }
+.gi .g { color: var(--t-yellow); font-weight: 700; }
+.gi .ready { color: var(--t-green); }
+.stall { color: var(--t-red); }
+.rows { display: grid; gap: 4px; }
+.w.row { padding: 4px 9px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 18em); gap: 10px; align-items: center; }
+.w.row .rt { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.w.row .tid { flex: none; color: var(--t-bg); background: var(--t-dim); padding: 0 6px; border-radius: 3px; }
+.w.row.orca .tid { background: var(--t-orange); } .w.row.git .tid { background: var(--t-blue); } .w.row.sub .tid { background: var(--t-green); }
+.w.row .ttl { min-width: 0; }
+.w.row .state { margin-top: 0; min-width: 0; }
+.w.row > .more { grid-column: 1 / -1; margin-top: 0; }
+.lane.ended .w.row { border-style: dashed; color: var(--t-dim); }
 .log { margin: 0 14px 10px; border: 1px solid var(--t-line); padding: 6px 10px; }
 .log-rows { max-height: 220px; overflow-y: auto; }
 .log .r { display: grid; grid-template-columns: 70px 96px 1fr; gap: 8px; white-space: nowrap; }
@@ -488,18 +571,16 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .cursor { display: inline-block; width: 7px; height: 12px; background: var(--t-green); animation: blink 1s infinite; }
 .empty { color: var(--t-dim); padding: 24px; text-align: center; }
 @media (max-width: 720px) { .grid { grid-template-columns: minmax(0, 1fr); } }
-/* 사이드바 폭. 머리글 한 줄, 컨덕터 요약, 카드 세로 목록, 게이트, 최근 이벤트 8줄, 상태줄 순으로 쌓는다 */
+/* 사이드바 폭. 머리글 한 줄, 컨덕터 요약, 네 칸, 최근 이벤트 8줄, 상태줄 순으로 쌓는다 */
 @media (max-width: 480px) {
   .term { font-size: 11px; }
-  .bar, .legend, .flow, .motto, .cmd { display: none; }
+  .bar, .legend, .motto, .cmd { display: none; }
   .head { justify-content: flex-start; gap: 10px; padding: 8px 8px 6px; letter-spacing: 0; }
   .tools { justify-content: flex-start; padding: 8px 8px 0; }
   .grid { gap: 8px; padding: 0 8px 8px; }
   .conductor h3 { display: none; }
   .workers { grid-template-columns: 1fr; gap: 8px; }
-  /* 세로 방향에서 wrap을 켜두면 줄 폭이 가장 긴 한 줄 문구 길이까지 늘어나 가로 스크롤이 생긴다 */
-  .gates { flex-direction: column; flex-wrap: nowrap; gap: 6px; margin-top: 8px; }
-  .gbox { max-width: none; text-align: left; padding: 6px 8px; }
+  .w.row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .alert { margin: 0 8px 8px; }
   .log { margin: 0 8px 8px; padding: 6px 8px; }
   .log-rows { max-height: none; overflow: visible; }

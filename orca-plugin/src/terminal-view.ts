@@ -16,9 +16,11 @@ type State = {
   openNote: string | null
   viewerNote: string | null
   open: Set<string>
+  /** 펼쳐 둔 대기, 끝남 칸. 다시 그릴 때마다 접히지 않게 기억한다 */
+  lanes: Set<string>
   live: Record<string, WorkerLive | 'loading'>
 }
-const state: State = { view: null, loadError: null, openError: null, openNote: null, viewerNote: null, open: new Set(), live: {} }
+const state: State = { view: null, loadError: null, openError: null, openNote: null, viewerNote: null, open: new Set(), lanes: new Set(), live: {} }
 const inflight = new Set<string>()
 let poll: ReturnType<typeof setInterval> | null = null
 let clockTimer: ReturnType<typeof setInterval> | null = null
@@ -303,6 +305,7 @@ function render(): void {
     openNote: state.openNote,
     viewerNote: state.viewerNote,
     open: state.open,
+    lanes: state.lanes,
     live: state.live
   })
   // 같은 마크업을 다시 넣으면 터미널 출력에서 고르던 글자와 포커스가 날아간다
@@ -345,7 +348,14 @@ function openTarget(e: Event): string | undefined {
 /** 펼침과 접힘. details의 toggle은 버블링하지 않아서 캡처 단계에서 받는다 */
 function onToggle(e: Event): void {
   const d = e.target
-  if (!(d instanceof HTMLDetailsElement) || !d.classList.contains('more')) return
+  if (!(d instanceof HTMLDetailsElement)) return
+  if (d.classList.contains('lane')) {
+    const lane = d.dataset['key']?.replace(/^lane:/, '')
+    if (lane && d.open) state.lanes.add(lane)
+    else if (lane) state.lanes.delete(lane)
+    return
+  }
+  if (!d.classList.contains('more')) return
   const id = d.dataset['key']?.replace(/^ord:/, '')
   if (!id) return
   if (d.open && !state.open.has(id)) {

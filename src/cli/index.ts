@@ -34,6 +34,7 @@ import {
   conductorBotItemDecideCommand,
   conductorBotGateCommand,
   conductorBotGithubCommand,
+  conductorBotHandoffCommand,
   conductorCheckBotMutation,
   conductorBotReleaseCommand,
   conductorCheckpointSaveCommand,
@@ -1112,6 +1113,19 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json')
     .action(conductorBotBindCommand);
+  bot
+    .command('handoff')
+    .description('기존 Orca 정기 자동화와 운영권을 함께 인계한다')
+    .requiredOption('--request <id>', '인계 요청 ID. 재시도할 때도 같은 값')
+    .requiredOption('--automation <id>', '기존 Orca 자동화 ID')
+    .requiredOption('--bot <name>', 'Orca 봇 이름')
+    .requiredOption('--from-chat <id>', '현재 운영 채팅 ID')
+    .requiredOption('--chat <id>', '새 운영 채팅 ID')
+    .option('--approve <snapshot>', '미리보기에서 받은 인계 승인값')
+    .option('--cancel', '자동화가 기존 채팅에 있을 때 진행 중인 요청 취소')
+    .addOption(stateDir())
+    .option('--json')
+    .action(conductorBotHandoffCommand);
   bot
     .command('release')
     .description('봇 운영을 마치고 터미널에서 이어받을 수 있게 한다')

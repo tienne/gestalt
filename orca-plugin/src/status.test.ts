@@ -109,6 +109,21 @@ test('awaitingDeploy는 true일 때만 싣고 꼴이 틀리면 버린다', () =>
   )
 })
 
+test('게이트의 approverReady는 불리언일 때만 싣는다', () => {
+  const raw = parseStatus({
+    lastTickAt: null,
+    orders: [],
+    gates: [
+      { id: 'g1', type: 'merge', orderId: 'a', reason: '', approverReady: true },
+      { id: 'g2', type: 'merge', orderId: 'b', reason: '', approverReady: false },
+      { id: 'g3', type: 'merge', orderId: 'c', reason: '', approverReady: 'yes' },
+      { id: 'g4', type: 'merge', orderId: 'd', reason: '' }
+    ]
+  })
+  assert.deepEqual(raw.gates.map((g) => g.approverReady), [true, false, undefined, undefined])
+  assert.equal('approverReady' in raw.gates[3]!, false)
+})
+
 test('isSafeId는 옵션처럼 읽히는 값을 막는다', () => {
   assert.equal(isSafeId('gate-1a2b3c4d'), true)
   assert.equal(isSafeId('--approve'), false)

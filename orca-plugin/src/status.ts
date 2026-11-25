@@ -318,6 +318,7 @@ export function parseStatus(value: unknown): RawStatus {
     }
     const openedAt = str(g['openedAt'])
     if (openedAt) gate.openedAt = openedAt
+    if (typeof g['approverReady'] === 'boolean') gate.approverReady = g['approverReady']
     gates.push(gate)
   }
   const stateDir = str(value['stateDir'])

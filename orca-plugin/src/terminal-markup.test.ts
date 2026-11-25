@@ -88,6 +88,7 @@ test('바깥 글은 제목과 게이트 사유, 이벤트 요약, 속성값까�
   has(html, 'data-order="ord-&quot;a"')
   has(html, 'aria-label="ord-&quot;a &lt;img src=x onerror=alert(1)&gt;"')
   has(html, 'title="&quot;&gt;&lt;script&gt;x&lt;/script&gt;"')
+  has(html, '>&quot;&gt;&lt;script&gt;x&lt;/script&gt;</div>')
 })
 
 test('데스크톱 화면은 저장소 경로와 CLI 오류 원문을 그대로 보여 준다', () => {
@@ -146,11 +147,15 @@ test('웹 페이지는 워커가 쓴 다음 할 일과 대기 사유, bypass, �
   const o = order('ord-a', {
     account: 'work-acct',
     checkpoint: { skill: 'ship', phase: 'ci', next: 'cat /Users/someone/.npmrc', completedSkills: [], savedAt: '' },
-    waiting: { reason: 'ghp_waitTOKEN 만료', since: '2026-11-12T01:00:00.000Z', until: '2026-11-12T03:00:00.000Z' },
     bypasses: [{ need: 'cleanup', action: 'rm -rf /Users/someone/tmp', at: '2026-11-12T01:10:00.000Z' }]
   })
-  const v = view([o], {
+  // 대기 사유가 있으면 대기 칸의 줄로 간다
+  const waiting = order('ord-w', { waiting: { reason: 'ghp_waitTOKEN 만료', since: '2026-11-12T01:00:00.000Z', until: '2026-11-12T03:00:00.000Z' } })
+  const v = view([o, waiting], {
+    // 게이트 사유는 워커가 넘긴 detail로 만들어 경로나 토큰이 섞일 수 있다
+    gates: [{ id: 'gx', type: 'merge', orderId: 'ord-a', reason: 'ghp_gateTOKEN · /Users/someone/gate', openedAt: '2026-11-12T01:30:00.000Z' }],
     recentEvents: [
+      { at: '2026-11-12T01:19:00.000Z', type: 'gate-opened', orderId: 'ord-a', summary: 'merge · ghp_gateTOKEN' },
       { at: '2026-11-12T01:20:00.000Z', type: 'report', orderId: 'ord-a', summary: 'done · ghp_reportTOKEN' },
       { at: '2026-11-12T01:21:00.000Z', type: 'waiting', orderId: 'ord-a', summary: '/Users/someone/wait' },
       { at: '2026-11-12T01:22:00.000Z', type: 'bypass', orderId: 'ord-a', summary: 'cleanup · /Users/someone/bypass' },
@@ -163,9 +168,11 @@ test('웹 페이지는 워커가 쓴 다음 할 일과 대기 사유, bypass, �
   has(web, '자동 처리 내역 <b class="b-purple">[1]</b>')
   has(web, 'ship → ci')
   has(web, '대기 ~')
+  has(web, '<span class="g">머지 승인</span>')
+  has(web, '사람 승인 대기')
 
   const desk = terminalMarkup(v, { now: NOW, interactive: true, private: true })
-  for (const shown of ['cat /Users/someone/.npmrc', 'ghp_waitTOKEN', '<span class="muted">계정</span><span class="ell">work-acct</span>', 'ghp_reportTOKEN', '자동 처리 내역 › rm -rf /Users/someone/tmp']) has(desk, shown)
+  for (const shown of ['cat /Users/someone/.npmrc', 'ghp_waitTOKEN', 'ghp_gateTOKEN · /Users/someone/gate', 'merge · ghp_gateTOKEN', '<span class="muted">계정</span><span class="ell">work-acct</span>', 'ghp_reportTOKEN', '자동 처리 내역 › rm -rf /Users/someone/tmp']) has(desk, shown)
 })
 
 test('모르는 이벤트 유형은 Object 원형에서 클래스나 이름을 꺼내지 않는다', () => {
@@ -338,4 +345,37 @@ test('카드는 레포별 묶음 안에 들고 묶음 머리에 프로젝트 이
   has(html, '<span class="rg-name">api</span><span class="rg-count">1</span>')
   assert.equal(html.indexOf('repo:acme/web') < html.indexOf('repo:acme/api'), true)
   lacks(html, '<span class="muted">레포</span>')
+})
+
+test('머리에 승인, 진행, 대기 수를 싣고 대기와 끝남 칸은 접어 둔다', () => {
+  const v = view(
+    [
+      order('ord-run', { workerStatus: 'running' }),
+      order('ord-wait', { workerStatus: 'running', waiting: { reason: 'CI', since: '2026-11-12T01:00:00.000Z' } }),
+      order('ord-end', { workerStatus: 'released' }),
+      order('ord-gate', { status: 'waiting-gate', workerStatus: 'running', pr: 'acme/web#9' })
+    ],
+    {
+      gates: [
+        { id: 'g', type: 'merge', orderId: 'ord-gate', reason: 'PR 머지', openedAt: '2026-11-12T01:50:00.000Z', approverReady: true },
+        { id: 'g2', type: 'no-procedure', orderId: null, reason: '절차 없음' }
+      ]
+    }
+  )
+  for (const opts of [
+    { now: NOW, interactive: true, private: true },
+    { now: NOW, interactive: false, private: false }
+  ]) {
+    const html = terminalMarkup(v, opts)
+    has(html, '<span class="k-gate">승인 2</span><span class="k-run">진행 1</span><span class="k-wait">대기 1</span>')
+    has(html, '<details class="lane fold waiting" data-key="lane:waiting">')
+    has(html, '<details class="lane fold ended" data-key="lane:ended">')
+    has(html, '<span class="g">머지 승인</span><span class="muted">10분째</span><span>acme/web#9</span><span class="ready">봇 채팅으로 닫기</span>')
+    // approverReady를 안 주는 게이트는 그 칸을 그리지 않는다
+    lacks(html, '터미널 필요')
+    has(html, 'conductor · 3 workers')
+  }
+  const opened = terminalMarkup(v, { now: NOW, interactive: true, private: true, lanes: new Set(['waiting']) })
+  has(opened, 'data-key="lane:waiting" open>')
+  has(opened, 'data-key="lane:ended">')
 })
