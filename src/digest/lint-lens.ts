@@ -26,6 +26,19 @@ export function numbersIn(text: string): number[] {
   return out;
 }
 
+/**
+ * 원문 쪽 숫자. numbersIn에 더해 영문자 뒤 -나 /에 붙은 이름 속 숫자(release/20260721의 20260721)도 모은다.
+ * 리포트 쪽은 numbersIn 그대로라 원문이 허락하는 숫자만 넓어진다. 줄임 꼴(0721)은 접미 일치로 받지 않는다
+ */
+export function sourceNumbersIn(text: string): number[] {
+  const out = numbersIn(text);
+  for (const m of text.matchAll(/(?<=[A-Za-z][-/])\d+(?:\.\d+)?(?![A-Za-z0-9_])/g)) {
+    const n = Number(m[0]);
+    if (Number.isFinite(n)) out.push(n);
+  }
+  return out;
+}
+
 type Walked = { bullet: Bullet; path: string };
 
 function* walk(bullets: Bullet[], prefix: string): Generator<Walked> {
@@ -56,7 +69,7 @@ function allowedNumbers(
   extra: Cite[] = [],
 ): Set<number> {
   const allowed = new Set<number>();
-  const add = (text: string) => numbersIn(text).forEach((n) => allowed.add(n));
+  const add = (text: string) => sourceNumbersIn(text).forEach((n) => allowed.add(n));
   for (const ev of evidence) {
     if (isCellRef(ev)) {
       const table = source?.tables.find((t) => t.id === ev.table);
