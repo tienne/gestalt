@@ -13,7 +13,7 @@ triggers:
   - '이 컨플루언스 문서 렌즈로 읽어줘'
   - '이 글 비유 넣어 렌즈로 읽어줘'
 routing:
-  note: 'lens ingest로 문단 단위 원문과 표, 그림을 받는다 → lens-reader가 리포트 작성 → digest merge로 표 칸과 의심 표시 숫자 대조 → lens knowledge로 노트 후보 찾기 → lens-context가 맥락 카드, lens-link가 연결 카드 작성 → 두 초안을 합쳐 lens attach → 윤문 → render → serve. 기본(difficulty 비었거나 easy)은 lens-reader가 보통 리포트를 풀어 쓴 쉬운 리포트를 더하고 뷰어가 쉬운 리포트를 먼저 연다. difficulty=normal이면 보통 리포트만 쓰고 이미 있는 쉬운 리포트는 다시 쓴다. templates를 받으면 템플릿마다 확장 리포트를 써서 merge --extension으로 합친다. 이미 수집한 slug면 수집을, 이미 있는 리포트는 다시 쓰지 않는다. 유튜브 주소면 video-digest, 경쟁사 조사 안의 자료면 research'
+  note: 'lens ingest로 문단 단위 원문과 표, 그림을 받는다 → lens-reader가 리포트 작성 → digest merge로 표 칸과 의심 표시 숫자 대조 → lens knowledge로 노트 후보 찾기 → lens-context가 맥락 카드, lens-link가 연결 카드 작성 → 두 초안을 합쳐 lens attach → 윤문 → render → serve. 기본(difficulty 비었거나 easy)은 lens-reader가 보통 리포트를 풀어 쓴 쉬운 리포트를 더하고 뷰어가 쉬운 리포트를 먼저 연다. difficulty=normal이면 보통 리포트를 새로 쓰고 이미 있는 쉬운 리포트도 바탕이 바뀌어서 다시 쓴다. 쉬운 리포트가 없으면 새로 만들지 않는다. templates를 받으면 템플릿마다 확장 리포트를 써서 merge --extension으로 합친다. 이미 수집한 slug면 수집을, 이미 있는 리포트는 다시 쓰지 않는다. 유튜브 주소면 video-digest, 경쟁사 조사 안의 자료면 research'
 inputs:
   source:
     type: string
@@ -50,7 +50,7 @@ inputs:
   difficulty:
     type: string
     required: false
-    description: "만들 난이도. 비우면 'easy'와 같다. 보통 리포트를 쓰고 그걸 풀어 쓴 쉬운 리포트를 더하며 뷰어는 쉬운 리포트를 먼저 연다. 'easy'를 직접 주면 쉬운 리포트가 이미 있어도 다시 쓴다. 'normal'은 보통 리포트만 쓰고 이미 있어도 다시 쓰며 쉬운 리포트가 있으면 그것도 다시 쓴다"
+    description: "만들 난이도. 비우면 'easy'와 같다. 보통 리포트를 쓰고 그걸 풀어 쓴 쉬운 리포트를 더하며 뷰어는 쉬운 리포트를 먼저 연다. 'easy'를 직접 주면 쉬운 리포트가 이미 있어도 다시 쓴다. 'normal'은 보통 리포트를 쓰고 이미 있어도 다시 쓴다. 쉬운 리포트는 이미 있으면 다시 쓰고 없으면 새로 만들지 않는다"
   templates:
     type: string
     required: false
