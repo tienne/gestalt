@@ -27,6 +27,7 @@ import {
 } from '../../../src/conductor/engine.js';
 import { readWorkerInfo } from '../../../src/conductor/activity.js';
 import { GhAccounts } from '../../../src/conductor/adapters.js';
+import { decisionReceipt, matchBotGate } from '../../../src/conductor/bot-approval.js';
 import {
   approveDeployment,
   readDeploymentEvidence,
@@ -3003,7 +3004,11 @@ describe('파일 겹침', () => {
     const runner: CommandRunner = async (_cmd, args, opts) => {
       if (args[0] === 'merge-base') return { code: 0, stdout: 'abcdef1\n', stderr: '' };
       if (args[0] === 'diff')
-        return { code: 0, stdout: (files[opts?.cwd ?? ''] ?? []).join('\n'), stderr: '' };
+        return {
+          code: 0,
+          stdout: (files[opts?.cwd ?? ''] ?? []).join(args.includes('-z') ? '\0' : '\n'),
+          stderr: '',
+        };
       return { code: 0, stdout: '', stderr: '' };
     };
     for (const [i, list] of lists.entries()) {
@@ -3023,7 +3028,7 @@ describe('파일 겹침', () => {
       );
     }
     const { deps: d } = deps({ gitRunner: runner, transcriptRoots: [] });
-    return { store, advance, d };
+    return { store, advance, d, files };
   }
 
   it('겹치면 경고 한 줄과 겹친 파일을 남기고 기준 이하면 게이트는 안 연다', async () => {
@@ -3048,6 +3053,34 @@ describe('파일 겹침', () => {
     resolveGate(store, gates[0]!.id, 'approved');
     await tick(store, d, { force: true });
     expect(store.openGates()).toHaveLength(0);
+  });
+
+  it('20번째 이후 겹치는 파일이 바뀌어도 이전 승인 전달을 막고 최신 범위를 모두 남긴다', async () => {
+    const common = Array.from({ length: 25 }, (_, i) => `before-${String(i).padStart(2, '0')}.ts`);
+    const { store, d, files } = overlapSetup(common, common);
+    await tick(store, d, { force: true });
+    const [gate] = store.openGates('ord-b');
+    const receipt = decisionReceipt(store, matchBotGate(store, gate!.id), 'decision-fixture');
+    resolveGate(store, gate!.id, 'approved', undefined, { receipt, deliveryPending: true });
+    for (const cwd of Object.keys(files)) files[cwd] = [...common.slice(0, -1), 'z-after.ts'];
+
+    const reopened = ConductorStore.open(store.dir);
+    const result = await tick(reopened, d, { force: true });
+    expect(result.hostActions).not.toContainEqual(
+      expect.objectContaining({ type: 'send', workerId: 'wrk-b' }),
+    );
+    const [latest] = reopened.openGates('ord-b');
+    expect(latest!.id).not.toBe(gate!.id);
+    expect(latest).toMatchObject({
+      refs: [...common.slice(0, -1), 'z-after.ts'],
+      reason: expect.stringContaining('현재 25개'),
+      payload: { overlapWith: 'ord-a' },
+    });
+    expect(latest!.payload?.overlapDigest).not.toBe(gate!.payload?.overlapDigest);
+    expect(reopened.snapshot.gates[gate!.id]).toMatchObject({
+      deliveryOutcome: 'superseded',
+      receipt,
+    });
   });
 
   it('앞 주문 둘과 겹치면 한 상대씩 묻고 답을 받은 뒤 다음 상대를 묻는다', async () => {

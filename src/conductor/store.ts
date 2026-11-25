@@ -147,15 +147,24 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       if (e.gate.orderId !== undefined && isRetired(s, e.gate.orderId)) return;
       s.gates[e.gate.id] = { ...e.gate };
       Reflect.deleteProperty(s.gates[e.gate.id]!, 'slackReplacement');
+      invalidateReplacedReview(s, e.gate);
       return;
     case 'gate-updated': {
       const g = s.gates[e.gateId];
-      if (g) s.gates[e.gateId] = { ...g, reason: e.reason, refs: [...e.refs] };
+      if (!g) return;
+      const next = {
+        ...g,
+        reason: e.reason,
+        refs: [...e.refs],
+        ...(e.payload ? { payload: e.payload } : {}),
+      };
+      s.gates[e.gateId] = next;
+      invalidateReplacedReview(s, next);
       return;
     }
     case 'gate-resolved': {
       const g = s.gates[e.gateId];
-      if (g) {
+      if (g?.status === 'open') {
         s.gates[e.gateId] = {
           ...g,
           status: 'resolved',
@@ -165,8 +174,10 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
           ...(e.answer !== undefined ? { answer: e.answer } : {}),
           ...(e.deliveryPending ? { deliveryPending: true } : {}),
           ...(e.decisionBy ? { decisionBy: e.decisionBy } : {}),
+          ...(e.receipt ? { receipt: e.receipt } : {}),
           ...(e.decisionSource ? { decisionSource: e.decisionSource } : {}),
         };
+        if (e.receipt && e.decision !== 'taken-over') applyDecisionToOrder(s, g, e.decision, e.at);
       }
       return;
     }
@@ -192,16 +203,20 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       return;
     case 'gate-delivery': {
       const g = s.gates[e.gateId];
-      if (!g) return;
+      if (!g || (e.pending && g.receipt && g.deliveryOutcome === 'superseded')) return;
       const next: Gate = { ...g };
       if (e.pending) {
         next.deliveryPending = true;
         if (e.attempts !== undefined) next.deliveryAttempts = e.attempts;
       } else {
         delete next.deliveryPending;
-        delete next.deliveryAttempts;
-        if (e.outcome) next.deliveryOutcome = e.outcome;
+        if (!g.receipt) delete next.deliveryAttempts;
       }
+      if (e.outcome) next.deliveryOutcome = e.outcome;
+      if (e.detail) next.deliveryDetail = e.detail;
+      else delete next.deliveryDetail;
+      if (e.hostOfferedAt && !next.hostOfferedAt) next.hostOfferedAt = e.hostOfferedAt;
+      if (e.workerReport && !next.workerReport) next.workerReport = e.workerReport;
       s.gates[e.gateId] = next;
       return;
     }
@@ -263,6 +278,71 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     case 'tail-repaired':
       return;
   }
+}
+
+function invalidateReplacedReview(s: ConductorSnapshot, replacement: Gate): void {
+  const priorId = replacement.payload?.reapprovalOf;
+  if (
+    replacement.type !== 'review-manual-switch' ||
+    replacement.status !== 'open' ||
+    replacement.orderId ||
+    !priorId ||
+    priorId === replacement.id
+  )
+    return;
+  const prior = s.gates[priorId];
+  if (
+    prior?.type !== 'review-manual-switch' ||
+    prior.orderId ||
+    !prior.receipt ||
+    !prior.deliveryPending
+  )
+    return;
+  // 새 질문을 쓴 순간부터 기존 서명은 재시작 뒤에도 효력이 없다.
+  const reason = replacement.payload?.reapprovalReason ?? replacement.reason;
+  const next: Gate = {
+    ...prior,
+    deliveryOutcome: 'superseded',
+    deliveryDetail: `${reason}. 새 게이트 ${replacement.id}에서 다시 결정해 주세요`,
+  };
+  delete next.deliveryPending;
+  s.gates[prior.id] = next;
+}
+
+function applyDecisionToOrder(
+  s: ConductorSnapshot,
+  gate: Gate,
+  decision: 'approved' | 'rejected',
+  at: string,
+): void {
+  const effects = decisionOrderEffects(s, gate, decision);
+  if (!effects) return;
+  const order = s.orders[effects.orderId]!;
+  s.orders[order.id] = { ...order, status: effects.status, updatedAt: at };
+  if (effects.workerId) {
+    const next = { ...s.workers[effects.workerId]!, lastSeenAt: at };
+    delete next.waiting;
+    s.workers[next.id] = next;
+  }
+}
+
+export function decisionOrderEffects(
+  s: Readonly<ConductorSnapshot>,
+  gate: Gate,
+  decision: 'approved' | 'rejected',
+): { orderId: string; status: Order['status']; workerId?: string } | undefined {
+  const order = gate.orderId ? s.orders[gate.orderId] : undefined;
+  if (!order || (order.status !== 'waiting-gate' && order.status !== 'escalated')) return;
+  if (Object.values(s.gates).some((g) => g.orderId === order.id && g.status === 'open')) return;
+  if (order.mergedAt !== undefined) {
+    const status = decision === 'approved' ? 'merged' : 'escalated';
+    if (order.status === status) return;
+    return { orderId: order.id, status };
+  }
+  const worker = order.workerId ? s.workers[order.workerId] : undefined;
+  if (worker && (worker.status === 'running' || worker.status === 'starting'))
+    return { orderId: order.id, status: 'running', workerId: worker.id };
+  return { orderId: order.id, status: decision === 'approved' ? 'queued' : 'cancelled' };
 }
 
 const REMOVAL_WORDS = {
@@ -336,6 +416,8 @@ export function removalBlocker(
     return `열린 게이트가 있어서 못 ${cannot}: ${orderId}`;
   if (action === 'archive' && gates.some((g) => g.approvedDeployment && !g.completion))
     return `배포 완료 증빙을 대조 중이라 못 ${cannot}: ${orderId}`;
+  if (action === 'archive' && gates.some((g) => g.deliveryPending))
+    return `승인 결정 전달 결과를 확인 중이라 못 ${cannot}: ${orderId}`;
   const workers = workersOfOrder(s, o.id, index);
   if (workers.some((w) => ACTIVE_WORKER_STATUSES.has(w.status)))
     return `도는 워커가 있어서 못 ${cannot}: ${orderId}`;
