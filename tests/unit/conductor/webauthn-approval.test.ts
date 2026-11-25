@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   approvalGateHandlers,
+  APPROVER_SERVER_ERROR,
   conductorApproverEnrollCommand,
 } from '../../../src/cli/commands/conductor-approval.js';
 import {
@@ -108,6 +109,12 @@ function fakePr(head = sha) {
     statusCheckRollup: [],
   };
   executable(join(bin, 'gh'), `echo '${JSON.stringify(evidence)}'`);
+  vi.stubEnv('PATH', `${bin}:${process.env['PATH'] ?? ''}`);
+}
+
+function failingGh() {
+  const bin = tempStateDir();
+  executable(join(bin, 'gh'), 'exit 1');
   vi.stubEnv('PATH', `${bin}:${process.env['PATH'] ?? ''}`);
 }
 
@@ -452,14 +459,54 @@ describe('Touch ID 승인 경계', () => {
     ).resolves.toMatchObject({ decision: 'approved' });
   });
 
-  it('요청 쪽 문제가 아닌 실패는 400으로 바꾸지 않아 서버가 500으로 감춘다', async () => {
-    const { credential } = p256();
+  it('정책 파일이 깨졌으면 승인 페이지에 경로 없이 읽지 못했다는 안내를 400으로 돌려준다', async () => {
+    const { privateKey, credential } = p256();
     const { store, gate } = await fixture('file-overlap', credential);
-    writeFileSync(join(store.dir, BOT_POLICY_FILE), '{');
     const handlers = approvalGateHandlers({ stateDir: store.dir }, APPROVAL_PORT);
-    const error = await handlers.gateOptions(gate.id, 'approved').catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(Error);
-    expect(error).not.toBeInstanceOf(HttpError);
+    const { nonce } = await handlers.gateOptions(gate.id, 'approved');
+    writeFileSync(join(store.dir, BOT_POLICY_FILE), '{');
+    const raw = assert(
+      privateKey,
+      credential.credentialId,
+      messageFor(store, gate.id, 'approved'),
+      {
+        nonce,
+      },
+    );
+    for (const failed of [
+      await handlers.gateOptions(gate.id, 'approved').catch((e: unknown) => e),
+      await handlers.decide(gate.id, 'approved', raw, nonce).catch((e: unknown) => e),
+    ]) {
+      expect(failed).toBeInstanceOf(HttpError);
+      expect(failed).toMatchObject({
+        status: 400,
+        message: expect.stringContaining('읽지 못해서'),
+      });
+      expect((failed as Error).message).not.toContain(store.dir);
+    }
+  });
+
+  it('GitHub을 읽지 못하면 다시 시도할 수 있게 원문을 400으로 돌려준다', async () => {
+    const { privateKey, credential } = p256();
+    const { store, gate } = await fixture('merge', credential);
+    fakePr();
+    const handlers = approvalGateHandlers({ stateDir: store.dir }, APPROVAL_PORT);
+    const { nonce } = await handlers.gateOptions(gate.id, 'approved');
+    const raw = assert(
+      privateKey,
+      credential.credentialId,
+      messageFor(store, gate.id, 'approved', sha),
+      { nonce },
+    );
+    failingGh();
+    for (const request of [
+      () => handlers.gateOptions(gate.id, 'approved'),
+      () => handlers.decide(gate.id, 'approved', raw, nonce),
+    ])
+      await expect(request()).rejects.toMatchObject({
+        status: 400,
+        message: 'GitHub에서 검증 결과를 읽지 못했어요',
+      });
   });
 
   it('정책 파일이 깨졌으면 안내 에러를 내고 파일을 건드리지 않는다', async () => {
@@ -616,6 +663,7 @@ describe('승인 페이지 서버', () => {
         },
         decide: async () => ({}),
       },
+      serverErrorMessage: APPROVER_SERVER_ERROR,
     });
     try {
       const body = JSON.stringify({ decision: 'approved' });
@@ -639,7 +687,7 @@ describe('승인 페이지 서버', () => {
       expect((await call(port, '/api/gate/g1/options', headers, body, 'PUT')).status).toBe(405);
       const failed = await call(port, '/api/gate/g1/options', headers, body);
       expect(failed.status).toBe(500);
-      expect(failed.body).not.toContain('secret internal detail');
+      expect(JSON.parse(failed.body)).toEqual({ error: APPROVER_SERVER_ERROR });
       expect(lines.join('\n')).toContain('secret internal detail');
     } finally {
       await server.close();

@@ -42,6 +42,10 @@ async function asInput<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+/** 승인자는 터미널을 안 보므로 다시 시도하거나 봇 채팅에 알리는 길만 안내한다. 원인은 approval-server.log에 남는다 */
+export const APPROVER_SERVER_ERROR =
+  '승인 서버가 요청을 처리하지 못했어요. 잠시 뒤 다시 시도하고 계속되면 운영 봇 채팅에 알려 주세요';
+
 const NONCE_TTL_MS = 2 * 60_000;
 const MAX_NONCES = 64;
 
@@ -136,6 +140,7 @@ export async function conductorApprovalServeCommand(
       store,
       handlers: approvalGateHandlers({ stateDir }, port),
       idleMs: idleSec * 1000,
+      serverErrorMessage: APPROVER_SERVER_ERROR,
       onIdle: () => void server.close().then(() => process.exit(0)),
     });
     console.error(`Touch ID 승인 페이지를 ${origin}에 띄웠어요`);

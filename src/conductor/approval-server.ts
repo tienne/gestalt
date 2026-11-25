@@ -97,6 +97,8 @@ export function startApprovalServer(opts: {
   store?: string;
   idleMs?: number;
   onIdle?: () => void;
+  /** 내부 실패를 감출 때 보여 줄 문구. 승인자가 보는 서버와 운영자 터미널의 등록 서버가 할 일이 달라 나눈다 */
+  serverErrorMessage?: string;
 }): Promise<ApprovalServer> {
   const origin = approvalOrigin(opts.port);
   const host = `localhost:${opts.port}`;
@@ -161,7 +163,9 @@ export function startApprovalServer(opts: {
       if (error instanceof HttpError) return json(res, error.status, { error: error.message });
       console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
       json(res, 500, {
-        error: '승인 서버가 요청을 처리하지 못했어요. 터미널 로그를 확인해 주세요',
+        error:
+          opts.serverErrorMessage ??
+          '승인 서버가 요청을 처리하지 못했어요. 터미널 로그를 확인해 주세요',
       });
     });
   };

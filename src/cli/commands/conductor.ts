@@ -2498,6 +2498,13 @@ async function applyBotDecision(
   }
 }
 
+/** 승인 페이지는 승인자가 보는 자리라 깨진 정책 파일도 경로 대신 안내 문구로 돌려준다 */
+function touchIdPolicy(dir: string, gate: Gate, repo: string): Record<string, unknown> {
+  const read = peekBotPolicy(dir);
+  if ('unreadable' in read) throw new InputError(approverGuidance(gate, repo, 'unreadable'));
+  return assertApproverReady(read.policy, gate, repo);
+}
+
 /**
  * Touch ID 승인 페이지가 서명 전에 보여 줄 게이트 내용과 challenge. 봇 운영권 없이 승인자 본인이 연다.
  * nonce는 승인 서버가 발급해 메모리에 둔 값이다
@@ -2512,7 +2519,7 @@ export async function touchIdGateOptions(
   if (!ctx.store.snapshot.gates[gateId]) throw new InputError('게이트를 찾을 수 없어요');
   const target = matchBotGate(ctx.store, gateId);
   if (target.gate.status !== 'open') throw new InputError('이미 닫힌 게이트예요');
-  const policy = assertApproverReady(loadBotPolicy(ctx.store.dir), target.gate, target.repo);
+  const policy = touchIdPolicy(ctx.store.dir, target.gate, target.repo);
   const approvers = webAuthnApprovers(policy, target.gate.type, target.repo);
   if (!approvers.length)
     throw new InputError(
@@ -2554,8 +2561,7 @@ export async function touchIdGateDecide(
     ? undefined
     : matchBotGate(ctx.store, gateId);
   const beforeTarget = target ? decisionTarget(ctx.store, target) : undefined;
-  if (target?.gate.status === 'open')
-    assertApproverReady(loadBotPolicy(ctx.store.dir), target.gate, target.repo);
+  if (target?.gate.status === 'open') touchIdPolicy(ctx.store.dir, target.gate, target.repo);
   const evidence = target?.gate.status === 'open' ? await botGateEvidence(ctx, target) : undefined;
   return applyBotDecision(
     ctx,
