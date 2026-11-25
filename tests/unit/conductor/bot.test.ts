@@ -11,7 +11,12 @@ import {
   conductorWorkerDecisionCommand,
 } from '../../../src/cli/commands/conductor.js';
 import { GhAccounts, fileQueue } from '../../../src/conductor/adapters.js';
-import { approvalMessage, BOT_POLICY_FILE } from '../../../src/conductor/bot-approval.js';
+import {
+  approvalMessage,
+  BOT_POLICY_FILE,
+  gateApprovalMessage,
+  matchBotGate,
+} from '../../../src/conductor/bot-approval.js';
 import { readGithubOrder, handleGithubOrder } from '../../../src/conductor/bot-github.js';
 import {
   assertBotOwner,
@@ -157,6 +162,9 @@ function gateFixture(kind: Worker['kind'] = 'git-worktree') {
       mergeApprovers: {
         [repo]: { 'approver-1': publicKey.export({ type: 'spki', format: 'pem' }) },
       },
+      gateApprovers: {
+        [repo]: { 'approver-1': publicKey.export({ type: 'spki', format: 'pem' }) },
+      },
     }),
   );
   changeBotOwner(store.dir, undefined, owner);
@@ -171,7 +179,7 @@ function gateFixture(kind: Worker['kind'] = 'git-worktree') {
     signer: 'approver-1',
     signature: signed,
   };
-  return { store, gate, opts, w };
+  return { store, gate, opts, w, privateKey };
 }
 
 const prEvidence = { head: sha, base: 'main', state: 'OPEN', draft: false };
@@ -293,6 +301,80 @@ describe('Orca 채팅 머지 승인', () => {
       delivery: 'delivered',
       deliveryPending: false,
       deliveryAttempts: 2,
+      processing: 'unknown',
+    });
+  });
+
+  it('전달이 대기 중이면 끝난 워커의 일반 정리도 보류한다', async () => {
+    fakeOrca(owner);
+    fakePr();
+    const { store, gate, opts, w } = gateFixture('orca-worktree');
+    await conductorBotDecideCommand(gate.id, opts);
+    store.reload();
+    store.append({
+      type: 'gate-delivery',
+      at: store.timestamp(),
+      gateId: gate.id,
+      pending: true,
+      outcome: 'unknown',
+      attempts: 1,
+    });
+    store.updateWorker(w.id, { status: 'finished' });
+    store.updateOrder(w.orderId, { status: 'done' });
+    const release = vi.fn();
+    const read = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('GitHub 장애'))
+      .mockResolvedValue(prEvidence);
+    const deps = {
+      ...tickDeps(),
+      readApprovalEvidence: read,
+      launchers: {
+        'orca-worktree': { kind: 'orca-worktree' as const, release, send: vi.fn(), start: vi.fn() },
+      },
+    };
+    const reopened = ConductorStore.open(store.dir);
+    const pending = await tick(reopened, deps, { force: true });
+    expect(release).not.toHaveBeenCalled();
+    expect(pending.warnings).toContainEqual(
+      expect.stringContaining('승인 결정 전달 결과를 확인 중'),
+    );
+    expect(reopened.snapshot.gates[gate.id]).toMatchObject({
+      deliveryPending: true,
+      deliveryOutcome: 'unknown',
+    });
+    await tick(reopened, deps, { force: true });
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(reopened.snapshot.gates[gate.id]?.deliveryPending).toBeUndefined();
+  });
+
+  it('재리뷰를 승인할 때의 base가 바뀌면 서명된 결정으로 주문을 만들지 않는다', async () => {
+    fakeOrca(owner);
+    fakePr();
+    const { store, opts, privateKey } = gateFixture();
+    const { gate } = openOrReuse(store, {
+      type: 'review-manual-switch',
+      reason: '답글 재리뷰',
+      refs: [pr],
+      payload: { prRef: pr, sourceRef: `pr-watch:replies:${pr}@${sha}:1` },
+    });
+    const signature = sign(
+      null,
+      Buffer.from(gateApprovalMessage(matchBotGate(store, gate.id), undefined, 'approved')),
+      privateKey,
+    ).toString('base64');
+    await conductorBotDecideCommand(gate.id, { ...opts, signature });
+    expect(last()).toMatchObject({ target: { base: 'main', head: sha }, delivery: 'pending' });
+    const reopened = ConductorStore.open(store.dir);
+    const result = await tick(
+      reopened,
+      { ...tickDeps(), readApprovalEvidence: async () => ({ ...prEvidence, base: 'release' }) },
+      { force: true },
+    );
+    expect(result.created).toHaveLength(0);
+    expect(reopened.snapshot.gates[gate.id]).toMatchObject({
+      deliveryOutcome: 'superseded',
+      deliveryDetail: expect.stringContaining('base 브랜치'),
     });
   });
 
@@ -374,12 +456,39 @@ describe('Orca 채팅 머지 승인', () => {
     expect(received).toMatchObject({
       deliveryId,
       alreadyReceived: false,
+      processing: 'pending',
       message: expect.stringContaining(sha),
     });
+    lines.length = 0;
     await conductorWorkerDecisionCommand(claim);
     expect(last()).toEqual({ ...received, alreadyReceived: true });
     await conductorBotGateCommand(gate.id, opts);
-    expect(last()).toMatchObject({ deliveryId, delivery: 'delivered' });
+    expect(last()).toMatchObject({
+      deliveryId,
+      delivery: 'host-action',
+      processing: 'pending',
+      deliveryPending: true,
+    });
+    await conductorWorkerDecisionCommand({
+      ...claim,
+      report: 'https://github.com/acme/app/pull/42',
+    });
+    const processing = last();
+    expect(processing).toMatchObject({
+      deliveryId,
+      processing: 'reported',
+      workerReport: { workerId: w.id },
+    });
+    expect(processing).not.toHaveProperty('message');
+    await conductorWorkerDecisionCommand(claim);
+    expect(last()).toEqual(processing);
+    await conductorBotGateCommand(gate.id, opts);
+    expect(last()).toMatchObject({
+      deliveryId,
+      delivery: 'delivered',
+      processing: 'reported',
+      deliveryPending: false,
+    });
   });
 
   it('패널이 먼저 거절한 뒤 늦게 온 채팅 승인은 기존 결정을 바꾸지 않는다', async () => {

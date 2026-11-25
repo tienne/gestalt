@@ -227,6 +227,7 @@ describe('Orca 항목 답으로 게이트 종료', () => {
   it('파일 중첩과 리뷰 수동 전환 게이트도 gateApprovers 서명으로 닫는다', async () => {
     for (const type of ['file-overlap', 'review-manual-switch'] as const) {
       const item = fakeOrca(owner);
+      if (type === 'review-manual-switch') fakePr();
       const { store, gate, privateKey } = fixture(type);
       const sig = signFor(store, gate, privateKey, 'rejected');
       item(show(store, gate, `거절\napprover-1 ${sig}`));
