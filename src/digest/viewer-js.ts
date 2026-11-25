@@ -1450,6 +1450,37 @@ export const VIEWER_JS =
     try { labels = JSON.parse(r.getAttribute('data-labels') || '[]'); } catch (e) {}
     if (labels[r.value]) r.setAttribute('aria-valuetext', labels[r.value]);
   });
+  // 단계형 그림은 이전, 다음 버튼과 좌우 화살표로 미리 그려 둔 단계를 하나씩 넘긴다
+  function stepWidget(box, delta) {
+    var states = box.querySelectorAll('[data-w-state]');
+    var n = states.length;
+    if (!n) return;
+    var cur = 0;
+    states.forEach(function(s, i){ if (!s.hidden) cur = i; });
+    var next = Math.max(0, Math.min(n - 1, cur + delta));
+    showWidgetState(box, String(next));
+    var pos = box.querySelector('.w-pos');
+    if (pos) pos.textContent = '단계 ' + (next + 1) + ' / ' + n;
+    var prev = box.querySelector('[data-w-step="prev"]');
+    var fwd = box.querySelector('[data-w-step="next"]');
+    // disabled로 막으면 버튼에 있던 포커스가 빠져 화살표 키가 더는 안 먹는다
+    if (prev) prev.setAttribute('aria-disabled', next === 0 ? 'true' : 'false');
+    if (fwd) fwd.setAttribute('aria-disabled', next === n - 1 ? 'true' : 'false');
+  }
+  document.addEventListener('click', function(ev){
+    var b = ev.target.closest ? ev.target.closest('[data-w-step]') : null;
+    if (!b) return;
+    var box = b.closest('[data-widget]');
+    if (box) stepWidget(box, b.getAttribute('data-w-step') === 'next' ? 1 : -1);
+  });
+  document.addEventListener('keydown', function(ev){
+    if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+    var nav = ev.target.closest ? ev.target.closest('[data-w-steps]') : null;
+    var box = nav && nav.closest('[data-widget]');
+    if (!box) return;
+    ev.preventDefault();
+    stepWidget(box, ev.key === 'ArrowRight' ? 1 : -1);
+  });
   // 한계 단락의 맥락 카드 링크를 누르면 접힌 카드를 펼친다
   document.addEventListener('click', function(ev){
     var a = ev.target.closest ? ev.target.closest('a.card-ref') : null;

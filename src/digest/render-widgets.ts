@@ -1,5 +1,12 @@
 import type { LensHtmlContext } from './render-lens.js';
 import type { Widget, WidgetValue } from './lens-widget-schema.js';
+import {
+  FLOW_WIDGET_CSS,
+  ILL_TAG,
+  flowWidgetHtml,
+  flowWidgetMarkdown,
+  isFlowWidget,
+} from './render-widgets-flow.js';
 
 /**
  * 인터랙티브 그림 렌더러. 상태마다 그림을 다 그려 두고 하나만 보인다.
@@ -13,8 +20,13 @@ export const WIDGET_BADGE: Record<Widget['class'], string> = {
   D: '원문 설명을 그림으로 옮김',
 };
 
-/** D 그림의 원문에 없는 요소에 붙는 꼬리표 */
-const ILL_TAG = '예시';
+/** 비유 표는 구분과 상관없이 이 배지를 단다. 비유가 원문 설명처럼 읽히지 않게 한다 */
+const ANALOGY_BADGE = '비유, 원문에 없는 설명';
+
+const badgeOf = (w: Widget) =>
+  w.kind === 'analogyMap'
+    ? { label: ANALOGY_BADGE, cls: 'analogy' }
+    : { label: WIDGET_BADGE[w.class], cls: w.class };
 
 /** 값 글자. 표 칸 출처가 있으면 원문 칸 글자를 그대로 보인다(0.2862를 0.29로 바꾸지 않는다) */
 function valueText(v: WidgetValue, ctx: LensHtmlContext): string {
@@ -154,14 +166,16 @@ function beforeAfterHtml(
 }
 
 export function widgetHtml(w: Widget, ctx: LensHtmlContext): string {
-  const body =
-    w.kind === 'toggleBars'
+  const body = isFlowWidget(w)
+    ? flowWidgetHtml(w, ctx)
+    : w.kind === 'toggleBars'
       ? toggleBarsHtml(w, ctx)
       : w.kind === 'heatmap'
         ? heatmapHtml(w, ctx)
         : w.kind === 'stepSlider'
           ? stepSliderHtml(w, ctx)
           : beforeAfterHtml(w, ctx);
+  const badge = badgeOf(w);
   const diffs =
     (w.class === 'C' || w.class === 'D') && w.differences?.length
       ? `<div class="w-diffs"><b>${w.class === 'C' ? '원문 그림과 다른 점' : '원문 설명과 다르게 옮긴 점'}</b><ul>${w.differences
@@ -176,13 +190,13 @@ export function widgetHtml(w: Widget, ctx: LensHtmlContext): string {
     fig?.image && !ctx.omitCrops
       ? `<figure class="w-original"><img src="${ctx.escape(fig.image)}" alt="그림 ${ctx.escape(fig.number)} 원문" loading="lazy"><figcaption>원문 그림 ${ctx.escape(fig.number)} ${ctx.loc(fig.unit)}</figcaption></figure>`
       : '';
-  const head = `<p class="w-head"><span class="w-badge w-badge-${w.class}">${WIDGET_BADGE[w.class]}</span> <b>${ctx.escape(w.title)}</b>${ctx.cite(w.cite)}</p>${diffs}${w.caption ? `<p class="w-caption">${ctx.inline(w.caption)}</p>` : ''}`;
+  const head = `<p class="w-head"><span class="w-badge w-badge-${badge.cls}">${badge.label}</span> <b>${ctx.escape(w.title)}</b>${ctx.cite(w.cite)}</p>${diffs}${w.caption ? `<p class="w-caption">${ctx.inline(w.caption)}</p>` : ''}`;
   const inner = `<div class="w-body">${body}</div>`;
   return `<figure class="widget w-${w.class}" data-widget id="${ctx.pfx ?? ''}w-${ctx.escape(w.id)}">${head}${original ? `<div class="w-pair">${original}${inner}</div>` : inner}</figure>`;
 }
 
 export function widgetMarkdown(w: Widget, ctx: { cell: (v: WidgetValue) => string }): string[] {
-  const out = [`**${w.title}** *(${WIDGET_BADGE[w.class]})*`, ''];
+  const out = [`**${w.title}** *(${badgeOf(w).label})*`, ''];
   if ((w.class === 'C' || w.class === 'D') && w.differences?.length) {
     out.push(
       w.class === 'C' ? '원문 그림과 다른 점:' : '원문 설명과 다르게 옮긴 점:',
@@ -191,7 +205,9 @@ export function widgetMarkdown(w: Widget, ctx: { cell: (v: WidgetValue) => strin
     );
   }
   const ill = (label: string, on?: boolean) => (on ? `${label} (${ILL_TAG})` : label);
-  if (w.kind === 'toggleBars') {
+  if (isFlowWidget(w)) {
+    out.push(...flowWidgetMarkdown(w));
+  } else if (w.kind === 'toggleBars') {
     out.push(`| 항목 | ${w.toggle.off} | ${w.toggle.on} |`, '| --- | --- | --- |');
     for (const it of w.items)
       out.push(`| ${it.label} | ${ctx.cell(it.off)} | ${ctx.cell(it.on)} |`);
@@ -221,7 +237,7 @@ export function widgetMarkdown(w: Widget, ctx: { cell: (v: WidgetValue) => strin
   return out;
 }
 
-export const WIDGET_CSS = `
+export const WIDGET_CSS = `${FLOW_WIDGET_CSS}
 .widget{margin:16px 0;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:10px 14px}
 .w-head{margin:0 0 6px}
 .w-badge{display:inline-block;font-size:.75em;font-weight:700;border-radius:999px;padding:1px 9px;border:1px solid currentColor}
@@ -229,6 +245,7 @@ export const WIDGET_CSS = `
 .w-badge-B{color:var(--muted)}
 .w-badge-C{color:var(--warn)}
 .w-badge-D{color:var(--fg)}
+.w-badge-analogy{color:var(--warn);border-style:dashed}
 .w-ill-tag{font-size:.75em;color:var(--muted);border:1px dashed var(--muted);border-radius:4px;padding:0 4px}
 li.w-ill{color:var(--muted)}
 .ws-svg .w-ill circle{stroke-dasharray:3 2;stroke:var(--muted)}
