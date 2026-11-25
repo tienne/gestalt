@@ -11,19 +11,24 @@ import {
 import {
   approvalMessage,
   BOT_POLICY_FILE,
+  decisionId,
+  decisionTarget,
   gateApprovalMessage,
   matchBotGate,
 } from '../../../src/conductor/bot-approval.js';
 import { changeBotOwner } from '../../../src/conductor/bot-owner.js';
+import { tick } from '../../../src/conductor/engine.js';
 import { openOrReuse } from '../../../src/conductor/gates.js';
+import { OrcaLauncher } from '../../../src/conductor/launcher.js';
+import * as attestation from '../../../src/conductor/orca-approval-attestation.js';
 import {
   itemBinding,
-  OrcaContractError,
   parseItemShow,
   readItemDecision,
 } from '../../../src/conductor/orca-item-approval.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import type { Gate } from '../../../src/conductor/types.js';
+import { loadConfig } from '../../../src/core/config.js';
 import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
 
 // 가상 레포, 봇, 승인자만 쓴다
@@ -68,7 +73,7 @@ esac`,
   return (show: unknown) => writeFileSync(itemFile, JSON.stringify({ ok: true, result: show }));
 }
 
-function fakePr(head = sha, base = 'main') {
+function fakePr(head = sha, base = 'main', change?: { headRefOid?: string; baseRefName?: string }) {
   const bin = tempStateDir();
   const evidence = {
     headRefOid: head,
@@ -77,7 +82,18 @@ function fakePr(head = sha, base = 'main') {
     isDraft: false,
     statusCheckRollup: [{ name: 'CI', conclusion: 'SUCCESS' }],
   };
-  executable(join(bin, 'gh'), `echo '${JSON.stringify(evidence)}'`);
+  const first = `echo '${JSON.stringify(evidence)}'`;
+  executable(
+    join(bin, 'gh'),
+    change
+      ? `if [ -e '${bin}/read' ]; then
+  echo '${JSON.stringify({ ...evidence, ...change })}'
+else
+  touch '${bin}/read'
+  ${first}
+fi`
+      : first,
+  );
   vi.stubEnv('PATH', `${bin}:${process.env['PATH'] ?? ''}`);
 }
 
@@ -100,10 +116,13 @@ afterEach(() => {
 
 const last = () => JSON.parse(lines.at(-1)!);
 
-function fixture(type: 'merge' | 'file-overlap' | 'review-manual-switch' = 'merge') {
+function fixture(
+  type: 'merge' | 'file-overlap' | 'review-manual-switch' = 'merge',
+  workerOverrides: Parameters<typeof worker>[1] = { kind: 'git-worktree' },
+) {
   const store = ConductorStore.open(tempStateDir());
   const o = order({ repo, prRef: pr, status: 'running' });
-  const w = worker(o.id, { kind: 'git-worktree' });
+  const w = worker(o.id, workerOverrides);
   store.addOrder({ ...o, workerId: w.id });
   store.startWorker(w);
   const { gate } = openOrReuse(store, {
@@ -173,7 +192,7 @@ function show(
         id: 'e12',
         kind: 'commented',
         actor: over.answerActor ?? { kind: 'owner' },
-        data: { text: answerText },
+        data: { text: answerText, answers: 'e11' },
       },
     ],
   };
@@ -194,6 +213,10 @@ describe('Orca 항목 답으로 게이트 종료', () => {
     await conductorBotGateCommand(gate.id, { stateDir: store.dir });
     const listed = last();
     expect(listed.orcaItem.binding).toBe(itemBinding(matchBotGate(store, gate.id), sha));
+    expect(listed.orcaItem).toMatchObject({
+      options: [],
+      buttonApproval: { enabled: false, diagnostic: expect.stringContaining('공식 승인 증빙') },
+    });
     expect(listed.type).toBe('merge');
 
     const sig = signFor(store, gate, privateKey, 'approved');
@@ -201,6 +224,7 @@ describe('Orca 항목 답으로 게이트 종료', () => {
     await conductorBotItemDecideCommand(gate.id, itemOpts(store));
     expect(last()).toMatchObject({
       decision: 'approved',
+      decisionId: decisionId('approver-1', sig),
       signer: 'approver-1',
       delivery: 'pending',
       source: { kind: 'orca-item', item: 7, question: 'e11', answer: 'e12', botId: owner.botId },
@@ -285,7 +309,12 @@ describe('Orca 항목 답으로 게이트 종료', () => {
     const item = fakeOrca(owner);
     fakePr();
     const { store, gate } = fixture('merge');
-    item(show(store, gate, '승인'));
+    const reply = show(store, gate, '승인');
+    reply.events[2]!.data = {
+      ...reply.events[2]!.data,
+      attestation: { issuer: 'claimed', authorized: true },
+    };
+    item(reply);
     await expect(conductorBotItemDecideCommand(gate.id, itemOpts(store))).rejects.toThrow('exit 1');
     expect(lines.at(-1)).toContain('승인자 서명이 없어');
     expect(lines.at(-1)).toContain('레포별 승인 권한');
@@ -349,6 +378,252 @@ describe('Orca 항목 답으로 게이트 종료', () => {
   });
 });
 
+describe('Orca 공식 승인 증빙 계약', () => {
+  type Proof = Omit<attestation.OrcaApprovalAttestation, 'signature'>;
+
+  function buttonFixture(
+    decision: Proof['decision'] = 'approved',
+    change?: Parameters<typeof fakePr>[2],
+    workerOverrides?: Parameters<typeof fixture>[1],
+  ) {
+    const item = fakeOrca(owner);
+    fakePr(sha, 'main', change);
+    const { store, gate, privateKey: approverKey } = fixture('merge', workerOverrides);
+    item(show(store, gate, decision === 'approved' ? '승인' : '거절'));
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const now = Date.now();
+    const proof: Proof = {
+      version: 'gestalt/orca-approval/v1',
+      issuer: 'orca-fixture',
+      botId: owner.botId,
+      chatId: owner.chatId,
+      item: 7,
+      itemUid: 'uid-7',
+      question: 'e11',
+      answer: 'e12',
+      decision,
+      targetHash: attestation.orcaApprovalTargetHash(
+        decisionTarget(store, matchBotGate(store, gate.id)),
+        { head: sha, base: 'main' },
+      ),
+      approver: 'approver-1',
+      authorized: true,
+      issuedAt: now - 100,
+      expiresAt: now + 60_000,
+    };
+    const read = vi.fn<attestation.OrcaApprovalIssuer['read']>();
+    const official = vi.spyOn(attestation, 'officialOrcaApprovalIssuer').mockResolvedValue({
+      id: proof.issuer,
+      publicKey: publicKey.export({ type: 'spki', format: 'pem' }),
+      read,
+    });
+    const issue = (overrides: Partial<Proof> = {}, key = privateKey) => {
+      const p = { ...proof, ...overrides };
+      const bytes = JSON.stringify([
+        p.version,
+        p.issuer,
+        p.botId,
+        p.chatId,
+        p.item,
+        p.itemUid,
+        p.question,
+        p.answer,
+        p.decision,
+        p.targetHash,
+        p.approver,
+        p.authorized,
+        p.issuedAt,
+        p.expiresAt,
+      ]);
+      return { ...p, signature: sign(null, Buffer.from(bytes), key).toString('base64') };
+    };
+    read.mockResolvedValue(issue());
+    return { store, gate, now, proof, read, official, issue, approverKey };
+  }
+
+  it.each(['approved', 'rejected'] as const)(
+    '같은 범위의 %s 결정만 한 번 기록하고 기존 방식으로 전달한다',
+    async (decision) => {
+      const { store, gate, proof, read, official } = buttonFixture(decision);
+      await conductorBotGateCommand(gate.id, { stateDir: store.dir });
+      expect(last().orcaItem).toMatchObject({
+        options: ['승인', '거절'],
+        buttonApproval: { enabled: true, targetHash: proof.targetHash },
+      });
+
+      await conductorBotItemDecideCommand(gate.id, itemOpts(store));
+      expect(read).toHaveBeenCalledExactlyOnceWith({
+        kind: 'orca-item',
+        botId: proof.botId,
+        chatId: proof.chatId,
+        item: proof.item,
+        itemUid: proof.itemUid,
+        question: proof.question,
+        answer: proof.answer,
+      });
+      expect(last()).toMatchObject({
+        decision,
+        signer: proof.approver,
+        delivery: 'pending',
+        decisionId: expect.stringMatching(/^[0-9a-f]{64}$/),
+        deliveryId: expect.any(String),
+        source: { attestation: { issuer: proof.issuer } },
+      });
+      const reported = last();
+      store.reload();
+      const recorded = store.snapshot.gates[gate.id]!;
+      if (decision === 'approved') expect(recorded.answer).toContain(`--match-head-commit ${sha}`);
+      else expect(recorded.answer).toBeUndefined();
+      const count = store.snapshot.eventCount;
+
+      official.mockResolvedValue(undefined);
+      await conductorBotItemDecideCommand(gate.id, itemOpts(store));
+      expect(last()).toMatchObject({
+        decision,
+        decisionId: reported.decisionId,
+        deliveryId: reported.deliveryId,
+        source: reported.source,
+        alreadyResolved: true,
+        sameAnswer: true,
+      });
+      expect(read).toHaveBeenCalledTimes(1);
+      store.reload();
+      expect(store.snapshot.eventCount).toBe(count);
+    },
+  );
+
+  it('동시 접수와 전달 기록 중단 뒤에도 같은 결정과 전달 ID를 쓴다', async () => {
+    const { store, gate } = buttonFixture('approved', undefined, {
+      kind: 'orca-worktree',
+      handle: 'ctx_approval',
+    });
+    await Promise.all([
+      conductorBotItemDecideCommand(gate.id, itemOpts(store)),
+      conductorBotItemDecideCommand(gate.id, itemOpts(store)),
+    ]);
+    store.reload();
+    const receipt = store.snapshot.gates[gate.id]!.receipt!;
+    const receipts = lines.map((line) => JSON.parse(line));
+    expect(receipts.filter(({ alreadyResolved }) => !alreadyResolved)).toHaveLength(1);
+    expect(receipts).toEqual([
+      expect.objectContaining({ decisionId: receipt.id, deliveryId: receipt.deliveryId }),
+      expect.objectContaining({
+        sameAnswer: true,
+        decisionId: receipt.id,
+        deliveryId: receipt.deliveryId,
+      }),
+    ]);
+
+    const deliveries: string[] = [];
+    const accepted = new Set<string>();
+    const launcher = new OrcaLauncher({
+      orcaCommand: 'fixture-orca',
+      promptDir: tempStateDir(),
+      repoPaths: {},
+      runner: async (_cmd, args) => {
+        expect(args.slice(0, 4)).toEqual([
+          'orchestration',
+          'send',
+          '--to',
+          'dispatch:ctx_approval',
+        ]);
+        const id = args[args.indexOf('--retry-request') + 1]!;
+        deliveries.push(id);
+        accepted.add(id);
+        return { code: 0, stdout: 'Sent msg-fixture', stderr: '' };
+      },
+    });
+    const deps = {
+      config: loadConfig().conductor,
+      env: {},
+      launchers: { 'orca-worktree': launcher },
+      orcaAvailable: true,
+      readApprovalEvidence: async () => ({ head: sha, base: 'main', state: 'OPEN', draft: false }),
+    };
+    const append = store.append.bind(store);
+    vi.spyOn(store, 'append').mockImplementation((event) => {
+      if (event.type === 'gate-delivery' && event.outcome === 'delivered')
+        throw new Error('전송 직후 기록 중단');
+      append(event);
+    });
+    await tick(store, deps, { force: true });
+    const reopened = ConductorStore.open(store.dir);
+    expect(reopened.snapshot.gates[gate.id]).toMatchObject({ receipt, deliveryOutcome: 'unknown' });
+    await tick(reopened, deps, { force: true });
+    await tick(ConductorStore.open(store.dir), deps, { force: true });
+    expect(deliveries).toEqual([receipt.deliveryId, receipt.deliveryId]);
+    expect(accepted.size).toBe(1);
+    await conductorBotGateCommand(gate.id, { stateDir: store.dir });
+    expect(last()).toMatchObject({
+      decisionId: receipt.id,
+      deliveryId: receipt.deliveryId,
+      delivery: 'delivered',
+      deliveryPending: false,
+    });
+  });
+
+  it.each<[Partial<Proof>, string]>([
+    [{ issuer: 'other-issuer' }, '발행자가 달라요'],
+    [{ botId: other.botId }, '봇, 채팅, 항목 또는 이벤트가 달라요'],
+    [{ chatId: other.chatId }, '봇, 채팅, 항목 또는 이벤트가 달라요'],
+    [{ item: 8 }, '봇, 채팅, 항목 또는 이벤트가 달라요'],
+    [{ itemUid: 'another-item' }, '봇, 채팅, 항목 또는 이벤트가 달라요'],
+    [{ question: 'e20' }, '봇, 채팅, 항목 또는 이벤트가 달라요'],
+    [{ answer: 'e13' }, '봇, 채팅, 항목 또는 이벤트가 달라요'],
+    [{ decision: 'rejected' }, '결정이 달라요'],
+    [{ targetHash: '0'.repeat(64) }, '게이트 대상이 달라요'],
+    [{ authorized: false }, 'Orca가 확인한 승인 권한이 없어요'],
+    [{ approver: 'unlisted' }, '이 레포의 머지 승인 권한이 없는'],
+  ])('다른 값으로 발행한 증빙 %j을 거절한다', async (overrides, reason) => {
+    const { store, gate, issue, read } = buttonFixture();
+    const count = store.snapshot.eventCount;
+    read.mockResolvedValue(issue(overrides));
+    await expect(conductorBotItemDecideCommand(gate.id, itemOpts(store))).rejects.toThrow('exit 1');
+    expect(lines.at(-1)).toContain(reason);
+    store.reload();
+    expect(store.snapshot.eventCount).toBe(count);
+  });
+
+  it.each(['expired', 'future', 'tampered', 'wrong-key', 'missing'] as const)(
+    '%s 증빙으로는 게이트를 닫지 않는다',
+    async (caseName) => {
+      const { store, gate, proof, now, issue, read, approverKey } = buttonFixture();
+      const fixtures = {
+        expired: { value: issue({ expiresAt: now - 1 }), reason: '유효기간' },
+        future: { value: issue({ issuedAt: proof.expiresAt - 1 }), reason: '유효기간' },
+        tampered: { value: { ...issue(), expiresAt: proof.expiresAt + 1 }, reason: '증빙 서명' },
+        'wrong-key': { value: issue({}, approverKey), reason: '증빙 서명' },
+        missing: { value: undefined, reason: '증빙 형식' },
+      };
+      const { value, reason } = fixtures[caseName];
+      read.mockResolvedValue(value);
+      await expect(conductorBotItemDecideCommand(gate.id, itemOpts(store))).rejects.toThrow(
+        'exit 1',
+      );
+      expect(lines.at(-1)).toContain(reason);
+      store.reload();
+      expect(store.snapshot.gates[gate.id]).toMatchObject({ status: 'open' });
+    },
+  );
+
+  it.each([
+    [{ headRefOid: 'b'.repeat(40) }, 'PR HEAD가 바뀌었어요'],
+    [{ baseRefName: 'release' }, 'PR의 base 브랜치가 바뀌었어요'],
+  ] as const)(
+    '증빙이 맞아도 잠금 안에서 PR 대상이 바뀌면 결정하지 않는다',
+    async (change, reason) => {
+      const { store, gate, read } = buttonFixture('approved', change);
+      await expect(conductorBotItemDecideCommand(gate.id, itemOpts(store))).rejects.toThrow(
+        'exit 1',
+      );
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(lines.at(-1)).toContain(reason);
+      store.reload();
+      expect(store.snapshot.gates[gate.id]).toMatchObject({ status: 'open' });
+    },
+  );
+});
+
 describe('Orca 항목 답 판독', () => {
   const store = () => fixture('file-overlap');
   const read = (s: unknown, gate: Gate, st: ConductorStore, over = {}) =>
@@ -381,7 +656,13 @@ describe('Orca 항목 답 판독', () => {
     expect(() => read(show(st, gate, `constructor\n서명 x ${sig}`), gate, st)).toThrow(
       '승인이나 거절로 읽을 수 없는',
     );
-    expect(() => read(show(st, gate, '승인'), gate, st)).toThrow(OrcaContractError);
+    expect(read(show(st, gate, '승인'), gate, st)).toMatchObject({
+      decision: 'approved',
+      kind: 'button',
+    });
+    const wrongQuestion = show(st, gate, '승인');
+    wrongQuestion.events[2]!.data = { text: '승인', answers: 'e10' };
+    expect(() => read(wrongQuestion, gate, st)).toThrow('답의 질문이 달라요');
     const newer = {
       id: 'e115',
       kind: 'commented',

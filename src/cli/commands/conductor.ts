@@ -22,7 +22,19 @@ import {
   verifyGateApproval,
   type BotGate,
 } from '../../conductor/bot-approval.js';
-import { itemBinding, readItemDecision, readOrcaItem } from '../../conductor/orca-item-approval.js';
+import {
+  officialOrcaApprovalIssuer,
+  ORCA_APPROVAL_UNAVAILABLE,
+  orcaApprovalTargetHash,
+  verifyOrcaApproval,
+  type OrcaApprovalIssuer,
+} from '../../conductor/orca-approval-attestation.js';
+import {
+  itemBinding,
+  OrcaContractError,
+  readItemDecision,
+  readOrcaItem,
+} from '../../conductor/orca-item-approval.js';
 import {
   assertBotOwner,
   changeBotOwner,
@@ -2106,6 +2118,7 @@ function botDecisionStatus(gate: Gate) {
   const source = gate.decisionSource;
   const decided =
     gate.decision === 'approved' ? '승인' : gate.decision === 'rejected' ? '거절' : gate.decision;
+  const approvalLabel = source?.attestation ? 'Orca 증빙' : '서명';
   return {
     gateId: gate.id,
     decision: gate.decision ?? 'open',
@@ -2142,7 +2155,7 @@ function botDecisionStatus(gate: Gate) {
     ...(gate.decision
       ? {
           itemReport: [
-            `판단: ${decided}${gate.decisionBy ? ` (서명 ${gate.decisionBy})` : ''}${source ? `, Orca 항목 ${source.item}의 답 ${source.answer}` : ''}`,
+            `판단: ${decided}${gate.decisionBy ? ` (${approvalLabel} ${gate.decisionBy})` : ''}${source ? `, Orca 항목 ${source.item}의 답 ${source.answer}` : ''}`,
             ...(receipt ? [`결정 접수 및 게이트 반영: ${gate.resolvedAt}`] : []),
             `워커 전달: ${DELIVERY_LABELS[delivery] ?? delivery}${gate.deliveryAttempts ? `, 시도 ${gate.deliveryAttempts}번` : ''}`,
             ...(gate.workerReport ? [`워커 처리 보고: ${gate.workerReport.ref}`] : []),
@@ -2195,7 +2208,7 @@ export async function conductorBotGateCommand(
 ): Promise<void> {
   try {
     const ctx = open(opts);
-    await requireBotOperator(ctx);
+    const caller = await requireBotOperator(ctx);
     const resolved = ctx.store.snapshot.gates[gateId];
     if (resolved?.receipt) {
       const { repo, prRef } = resolved.receipt;
@@ -2223,6 +2236,7 @@ export async function conductorBotGateCommand(
     };
     if (gate.status === 'resolved') return print(base);
     const evidence = await botGateEvidence(ctx, target);
+    const issuer = await officialOrcaApprovalIssuer(caller);
     print({
       ...base,
       ...(evidence ? { evidence } : {}),
@@ -2232,7 +2246,13 @@ export async function conductorBotGateCommand(
       },
       orcaItem: {
         binding: itemBinding(target, evidence?.head, evidence?.base),
-        options: ['승인', '거절'],
+        options: issuer ? ['승인', '거절'] : [],
+        buttonApproval: issuer
+          ? {
+              enabled: true,
+              targetHash: orcaApprovalTargetHash(decisionTarget(ctx.store, target), evidence),
+            }
+          : { enabled: false, diagnostic: ORCA_APPROVAL_UNAVAILABLE },
         answer: '첫 줄에 승인 또는 거절, 둘째 줄에 서명 <승인자-ID> <base64>',
       },
     });
@@ -2241,24 +2261,45 @@ export async function conductorBotGateCommand(
   }
 }
 
-interface SignedDecision {
-  decision: 'approved' | 'rejected';
-  signer: string;
-  signature: string;
+type BotDecision = { decision: 'approved' | 'rejected' } & (
+  | { signer: string; signature: string; source?: Gate['decisionSource'] }
+  | { issuer: OrcaApprovalIssuer; proof: unknown; source: NonNullable<Gate['decisionSource']> }
+);
+
+function verifyBotDecision(
+  policy: Record<string, unknown>,
+  target: BotGate,
+  receiptTarget: string,
+  evidence: Awaited<ReturnType<typeof botGateEvidence>>,
+  request: BotDecision,
+): { id: string; signer: string; source?: Gate['decisionSource']; expiresAt?: number } {
+  if ('issuer' in request) {
+    const { issuer, proof, decision, source } = request;
+    const targetHash = orcaApprovalTargetHash(receiptTarget, evidence);
+    return verifyOrcaApproval(issuer, proof, { source, decision, target, targetHash }, policy);
+  }
+  verifyGateApproval(
+    policy,
+    target.gate.type,
+    target.repo,
+    request.signer,
+    gateApprovalMessage(target, evidence?.head, request.decision, evidence?.base),
+    request.signature,
+  );
+  return { ...request, id: decisionId(request.signer, request.signature) };
 }
 
 /**
- * 잠금 안에서 게이트를 다시 읽고 서명을 확인한 뒤 닫는다. 머지는 잠금 안에서 GitHub HEAD를 한 번 더 읽어
- * 서명한 HEAD와 같을 때만 닫는다
+ * 잠금 안에서 게이트와 승인 근거를 확인한다. 머지 결정은 GitHub HEAD까지 다시 읽어 승인 대상과 맞춘다.
  */
-async function applySignedDecision(
+async function applyBotDecision(
   ctx: Ctx,
   caller: BotOwner,
   gateId: string,
   beforeTarget: string | undefined,
   evidence: Awaited<ReturnType<typeof botGateEvidence>>,
-  signed: SignedDecision,
-  extra: { source?: Gate['decisionSource']; sameSource?: (gate: Gate) => boolean } = {},
+  request: BotDecision,
+  sameSource?: (gate: Gate) => boolean,
 ) {
   const lock = await waitForDecisionLock(ctx);
   try {
@@ -2269,27 +2310,27 @@ async function applySignedDecision(
       return print({
         ...botDecisionStatus(existing),
         alreadyResolved: true,
-        ...(existing.receipt
+        ...(existing.receipt && 'signature' in request
           ? {
               sameDecision:
-                existing.decision === signed.decision &&
-                existing.receipt.id === decisionId(signed.signer, signed.signature),
+                existing.decision === request.decision &&
+                existing.receipt.id === decisionId(request.signer, request.signature),
             }
           : {}),
-        ...(extra.sameSource ? { sameAnswer: extra.sameSource(existing) } : {}),
+        ...(sameSource ? { sameAnswer: sameSource(existing) } : {}),
       });
     const current = matchBotGate(ctx.store, gateId);
-    if (decisionTarget(ctx.store, current) !== beforeTarget)
+    const receiptTarget = decisionTarget(ctx.store, current);
+    if (receiptTarget !== beforeTarget)
       throw new Error('게이트나 PR이 바뀌었어요. 다시 확인해 주세요');
     const head = evidence?.head;
-    // 서명이 틀린 요청은 GitHub를 부르기 전에 거절해 잠금을 오래 잡지 않는다
-    verifyGateApproval(
+    const { decision } = request;
+    const approval = verifyBotDecision(
       readBotPolicy(ctx.store.dir),
-      current.gate.type,
-      current.repo,
-      signed.signer,
-      gateApprovalMessage(current, head, signed.decision, evidence?.base),
-      signed.signature,
+      current,
+      receiptTarget,
+      evidence,
+      request,
     );
     let checked: typeof evidence;
     if (current.ref) {
@@ -2300,26 +2341,23 @@ async function applySignedDecision(
         throw new Error('PR의 base 브랜치가 바뀌었어요. 다시 확인해 주세요');
       if (
         current.gate.type === 'merge' &&
-        signed.decision === 'approved' &&
+        decision === 'approved' &&
         (now.state !== 'OPEN' || now.draft)
       )
         throw new Error('리뷰 준비가 끝난 열린 PR만 머지 승인할 수 있어요');
       checked = now;
     }
+    if (approval.expiresAt !== undefined && approval.expiresAt <= Date.now())
+      throw new Error('Orca 승인 증빙의 유효기간을 벗어났어요');
     const answer =
-      current.gate.type === 'merge' && checked && signed.decision === 'approved'
+      current.gate.type === 'merge' && checked && decision === 'approved'
         ? `승인된 PR HEAD는 ${checked.head}입니다. 머지는 반드시 --match-head-commit ${checked.head}로 제한하세요. HEAD가 바뀌면 새 승인을 요청하세요.`
         : undefined;
-    const closed = resolveGate(ctx.store, gateId, signed.decision, answer, {
+    const closed = resolveGate(ctx.store, gateId, decision, answer, {
       deliveryPending: true,
-      decisionBy: signed.signer,
-      receipt: decisionReceipt(
-        ctx.store,
-        current,
-        decisionId(signed.signer, signed.signature),
-        checked,
-      ),
-      ...(extra.source ? { decisionSource: extra.source } : {}),
+      decisionBy: approval.signer,
+      receipt: decisionReceipt(ctx.store, current, approval.id, checked),
+      ...(approval.source ? { decisionSource: approval.source } : {}),
     });
     print({ ...botDecisionStatus(closed), errors: [] });
   } finally {
@@ -2345,7 +2383,7 @@ export async function conductorBotDecideCommand(
     const beforeTarget = target ? decisionTarget(ctx.store, target) : undefined;
     const evidence =
       target?.gate.status === 'open' ? await botGateEvidence(ctx, target) : undefined;
-    await applySignedDecision(ctx, caller, gateId, beforeTarget, evidence, {
+    await applyBotDecision(ctx, caller, gateId, beforeTarget, evidence, {
       decision,
       signer: opts.signer,
       signature: opts.signature,
@@ -2356,8 +2394,7 @@ export async function conductorBotDecideCommand(
 }
 
 /**
- * Orca 항목에 사람이 단 답으로 게이트를 닫는다. 채팅에 옮겨 적은 말이 아니라 Orca가 저장한 항목을 직접 읽고
- * 운영 봇, 채팅, 항목, 질문, 답 이벤트와 게이트를 맞춰 본 뒤 기존 승인자 서명을 확인한다
+ * Orca가 저장한 항목의 답을 확인하고 승인자 서명이나 공식 증빙으로 게이트를 닫는다.
  */
 export async function conductorBotItemDecideCommand(
   gateId: string,
@@ -2369,7 +2406,9 @@ export async function conductorBotItemDecideCommand(
     const item = Number(opts.item);
     if (!Number.isSafeInteger(item) || item <= 0) throw new Error('--item은 Orca 항목 번호예요');
     const sameSource = (gate: Gate) =>
-      gate.decisionSource?.item === item &&
+      gate.decisionSource?.botId === caller.botId &&
+      gate.decisionSource.chatId === caller.chatId &&
+      gate.decisionSource.item === item &&
       gate.decisionSource.question === opts.question &&
       gate.decisionSource.answer === opts.answer;
     const resolved = ctx.store.snapshot.gates[gateId];
@@ -2391,10 +2430,22 @@ export async function conductorBotItemDecideCommand(
       answer: opts.answer,
       binding: itemBinding(target, evidence?.head, evidence?.base),
     });
-    await applySignedDecision(ctx, caller, gateId, beforeTarget, evidence, read, {
-      source: read.source,
+    if (read.kind === 'signed') {
+      await applyBotDecision(ctx, caller, gateId, beforeTarget, evidence, read, sameSource);
+      return;
+    }
+    const issuer = await officialOrcaApprovalIssuer(caller);
+    if (!issuer) throw new OrcaContractError();
+    const proof = await issuer.read(read.source);
+    await applyBotDecision(
+      ctx,
+      caller,
+      gateId,
+      beforeTarget,
+      evidence,
+      { ...read, issuer, proof },
       sameSource,
-    });
+    );
   } catch (error) {
     exitWithError(error);
   }
