@@ -28,3 +28,6 @@ export const CAPTION_LABEL: Record<Transcript['meta']['captionSource'], string> 
   whisper: '음성 인식(whisper)',
   text: '본문 추출',
 };
+
+/** 마크다운 표 칸에서 세로줄과 줄바꿈이 표를 깨지 않게 한다 */
+export const mdCell = (text: string) => text.replace(/\|/g, '\\|').replace(/\s+/g, ' ');

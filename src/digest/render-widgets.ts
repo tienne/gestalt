@@ -1,5 +1,21 @@
 import type { LensHtmlContext } from './render-lens.js';
+import { mdCell } from './format.js';
+import { mdInline } from './render-blocks.js';
 import type { Widget, WidgetValue } from './lens-widget-schema.js';
+import {
+  FLOW_WIDGET_CSS,
+  ILL_TAG,
+  ill,
+  flowWidgetHtml,
+  flowWidgetMarkdown,
+  isFlowWidget,
+} from './render-widgets-flow.js';
+import {
+  GRAPH_WIDGET_CSS,
+  graphWidgetHtml,
+  graphWidgetMarkdown,
+  isGraphWidget,
+} from './render-widgets-graph.js';
 
 /**
  * 인터랙티브 그림 렌더러. 상태마다 그림을 다 그려 두고 하나만 보인다.
@@ -10,7 +26,16 @@ export const WIDGET_BADGE: Record<Widget['class'], string> = {
   A: '원문 표 데이터',
   B: '설명용, 원문 데이터 아님',
   C: 'AI가 이해한 대로 다시 그림',
+  D: '원문 설명을 그림으로 옮김',
 };
+
+/** 비유 표는 구분과 상관없이 이 배지를 단다. 비유가 원문 설명처럼 읽히지 않게 한다 */
+const ANALOGY_BADGE = '비유, 원문에 없는 설명';
+
+const badgeOf = (w: Widget) =>
+  w.kind === 'analogyMap'
+    ? { label: ANALOGY_BADGE, cls: 'analogy' }
+    : { label: WIDGET_BADGE[w.class], cls: w.class };
 
 /** 값 글자. 표 칸 출처가 있으면 원문 칸 글자를 그대로 보인다(0.2862를 0.29로 바꾸지 않는다) */
 function valueText(v: WidgetValue, ctx: LensHtmlContext): string {
@@ -91,7 +116,15 @@ function stepSvg(
   const pos = new Map(
     step.nodes.map((n, k) => {
       const a = (2 * Math.PI * k) / step.nodes.length - Math.PI / 2;
-      return [n.id, { x: W / 2 + R * Math.cos(a), y: H / 2 + R * Math.sin(a), label: n.label }];
+      return [
+        n.id,
+        {
+          x: W / 2 + R * Math.cos(a),
+          y: H / 2 + R * Math.sin(a),
+          label: ill(n.label, n.illustrative),
+          ill: n.illustrative === true,
+        },
+      ];
     }),
   );
   const edges = step.edges
@@ -105,7 +138,7 @@ function stepSvg(
   const nodes = [...pos.values()]
     .map(
       (p) =>
-        `<g><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="9"/><text x="${p.x.toFixed(1)}" y="${(p.y + (p.y > H / 2 ? 22 : -14)).toFixed(1)}" text-anchor="middle">${ctx.escape(p.label)}</text></g>`,
+        `<g${p.ill ? ' class="w-ill"' : ''}><circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="9"/><text x="${p.x.toFixed(1)}" y="${(p.y + (p.y > H / 2 ? 22 : -14)).toFixed(1)}" text-anchor="middle">${ctx.escape(p.label)}</text></g>`,
     )
     .join('');
   return `<svg class="ws-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${ctx.escape(step.label)}">${edges}${nodes}</svg>`;
@@ -116,7 +149,7 @@ function stepSliderHtml(w: Extract<Widget, { kind: 'stepSlider' }>, ctx: LensHtm
   const states = w.steps
     .map(
       (s, k) =>
-        `<div data-w-state="${k}"${k === 0 ? '' : ' hidden'}><p class="ws-step"><b>${ctx.escape(s.label)}</b>${s.note ? ` ${ctx.inline(s.note)}` : ''}</p>${stepSvg(s, ctx)}</div>`,
+        `<div data-w-state="${k}"${k === 0 ? '' : ' hidden'}><p class="ws-step"><b>${ctx.escape(s.label)}</b>${s.note ? ` ${ctx.inline(s.note)}` : ''}${s.cite ? ctx.cite(s.cite) : ''}</p>${stepSvg(s, ctx)}</div>`,
     )
     .join('');
   // 슬라이더는 정수 칸만 고른다. 칸 사이 값은 없다
@@ -135,24 +168,28 @@ function beforeAfterHtml(
     `<div class="wba-side"><h5>${ctx.escape(s.title)}</h5><ul>${s.items
       .map(
         (it) =>
-          `<li>${ctx.escape(it.label)}${it.value ? ` <b${valueSrc(it.value, ctx)}>${ctx.escape(valueText(it.value, ctx))}</b>` : ''}</li>`,
+          `<li${it.illustrative ? ' class="w-ill"' : ''}>${ctx.escape(it.label)}${it.illustrative ? ` <span class="w-ill-tag">${ILL_TAG}</span>` : ''}${it.value ? ` <b${valueSrc(it.value, ctx)}>${ctx.escape(valueText(it.value, ctx))}</b>` : ''}</li>`,
       )
       .join('')}</ul></div>`;
   return `<div class="wba">${side(w.before)}<span class="wba-arrow" aria-hidden="true">→</span>${side(w.after)}</div>`;
 }
 
 export function widgetHtml(w: Widget, ctx: LensHtmlContext): string {
-  const body =
-    w.kind === 'toggleBars'
-      ? toggleBarsHtml(w, ctx)
-      : w.kind === 'heatmap'
-        ? heatmapHtml(w, ctx)
-        : w.kind === 'stepSlider'
-          ? stepSliderHtml(w, ctx)
-          : beforeAfterHtml(w, ctx);
+  const body = isFlowWidget(w)
+    ? flowWidgetHtml(w, ctx)
+    : isGraphWidget(w)
+      ? graphWidgetHtml(w, ctx)
+      : w.kind === 'toggleBars'
+        ? toggleBarsHtml(w, ctx)
+        : w.kind === 'heatmap'
+          ? heatmapHtml(w, ctx)
+          : w.kind === 'stepSlider'
+            ? stepSliderHtml(w, ctx)
+            : beforeAfterHtml(w, ctx);
+  const badge = badgeOf(w);
   const diffs =
-    w.class === 'C' && w.differences?.length
-      ? `<div class="w-diffs"><b>원문 그림과 다른 점</b><ul>${w.differences
+    (w.class === 'C' || w.class === 'D') && w.differences?.length
+      ? `<div class="w-diffs"><b>${w.class === 'C' ? '원문 그림과 다른 점' : '원문 설명과 다르게 옮긴 점'}</b><ul>${w.differences
           .filter((d) => d.trim())
           .map((d) => `<li>${ctx.inline(d)}</li>`)
           .join('')}</ul></div>`
@@ -164,39 +201,47 @@ export function widgetHtml(w: Widget, ctx: LensHtmlContext): string {
     fig?.image && !ctx.omitCrops
       ? `<figure class="w-original"><img src="${ctx.escape(fig.image)}" alt="그림 ${ctx.escape(fig.number)} 원문" loading="lazy"><figcaption>원문 그림 ${ctx.escape(fig.number)} ${ctx.loc(fig.unit)}</figcaption></figure>`
       : '';
-  const head = `<p class="w-head"><span class="w-badge w-badge-${w.class}">${WIDGET_BADGE[w.class]}</span> <b>${ctx.escape(w.title)}</b>${ctx.cite(w.cite)}</p>${diffs}${w.caption ? `<p class="w-caption">${ctx.inline(w.caption)}</p>` : ''}`;
+  const head = `<p class="w-head"><span class="w-badge w-badge-${badge.cls}">${badge.label}</span> <b>${ctx.escape(w.title)}</b>${ctx.cite(w.cite)}</p>${diffs}${w.caption ? `<p class="w-caption">${ctx.inline(w.caption)}</p>` : ''}`;
   const inner = `<div class="w-body">${body}</div>`;
   return `<figure class="widget w-${w.class}" data-widget id="${ctx.pfx ?? ''}w-${ctx.escape(w.id)}">${head}${original ? `<div class="w-pair">${original}${inner}</div>` : inner}</figure>`;
 }
 
 export function widgetMarkdown(w: Widget, ctx: { cell: (v: WidgetValue) => string }): string[] {
-  const out = [`**${w.title}** *(${WIDGET_BADGE[w.class]})*`, ''];
-  if (w.class === 'C' && w.differences?.length) {
-    out.push('원문 그림과 다른 점:', ...w.differences.map((d) => `- ${d}`), '');
+  const out = [`**${mdInline(w.title)}** *(${badgeOf(w).label})*`, ''];
+  if ((w.class === 'C' || w.class === 'D') && w.differences?.length) {
+    out.push(
+      w.class === 'C' ? '원문 그림과 다른 점:' : '원문 설명과 다르게 옮긴 점:',
+      ...w.differences.map((d) => `- ${mdInline(d)}`),
+      '',
+    );
   }
-  if (w.kind === 'toggleBars') {
-    out.push(`| 항목 | ${w.toggle.off} | ${w.toggle.on} |`, '| --- | --- | --- |');
+  if (isFlowWidget(w)) {
+    out.push(...flowWidgetMarkdown(w));
+  } else if (isGraphWidget(w)) {
+    out.push(...graphWidgetMarkdown(w));
+  } else if (w.kind === 'toggleBars') {
+    out.push(`| 항목 | ${mdCell(w.toggle.off)} | ${mdCell(w.toggle.on)} |`, '| --- | --- | --- |');
     for (const it of w.items)
-      out.push(`| ${it.label} | ${ctx.cell(it.off)} | ${ctx.cell(it.on)} |`);
+      out.push(`| ${mdCell(it.label)} | ${ctx.cell(it.off)} | ${ctx.cell(it.on)} |`);
   } else if (w.kind === 'heatmap') {
     out.push(
-      `| | ${w.x.labels.join(' | ')} |`,
+      `| | ${w.x.labels.map(mdCell).join(' | ')} |`,
       `| --- |${w.x.labels.map(() => ' --- |').join('')}`,
     );
     w.cells.forEach((row, r) =>
-      out.push(`| ${w.y.labels[r] ?? ''} | ${row.map(ctx.cell).join(' | ')} |`),
+      out.push(`| ${mdCell(w.y.labels[r] ?? '')} | ${row.map(ctx.cell).join(' | ')} |`),
     );
   } else if (w.kind === 'stepSlider') {
     for (const s of w.steps) {
       const strong = s.edges.filter((e) => e.strength === 'strong').length;
       out.push(
-        `- ${s.label}: 강한 간선 ${strong}개, 약한 간선 ${s.edges.length - strong}개${s.note ? `. ${s.note}` : ''}`,
+        `- ${mdInline(s.label)}: 강한 간선 ${strong}개, 약한 간선 ${s.edges.length - strong}개${s.note ? `. ${mdInline(s.note)}` : ''}`,
       );
     }
   } else {
     for (const side of [w.before, w.after]) {
       out.push(
-        `- ${side.title}: ${side.items.map((it) => (it.value ? `${it.label} ${ctx.cell(it.value)}` : it.label)).join(', ')}`,
+        `- ${mdInline(side.title)}: ${side.items.map((it) => (it.value ? `${ill(mdInline(it.label), it.illustrative)} ${ctx.cell(it.value)}` : ill(mdInline(it.label), it.illustrative))).join(', ')}`,
       );
     }
   }
@@ -204,13 +249,18 @@ export function widgetMarkdown(w: Widget, ctx: { cell: (v: WidgetValue) => strin
   return out;
 }
 
-export const WIDGET_CSS = `
+export const WIDGET_CSS = `${FLOW_WIDGET_CSS}${GRAPH_WIDGET_CSS}
 .widget{margin:16px 0;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:10px 14px}
 .w-head{margin:0 0 6px}
 .w-badge{display:inline-block;font-size:.75em;font-weight:700;border-radius:999px;padding:1px 9px;border:1px solid currentColor}
 .w-badge-A{color:var(--accent)}
 .w-badge-B{color:var(--muted)}
 .w-badge-C{color:var(--warn)}
+.w-badge-D{color:var(--fg)}
+.w-badge-analogy{color:var(--warn);border-style:dashed}
+.w-ill-tag{font-size:.75em;color:var(--muted);border:1px dashed var(--muted);border-radius:4px;padding:0 4px}
+li.w-ill{color:var(--muted)}
+.ws-svg .w-ill circle{stroke-dasharray:3 2;stroke:var(--muted)}
 .w-diffs{font-size:.9em;border-left:3px solid var(--warn);padding:2px 10px;margin:6px 0;background:var(--hl);border-radius:0 6px 6px 0}
 .w-diffs ul{margin:2px 0;padding-left:18px}
 .w-caption,.w-legend{color:var(--muted);font-size:.88em;margin:6px 0}

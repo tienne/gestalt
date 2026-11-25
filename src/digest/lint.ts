@@ -82,6 +82,11 @@ function collectReportText(report: Report, p: string): TextField[] {
   report.lead.glance?.forEach((g, k) => {
     out.push({ path: `${p}.lead.glance.${k}.text`, text: g.text });
   });
+  report.lead.primer?.rules.forEach((r, k) => {
+    out.push({ path: `${p}.lead.primer.rules.${k}.text`, text: r.text });
+  });
+  const analogy = report.lead.primer?.analogy;
+  if (analogy) out.push({ path: `${p}.lead.primer.analogy.title`, text: analogy.title });
   report.sections.forEach((section, si) => {
     const sp = `${p}.sections.${si}`;
     out.push({ path: `${sp}.title`, text: section.title });
@@ -193,6 +198,12 @@ function collectCites(report: Report, p: string): CiteField[] {
   report.lead.glance?.forEach((g, k) => {
     out.push({ path: `${p}.lead.glance.${k}.cite`, cite: g.cite });
   });
+  report.lead.primer?.rules.forEach((r, k) => {
+    if (!('table' in r.cite)) out.push({ path: `${p}.lead.primer.rules.${k}.cite`, cite: r.cite });
+  });
+  if (report.lead.primer?.analogy) {
+    out.push({ path: `${p}.lead.primer.analogy.cite`, cite: report.lead.primer.analogy.cite });
+  }
   report.limits?.forEach((l, i) => {
     l.evidence.forEach((ev, k) => {
       if (!isCellRef(ev)) out.push({ path: `${p}.limits.${i}.evidence.${k}.cite`, cite: ev.cite });
@@ -838,6 +849,7 @@ function checkLensFieldsOnVideo(report: Report, p: string, issues: DigestIssue[]
   const found: string[] = [];
   // 빈 배열은 아무것도 그리지 않으니 길이로 본다. 형식을 맞추려고 []를 채운 영상 리포트까지 막지 않는다
   if (report.lead.glance?.length) found.push(`${p}.lead.glance`);
+  if (report.lead.primer) found.push(`${p}.lead.primer`);
   const limitsBlocked = (report.limits ?? []).some((l) => !l.card || l.evidence.length > 0);
   if (limitsBlocked) found.push(`${p}.limits`);
   if (report.links?.length) found.push(`${p}.links`);
@@ -849,6 +861,7 @@ function checkLensFieldsOnVideo(report: Report, p: string, issues: DigestIssue[]
       if (sub.widgets?.length) found.push(`${bp}.widgets`);
       for (const { bullet, path } of walkBullets(sub.bullets, `${bp}.bullets`)) {
         if (bullet.doubt) found.push(`${path}.doubt`);
+        if (bullet.aside) found.push(`${path}.aside`);
       }
     });
   });
@@ -878,6 +891,10 @@ function lintReportWidgets(
       .map((s) => s.text)
       .join(' ');
   const allText = transcript.segments.map((s) => s.text).join(' ');
+  const analogy = report.lead.primer?.analogy;
+  if (analogy) {
+    lintWidget(analogy, `${p}.lead.primer.analogy`, { source, unitText, allText }, issues);
+  }
   report.sections.forEach((section, si) => {
     section.subsections.forEach((sub, bi) => {
       sub.widgets?.forEach((w, k) => {

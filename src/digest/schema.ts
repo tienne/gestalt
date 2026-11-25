@@ -13,6 +13,7 @@ import { extensionSchema } from './blocks.js';
 import { diagramSchema } from './diagram-schema.js';
 import {
   CARDS_MAX_VIDEO,
+  cellRefSchema,
   contextCardSchema,
   doubtSchema,
   glanceSchema,
@@ -21,13 +22,13 @@ import {
   sourceRefSchema,
   type Doubt,
 } from './lens-schema.js';
-import { widgetSchema } from './lens-widget-schema.js';
+import { analogyMapSchema, widgetSchema } from './lens-widget-schema.js';
 
 export { DIAGRAM_KINDS, diagramSchema, type Diagram, type DiagramKind } from './diagram-schema.js';
 
 export { citeSchema, LANG_TAG_PATTERN };
 
-export const DIGEST_SCHEMA_VERSION = '1.7.0';
+export const DIGEST_SCHEMA_VERSION = '1.8.0';
 export const TRANSCRIPT_SCHEMA_VERSION = '1.0.0';
 
 /** text는 읽기 렌즈가 PDF나 웹 글에서 뽑은 본문이다 */
@@ -187,7 +188,12 @@ export interface Bullet {
   /** 읽기 렌즈의 의심 표시. 이 불릿의 주장과 원문 표나 다른 문단이 어긋나는 자리다 */
   doubt?: Doubt;
   comparison?: SlideComparison;
+  /** 읽기 렌즈 쉬운 리포트의 설명 장치. 원문 주장이 아니라 비유나 지어낸 예시다 */
+  aside?: AsideKind;
 }
+
+export const ASIDE_KINDS = ['analogy', 'example'] as const;
+export type AsideKind = (typeof ASIDE_KINDS)[number];
 
 // 3단 이상은 스키마가 아니라 lint가 잡는다. 어느 불릿이 깊은지 경로로 알려주려고
 export const bulletSchema: z.ZodType<Bullet> = z.lazy(() =>
@@ -197,8 +203,23 @@ export const bulletSchema: z.ZodType<Bullet> = z.lazy(() =>
     children: z.array(bulletSchema).optional(),
     doubt: doubtSchema.optional(),
     comparison: comparisonSchema.optional(),
+    aside: z.enum(ASIDE_KINDS).optional(),
   }),
 );
+
+/**
+ * 쉬운 리포트의 먼저 보기. 한눈에 보기 아래에 외울 규칙 몇 줄과 비유 표 하나를 먼저 보여 준다.
+ * rules는 원문 주장이라 출처와 숫자 대조를 받고 analogy는 비유 표 규칙을 그대로 받는다
+ */
+export const primerSchema = z.object({
+  analogy: analogyMapSchema.optional(),
+  rules: z
+    .array(z.object({ text: textSchema, cite: z.union([citeSchema, cellRefSchema]) }))
+    .min(2)
+    .max(4),
+});
+
+export type Primer = z.infer<typeof primerSchema>;
 
 /**
  * 화면 자체가 설명인 장면(슬라이드, 화이트보드, 표, 코드). sec는 scenes.json 후보 가운데
@@ -294,6 +315,7 @@ export const reportSchema = z.object({
     takeaway: textSchema,
     /** 읽기 렌즈의 한눈에 보기. 논문은 문제, 방법, 결과, 한계 순이다 */
     glance: z.array(glanceSchema).optional(),
+    primer: primerSchema.optional(),
   }),
   sections: z.array(sectionSchema).min(1),
   skipped: z.array(skippedSchema).default([]),

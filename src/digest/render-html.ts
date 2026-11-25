@@ -18,6 +18,8 @@ import {
   glanceHtml,
   LENS_CSS,
   limitsHtml,
+  asideBadgeHtml,
+  primerHtml,
   sectionContextHtml,
   sourceFigureHtml,
   sourceTableHtml,
@@ -247,7 +249,7 @@ export function renderDigestHtml(
 
   const reportsMeta = digest.reports.map((r) => ({ report: r, key: reportKey(r.options) }));
   const base = digest.reports[0]!.options;
-  const initial = initialReportIndex(digest.reports);
+  const initial = initialReportIndex(digest.reports, isLensKind(kind) ? 'easy' : 'normal');
   const shown = digest.reports[initial]!.options;
 
   // 첫 리포트는 1차와 같은 id를 써서 이미 공유된 앵커가 그대로 열린다. 나머지는 id에 못 쓰는 ~로 접두를 붙여 겹치지 않게 한다
@@ -272,11 +274,17 @@ export function renderDigestHtml(
 <p>영상 ${timeLink(sec(b.video.cite))}${cite(b.video.cite)}</p>${quote(b.video.quote)}
 <p>${cite(b.slides.cite)}</p>${quote(b.slides.quote)}</div>`;
     };
+    const liClass = (b: Bullet): string => {
+      const cls = [b.doubt ? 'has-doubt' : '', b.aside ? `aside aside-${b.aside}` : '']
+        .filter(Boolean)
+        .join(' ');
+      return cls ? ` class="${cls}"` : '';
+    };
     const bullets = (list: Bullet[]): string =>
       `<ul>${list
         .map(
           (b) =>
-            `<li${b.doubt ? ' class="has-doubt"' : ''}>${inline(b.text, kwIds)}${cite(b.cite)}${b.doubt ? doubtHtml(b.doubt, lens) : ''}${b.comparison ? comparison(b.comparison) : ''}${b.children?.length ? bullets(b.children) : ''}</li>`,
+            `<li${liClass(b)}>${b.aside ? asideBadgeHtml(b.aside) : ''}${inline(b.text, kwIds)}${cite(b.cite)}${b.doubt ? doubtHtml(b.doubt, lens) : ''}${b.comparison ? comparison(b.comparison) : ''}${b.children?.length ? bullets(b.children) : ''}</li>`,
         )
         .join('')}</ul>`;
     // 원문 표와 그림은 source.json에서 옮긴다. lint가 id를 확인했지만 렌더도 없는 id는 건너뛴다
@@ -363,6 +371,14 @@ export function renderDigestHtml(
       : '';
     const lensKind = isLensKind(kind) ? kind : null;
     const glance = lensKind && lead.glance?.length ? glanceHtml(lead.glance, lensKind, lens) : '';
+    const primer =
+      lensKind && lead.primer
+        ? primerHtml(
+            lead.primer,
+            lead.primer.analogy ? widgetHtml(lead.primer.analogy, lens) : '',
+            lens,
+          )
+        : '';
     const coverage = lensKind ? coverageHtml(report, transcript, `${pfx}skipped`) : '';
     const limits = report.limits?.length ? limitsHtml(report.limits, `${pfx}limits`, lens) : '';
 
@@ -374,6 +390,7 @@ export function renderDigestHtml(
     ].join('');
     const body = `<div class="report" data-ri="${ri}" data-report="${e(key)}" lang="${e(report.options.lang)}"${hidden}>${scope}<section class="lead"><p class="q">${inline(lead.question, kwIds)}</p><p>${inline(lead.answer, kwIds)}</p><p class="takeaway">${inline(lead.takeaway, kwIds)}</p>${coverage}</section>
 ${glance}
+${primer}
 ${toc}
 ${sectionsHtml}
 ${followups}
@@ -385,11 +402,11 @@ ${skippedHtml}</div>`;
   const rendered = reportsMeta.map(({ report, key }, ri) => renderReport(report, ri, key));
 
   const pressed = (on: boolean) => `aria-pressed="${on ? 'true' : 'false'}"`;
-  // 쉽게 보기 토글은 지금 리포트와 짝(pairIndex)인 리포트를 오간다. 리포트가 하나뿐이면 고를 게 없어서 목록을 안 그린다. 길게 프리셋 리포트만 있어도 토글로 충분해서 안 그린다. 리포트가 여럿이고 그중에 그 밖의 리포트(짧게나 기본 분량, 첫 리포트와 다른 언어, 구간, 요청)가 하나라도 있으면 전체 리포트를 고르는 다른 리포트 목록을 그린다
+  // 쉽게 보기 토글(렌즈에서는 원문 가까이 보기)은 지금 리포트와 짝(pairIndex)인 리포트를 오간다. 리포트가 하나뿐이면 고를 게 없어서 목록을 안 그린다. 길게 프리셋 리포트만 있어도 토글로 충분해서 안 그린다. 리포트가 여럿이고 그중에 그 밖의 리포트(짧게나 기본 분량, 첫 리포트와 다른 언어, 구간, 요청)가 하나라도 있으면 전체 리포트를 고르는 다른 리포트 목록을 그린다
   const otherReports = reportsMeta.filter(
     ({ report }) => !isPreset(report.options, base) || report.options.length !== 'long',
   );
-  const reportBar = `<div class="report-bar" role="group" aria-label="리포트 고르기"><button type="button" id="easy-toggle" ${pressed(shown.difficulty === 'easy')}>쉽게 보기</button>${
+  const reportBar = `<div class="report-bar" role="group" aria-label="리포트 고르기"><button type="button" id="easy-toggle" ${pressed(shown.difficulty === (isLensKind(kind) ? 'normal' : 'easy'))}>${isLensKind(kind) ? '원문 가까이 보기' : '쉽게 보기'}</button>${
     otherReports.length && reportsMeta.length > 1
       ? `<label class="bar-label">다른 리포트 <select id="report-select">${reportsMeta
           .map(

@@ -68,6 +68,20 @@ describe('읽기 렌즈 쉬운 리포트', () => {
     expect(pairIndex(d.reports, 1)).toBe(0);
   });
 
+  it('뷰어는 쉬운 리포트를 먼저 열고 토글은 원문 가까이 보기로 보통 리포트를 연다', () => {
+    const d = lensDigest();
+    d.reports.push(easyReport());
+    const html = renderDigestHtml(d, lensTranscript(), { source: lensSource() }).html;
+    expect(html).toMatch(/id="easy-toggle"[^>]*aria-pressed="false"[^>]*>원문 가까이 보기</);
+    expect(html).toMatch(/<div class="report" data-ri="0"[^>]*hidden/);
+    expect(html).not.toMatch(/<div class="report" data-ri="1"[^>]*hidden/);
+  });
+
+  it('쉬운 리포트가 없으면 보통 리포트를 연다', () => {
+    const html = renderDigestHtml(lensDigest(), lensTranscript(), { source: lensSource() }).html;
+    expect(html).not.toMatch(/<div class="report" data-ri="0"[^>]*hidden/);
+  });
+
   it('쉬운 리포트도 의심 표시 숫자를 바꾸면 보통 리포트처럼 막힌다', () => {
     const d = lensDigest();
     const easy = easyReport();

@@ -65,16 +65,27 @@ export function pairIndex(reports: readonly Report[], i: number): number {
 }
 
 /**
- * 뷰어를 처음 열 때 보일 리포트. 스킬이 길게와 보통을 기본으로 만들므로 그 조합을 먼저 찾고 없으면 첫 리포트를 연다
+ * 처음 볼 리포트. 스킬이 길게와 보통을 바탕으로 만들므로 그 조합을 먼저 찾고 없으면 첫 리포트를 연다.
+ * 읽기 렌즈 뷰어는 쉬운 리포트가 기본이라 prefer로 길게와 쉽게를 먼저 찾고 없으면 보통으로 돌아간다.
+ * 카드를 붙일 리포트를 고르는 자리(attach)는 보통 리포트를 봐야 해서 prefer를 넘기지 않는다
  */
-export function initialReportIndex(reports: readonly Report[]): number {
+export function initialReportIndex(
+  reports: readonly Report[],
+  prefer: ReportOptions['difficulty'] = 'normal',
+): number {
   const base = reports[0]?.options;
   if (!base) return 0;
-  const at = reports.findIndex(
-    (r) =>
-      isPreset(r.options, base) && r.options.length === 'long' && r.options.difficulty === 'normal',
-  );
-  return at >= 0 ? at : 0;
+  const find = (difficulty: ReportOptions['difficulty']) =>
+    reports.findIndex(
+      (r) =>
+        isPreset(r.options, base) &&
+        r.options.length === 'long' &&
+        r.options.difficulty === difficulty,
+    );
+  const preferred = find(prefer);
+  if (preferred >= 0) return preferred;
+  const normal = find('normal');
+  return normal >= 0 ? normal : 0;
 }
 
 export function reportLabel(options: ReportOptions, withHours = false): string {

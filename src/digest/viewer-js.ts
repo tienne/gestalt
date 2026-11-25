@@ -1269,7 +1269,8 @@ export const VIEWER_JS =
       document.querySelectorAll('.report[data-ri]').forEach(function(b){ b.hidden = Number(b.getAttribute('data-ri')) !== ri; });
       document.querySelectorAll('.minimap[data-ri]').forEach(function(m){ m.hidden = Number(m.getAttribute('data-ri')) !== ri; });
       var r = data.reports[ri];
-      if (easyToggle) easyToggle.setAttribute('aria-pressed', r.difficulty === 'easy' ? 'true' : 'false');
+      // 읽기 렌즈는 쉬운 리포트가 기본이라 토글이 "원문 가까이 보기"이고 보통 리포트일 때 눌린다
+      if (easyToggle) easyToggle.setAttribute('aria-pressed', r.difficulty === (data.lens ? 'normal' : 'easy') ? 'true' : 'false');
       if (select) select.value = String(ri);
       hideMissing();
       try { localStorage.setItem(REPORT_KEY, r.key); } catch (e) {}
@@ -1448,6 +1449,41 @@ export const VIEWER_JS =
     var labels = [];
     try { labels = JSON.parse(r.getAttribute('data-labels') || '[]'); } catch (e) {}
     if (labels[r.value]) r.setAttribute('aria-valuetext', labels[r.value]);
+  });
+  // 단계형 그림은 이전, 다음 버튼과 좌우 화살표로 미리 그려 둔 단계를 하나씩 넘긴다
+  function stepWidget(box, delta) {
+    var states = box.querySelectorAll('[data-w-state]');
+    var n = states.length;
+    if (!n) return;
+    var cur = 0;
+    states.forEach(function(s, i){ if (!s.hidden) cur = i; });
+    var next = Math.max(0, Math.min(n - 1, cur + delta));
+    showWidgetState(box, String(next));
+    var pos = box.querySelector('.w-pos');
+    if (pos) pos.textContent = '단계 ' + (next + 1) + ' / ' + n;
+    // 바뀐 단계가 무엇을 보여 주는지까지 읽어야 그림을 못 보는 사람도 따라온다
+    var live = box.querySelector('.w-live');
+    var step = states[next].querySelector('.ws-step');
+    if (live) live.textContent = '단계 ' + (next + 1) + ' / ' + n + (step ? ': ' + step.textContent.trim() : '');
+    var prev = box.querySelector('[data-w-step="prev"]');
+    var fwd = box.querySelector('[data-w-step="next"]');
+    // disabled로 막으면 버튼에 있던 포커스가 빠져 화살표 키가 더는 안 먹는다
+    if (prev) prev.setAttribute('aria-disabled', next === 0 ? 'true' : 'false');
+    if (fwd) fwd.setAttribute('aria-disabled', next === n - 1 ? 'true' : 'false');
+  }
+  document.addEventListener('click', function(ev){
+    var b = ev.target.closest ? ev.target.closest('[data-w-step]') : null;
+    if (!b) return;
+    var box = b.closest('[data-widget]');
+    if (box) stepWidget(box, b.getAttribute('data-w-step') === 'next' ? 1 : -1);
+  });
+  document.addEventListener('keydown', function(ev){
+    if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+    var nav = ev.target.closest ? ev.target.closest('[data-w-steps]') : null;
+    var box = nav && nav.closest('[data-widget]');
+    if (!box) return;
+    ev.preventDefault();
+    stepWidget(box, ev.key === 'ArrowRight' ? 1 : -1);
   });
   // 한계 단락의 맥락 카드 링크를 누르면 접힌 카드를 펼친다
   document.addEventListener('click', function(ev){

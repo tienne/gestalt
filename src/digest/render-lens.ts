@@ -10,9 +10,17 @@ import {
   type Glance,
   type Limit,
 } from './lens-schema.js';
-import { GLANCE_REQUIRED } from './lint-lens.js';
+import { ASIDE_LABEL, GLANCE_REQUIRED } from './lint-lens.js';
 import type { LensSource, SourceFigure, SourceTable } from './lens-source.js';
-import { isLensKind, type Cite, type LensKind, type Report, type Transcript } from './schema.js';
+import {
+  isLensKind,
+  type AsideKind,
+  type Cite,
+  type LensKind,
+  type Primer,
+  type Report,
+  type Transcript,
+} from './schema.js';
 
 /**
  * 읽기 렌즈가 video-digest 뷰어에 더하는 조각. 뷰어를 두 벌 두지 않으려고 render-html이 이 조각을 끼워 넣는다.
@@ -112,6 +120,22 @@ export function evidenceHtml(ev: Evidence, ctx: LensHtmlContext): string {
   const value = table?.rows[ev.row]?.[ev.col] ?? '';
   const unit = table ? ` data-unit="${table.unit}"` : '';
   return `<button type="button" class="loc ev cell-ref"${unit} data-cell="${ctx.escape(`${ev.table}:${ev.row}:${ev.col}`)}">${ctx.escape(cellLabel(table, ev))} <b>${ctx.escape(value)}</b></button>`;
+}
+
+/** 설명 장치 불릿 앞에 붙는 배지. 모델이 끌 수 없게 렌더러가 붙인다 */
+export function asideBadgeHtml(aside: AsideKind): string {
+  return `<span class="aside-badge">${ASIDE_LABEL[aside]}</span> `;
+}
+
+/** 한눈에 보기 아래 먼저 보기. 규칙 줄은 원문 주장이라 출처 칩을 달고 비유 표는 렌더된 위젯을 받는다 */
+export function primerHtml(primer: Primer, analogyHtml: string, ctx: LensHtmlContext): string {
+  const rules = primer.rules
+    .map(
+      (r) =>
+        `<li>${ctx.inline(r.text)}${'table' in r.cite ? evidenceHtml(r.cite, ctx) : ctx.cite(r.cite)}</li>`,
+    )
+    .join('');
+  return `<section class="primer" aria-label="먼저 보기"><h2>먼저 보기</h2><ul class="primer-rules">${rules}</ul>${analogyHtml}</section>`;
 }
 
 /** 의심 표시는 접지 않고 그 불릿 바로 아래에 둔다. 카드에 넣으면 본문만 읽는 사람이 못 본다 */
@@ -360,6 +384,12 @@ export const LENS_CSS = `
 .glance dd{margin:2px 0 0}
 .coverage{display:inline-block;margin:8px 0 0;padding:3px 12px;border-radius:999px;background:var(--chip);font-size:.85em;color:var(--muted)}
 .sec-intro{color:var(--muted);margin:4px 0 8px;font-size:.95em}
+.primer{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:6px 16px;margin:16px 0}
+.primer h2{font-size:1em;margin:8px 0}
+.primer-rules{margin:0 0 8px;padding-left:20px}
+.primer-rules li{margin:4px 0}
+li.aside{background:var(--card);border:1px dashed var(--line);border-radius:6px;padding:2px 8px;margin:4px 0}
+.aside-badge{display:inline-block;font-size:.78em;font-weight:700;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:0 8px;margin-right:2px}
 .doubt{margin:6px 0 8px;padding:6px 10px;border-left:3px solid var(--warn);background:var(--hl);border-radius:0 6px 6px 0;font-size:.93em}
 .doubt-badge{display:inline-block;font-size:.78em;font-weight:700;color:var(--warn);border:1px solid var(--warn);border-radius:999px;padding:0 8px;margin-right:4px}
 .ev-list{display:inline-flex;flex-wrap:wrap;gap:4px;margin-left:6px;vertical-align:baseline}
