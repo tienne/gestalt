@@ -72,6 +72,7 @@ function fakePr(head = sha) {
   const bin = tempStateDir();
   const evidence = {
     headRefOid: head,
+    baseRefName: 'main',
     state: 'OPEN',
     isDraft: false,
     statusCheckRollup: [{ name: 'CI', conclusion: 'SUCCESS' }],
@@ -197,9 +198,9 @@ describe('Orca 항목 답으로 게이트 종료', () => {
       delivery: 'pending',
       source: { kind: 'orca-item', item: 7, question: 'e11', answer: 'e12', botId: owner.botId },
     });
-    expect(last().itemReport).toBe(
-      '판단: 승인 (서명 approver-1), Orca 항목 7의 답 e12\n워커 전달: 대기 중(다음 tick이 전해요)',
-    );
+    expect(last().itemReport).toContain('판단: 승인 (서명 approver-1), Orca 항목 7의 답 e12');
+    expect(last().itemReport).toContain('결정 접수 및 게이트 반영:');
+    expect(last().itemReport).toContain('워커 전달: 대기 중(다음 tick이 전해요)');
     store.reload();
     expect(store.snapshot.gates[gate.id]?.answer).toContain(`--match-head-commit ${sha}`);
 
@@ -220,7 +221,7 @@ describe('Orca 항목 답으로 게이트 종료', () => {
     });
     await conductorBotItemDecideCommand(gate.id, { ...itemOpts(store), answer: 'e99' });
     expect(last()).toMatchObject({ alreadyResolved: true, sameAnswer: false, failedAttempts: 2 });
-    expect(last().itemReport).toContain('다시 시도 2번');
+    expect(last().itemReport).toContain('시도 2번');
   });
 
   it('파일 중첩과 리뷰 수동 전환 게이트도 gateApprovers 서명으로 닫는다', async () => {

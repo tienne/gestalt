@@ -8,6 +8,7 @@ import {
   conductorBotGithubCommand,
   conductorCheckBotMutation,
   conductorGateResolveCommand,
+  conductorWorkerDecisionCommand,
 } from '../../../src/cli/commands/conductor.js';
 import { GhAccounts, fileQueue } from '../../../src/conductor/adapters.js';
 import { approvalMessage, BOT_POLICY_FILE } from '../../../src/conductor/bot-approval.js';
@@ -19,9 +20,11 @@ import {
 } from '../../../src/conductor/bot-owner.js';
 import { acquireLock, tick } from '../../../src/conductor/engine.js';
 import { openOrReuse } from '../../../src/conductor/gates.js';
+import { GitWorktreeLauncher, OrcaLauncher } from '../../../src/conductor/launcher.js';
 import { pollQueue } from '../../../src/conductor/intake.js';
 import { loadConfig } from '../../../src/core/config.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
+import type { Worker } from '../../../src/conductor/types.js';
 import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
 
 const owner = { botId: 'ops-bot', name: 'Conductor', chatId: 'ops-home' };
@@ -76,6 +79,7 @@ function fakePr(head = sha) {
   const bin = tempStateDir();
   const evidence = {
     headRefOid: head,
+    baseRefName: 'main',
     state: 'OPEN',
     isDraft: false,
     statusCheckRollup: [{ name: 'CI', conclusion: 'SUCCESS' }],
@@ -134,10 +138,10 @@ describe('Orca 봇 운영권', () => {
   });
 });
 
-function gateFixture() {
+function gateFixture(kind: Worker['kind'] = 'git-worktree') {
   const store = ConductorStore.open(tempStateDir());
   const issueOrder = order({ repo, prRef: pr, status: 'running' });
-  const w = worker(issueOrder.id, { kind: 'git-worktree' });
+  const w = worker(issueOrder.id, { kind, handle: 'ctx_1' });
   store.addOrder({ ...issueOrder, workerId: w.id });
   store.startWorker(w);
   const { gate } = openOrReuse(store, {
@@ -167,8 +171,17 @@ function gateFixture() {
     signer: 'approver-1',
     signature: signed,
   };
-  return { store, gate, opts };
+  return { store, gate, opts, w };
 }
+
+const prEvidence = { head: sha, base: 'main', state: 'OPEN', draft: false };
+const tickDeps = () => ({
+  config: loadConfig().conductor,
+  env: {},
+  launchers: {},
+  orcaAvailable: true,
+  readApprovalEvidence: async () => prEvidence,
+});
 
 describe('Orca 채팅 머지 승인', () => {
   it('검증 결과를 표시하고 서명된 결정을 한 번만 기록한 뒤 전달 대기를 보여 준다', async () => {
@@ -195,6 +208,178 @@ describe('Orca 채팅 머지 승인', () => {
     });
     store.reload();
     expect(store.snapshot.gates[gate.id]?.answer).toContain(`--match-head-commit ${sha}`);
+  });
+
+  it('같은 서명을 동시에 받아도 게이트와 주문 반영이 이벤트 한 줄로 복구된다', async () => {
+    fakeOrca(owner);
+    fakePr();
+    const { store, gate, opts, w } = gateFixture();
+    store.updateWorker(w.id, { waiting: { reason: '머지 승인', since: store.timestamp() } });
+    const eventsBefore = store.snapshot.eventCount;
+
+    await Promise.all([
+      conductorBotDecideCommand(gate.id, opts),
+      conductorBotDecideCommand(gate.id, opts),
+    ]);
+
+    const reopened = ConductorStore.open(store.dir);
+    const applied = reopened.snapshot.gates[gate.id]!;
+    expect(reopened.snapshot.eventCount).toBe(eventsBefore + 1);
+    expect(reopened.order(w.orderId)?.status).toBe('running');
+    expect(reopened.worker(w.id)?.waiting).toBeUndefined();
+    expect(reopened.worker(w.id)?.lastSeenAt).toBe(applied.resolvedAt);
+    const replies = lines.map((line) => JSON.parse(line));
+    expect(replies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ decisionId: applied.receipt?.id, gateApplication: 'applied' }),
+        expect.objectContaining({ sameDecision: true, deliveryId: applied.receipt?.deliveryId }),
+      ]),
+    );
+  });
+
+  it('전송 성공 직후 기록이 끊겨도 재시작한 tick은 같은 Orca 요청을 재사용한다', async () => {
+    fakeOrca(owner);
+    fakePr();
+    const { store, gate, opts } = gateFixture('orca-worktree');
+    await conductorBotDecideCommand(gate.id, opts);
+    const { deliveryId, decisionId } = last();
+    store.reload();
+    expect(
+      openOrReuse(store, { type: 'merge', orderId: gate.orderId!, reason: gate.reason }),
+    ).toMatchObject({ gate: { id: gate.id, status: 'resolved' }, reused: true });
+    const requests: string[] = [];
+    const accepted = new Set<string>();
+    const launcher = new OrcaLauncher({
+      orcaCommand: 'fixture-orca',
+      promptDir: tempStateDir(),
+      repoPaths: {},
+      runner: async (_command, args) => {
+        expect(args.slice(0, 4)).toEqual(['orchestration', 'send', '--to', 'dispatch:ctx_1']);
+        const request = args[args.indexOf('--retry-request') + 1]!;
+        expect(args[args.indexOf('--body') + 1]).toContain(`전달 ID: ${request}`);
+        requests.push(request);
+        accepted.add(request);
+        return { code: 0, stdout: 'Sent msg-fixture', stderr: '' };
+      },
+    });
+    const deps = { ...tickDeps(), launchers: { 'orca-worktree': launcher } };
+    const append = store.append.bind(store);
+    vi.spyOn(store, 'append').mockImplementation((event) => {
+      if (event.type === 'gate-delivery' && event.outcome === 'delivered')
+        throw new Error('전송 직후 기록 중단');
+      append(event);
+    });
+    await Promise.all([
+      tick(store, deps, { force: true }),
+      tick(ConductorStore.open(store.dir), deps, { force: true }),
+    ]);
+    await conductorBotGateCommand(gate.id, opts);
+    expect(last()).toMatchObject({
+      decisionId,
+      deliveryId,
+      delivery: 'unknown',
+      deliveryPending: true,
+    });
+
+    const reopened = ConductorStore.open(store.dir);
+    await tick(reopened, deps, { force: true });
+    await tick(ConductorStore.open(store.dir), deps, { force: true });
+    expect(requests).toEqual([deliveryId, deliveryId]);
+    expect(accepted.size).toBe(1);
+    await conductorBotGateCommand(gate.id, opts);
+    expect(last()).toMatchObject({
+      decisionId,
+      deliveryId,
+      delivery: 'delivered',
+      deliveryPending: false,
+      deliveryAttempts: 2,
+    });
+  });
+
+  it.each([
+    [{ ...prEvidence, head: 'b'.repeat(40) }, 'HEAD'],
+    [{ ...prEvidence, base: 'release' }, 'base 브랜치'],
+  ] as const)(
+    '전달할 PR 범위가 달라지면 새 게이트만 열고 이전 결정을 보내지 않는다',
+    async (current, reason) => {
+      fakeOrca(owner);
+      fakePr();
+      const { store, gate, opts, w } = gateFixture('orca-worktree');
+      await conductorBotDecideCommand(gate.id, opts);
+      const deliveryId = last().deliveryId;
+      const send = vi.fn();
+      const deps = {
+        ...tickDeps(),
+        readApprovalEvidence: async () => current,
+        launchers: {
+          'orca-worktree': {
+            kind: 'orca-worktree' as const,
+            send,
+            start: vi.fn(),
+            release: vi.fn(),
+          },
+        },
+      };
+      await tick(store, deps, { force: true });
+      expect(send).not.toHaveBeenCalled();
+      expect(store.openGates(w.orderId)).toHaveLength(1);
+      expect(store.order(w.orderId)?.status).toBe('waiting-gate');
+      await conductorBotGateCommand(gate.id, opts);
+      expect(last()).toMatchObject({
+        deliveryId,
+        delivery: 'superseded',
+        deliveryDetail: expect.stringContaining(reason),
+      });
+    },
+  );
+
+  it('GitHub 조회 장애는 대기로 남고 복구되면 호스트 워커가 같은 결정의 수신 결과를 조회한다', async () => {
+    fakeOrca(owner);
+    fakePr();
+    const { store, gate, opts, w } = gateFixture();
+    await conductorBotDecideCommand(gate.id, opts);
+    const deliveryId = last().deliveryId;
+    const readApprovalEvidence = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('GitHub 장애'))
+      .mockResolvedValue(prEvidence);
+    const deps = {
+      ...tickDeps(),
+      readApprovalEvidence,
+      launchers: {
+        'git-worktree': new GitWorktreeLauncher({
+          promptDir: tempStateDir(),
+          worktreeRoot: tempStateDir(),
+          repoPaths: {},
+        }),
+      },
+    };
+    await tick(store, deps, { force: true });
+    await conductorBotGateCommand(gate.id, opts);
+    expect(last()).toMatchObject({
+      deliveryId,
+      delivery: 'failed',
+      deliveryPending: true,
+      deliveryDetail: 'GitHub 장애',
+    });
+    const report = await tick(ConductorStore.open(store.dir), deps, { force: true });
+    expect(report.hostActions).toContainEqual({
+      type: 'send',
+      workerId: w.id,
+      message: expect.stringContaining(`--delivery ${deliveryId}`),
+    });
+    const claim = { stateDir: store.dir, worker: w.id, delivery: deliveryId };
+    await conductorWorkerDecisionCommand(claim);
+    const received = last();
+    expect(received).toMatchObject({
+      deliveryId,
+      alreadyReceived: false,
+      message: expect.stringContaining(sha),
+    });
+    await conductorWorkerDecisionCommand(claim);
+    expect(last()).toEqual({ ...received, alreadyReceived: true });
+    await conductorBotGateCommand(gate.id, opts);
+    expect(last()).toMatchObject({ deliveryId, delivery: 'delivered' });
   });
 
   it('패널이 먼저 거절한 뒤 늦게 온 채팅 승인은 기존 결정을 바꾸지 않는다', async () => {
