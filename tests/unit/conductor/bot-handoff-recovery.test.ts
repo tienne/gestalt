@@ -180,6 +180,8 @@ const release = ${JSON.stringify(release)};
       mode?: string;
       store?: string;
       request?: string;
+      fromChat?: string;
+      chat?: string;
     } = {},
   ) => {
     const { phase, mode, store, ...flags } = input;
@@ -477,10 +479,10 @@ describe('Orca 인계 프로세스 중단 복구', () => {
     25_000,
   );
 
-  it.each(['reserved', 'completed', 'legacy-completed'])(
+  it.each(['reserved', 'completed', 'completed-twice', 'missing-receipt-twice'])(
     '예약 해제 뒤 %s인 다른 저장소와 Orca 일정을 보존하며 로컬 취소 복구를 끝낸다',
     async (foreignStatus) => {
-      const { dir, shared, invoke, approve, editing } = fixture();
+      const { dir, shared, schedule, invoke, approve, editing } = fixture();
       const approval = await approve();
       expect(await invoke({ approve: approval, phase: 'after-claim' })).toBe('killed');
       expect(await invoke({ approve: approval, cancel: true, phase: 'after-clear' })).toBe(
@@ -490,7 +492,8 @@ describe('Orca 인계 프로세스 중단 복구', () => {
       const releaseReceipt = join(claimDir, 'released', `${approval}.json`);
       expect(existsSync(releaseReceipt)).toBe(true);
       expect(readAutomationClaim(claimDir)).toBeUndefined();
-      if (foreignStatus === 'legacy-completed') rmSync(releaseReceipt);
+      const release = readFileSync(releaseReceipt, 'utf8');
+      if (foreignStatus === 'missing-receipt-twice') rmSync(releaseReceipt);
 
       const other = resolve(tempStateDir());
       writeFileSync(join(other, 'bot-owner.json'), JSON.stringify({ active: source, retired: [] }));
@@ -503,11 +506,44 @@ describe('Orca 인계 프로세스 중단 복구', () => {
       if (foreignStatus === 'reserved')
         expect(await invoke({ ...foreign, phase: 'after-claim' })).toBe('killed');
       else expect(await invoke(foreign)).toMatchObject({ status: 'completed' });
+      if (foreignStatus.endsWith('-twice')) {
+        const second = {
+          store: other,
+          request: 'foreign-handoff-second',
+          fromChat: options.chat,
+          chat: 'next-destination',
+        };
+        const next = (await invoke(second)) as Result;
+        expect(await invoke({ ...second, approve: next.approval! })).toMatchObject({
+          status: 'completed',
+          responsibleChatId: second.chat,
+          ownerRevision: 2,
+        });
+      }
       const claim = readAutomationClaim(claimDir);
       const otherOwner = readBotOwnership(other);
       const editLog = existsSync(editing) ? readFileSync(editing, 'utf8') : undefined;
+      const automation = readFileSync(schedule, 'utf8');
       expect(claim?.store).toBe(other);
-      const recovered = await invoke({ approve: approval, cancel: true, phase: 'no-orca-reads' });
+      expect(claim?.request).toBe(foreign.request);
+      const cancel = { approve: approval, cancel: true, phase: 'no-orca-reads' };
+      if (foreignStatus === 'missing-receipt-twice') {
+        const localOwner = readBotOwnership(dir);
+        expect(await invoke(cancel)).toMatchObject({
+          status: 'partial',
+          retryStage: 'reconcile-edit',
+          responsibleChatId: source.chatId,
+          detail: expect.stringContaining('해제 기록이 모두 없어요'),
+        });
+        expect(await invoke({ phase: 'owner-release' })).toMatchObject({ status: 'blocked' });
+        expect(readBotOwnership(dir)).toEqual(localOwner);
+        expect(readAutomationClaim(claimDir)).toEqual(claim);
+        expect(readBotOwnership(other)).toEqual(otherOwner);
+        expect(readFileSync(schedule, 'utf8')).toBe(automation);
+        expect(readFileSync(editing, 'utf8')).toBe(editLog);
+        writeFileSync(releaseReceipt, release);
+      }
+      const recovered = await invoke(cancel);
       expect(recovered).toMatchObject({
         status: 'cancelled',
         cancelScope: 'gestalt',
@@ -518,10 +554,32 @@ describe('Orca 인계 프로세스 중단 복구', () => {
       expect(await invoke({ phase: 'owner-release' })).toMatchObject({ status: 'owner-changed' });
       expect(readAutomationClaim(claimDir)).toEqual(claim);
       expect(readBotOwnership(other)).toEqual(otherOwner);
+      expect(readFileSync(schedule, 'utf8')).toBe(automation);
       expect(existsSync(editing) ? readFileSync(editing, 'utf8') : undefined).toBe(editLog);
     },
     25_000,
   );
+
+  it('공유 예약과 해제 기록을 잃으면 일정이 기존 채팅을 가리켜도 취소를 확정하지 않는다', async () => {
+    const { dir, shared, schedule, invoke, approve, editing } = fixture();
+    const approval = await approve();
+    expect(await invoke({ approve: approval, phase: 'after-claim' })).toBe('killed');
+    expect(await invoke({ approve: approval, cancel: true, phase: 'after-clear' })).toBe('killed');
+    const claimDir = join(shared, digest(options.automation));
+    rmSync(join(claimDir, 'released', `${approval}.json`));
+    const owner = readBotOwnership(dir);
+    const automation = readFileSync(schedule, 'utf8');
+    expect(await invoke({ approve: approval, cancel: true })).toMatchObject({
+      status: 'partial',
+      retryStage: 'reconcile-edit',
+      responsibleChatId: source.chatId,
+      detail: expect.stringContaining('해제 기록이 모두 없어요'),
+    });
+    expect(readBotOwnership(dir)).toEqual(owner);
+    expect(readAutomationClaim(claimDir)).toBeUndefined();
+    expect(readFileSync(schedule, 'utf8')).toBe(automation);
+    expect(existsSync(editing)).toBe(false);
+  }, 20_000);
 
   it('다른 승인으로 저장된 활성 예약은 취소를 재개해도 해제하지 않는다', async () => {
     const { dir, shared, schedule, editing, invoke, approve } = fixture();
