@@ -123,20 +123,21 @@ video-digest 리포트와 같은 꼴에 렌즈 칸을 더한다. 영상 칸 `fra
 
 소섹션에 `widgets`를 0~3개 둔다. 원문 표를 손으로 넘겨 보거나 원문 개념을 움직여 보면 빨리 이해되는 자리에 붙인다. 너는 종류를 고르고 데이터 JSON만 쓴다. 그림은 렌더러가 그리고 상태마다 미리 그려 둔다. SVG나 HTML, 스크립트를 쓰지 않는다.
 
-구분(`class`)은 셋이고 배지는 렌더러가 붙인다. 배지를 끄는 칸은 없다.
+구분(`class`)은 넷이고 배지는 렌더러가 붙인다. 배지를 끄는 칸은 없다.
 
 | `class` | 무엇 | 쓸 수 있는 `kind` |
 | --- | --- | --- |
 | `A` 원문 데이터 그림 | 원문 표 숫자로 만든 그림 | `toggleBars`, `heatmap`, `beforeAfter` |
 | `B` 개념 설명 그림 | 원문 개념을 설명용으로 꾸민 작은 예시로 보여 주는 그림 | `stepSlider`, `beforeAfter` |
 | `C` 원문 그림 재구성 | 원문 그림을 이해한 대로 움직이는 그림으로 다시 그린 것 | 넷 다 |
+| `D` 원문 서술 그림 | 원문이 글로 설명한 절차나 사례, 구조를 그림으로 옮긴 것 | `stepSlider`, `beforeAfter` |
 
 | `kind` | 모양 |
 | --- | --- |
 | `toggleBars` | `{ "toggle": { "off", "on" }, "items": [{ "label", "off": 값, "on": 값 }] }`. 조건 하나를 켜고 끌 때 막대가 바뀐다 |
 | `heatmap` | `{ "x": { "title"?, "labels" }, "y": { "title"?, "labels" }, "cells": [[값]], "better"?: "low" \| "high" }`. `cells`는 y줄 × x칸 |
-| `stepSlider` | `{ "steps": [{ "label", "note"?, "nodes": [{ "id", "label" }], "edges": [{ "from", "to", "strength": "strong" \| "weak" }] }] }`. 단계 2~12개 |
-| `beforeAfter` | `{ "before": { "title", "items": [{ "label", "value"?: 값 }] }, "after": 같은 꼴 }` |
+| `stepSlider` | `{ "steps": [{ "label", "note"?, "cite"?, "nodes": [{ "id", "label", "illustrative"? }], "edges": [{ "from", "to", "strength": "strong" \| "weak" }] }] }`. 단계 2~12개 |
+| `beforeAfter` | `{ "before": { "title", "items": [{ "label", "value"?: 값, "illustrative"? }] }, "after": 같은 꼴 }` |
 
 공통 칸은 `id`, `class`, `kind`, `title`, `cite`(무엇을 설명하는 그림인지 원문 문단), `caption`(선택)이다. 값은 `{ "value": 0.2862, "src": { "table": "table-4", "row": 8, "col": 1 } }`처럼 숫자와 출처를 함께 쓴다. 출처는 표 칸이나 `{ "cite": { key, from, to } }`(그 숫자가 적힌 문단)다.
 
@@ -163,6 +164,8 @@ video-digest 리포트와 같은 꼴에 렌즈 칸을 더한다. 영상 칸 `fra
 - **A**는 값마다 `src`를 단다. merge가 원문 칸 숫자와 대조해 하나라도 다르면 `WIDGET_VALUE_MISMATCH`로 막는다. 칸 글자를 그대로 숫자로 옮긴다. 지표 이름은 원문에 나온 말만 쓴다(`WIDGET_METRIC_UNKNOWN`). 값이 하나도 없는 A 그림은 `A_NO_VALUES`로 막힌다.
 - **B**는 원문 데이터를 빌리지 않는다. 값을 쓰지 않고(`B_HAS_DATA`) 점수, 정확도, 일치도, `%` 같은 결과 지표 말을 쓰지 않는다(`B_METRIC_LABEL`). 원문 표의 재료나 노드 이름을 빌리지 않는다(`B_BORROWS_NAME`). 제목에 원문 그림 번호를 쓰지 않는다(`B_FIGURE_TITLE`). 라벨에도 숫자를 쓰지 않는다(`B_HAS_NUMBER`). 순서는 '처음', '다음', '끝'처럼 쓴다. 원문 그림을 다시 그리려면 C로 만든다.
 - **C**는 `figure`에 원문 그림 id를 달고 `differences`에 원문 그림과 다르게 그린 점을 한 줄 이상 적는다. 비면 `C_DIFFERENCES_EMPTY`로 막힌다. 무엇을 빼고 무엇을 단순하게 했는지, 원문 그림이 보여 주는 결과와 다르게 보일 수 있는 자리를 적는다. 원문 그림이 정답에 덜 가까운데 재구성이 더 가깝게 그려졌다면 그 점을 숨기지 않고 적는다.
+- **D**는 원문 그림 없이 글로만 설명된 절차나 사례를 옮길 때 쓴다. 원문 그림이 있으면 C로 만든다(`D_FIGURE_REF`). 슬라이더 단계마다 그 단계가 옮긴 원문 문단을 `cite`로 단다(`D_STEP_NO_CITE`). 그림 속 영문 이름(`release/20260728`, `main`, `force push` 같은)은 원문에 글자 그대로 있어야 한다(`D_NAME_UNKNOWN`). 숫자는 그 단계나 그림의 출처 문단에 있는 것만 쓴다(`D_NUMBER_UNKNOWN`). 원문이 `release/20260721`만 쓰면 "0721"로 줄이지 않는다. 지표 말은 A처럼 원문에 나온 것만 쓴다.
+- D에서 원문에 없는 요소를 하나 끼워야 이해가 쉬우면(예를 들어 "내 수정 커밋") 그 노드나 항목에 `"illustrative": true`를 단다. 렌더러가 점선과 "예시" 꼬리표로 그리고 그 글자는 B 규칙(숫자 없음, 지표 말 없음)을 받는다. 원문을 단순하게 옮긴 자리가 있으면 `differences`에 적는다. D에서는 선택이다.
 - C 슬라이더 칸 수는 원문 그림 장면 수(`source.json`의 `panels`)를 넘지 않는다(`C_STEPS_EXCEED_PANELS`). 원문 장면 가운데 몇 개를 골라도 되지만 원문에 없는 중간 단계를 만들지 않는다. `panels`가 없으면 `C_PANELS_UNKNOWN`으로 막히니 스킬에 알린다.
 - C는 원문 캡션과 본문 설명으로 다시 그린다. 원문 그림에만 있고 글자로 안 적힌 값은 읽어 내지 않는다. 그 자리는 `strong`, `weak` 같은 숫자 없는 모양으로만 그린다.
 - 원문 표가 둘 이상의 조건을 견주면 `toggleBars`(조건 하나를 켜고 끄기)나 `heatmap`(두 설정을 가로세로로)을 먼저 생각한다. 의심 표시를 단 표라면 그 어긋남이 그림에서 바로 보이게 고른다.
