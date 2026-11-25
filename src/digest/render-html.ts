@@ -18,6 +18,8 @@ import {
   glanceHtml,
   LENS_CSS,
   limitsHtml,
+  asideBadgeHtml,
+  primerHtml,
   sectionContextHtml,
   sourceFigureHtml,
   sourceTableHtml,
@@ -272,11 +274,17 @@ export function renderDigestHtml(
 <p>영상 ${timeLink(sec(b.video.cite))}${cite(b.video.cite)}</p>${quote(b.video.quote)}
 <p>${cite(b.slides.cite)}</p>${quote(b.slides.quote)}</div>`;
     };
+    const liClass = (b: Bullet): string => {
+      const cls = [b.doubt ? 'has-doubt' : '', b.aside ? `aside aside-${b.aside}` : '']
+        .filter(Boolean)
+        .join(' ');
+      return cls ? ` class="${cls}"` : '';
+    };
     const bullets = (list: Bullet[]): string =>
       `<ul>${list
         .map(
           (b) =>
-            `<li${b.doubt ? ' class="has-doubt"' : ''}>${inline(b.text, kwIds)}${cite(b.cite)}${b.doubt ? doubtHtml(b.doubt, lens) : ''}${b.comparison ? comparison(b.comparison) : ''}${b.children?.length ? bullets(b.children) : ''}</li>`,
+            `<li${liClass(b)}>${b.aside ? asideBadgeHtml(b.aside) : ''}${inline(b.text, kwIds)}${cite(b.cite)}${b.doubt ? doubtHtml(b.doubt, lens) : ''}${b.comparison ? comparison(b.comparison) : ''}${b.children?.length ? bullets(b.children) : ''}</li>`,
         )
         .join('')}</ul>`;
     // 원문 표와 그림은 source.json에서 옮긴다. lint가 id를 확인했지만 렌더도 없는 id는 건너뛴다
@@ -363,6 +371,14 @@ export function renderDigestHtml(
       : '';
     const lensKind = isLensKind(kind) ? kind : null;
     const glance = lensKind && lead.glance?.length ? glanceHtml(lead.glance, lensKind, lens) : '';
+    const primer =
+      lensKind && lead.primer
+        ? primerHtml(
+            lead.primer,
+            lead.primer.analogy ? widgetHtml(lead.primer.analogy, lens) : '',
+            lens,
+          )
+        : '';
     const coverage = lensKind ? coverageHtml(report, transcript, `${pfx}skipped`) : '';
     const limits = report.limits?.length ? limitsHtml(report.limits, `${pfx}limits`, lens) : '';
 
@@ -374,6 +390,7 @@ export function renderDigestHtml(
     ].join('');
     const body = `<div class="report" data-ri="${ri}" data-report="${e(key)}" lang="${e(report.options.lang)}"${hidden}>${scope}<section class="lead"><p class="q">${inline(lead.question, kwIds)}</p><p>${inline(lead.answer, kwIds)}</p><p class="takeaway">${inline(lead.takeaway, kwIds)}</p>${coverage}</section>
 ${glance}
+${primer}
 ${toc}
 ${sectionsHtml}
 ${followups}

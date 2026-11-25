@@ -9,7 +9,9 @@ import { isCellRef, type Evidence } from './lens-schema.js';
 import type { LensSource } from './lens-source.js';
 import { CARD_VERDICT_LABEL, cardKindLabel, GLANCE_LABEL, unitLabel } from './render-lens.js';
 import { reportLabel } from './reports.js';
+import { ASIDE_LABEL } from './lint-lens.js';
 import { widgetMarkdown } from './render-widgets.js';
+import type { WidgetValue } from './lens-widget-schema.js';
 import {
   FOLLOWUP_LABEL,
   isLensKind,
@@ -82,9 +84,28 @@ export function renderDigestMarkdown(
     return `(표 ${table?.number ?? ev.table} ${ev.row + 1}행 ${ev.col + 1}열: ${value})`;
   };
 
+  const tableCell = (v: WidgetValue): string => {
+    const src = v.src;
+    if (!src || !('table' in src)) return String(v.value);
+    const t = source?.tables.find((x) => x.id === src.table);
+    return t?.rows[src.row]?.[src.col] ?? String(v.value);
+  };
+  if (lead.primer) {
+    out.push('**먼저 보기**', '');
+    for (const r of lead.primer.rules) {
+      const at = 'table' in r.cite ? ` ${evidence(r.cite)}` : cite(r.cite);
+      out.push(`- ${plain(r.text)}${at}`);
+    }
+    out.push('');
+    if (lead.primer.analogy) {
+      out.push(...widgetMarkdown(lead.primer.analogy, { cell: tableCell }), '');
+    }
+  }
+
   const bullet = (b: Bullet, depth: number): string[] => {
     const pad = '  '.repeat(depth);
-    const lines = [`${pad}- ${plain(b.text)}${cite(b.cite)}`];
+    const badge = b.aside ? `*(${ASIDE_LABEL[b.aside]})* ` : '';
+    const lines = [`${pad}- ${badge}${plain(b.text)}${cite(b.cite)}`];
     if (b.comparison) {
       lines.push(`${pad}  > **영상과 슬라이드의 차이** ${plain(b.comparison.note)}`);
       for (const [label, evidence] of [
@@ -148,16 +169,7 @@ export function renderDigestMarkdown(
         }
       }
       for (const w of sub.widgets ?? []) {
-        out.push(
-          ...widgetMarkdown(w, {
-            cell: (v) => {
-              const src = v.src;
-              if (!src || !('table' in src)) return String(v.value);
-              const t = source?.tables.find((x) => x.id === src.table);
-              return t?.rows[src.row]?.[src.col] ?? String(v.value);
-            },
-          }),
-        );
+        out.push(...widgetMarkdown(w, { cell: tableCell }));
       }
     });
   });
