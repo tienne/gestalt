@@ -106,6 +106,16 @@ export class ExecuteError extends GestaltError {
   }
 }
 
+export class PlanRepositoryError extends ExecuteError {
+  constructor(
+    message: string,
+    readonly nextStep: string,
+  ) {
+    super(message);
+    this.name = 'PlanRepositoryError';
+  }
+}
+
 export class ExecuteSessionNotFoundError extends ExecuteError {
   constructor(sessionId: string) {
     super(`Execute session not found: ${sessionId}`);

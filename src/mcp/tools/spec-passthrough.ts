@@ -1,3 +1,5 @@
+import { findExistingSpec } from '../../spec/repository.js';
+import type { IEventStore } from '../../events/store.js';
 import type { PassthroughEngine } from '../../interview/passthrough-engine.js';
 import type { PassthroughSpecGenerator } from '../../spec/passthrough-generator.js';
 import { TextBasedSpecGenerator } from '../../spec/text-based-spec-generator.js';
@@ -15,7 +17,16 @@ export function handleSpecPassthrough(
   generator: PassthroughSpecGenerator,
   rawInput: SpecInput,
   agentRegistry?: AgentRegistry,
+  store?: IEventStore,
 ): string {
+  if (rawInput.specId && store) {
+    const spec = findExistingSpec(store, { specId: rawInput.specId });
+    return JSON.stringify(
+      spec
+        ? { status: 'existing', spec }
+        : { error: '저장된 Spec을 찾지 못했어요. 보관한 Spec JSON을 사용해 주세요' },
+    );
+  }
   const resolved = resolveInterviewSessionId(engine, rawInput.sessionId);
   if (!resolved.ok) return JSON.stringify({ error: resolved.error }, null, 2);
   const input: SpecInput = { ...rawInput, sessionId: resolved.sessionId };
@@ -91,6 +102,12 @@ export function handleSpecPassthrough(
       return JSON.stringify({ error: 'sessionId or text is required' }, null, 2);
     }
     const session = engine.getSession(input.sessionId);
+    if (input.reuse && store) {
+      if (session.status !== 'completed')
+        return JSON.stringify({ error: '완료된 인터뷰만 사용할 수 있어요' });
+      const existing = findExistingSpec(store, { sessionId: session.sessionId });
+      if (existing) return JSON.stringify({ status: 'existing', spec: existing });
+    }
 
     // Call 2: external spec provided → validate and store
     if (input.spec) {

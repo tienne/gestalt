@@ -114,9 +114,13 @@ export interface ExecuteFixture {
     adapter?: IHostAdapter,
   ): Promise<T>;
   /** 엔진 메서드로 start만 마친 세션 */
-  startedSession(spec?: Spec): { sessionId: string; spec: Spec };
+  startedSession(spec?: Spec, codeGraphRepoRoot?: string): { sessionId: string; spec: Spec };
   /** 플래닝 4단계와 plan_complete까지 마친 세션 */
-  plannedSession(tasks?: AtomicTask[], spec?: Spec): { sessionId: string; spec: Spec };
+  plannedSession(
+    tasks?: AtomicTask[],
+    spec?: Spec,
+    codeGraphRepoRoot?: string,
+  ): { sessionId: string; spec: Spec };
   /** 실행까지 시작한 세션 */
   executingSession(tasks?: AtomicTask[], spec?: Spec): { sessionId: string; spec: Spec };
   close(): void;
@@ -142,13 +146,13 @@ export function createExecuteFixture(
       );
       return JSON.parse(raw);
     },
-    startedSession(spec = makeSpec()) {
-      const r = engine.start(spec);
+    startedSession(spec = makeSpec(), codeGraphRepoRoot) {
+      const r = engine.start(spec, { codeGraphRepoRoot });
       if (!r.ok) throw r.error;
       return { sessionId: r.value.session.sessionId, spec };
     },
-    plannedSession(tasks = linearTasks, spec = makeSpec()) {
-      const { sessionId } = fixture.startedSession(spec);
+    plannedSession(tasks = linearTasks, spec = makeSpec(), codeGraphRepoRoot) {
+      const { sessionId } = fixture.startedSession(spec, codeGraphRepoRoot);
       for (const step of planningSteps(spec, tasks)) {
         const r = engine.planStep(sessionId, step);
         if (!r.ok) throw r.error;

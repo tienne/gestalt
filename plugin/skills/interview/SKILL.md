@@ -1,7 +1,7 @@
 ---
 name: interview
 version: "1.2.0"
-description: "질문을 주고받으며 프로젝트 요구사항을 명확하게 만드는(clarify requirements) Gestalt 인터뷰. 해상도 점수가 기준에 닿으면 멈추고 Spec은 만들지 않는다. 다음 단계는 spec이다. 단계 사이에 멈추지 않고 전체 루프를 돌리려면 solve를 쓴다."
+description: "질문을 주고받으며 프로젝트 요구사항을 명확하게 만드는(clarify requirements) Gestalt 인터뷰. 기본 호출은 해상도 점수가 기준에 닿으면 멈춘다. 다음 단계는 spec이다. 단계 사이에 멈추지 않고 전체 루프를 돌리려면 solve를 쓴다."
 triggers:
   - "interview"
   - "clarify requirements"
@@ -15,6 +15,10 @@ inputs:
     type: string
     required: false
     description: "Working directory for brownfield detection"
+  conductor:
+    type: boolean
+    required: false
+    description: 'Explicit --conductor flag to submit a validated plan for implementation'
 outputs:
   - session
   - resolutionScore
@@ -34,7 +38,7 @@ This skill conducts a Gestalt psychology-driven interview to transform vague req
 
 ## 0단계: 인텐트 라우팅 (인터뷰 시작 전)
 
-인터뷰를 시작하기 전에 topic이 인터뷰 파이프라인에 적합한지 먼저 확인한다.
+사용자가 이 스킬을 직접 호출하고 `--conductor`를 붙였으면 인터뷰를 시작한다. 그 외에는 topic이 인터뷰에 적합한지 아래 기준으로 확인한다.
 
 ### PR 관련 키워드 감지
 topic에 아래 키워드가 포함되면 `/pr` 스킬이 더 적합하다:
@@ -132,6 +136,8 @@ The interview only has value if the human's actual intent is captured. A self-an
 인터뷰 답변은 필수다. 비동기 질문 뒤에는 답변과 무관한 독립 작업만 계속할 수 있고 실제 답이 오기 전에는 `ges_interview respond`와 그 답에 의존하는 다음 라운드를 실행하지 않는다. 빈 응답, 취소, 기본 선택과 무응답은 사용자의 답이 아니다. 기다린 시간이 길어도 가정으로 채우지 않으며 기준값 미만 완료에 필요한 사용자의 명시적 결정도 대신하지 않는다. 이 참조는 기존 질문과 확인 경계를 추가하거나 없애지 않는다.
 
 ## Process
+
+사용자 호출에 `--conductor`가 있으면 5단계 완료에 성공한 뒤 [Spec과 계획 접수](../_shared/conductor-plan.md)를 이어 간다. 기본 호출은 아래 5단계에서 끝난다.
 
 1. **Start**: Create a session, detect project type (greenfield/brownfield), ask the first question
 2. **Iterate**: Present each generated question to the user → wait for answer → submit answer to Gestalt

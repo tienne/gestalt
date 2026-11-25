@@ -184,10 +184,12 @@ ges_interview({ action: "complete", sessionId: "<sessionId>", record: true })
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|:--------:|---------|-------------|
-| `sessionId` | `string` | `sessionId` 또는 `text` 중 하나 | — | 완료된 인터뷰 세션 ID |
-| `text` | `string` | `sessionId` 또는 `text` 중 하나 | — | 인터뷰 없이 Spec을 생성할 평문 설명 |
+| `sessionId` | `string` | `sessionId`, `text`, `specId` 중 하나 | — | 완료된 인터뷰 세션 ID |
+| `text` | `string` | `sessionId`, `text`, `specId` 중 하나 | — | 인터뷰 없이 Spec을 생성할 평문 설명 |
 | `force` | `boolean` | N | `false` | 해상도 임계값 미달 시에도 강제 생성 |
 | `spec` | `object` | N (2번째 호출 시) | — | 호출자가 생성한 Spec 객체 (검증 후 저장) |
+| `specId` | `string` | N | — | 저장된 Spec을 명시적으로 선택한다 |
+| `reuse` | `boolean` | N | `false` | 완료된 인터뷰에 저장된 Spec이 하나 있으면 그 Spec을 반환한다 |
 
 `text` 사용 시 생성된 Spec의 `interviewSessionId`는 `"text-input"`으로 설정되고 `.gestalt/memory.json`에 저장된다.
 
@@ -313,6 +315,7 @@ Spec에서 실행 계획을 수립하고 태스크를 실행한다. Planning →
 |--------|-------------|
 | `start` | 실행 계획 세션 시작 |
 | `plan_step` | 계획 단계 결과 제출 (`figure_ground` → `closure` → `proximity` → `continuity` 순서) |
+| `prepare_conductor` | Spec, 실행 세션 ID 또는 계획 ID로 공식 플래닝을 시작하거나 재개한다 |
 | `plan_complete` | 최종 실행 계획 조립 및 검증 |
 
 #### Execution
@@ -426,6 +429,10 @@ ges_execute({
 ```
 
 4개 원리(`figure_ground` → `closure` → `proximity` → `continuity`) 각각에 대해 반복 호출한다.
+
+### 컨덕터용 플래닝
+
+`prepare_conductor`에 `spec`, `sessionId`, `planId` 중 하나를 준다. 계획이 아직 없으면 응답의 `nextAction`부터 공식 플래닝을 진행한다. 이미 계획이 확정됐거나 `plan_complete`에 `conductor: true`를 붙여 확정하면 `ready_for_conductor`와 Spec, 계획, 실행 세션 ID를 받는다. 실제 접수는 [컨덕터의 일반 주문 경로](conductor.md#인터뷰-스펙-실행에서-계획-넘기기)로 요청한다.
 
 ### `plan_complete` — Response
 

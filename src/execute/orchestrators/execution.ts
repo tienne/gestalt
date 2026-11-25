@@ -13,6 +13,7 @@ import type {
 import {
   ExecuteError,
   ExecuteSessionNotFoundError,
+  PlanRepositoryError,
   TaskExecutionError,
 } from '../../core/errors.js';
 import { type Result, ok, err } from '../../core/result.js';
@@ -131,7 +132,8 @@ export class ExecutionOrchestrator {
         allTasksCompleted: taskContext === null,
       });
     } catch (e) {
-      if (e instanceof ExecuteSessionNotFoundError) return err(e);
+      if (e instanceof ExecuteSessionNotFoundError || e instanceof PlanRepositoryError)
+        return err(e);
       return err(
         new TaskExecutionError(
           `Failed to start execution: ${e instanceof Error ? e.message : String(e)}`,
@@ -459,7 +461,8 @@ export class ExecutionOrchestrator {
   async captureBaseline(sessionId: string, cwd?: string): Promise<BaselineCapture> {
     let repoRoot = cwd ?? process.cwd();
     try {
-      repoRoot = cwd ?? this.sessionManager.get(sessionId).codeGraphRepoRoot ?? process.cwd();
+      const session = this.sessionManager.get(sessionId);
+      repoRoot = session.assignedWorktree ?? cwd ?? session.codeGraphRepoRoot ?? process.cwd();
       const baseline = await captureWorkingTreeBaseline(repoRoot);
       if (baseline) return { repoRoot, baseline };
       log(`execute: ${repoRoot} is not a git work tree — completion claims will not be verified`);

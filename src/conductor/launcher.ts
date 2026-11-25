@@ -339,6 +339,20 @@ export function buildWorkerPrompt(
     );
   if (order.description) lines.push('', ...dataBlock('주문 설명', order.description));
 
+  if (order.preparedPlan) {
+    const { spec, plan, sessionId } = order.preparedPlan;
+    lines.push(
+      '',
+      '## 확정된 실행 계획',
+      `- 인터뷰 ID: ${oneLine(spec.metadata.interviewSessionId)}`,
+      `- Spec ID: ${oneLine(spec.metadata.specId)}`,
+      `- 계획 ID: ${plan.planId} (원래 실행 세션 ${sessionId})`,
+      `- 컨덕터가 배정한 워크트리에서 \`gestalt conductor plan load ${order.id}${at} --json\`으로 계획을 복원한다. 명령이 반환한 실행 세션 ID와 cwd를 사용한다.`,
+      '- 새 인터뷰나 플래닝 없이 execute의 실행 단계부터 시작한다. 재개한 세션은 현재 상태에서 이어 간다.',
+      '- Spec 수용 기준과 레포 검증을 통과한 뒤 ship으로 PR 리뷰와 CI를 마친다. 머지는 별도 승인 게이트를 따른다.',
+    );
+  }
+
   if (resume) {
     const cp = resume.checkpoint;
     lines.push('', '## 이어서 할 자리');

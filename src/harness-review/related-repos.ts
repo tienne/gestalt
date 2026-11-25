@@ -155,6 +155,11 @@ export function readOriginRepo(repoRoot: string): RepoRef | null {
   return parseGitHubRepo(url);
 }
 
+export function githubRepositoryName(root: string): string | undefined {
+  const origin = readOriginRepo(root);
+  return origin ? `${origin.owner}/${origin.name}`.toLowerCase() : undefined;
+}
+
 // ── 하네스 문서 수집 ──────────────────────────────────
 
 const SKIP_DIRS = new Set([

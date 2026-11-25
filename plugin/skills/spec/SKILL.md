@@ -1,7 +1,7 @@
 ---
 name: spec
 version: "1.2.0"
-description: "끝난 인터뷰 세션으로 스펙(Spec) 문서를 만들어 낸다. 인터뷰 세션 id가 있어야 한다. 날것의 문제에서 시작하면 interview를 먼저 돌린다. 전체 루프는 solve를 쓴다."
+description: "끝난 인터뷰 세션으로 스펙(Spec) 문서를 만들어 낸다. 기본 호출은 인터뷰 세션 ID를 사용한다. 날것의 문제에서 시작하면 interview를 먼저 돌린다. 전체 루프는 solve를 쓴다."
 triggers:
   - "generate spec"
   - "create spec"
@@ -9,12 +9,24 @@ triggers:
 inputs:
   sessionId:
     type: string
-    required: true
-    description: "The interview session ID to generate a spec from"
+    required: false
+    description: "The interview session ID, required unless --conductor selects an existing spec or plan"
+  specId:
+    type: string
+    required: false
+    description: "An existing Spec selected with --spec when --conductor is set"
+  planId:
+    type: string
+    required: false
+    description: "A finalized plan selected with --plan when --conductor is set"
   force:
     type: boolean
     required: false
     description: "Force generation even if resolution threshold is not met"
+  conductor:
+    type: boolean
+    required: false
+    description: 'Explicit --conductor flag to submit a validated plan for implementation'
 outputs:
   - spec
 ---
@@ -30,6 +42,10 @@ This skill transforms completed interview data into a structured project specifi
 >
 > **도구가 없을 때** → [`../_shared/tool-availability.md`](../_shared/tool-availability.md)
 > `ges_generate_spec` 없이 Spec처럼 보이는 JSON을 직접 쓰지 않는다.
+
+## 컨덕터 옵션
+
+사용자가 `--conductor`를 붙였으면 [기존 Spec 선택 또는 Spec 생성부터 계획 접수까지](../_shared/conductor-plan.md) 따라간다. 완료된 인터뷰 ID, `--spec <Spec-ID>`, `--plan <계획-ID>` 중 사용자가 준 출발점을 사용한다. 기본 호출은 Spec 생성 결과를 반환한다.
 
 ## Output Structure
 

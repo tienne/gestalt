@@ -206,12 +206,12 @@ export interface ConductorCommonOptions {
   json?: boolean;
 }
 
-interface Ctx {
+export interface Ctx {
   store: ConductorStore;
   config: ConductorConfig;
 }
 
-function open(opts: ConductorCommonOptions): Ctx {
+export function open(opts: ConductorCommonOptions): Ctx {
   const config = loadConfig().conductor;
   return { store: ConductorStore.open(resolveStateDir(opts.stateDir, config)), config };
 }
@@ -248,7 +248,7 @@ function launchersFor(
  * 컨덕터와 같은 자리, 같은 환경이라 여기서 못 막고 지시서 규칙에만 기댄다. 사고를 막는 장치이지
  * 적대적인 워커를 막는 경계는 아니다.
  */
-function assertConductorSession(ctx: Ctx, command: string, cwd = process.cwd()): void {
+export function assertConductorSession(ctx: Ctx, command: string, cwd = process.cwd()): void {
   assertCanSpawn(process.env);
   const w = workerAt(cwd, ctx.store.workers());
   if (w)
@@ -913,7 +913,7 @@ export async function conductorTickCommand(opts: ConductorTickOptions): Promise<
   }
 }
 
-async function tickBotCaller(ctx: Ctx): Promise<BotOwner | undefined> {
+export async function tickBotCaller(ctx: Ctx): Promise<BotOwner | undefined> {
   try {
     return await currentBotOwner();
   } catch (error) {
@@ -1926,7 +1926,7 @@ function nonNegativeInt(v: string, flag: string): number {
   return n;
 }
 
-function print(v: unknown): void {
+export function print(v: unknown): void {
   console.log(JSON.stringify(v, null, 2));
 }
 
@@ -1938,7 +1938,7 @@ function run(body: () => void): void {
   }
 }
 
-function exitWithError(e: unknown): never {
+export function exitWithError(e: unknown): never {
   console.error(e instanceof Error ? e.message : String(e));
   process.exit(1);
 }
