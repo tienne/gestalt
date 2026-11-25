@@ -3,7 +3,7 @@ import type { Widget } from '../../../src/digest/lens-widget-schema.js';
 import { extractProse } from '../../../src/digest/prose.js';
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
-import { wrapLabel } from '../../../src/digest/render-widgets-graph.js';
+import { GRAPH_WIDGET_CSS, wrapLabel } from '../../../src/digest/render-widgets-graph.js';
 import { parseDigest } from '../../../src/digest/schema.js';
 import { lensDigest, lensSource } from './fixture.js';
 import { at, deployCodes as codes, deployTranscript, withWidget } from './deploy-fixture.js';
@@ -270,6 +270,25 @@ describe('상태 전이, 순서도, 역할별 줄 렌더', () => {
     const lanes = md(roles());
     expect(lanes).toContain('- QA: alpha QA → beta QA');
     expect(lanes).toContain('- alpha QA → squash 머지: 버그');
+  });
+
+  it('사라진 상자와 메시지는 예시 점선과 다른 간격으로 긋고 글자에 취소선을 긋는다', () => {
+    expect(GRAPH_WIDGET_CSS).toContain(
+      '.wg-edge.w-gone path,.wg-msg.w-gone line,.wg-msg.w-gone path{stroke-dasharray:1 4}',
+    );
+    expect(GRAPH_WIDGET_CSS).toContain(
+      '.wg-node.w-gone rect,.wg-actor.w-gone rect{stroke-dasharray:1 4}',
+    );
+    expect(GRAPH_WIDGET_CSS).toContain(
+      '.wg-svg .w-gone text{fill:var(--muted);text-decoration:line-through}',
+    );
+    // 답장 점선보다 뒤에 둬야 사라진 답장이 보통 답장과 갈린다
+    expect(GRAPH_WIDGET_CSS.indexOf('.wg-msg.w-gone path')).toBeGreaterThan(
+      GRAPH_WIDGET_CSS.indexOf('.wg-reply path'),
+    );
+    expect(GRAPH_WIDGET_CSS.indexOf('.w-gone text')).toBeGreaterThan(
+      GRAPH_WIDGET_CSS.indexOf('.wg-elabel{'),
+    );
   });
 
   it('윤문은 상태와 메시지, 활동 글자를 받는다', () => {

@@ -495,7 +495,7 @@ export const GRAPH_WIDGET_CSS = `
 .wg-node rect,.wg-actor rect{fill:var(--card);stroke:var(--accent);stroke-width:1.5}
 .wg-node.w-focus rect,.wg-actor.w-focus rect{fill:color-mix(in srgb, var(--accent) 18%, var(--card));stroke-width:2.5}
 .wg-node.w-ill rect,.wg-actor.w-ill rect{stroke-dasharray:4 3;stroke:var(--muted)}
-.wg-node.w-gone rect,.wg-actor.w-gone rect{stroke-dasharray:3 3}
+.wg-node.w-gone rect,.wg-actor.w-gone rect{stroke-dasharray:1 4}
 .wg-final{fill:none;stroke:var(--accent);stroke-width:1}
 .wg-start{fill:var(--fg)}
 .wg-line{stroke:var(--muted);stroke-width:1.5}
@@ -503,9 +503,11 @@ export const GRAPH_WIDGET_CSS = `
 .wg-head{fill:var(--muted)}
 .wg-edge.w-focus path,.wg-msg.w-focus line,.wg-msg.w-focus path{stroke:var(--accent);stroke-width:2.5}
 .wg-edge.w-focus .wg-head,.wg-msg.w-focus .wg-head{fill:var(--accent)}
-.wg-edge.w-ill path,.wg-msg.w-ill line,.wg-msg.w-ill path,.wg-reply line,.wg-reply path,.wg-edge.w-gone path,.wg-msg.w-gone line{stroke-dasharray:4 3}
+.wg-edge.w-ill path,.wg-msg.w-ill line,.wg-msg.w-ill path,.wg-reply line,.wg-reply path{stroke-dasharray:4 3}
+.wg-edge.w-gone path,.wg-msg.w-gone line,.wg-msg.w-gone path{stroke-dasharray:1 4}
 .wg-back path{stroke:var(--warn)}.wg-back .wg-head{fill:var(--warn)}
 .wg-svg .wg-elabel{font-size:10.5px;stroke:var(--card);stroke-width:3px;paint-order:stroke;stroke-linejoin:round}
+.wg-svg .w-gone text{fill:var(--muted);text-decoration:line-through}
 .wg-life{stroke:var(--line);stroke-width:1;stroke-dasharray:4 4}
 .wsw-lane rect{stroke:var(--line);stroke-width:1}
 .wsw-even rect{fill:color-mix(in srgb, var(--accent) 5%, transparent)}
