@@ -2,7 +2,7 @@ import type { ElementLook } from './lens-steps.js';
 import type { Widget } from './lens-widget-schema.js';
 import { sequenceSteps, stepElementIds } from './lens-widgets.js';
 import type { LensHtmlContext } from './render-lens.js';
-import { f1, framed, ill as named, lookClass, stepsMarkdown } from './render-widgets-flow.js';
+import { f1, framed, ill as named, lookClass, srText, stepsMarkdown } from './render-widgets-flow.js';
 
 /**
  * 상자와 화살표로 그리는 단계형 그림(stateMachine, sequence, swimlane). 자리는 렌더러가 잡는다.
@@ -396,13 +396,14 @@ function swimlaneSvg(w: Swimlane, looks: Map<string, ElementLook>, ctx: LensHtml
 
 export function graphWidgetHtml(w: GraphWidget, ctx: LensHtmlContext): string {
   const ids = stepElementIds(w);
+  const text = srText(graphWidgetMarkdown(w), ctx);
   if (w.kind === 'stateMachine') {
-    return framed(ids, w.steps, (looks) => stateSvg(w, looks, ctx), ctx);
+    return framed(ids, w.steps, (looks) => stateSvg(w, looks, ctx), ctx) + text;
   }
   if (w.kind === 'sequence') {
-    return framed(ids, sequenceSteps(w), (looks) => sequenceSvg(w, looks, ctx), ctx);
+    return framed(ids, sequenceSteps(w), (looks) => sequenceSvg(w, looks, ctx), ctx) + text;
   }
-  return framed(ids, w.steps, (looks) => swimlaneSvg(w, looks, ctx), ctx);
+  return framed(ids, w.steps, (looks) => swimlaneSvg(w, looks, ctx), ctx) + text;
 }
 
 export function graphWidgetMarkdown(w: GraphWidget): string[] {

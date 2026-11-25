@@ -137,6 +137,16 @@ function laneSvg(w: LaneGraph, looks: Map<string, ElementLook>, ctx: LensHtmlCon
   return `<div class="w-scroll"><svg class="wl-svg" viewBox="0 0 ${W} ${H}" width="${W}" role="img" aria-label="${ctx.escape(w.title)}">${lanes}${edges}${nodes}</svg></div>`;
 }
 
+/** 그림이 보여 주는 요소와 관계를 화면 낭독기가 읽을 글로 같이 둔다. 마크다운 출력과 같은 내용이다 */
+export function srText(lines: string[], ctx: LensHtmlContext): string {
+  const items = lines
+    .map((l) => l.trim().replace(/^- /, ''))
+    .filter((l) => l && !/^\|/.test(l))
+    .map((l) => `<li>${ctx.escape(l)}</li>`)
+    .join('');
+  return items ? `<ul class="sr-only">${items}</ul>` : '';
+}
+
 function laneGraphHtml(w: LaneGraph, ctx: LensHtmlContext): string {
   const legend = `<p class="w-legend">굵은 선은 부모 연결, 가는 점선은 복사해 새로 쌓은 점이에요. 복사된 점은 원래 줄 색으로 칠해요. 흐린 점선은 그 단계에서 버려지는 점이에요.</p>`;
   return `${framed(
@@ -144,7 +154,7 @@ function laneGraphHtml(w: LaneGraph, ctx: LensHtmlContext): string {
     w.steps,
     (looks) => laneSvg(w, looks, ctx),
     ctx,
-  )}${legend}`;
+  )}${srText(flowWidgetMarkdown(w), ctx)}${legend}`;
 }
 
 /** 같은 트랙에서 겹치는 기간은 아랫줄로 내린다. 단계가 바뀌어도 자리가 흔들리지 않게 숨은 기간까지 한 번에 놓는다 */

@@ -185,6 +185,12 @@ describe('상태 전이, 순서도, 역할별 줄 렌더', () => {
     expect(out).toMatch(/<g class="wg-edge w-focus"><path d="M[\d.,]+ Q/);
   });
 
+  it('그림이 보여 주는 상태와 전이를 화면 낭독기용 글로 같이 둔다', () => {
+    const out = html(prState());
+    expect(out).toContain('<ul class="sr-only">');
+    expect(out).toContain('<li>alpha QA → PR 리뷰: 버그</li>');
+  });
+
   it('sequence는 단계가 없으면 메시지 하나를 한 단계로 보이고 순번을 붙인다', () => {
     const out = html(rebase());
     expect(out).toContain('<span class="w-pos" aria-live="polite">단계 1 / 3</span>');
