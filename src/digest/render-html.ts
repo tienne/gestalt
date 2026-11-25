@@ -247,7 +247,7 @@ export function renderDigestHtml(
 
   const reportsMeta = digest.reports.map((r) => ({ report: r, key: reportKey(r.options) }));
   const base = digest.reports[0]!.options;
-  const initial = initialReportIndex(digest.reports);
+  const initial = initialReportIndex(digest.reports, isLensKind(kind) ? 'easy' : 'normal');
   const shown = digest.reports[initial]!.options;
 
   // 첫 리포트는 1차와 같은 id를 써서 이미 공유된 앵커가 그대로 열린다. 나머지는 id에 못 쓰는 ~로 접두를 붙여 겹치지 않게 한다
@@ -389,7 +389,7 @@ ${skippedHtml}</div>`;
   const otherReports = reportsMeta.filter(
     ({ report }) => !isPreset(report.options, base) || report.options.length !== 'long',
   );
-  const reportBar = `<div class="report-bar" role="group" aria-label="리포트 고르기"><button type="button" id="easy-toggle" ${pressed(shown.difficulty === 'easy')}>쉽게 보기</button>${
+  const reportBar = `<div class="report-bar" role="group" aria-label="리포트 고르기"><button type="button" id="easy-toggle" ${pressed(shown.difficulty === (isLensKind(kind) ? 'normal' : 'easy'))}>${isLensKind(kind) ? '원문 가까이 보기' : '쉽게 보기'}</button>${
     otherReports.length && reportsMeta.length > 1
       ? `<label class="bar-label">다른 리포트 <select id="report-select">${reportsMeta
           .map(

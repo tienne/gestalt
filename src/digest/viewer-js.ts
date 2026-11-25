@@ -1269,7 +1269,8 @@ export const VIEWER_JS =
       document.querySelectorAll('.report[data-ri]').forEach(function(b){ b.hidden = Number(b.getAttribute('data-ri')) !== ri; });
       document.querySelectorAll('.minimap[data-ri]').forEach(function(m){ m.hidden = Number(m.getAttribute('data-ri')) !== ri; });
       var r = data.reports[ri];
-      if (easyToggle) easyToggle.setAttribute('aria-pressed', r.difficulty === 'easy' ? 'true' : 'false');
+      // 읽기 렌즈는 쉬운 리포트가 기본이라 토글이 "원문 가까이 보기"이고 보통 리포트일 때 눌린다
+      if (easyToggle) easyToggle.setAttribute('aria-pressed', r.difficulty === (data.lens ? 'normal' : 'easy') ? 'true' : 'false');
       if (select) select.value = String(ri);
       hideMissing();
       try { localStorage.setItem(REPORT_KEY, r.key); } catch (e) {}

@@ -455,6 +455,13 @@ describe('initialReportIndex', () => {
     expect(initialReportIndex(reports)).toBe(1);
   });
 
+  it('prefer가 easy면 long+easy를 먼저 찾고 없으면 long+normal로 돌아간다', () => {
+    const both = [variant({ length: 'long' }), variant({ length: 'long', difficulty: 'easy' })];
+    expect(initialReportIndex(both, 'easy')).toBe(1);
+    expect(initialReportIndex(both)).toBe(0);
+    expect(initialReportIndex([variant({}), variant({ length: 'long' })], 'easy')).toBe(1);
+  });
+
   it('long+normal이 없으면 첫 리포트', () => {
     expect(initialReportIndex([variant({}), variant({ length: 'short' })])).toBe(0);
     expect(initialReportIndex([variant({}), variant({ length: 'long', difficulty: 'easy' })])).toBe(
