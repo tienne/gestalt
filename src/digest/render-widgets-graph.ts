@@ -2,6 +2,7 @@ import type { ElementLook } from './lens-steps.js';
 import type { Widget } from './lens-widget-schema.js';
 import { sequenceSteps, stepElementIds } from './lens-widgets.js';
 import type { LensHtmlContext } from './render-lens.js';
+import { mdInline as md, oneLine } from './render-blocks.js';
 import {
   f1,
   framed,
@@ -428,7 +429,7 @@ function swimlaneSvg(w: Swimlane, looks: Map<string, ElementLook>, ctx: LensHtml
 
 export function graphWidgetHtml(w: GraphWidget, ctx: LensHtmlContext): string {
   const ids = stepElementIds(w);
-  const text = srText(graphWidgetMarkdown(w), ctx);
+  const text = srText(graphLines(w, oneLine), ctx);
   if (w.kind === 'stateMachine') {
     return framed(ids, w.steps, (looks) => stateSvg(w, looks, ctx), ctx) + text;
   }
@@ -438,55 +439,57 @@ export function graphWidgetHtml(w: GraphWidget, ctx: LensHtmlContext): string {
   return framed(ids, w.steps, (looks) => swimlaneSvg(w, looks, ctx), ctx) + text;
 }
 
-export function graphWidgetMarkdown(w: GraphWidget): string[] {
+/** 요소와 관계를 줄로 적는다. 마크다운은 mdInline, 낭독 줄은 공백만 접은 값으로 부른다. 단계 줄은 넣지 않는다 */
+function graphLines(w: GraphWidget, text: (s: string) => string): string[] {
   const out: string[] = [];
   if (w.kind === 'stateMachine') {
-    const label = new Map(w.states.map((s) => [s.id, s.label]));
+    const label = new Map(w.states.map((s) => [s.id, text(s.label)]));
     const marks = (s: StateMachine['states'][number]) =>
       [s.initial ? '시작' : '', s.final ? '끝' : ''].filter(Boolean).join(', ');
     out.push(
       `상태: ${w.states
         .map((s) => {
           const m = marks(s);
-          return `${named(s.label, s.illustrative)}${m ? `(${m})` : ''}`;
+          return `${named(text(s.label), s.illustrative)}${m ? `(${m})` : ''}`;
         })
         .join(', ')}`,
       '',
     );
     for (const t of w.transitions) {
       out.push(
-        `- ${label.get(t.from) ?? t.from} → ${label.get(t.to) ?? t.to}${t.label ? `: ${named(t.label, t.illustrative)}` : ''}`,
+        `- ${label.get(t.from) ?? t.from} → ${label.get(t.to) ?? t.to}${t.label ? `: ${named(text(t.label), t.illustrative)}` : ''}`,
       );
     }
-    out.push(...stepsMarkdown(w.steps));
   } else if (w.kind === 'sequence') {
-    const label = new Map(w.actors.map((a) => [a.id, a.label]));
+    const label = new Map(w.actors.map((a) => [a.id, text(a.label)]));
     w.messages.forEach((m, k) =>
       out.push(
-        `${k + 1}. ${label.get(m.from) ?? m.from} → ${label.get(m.to) ?? m.to}: ${named(m.label, m.illustrative)}${m.reply ? ' (응답)' : ''}`,
+        `${k + 1}. ${label.get(m.from) ?? m.from} → ${label.get(m.to) ?? m.to}: ${named(text(m.label), m.illustrative)}${m.reply ? ' (응답)' : ''}`,
       ),
     );
-    out.push(...stepsMarkdown(w.steps));
   } else {
-    const label = new Map(w.activities.map((a) => [a.id, a.label]));
+    const label = new Map(w.activities.map((a) => [a.id, text(a.label)]));
     for (const lane of w.lanes) {
       const acts = w.activities
         .filter((a) => a.lane === lane.id)
         .sort((a, b) => a.col - b.col)
-        .map((a) => named(a.label, a.illustrative));
-      out.push(`- ${lane.label}: ${acts.join(' → ') || '없음'}`);
+        .map((a) => named(text(a.label), a.illustrative));
+      out.push(`- ${text(lane.label)}: ${acts.join(' → ') || '없음'}`);
     }
     if (w.arrows?.length) {
       out.push('', '화살표:');
       for (const ar of w.arrows) {
         out.push(
-          `- ${label.get(ar.from) ?? ar.from} → ${label.get(ar.to) ?? ar.to}${ar.label ? `: ${ar.label}` : ''}`,
+          `- ${label.get(ar.from) ?? ar.from} → ${label.get(ar.to) ?? ar.to}${ar.label ? `: ${text(ar.label)}` : ''}`,
         );
       }
     }
-    out.push(...stepsMarkdown(w.steps));
   }
   return out;
+}
+
+export function graphWidgetMarkdown(w: GraphWidget): string[] {
+  return [...graphLines(w, md), ...stepsMarkdown(w.steps)];
 }
 
 export const GRAPH_WIDGET_CSS = `

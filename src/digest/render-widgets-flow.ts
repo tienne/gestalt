@@ -4,6 +4,7 @@ import { stepFrames, type ElementLook, type Step, type StepFrame } from './lens-
 import type { Widget } from './lens-widget-schema.js';
 import type { Cite } from './schema-base.js';
 import { mdCell as cell } from './format.js';
+import { mdInline as md, oneLine } from './render-blocks.js';
 
 /**
  * 단계형 그림(laneGraph, calendar, stepper)과 비유 표 렌더러. 단계마다 그림을 미리 그려 두고
@@ -137,11 +138,14 @@ function laneSvg(w: LaneGraph, looks: Map<string, ElementLook>, ctx: LensHtmlCon
   return `<div class="w-scroll"><svg class="wl-svg" viewBox="0 0 ${W} ${H}" width="${W}" role="img" aria-label="${ctx.escape(w.title)}">${lanes}${edges}${nodes}</svg></div>`;
 }
 
-/** 그림이 보여 주는 요소와 관계를 화면 낭독기가 읽을 글로 같이 둔다. 마크다운 출력과 같은 내용이다 */
+/**
+ * 그림이 보여 주는 요소와 관계를 화면 낭독기가 읽을 글로 같이 둔다.
+ * 줄은 마크다운 이스케이프 전 값으로 받는다. 단계 라벨은 단계 칸과 w-live가 이미 읽어 주므로 넣지 않는다
+ */
 export function srText(lines: string[], ctx: LensHtmlContext): string {
   const items = lines
     .map((l) => l.trim().replace(/^- /, ''))
-    .filter((l) => l && !/^\|/.test(l))
+    .filter(Boolean)
     .map((l) => `<li>${ctx.escape(l)}</li>`)
     .join('');
   return items ? `<ul class="sr-only">${items}</ul>` : '';
@@ -154,7 +158,7 @@ function laneGraphHtml(w: LaneGraph, ctx: LensHtmlContext): string {
     w.steps,
     (looks) => laneSvg(w, looks, ctx),
     ctx,
-  )}${srText(flowWidgetMarkdown(w), ctx)}${legend}`;
+  )}${srText(laneLines(w, oneLine), ctx)}${legend}`;
 }
 
 /** 같은 트랙에서 겹치는 기간은 아랫줄로 내린다. 단계가 바뀌어도 자리가 흔들리지 않게 숨은 기간까지 한 번에 놓는다 */
@@ -317,27 +321,31 @@ export function stepsMarkdown(steps: Step[] | undefined): string[] {
   const out = ['', '단계:'];
   steps.forEach((s, k) => {
     const state = s.state?.length
-      ? ` (${s.state.map((kv) => `${kv.key}: ${kv.value}`).join(', ')})`
+      ? ` (${s.state.map((kv) => `${md(kv.key)}: ${md(kv.value)}`).join(', ')})`
       : '';
-    out.push(`${k + 1}. ${cell(s.label)}${s.note ? `. ${cell(s.note)}` : ''}${state}`);
+    out.push(`${k + 1}. ${md(s.label)}${s.note ? `. ${md(s.note)}` : ''}${state}`);
   });
   return out;
+}
+
+/** 줄마다 레인과 그 위 점을 적는다. 마크다운은 mdInline, 낭독 줄은 공백만 접은 값으로 부른다 */
+function laneLines(w: LaneGraph, text: (s: string) => string): string[] {
+  const byId = new Map(w.nodes.map((n) => [n.id, n]));
+  return w.lanes.map((lane) => {
+    const nodes = w.nodes
+      .filter((n) => n.lane === lane.id)
+      .map((n) => {
+        const from = n.copyOf ? byId.get(n.copyOf) : undefined;
+        return `${ill(text(n.label), n.illustrative)}${from ? `(${text(from.label)} 복사)` : ''}`;
+      });
+    return `- ${text(lane.label)}: ${nodes.join(' → ') || '없음'}`;
+  });
 }
 
 export function flowWidgetMarkdown(w: FlowWidget): string[] {
   const out: string[] = [];
   if (w.kind === 'laneGraph') {
-    const byId = new Map(w.nodes.map((n) => [n.id, n]));
-    for (const lane of w.lanes) {
-      const nodes = w.nodes
-        .filter((n) => n.lane === lane.id)
-        .map((n) => {
-          const from = n.copyOf ? byId.get(n.copyOf) : undefined;
-          return `${ill(n.label, n.illustrative)}${from ? `(${from.label} 복사)` : ''}`;
-        });
-      out.push(`- ${lane.label}: ${nodes.join(' → ') || '없음'}`);
-    }
-    out.push(...stepsMarkdown(w.steps));
+    out.push(...laneLines(w, md), ...stepsMarkdown(w.steps));
   } else if (w.kind === 'calendar') {
     out.push(
       `| | ${w.columns.map(cell).join(' | ')} |`,
@@ -355,27 +363,29 @@ export function flowWidgetMarkdown(w: FlowWidget): string[] {
       );
       out.push(`| ${cell(t.label)} | ${cells.join(' | ')} |`);
     }
-    if (w.note) out.push('', w.note);
+    if (w.note) out.push('', md(w.note));
     out.push(...stepsMarkdown(w.steps));
   } else if (w.kind === 'stepper') {
     const byId = new Map(w.items.map((it) => [it.id, it]));
     w.items.forEach((it, k) =>
       out.push(
-        `${k + 1}. ${ill(it.label, it.illustrative)}${it.optional ? ' (선택)' : ''}${it.detail ? `. ${it.detail}` : ''}`,
+        `${k + 1}. ${ill(md(it.label), it.illustrative)}${it.optional ? ' (선택)' : ''}${it.detail ? `. ${md(it.detail)}` : ''}`,
       ),
     );
     for (const l of w.loops ?? []) {
       const a = byId.get(l.from);
       const b = byId.get(l.to);
       if (a && b)
-        out.push(`- ↩ ${a.label}에서 ${b.label}(으)로 돌아간다${l.label ? `. ${l.label}` : ''}`);
+        out.push(
+          `- ↩ ${md(a.label)}에서 ${md(b.label)}(으)로 돌아간다${l.label ? `. ${md(l.label)}` : ''}`,
+        );
     }
     out.push(...stepsMarkdown(w.steps));
   } else {
     out.push(`| 원문 말 | ${cell(w.domain)}에 빗대면 |`, '| --- | --- |');
     for (const r of w.rows) out.push(`| ${cell(r.term)} | ${cell(r.analog)} |`);
     const breaks = w.breaks.filter((b) => b.trim());
-    if (breaks.length) out.push('', '비유가 안 맞는 곳:', ...breaks.map((b) => `- ${b}`));
+    if (breaks.length) out.push('', '비유가 안 맞는 곳:', ...breaks.map((b) => `- ${md(b)}`));
   }
   return out;
 }

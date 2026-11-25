@@ -1,5 +1,6 @@
 import type { LensHtmlContext } from './render-lens.js';
 import { mdCell } from './format.js';
+import { mdInline } from './render-blocks.js';
 import type { Widget, WidgetValue } from './lens-widget-schema.js';
 import {
   FLOW_WIDGET_CSS,
@@ -206,11 +207,11 @@ export function widgetHtml(w: Widget, ctx: LensHtmlContext): string {
 }
 
 export function widgetMarkdown(w: Widget, ctx: { cell: (v: WidgetValue) => string }): string[] {
-  const out = [`**${w.title}** *(${badgeOf(w).label})*`, ''];
+  const out = [`**${mdInline(w.title)}** *(${badgeOf(w).label})*`, ''];
   if ((w.class === 'C' || w.class === 'D') && w.differences?.length) {
     out.push(
       w.class === 'C' ? '원문 그림과 다른 점:' : '원문 설명과 다르게 옮긴 점:',
-      ...w.differences.map((d) => `- ${d}`),
+      ...w.differences.map((d) => `- ${mdInline(d)}`),
       '',
     );
   }
@@ -234,7 +235,7 @@ export function widgetMarkdown(w: Widget, ctx: { cell: (v: WidgetValue) => strin
     for (const s of w.steps) {
       const strong = s.edges.filter((e) => e.strength === 'strong').length;
       out.push(
-        `- ${s.label}: 강한 간선 ${strong}개, 약한 간선 ${s.edges.length - strong}개${s.note ? `. ${s.note}` : ''}`,
+        `- ${mdInline(s.label)}: 강한 간선 ${strong}개, 약한 간선 ${s.edges.length - strong}개${s.note ? `. ${mdInline(s.note)}` : ''}`,
       );
     }
   } else {

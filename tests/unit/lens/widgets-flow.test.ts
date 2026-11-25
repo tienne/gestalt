@@ -282,6 +282,32 @@ describe('새 위젯 렌더', () => {
     expect(out).not.toContain('alpha\nQA');
   });
 
+  it('목록 줄의 라벨은 줄바꿈과 마크다운 문법 글자를 막는다', () => {
+    const plain = md(journey()).split('\n').length;
+    const w = journey();
+    w.items[1]!.label = '# 배포\n- 끼어든 줄';
+    w.loops![0]!.label = '[x](y)';
+    const out = md(w);
+    expect(out.split('\n').length).toBe(plain);
+    expect(out).toContain('2. \\# 배포 - 끼어든 줄');
+    expect(out).toContain('(으)로 돌아간다. \\[x\\](y)');
+  });
+
+  it('단계 라벨이 목록 기호로 시작해도 하위 목록이 되지 않는다', () => {
+    const w = lanes();
+    w.steps![0]!.label = '- 끼어든 줄';
+    expect(md(w)).toContain('1. \\- 끼어든 줄');
+  });
+
+  it('laneGraph 낭독 줄은 이스케이프 전 라벨로 적고 단계 라벨은 다시 넣지 않는다', () => {
+    const w = lanes();
+    w.lanes[0]!.label = 'main [x] | y';
+    const sr = html(w).match(/<ul class="sr-only">(.*?)<\/ul>/)![1]!;
+    expect(sr).toContain('<li>main [x] | y: main → PR(PR 복사)</li>');
+    expect(sr).not.toContain('\\');
+    expect(sr).not.toContain('release/20260728이 갈라진다');
+  });
+
   it('윤문은 상태 키를 빼고 값만 받는다', () => {
     const r = withWidget(lanes());
     const paths = extractProse(lensDigest(r)).map((p) => p.path);

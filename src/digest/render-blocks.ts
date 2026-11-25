@@ -295,7 +295,7 @@ export function sectionDiagramMd(d: Diagram, ctx: BlockMdContext): string[] {
 const mdVerbatim = (text: string) => text.replace(/[\\`*_[\]<>#|&~]/g, (ch) => `\\${ch}`);
 
 // 한 줄로 쓰는 칸에 개행이 섞이면 목록이나 인용 밖으로 빠져나간다. HTML도 이 칸들의 개행을 공백으로 접어 보여준다
-const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
+export const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
 
 // 줄 첫머리의 `-`, `+`, `1.`, `1)`은 뒤에 공백이 오거나 줄이 끝나면 목록으로, `---`와 `===`는 구분선이나 제목 밑줄로 읽힌다
 // HTML은 평문으로 보여줘서 맞춘다. `-5도`나 `3.5배`는 문법이 아니라서 그대로 둔다

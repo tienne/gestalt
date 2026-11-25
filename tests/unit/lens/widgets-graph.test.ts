@@ -272,6 +272,26 @@ describe('상태 전이, 순서도, 역할별 줄 렌더', () => {
     expect(lanes).toContain('- alpha QA → squash 머지: 버그');
   });
 
+  it('라벨에 줄바꿈과 마크다운 문법 글자가 있어도 마크다운 줄이 늘지 않는다', () => {
+    const plain = md(prState()).split('\n').length;
+    const w = prState();
+    w.states[2]!.label = '# 배포\n- 끼어든 줄';
+    w.transitions[2]!.label = '[x](y)';
+    const out = md(w);
+    expect(out.split('\n').length).toBe(plain);
+    expect(out).toContain('\\# 배포 - 끼어든 줄');
+    expect(out).toContain('- \\# 배포 - 끼어든 줄 → PR 리뷰: \\[x\\](y)');
+  });
+
+  it('낭독 줄은 이스케이프 전 라벨로 적고 단계 라벨은 다시 넣지 않는다', () => {
+    const w = prState();
+    w.transitions[2]!.label = 'a | b [x]';
+    const sr = html(w).match(/<ul class="sr-only">(.*?)<\/ul>/)![1]!;
+    expect(sr).toContain('<li>alpha QA → PR 리뷰: a | b [x]</li>');
+    expect(sr).not.toContain('\\');
+    expect(sr).not.toContain('PR이 release 브랜치에 들어간다');
+  });
+
   it('사라진 상자와 메시지는 예시 점선과 다른 간격으로 긋고 글자에 취소선을 긋는다', () => {
     expect(GRAPH_WIDGET_CSS).toContain(
       '.wg-edge.w-gone path,.wg-msg.w-gone line,.wg-msg.w-gone path{stroke-dasharray:1 4}',
