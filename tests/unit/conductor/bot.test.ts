@@ -387,9 +387,13 @@ describe('Orca 채팅 머지 승인', () => {
     },
   );
 
-  it.each(changedReviewScope)(
-    '접수 뒤 재리뷰 범위가 바뀌면 주문 없이 현재 범위의 승인을 한 번 다시 연다',
-    async (current, reason) => {
+  it.each([
+    ['HEAD 변경 유지', ...changedReviewScope[0], false],
+    ['base 변경 유지', ...changedReviewScope[1], false],
+    ['base 원복', ...changedReviewScope[1], true],
+  ] as const)(
+    '교체 게이트 저장 직후 중단에서 복구해 재리뷰 주문을 한 번만 만든다 (%s)',
+    async (_name, current, reason, revert) => {
       fakeOrca(owner);
       fakePr();
       const { store, gate, opts, privateKey } = watchedReviewFixture();
@@ -399,9 +403,10 @@ describe('Orca 채팅 머지 승인', () => {
       );
       await conductorBotDecideCommand(gate.id, { ...opts, signature });
       expect(last()).toMatchObject({ target: { base: 'main', head: sha }, delivery: 'pending' });
+      let observed = current;
       const deps = {
         ...tickDeps(),
-        readApprovalEvidence: async () => current,
+        readApprovalEvidence: async () => observed,
         prSource: {
           authored: async () => [],
           reviewing: async () => [
@@ -409,7 +414,7 @@ describe('Orca 채팅 머지 승인', () => {
               ref: pr,
               repo,
               title: '재리뷰 PR',
-              headSha: current.head,
+              headSha: observed.head,
               reviewedHeadSha: sha,
               repliesSinceReview: 1,
             },
@@ -419,15 +424,14 @@ describe('Orca 채팅 머지 승인', () => {
       const reopened = ConductorStore.open(store.dir);
       const append = reopened.append.bind(reopened);
       vi.spyOn(reopened, 'append').mockImplementation((event) => {
-        if (
-          event.type === 'gate-delivery' &&
-          event.gateId === gate.id &&
-          event.outcome === 'superseded'
-        )
+        append(event);
+        if (event.type === 'gate-opened' && event.gate.payload?.reapprovalOf === gate.id)
           throw new Error('새 게이트 생성 직후 기록 중단');
-        return append(event);
       });
       const result = await tick(reopened, deps, { force: true });
+      expect(result.errors).toContainEqual(
+        expect.stringContaining('새 게이트 생성 직후 기록 중단'),
+      );
       expect(result.created).toHaveLength(0);
       const [replacement] = reopened.openGates().filter((g) => g.type === 'review-manual-switch');
       expect(replacement).toMatchObject({
@@ -435,26 +439,33 @@ describe('Orca 채팅 머지 승인', () => {
         payload: { prRef: pr, approvalBase: current.base, reapprovalOf: gate.id },
       });
       expect(replacement?.reason).toContain(current.head);
+      if (revert) observed = prEvidence;
       const retry = ConductorStore.open(store.dir);
-      expect((await tick(retry, deps, { force: true })).created).toHaveLength(0);
       expect(retry.snapshot.gates[gate.id]).toMatchObject({
         deliveryOutcome: 'superseded',
         deliveryDetail: expect.stringContaining(reason),
       });
+      expect(retry.snapshot.gates[gate.id]?.deliveryPending).toBeUndefined();
+      expect((await tick(retry, deps, { force: true })).created).toHaveLength(0);
       expect(
         retry
           .openGates()
           .filter((g) => g.type === 'review-manual-switch')
           .map((g) => g.id),
       ).toEqual([replacement!.id]);
-      fakePr(current.head, current.base);
+      fakePr(observed.head, observed.base);
       await conductorBotGateCommand(replacement!.id, opts);
       const newSignature = sign(null, Buffer.from(last().messages.approved), privateKey).toString(
         'base64',
       );
       await conductorBotDecideCommand(replacement!.id, { ...opts, signature: newSignature });
-      expect(last()).toMatchObject({ target: { base: current.base, head: current.head } });
+      expect(last()).toMatchObject({ target: { base: observed.base, head: observed.head } });
       expect((await tick(retry, deps, { force: true })).created).toHaveLength(1);
+      for (let i = 0; i < 2; i++) {
+        const restart = ConductorStore.open(store.dir);
+        expect((await tick(restart, deps, { force: true })).created).toHaveLength(0);
+        expect(restart.orders().filter((o) => o.prRef === pr)).toHaveLength(1);
+      }
     },
   );
 
