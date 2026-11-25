@@ -194,6 +194,32 @@ describe('상태 전이, 순서도, 역할별 줄 렌더', () => {
     expect(out).toContain('>1. rebase</text>');
   });
 
+  it('일부 상태에만 자리 힌트를 줘도 자동 배치가 끝나고 칸이 안 겹친다', () => {
+    const w: Extract<Widget, { kind: 'stateMachine' }> = {
+      id: 'mixed',
+      class: 'D',
+      kind: 'stateMachine',
+      title: '자리 힌트가 섞인 상태',
+      cite: at(5),
+      states: [
+        { id: 'a', label: 'PR 리뷰', initial: true, pos: { row: 1, col: 0 }, cite: at(5) },
+        { id: 'b', label: 'alpha QA', cite: at(3) },
+        { id: 'c', label: 'production', cite: at(4) },
+      ],
+      transitions: [
+        { id: 't1', from: 'a', to: 'b', cite: at(5) },
+        { id: 't2', from: 'a', to: 'c', cite: at(4) },
+      ],
+    };
+    const out = html(w);
+    const boxes = new Set(
+      [...out.matchAll(/<g class="wg-node[^"]*">.*?<rect x="([-\d.]+)" y="([-\d.]+)"/g)].map(
+        (m) => `${m[1]},${m[2]}`,
+      ),
+    );
+    expect(boxes.size).toBe(3);
+  }, 2000);
+
   it('swimlane은 줄마다 띠를 깔고 앞 칸으로 돌아가는 화살표를 따로 칠한다', () => {
     const out = html(roles());
     expect(out.match(/class="wsw-lane /g)).toHaveLength(3);

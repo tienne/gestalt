@@ -192,20 +192,23 @@ function stateLayout(w: StateMachine): Map<string, { row: number; col: number }>
   }
   const pos = new Map<string, { row: number; col: number }>();
   const rows = new Map<number, string[]>();
+  const perRow = new Map<number, number>();
   for (const s of w.states) {
     const row = s.pos?.row ?? depth.get(s.id)!;
+    perRow.set(row, (perRow.get(row) ?? 0) + 1);
     if (s.pos) pos.set(s.id, s.pos);
     else rows.set(row, [...(rows.get(row) ?? []), s.id]);
   }
   const hintedCols = w.states.flatMap((s) => (s.pos ? [s.pos.col + 1] : []));
-  const ncols = Math.max(1, ...hintedCols, ...[...rows.values()].map((r) => r.length));
+  // 자리 힌트가 있는 상태까지 층마다 세어야 빈 칸이 늘 남는다
+  const ncols = Math.max(1, ...hintedCols, ...perRow.values());
   for (const [row, ids] of rows) {
     const taken = new Set(
       [...pos.entries()].filter(([, p]) => p.row === row).map(([, p]) => p.col),
     );
     let col = Math.floor((ncols - ids.length) / 2);
     for (const id of ids) {
-      while (taken.has(col % ncols)) col++;
+      for (let tries = 0; tries < ncols && taken.has(col % ncols); tries++) col++;
       pos.set(id, { row, col: col % ncols });
       taken.add(col % ncols);
       col++;
