@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, verify } from 'node:crypto';
+import { createHash, createPublicKey, randomUUID, verify } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isPlainObject } from '../core/json-file.js';
@@ -6,7 +6,7 @@ import { GhAccounts } from './adapters.js';
 import { execRunner, type CommandRunner } from './launcher.js';
 import { normalizePrRef, repoOfPrRef } from './pr-ref.js';
 import type { ConductorStore } from './store.js';
-import type { Gate, GateType } from './types.js';
+import type { DecisionReceipt, Gate, GateType } from './types.js';
 
 export const BOT_POLICY_FILE = 'bot-policy.json';
 
@@ -63,6 +63,99 @@ export function matchBotGate(store: ConductorStore, id: string): BotGate {
   return { gate, repo, ...(order ? { title: order.title } : {}) };
 }
 
+export function decisionTarget(store: ConductorStore, target: BotGate): string {
+  const { gate, repo } = target;
+  const order = gate.orderId ? store.order(gate.orderId) : undefined;
+  const worker = order?.workerId ? store.worker(order.workerId) : undefined;
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        gate.id,
+        gate.openedAt,
+        gate.type,
+        gate.orderId,
+        gate.reason,
+        gate.refs,
+        Object.entries(gate.payload ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+        repo.toLowerCase(),
+        order?.scope,
+        order?.prRef ? normalizePrRef(order.prRef)?.toLowerCase() : undefined,
+        worker?.id,
+        worker?.kind,
+        worker?.handle,
+      ]),
+    )
+    .digest('hex');
+}
+
+export function decisionId(signer: string, signature: string): string {
+  return createHash('sha256')
+    .update(signer)
+    .update('\0')
+    .update(Buffer.from(signature, 'base64'))
+    .digest('hex');
+}
+
+export function decisionReceipt(
+  store: ConductorStore,
+  target: BotGate,
+  id: string,
+  evidence?: { head: string; base?: string },
+): DecisionReceipt {
+  const rawRef = target.ref ?? target.gate.payload?.prRef;
+  const prRef = rawRef ? normalizePrRef(rawRef) : undefined;
+  return {
+    id,
+    deliveryId: randomUUID(),
+    target: decisionTarget(store, target),
+    repo: target.repo,
+    ...(prRef ? { prRef } : {}),
+    ...(evidence ? { head: evidence.head } : {}),
+    ...(evidence?.base ? { base: evidence.base } : {}),
+  };
+}
+
+export type ReadApprovalEvidence = (ref: string) => Promise<{
+  head: string;
+  base?: string;
+  state: string;
+  draft: boolean;
+}>;
+
+export async function changedApprovalTarget(
+  store: ConductorStore,
+  gate: Gate,
+  readEvidence?: ReadApprovalEvidence,
+): Promise<string | undefined> {
+  const receipt = gate.receipt;
+  if (!receipt) return;
+  let target: BotGate;
+  try {
+    target = matchBotGate(store, gate.id);
+  } catch {
+    return '승인 대상 레포 또는 PR 연결이 바뀌었어요';
+  }
+  const order = gate.orderId ? store.order(gate.orderId) : undefined;
+  if (decisionTarget(store, target) !== receipt.target)
+    return '승인 범위, PR 또는 담당 워커가 바뀌었어요';
+  if (order && store.openGates(order.id).some((g) => g.type === gate.type))
+    return '같은 유형의 새 게이트가 열렸어요';
+
+  const reviewHead = /^pr-watch:replies:.+@([a-f0-9]{40}):\d+$/.exec(
+    gate.payload?.sourceRef ?? '',
+  )?.[1];
+  const head = receipt.head ?? reviewHead;
+  const ref = target.ref ?? (reviewHead ? receipt.prRef : undefined);
+  if (!head || !ref) return;
+  if (!readEvidence) throw new Error('GitHub에서 승인 대상을 다시 읽을 수 없어요');
+  const current = await readEvidence(ref);
+  if (current.head !== head) return '승인 대상 PR HEAD가 바뀌었어요';
+  if (receipt.base && current.base !== receipt.base)
+    return '승인 대상 PR의 base 브랜치가 바뀌었어요';
+  if (receipt.head && gate.decision === 'approved' && (current.state !== 'OPEN' || current.draft))
+    return '승인 대상 PR 상태가 바뀌었어요';
+}
+
 export async function readMergeEvidence(
   ref: string,
   accounts: GhAccounts,
@@ -72,7 +165,15 @@ export async function readMergeEvidence(
   const env = await accounts.envFor(repo);
   const result = await run(
     'gh',
-    ['pr', 'view', number, '--repo', repo, '--json', 'headRefOid,state,isDraft,statusCheckRollup'],
+    [
+      'pr',
+      'view',
+      number,
+      '--repo',
+      repo,
+      '--json',
+      'headRefOid,baseRefName,state,isDraft,statusCheckRollup',
+    ],
     { ...(env ? { env } : {}), timeoutMs: 15_000 },
   );
   if (result.code !== 0) throw new Error('GitHub에서 검증 결과를 읽지 못했어요');
@@ -81,6 +182,8 @@ export async function readMergeEvidence(
     !isPlainObject(value) ||
     typeof value['headRefOid'] !== 'string' ||
     !/^[a-f0-9]{40}$/.test(value['headRefOid']) ||
+    typeof value['baseRefName'] !== 'string' ||
+    value['baseRefName'].length === 0 ||
     typeof value['state'] !== 'string' ||
     typeof value['isDraft'] !== 'boolean' ||
     !Array.isArray(value['statusCheckRollup'])
@@ -92,7 +195,13 @@ export async function readMergeEvidence(
     const result = row['conclusion'] || row['status'] || row['state'];
     return typeof name === 'string' && typeof result === 'string' ? [{ name, result }] : [];
   });
-  return { head: value['headRefOid'], state: value['state'], draft: value['isDraft'], checks };
+  return {
+    head: value['headRefOid'],
+    base: value['baseRefName'],
+    state: value['state'],
+    draft: value['isDraft'],
+    checks,
+  };
 }
 
 type Decision = 'approved' | 'rejected';

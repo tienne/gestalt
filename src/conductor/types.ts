@@ -215,7 +215,23 @@ export type GateType = (typeof GATE_TYPES)[number];
 /** taken-over는 사람이 PR을 넘겨받거나 주문을 취소하면서 같이 종료한 게이트다 */
 export type GateDecision = 'approved' | 'rejected' | 'taken-over';
 
-export type GateDeliveryOutcome = 'delivered' | 'failed' | 'host-action' | 'no-worker';
+export type GateDeliveryOutcome =
+  | 'delivered'
+  | 'failed'
+  | 'host-action'
+  | 'no-worker'
+  | 'unknown'
+  | 'superseded';
+
+export interface DecisionReceipt {
+  id: string;
+  deliveryId: string;
+  target: string;
+  repo: string;
+  prRef?: string;
+  head?: string;
+  base?: string;
+}
 
 export interface SlackPublicationEvidence {
   deliveryId: string;
@@ -275,7 +291,9 @@ export interface Gate {
   /** send가 던져서 다시 전하려고 한 횟수. 대기가 걷히면 지운다 */
   deliveryAttempts?: number;
   deliveryOutcome?: GateDeliveryOutcome;
+  deliveryDetail?: string;
   decisionBy?: string;
+  receipt?: DecisionReceipt;
   /** Orca 항목의 사람 답으로 닫았을 때 그 답의 위치. 같은 답이 다시 와도 결정을 새로 쓰지 않는 근거다 */
   decisionSource?: OrcaItemSource;
 }
@@ -408,6 +426,7 @@ export type ConductorEvent =
       answer?: string;
       deliveryPending?: boolean;
       decisionBy?: string;
+      receipt?: DecisionReceipt;
       decisionSource?: OrcaItemSource;
     }
   | { type: 'gate-completed'; at: string; gateId: string; evidence: GateCompletionEvidence }
@@ -419,6 +438,7 @@ export type ConductorEvent =
       pending: boolean;
       attempts?: number;
       outcome?: GateDeliveryOutcome;
+      detail?: string;
     }
   | { type: 'bypass'; at: string; record: BypassRecord }
   | { type: 'jira-transition'; at: string; record: JiraTransitionRecord }

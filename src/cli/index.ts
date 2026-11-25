@@ -60,6 +60,7 @@ import {
   conductorTickCommand,
   conductorWaitCommand,
   conductorWorkerReportCommand,
+  conductorWorkerDecisionCommand,
 } from './commands/conductor.js';
 import {
   conductorBrowseCommand,
@@ -1392,9 +1393,8 @@ export function createCli(): Command {
       await conductorHandoffCommand(o);
     });
 
-  conductor
-    .command('worker')
-    .description('워커가 쓰는 명령')
+  const conductorWorker = conductor.command('worker').description('워커가 쓰는 명령');
+  conductorWorker
     .command('report')
     .description('워커 결과를 넘긴다. 요약과 참조만 받고 diff나 로그 원문은 거절한다')
     .requiredOption('--worker <id>', '워커 id')
@@ -1426,6 +1426,13 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorWorkerReportCommand(o));
+  conductorWorker
+    .command('decision')
+    .description('호스트에서 온 서명 결정을 전달 ID로 한 번 받는다')
+    .requiredOption('--worker <id>', '워커 id')
+    .requiredOption('--delivery <id>', '전달 id')
+    .addOption(stateDir())
+    .action(conductorWorkerDecisionCommand);
 
   const gate = conductor.command('gate').description('사람 확인 자리');
   gate

@@ -175,7 +175,12 @@ function archiveBlocker(
  */
 function keepsFollowUp(s: ConductorSnapshot, g: Gate, taken: ReadonlySet<string>): boolean {
   if (g.decision !== 'approved') return false;
-  if (g.type === 'review-manual-switch' && !taken.has(approvedFollowUpRef(g))) return true;
+  if (
+    g.type === 'review-manual-switch' &&
+    g.deliveryOutcome !== 'superseded' &&
+    !taken.has(approvedFollowUpRef(g))
+  )
+    return true;
   if (slackAwaitingPublication(s, g)) return true;
   if (g.payload?.kind === CLEANUP_FAILED) {
     const w = g.payload.workerId ? s.workers[g.payload.workerId] : undefined;

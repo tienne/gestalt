@@ -155,7 +155,7 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     }
     case 'gate-resolved': {
       const g = s.gates[e.gateId];
-      if (g) {
+      if (g?.status === 'open') {
         s.gates[e.gateId] = {
           ...g,
           status: 'resolved',
@@ -165,8 +165,10 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
           ...(e.answer !== undefined ? { answer: e.answer } : {}),
           ...(e.deliveryPending ? { deliveryPending: true } : {}),
           ...(e.decisionBy ? { decisionBy: e.decisionBy } : {}),
+          ...(e.receipt ? { receipt: e.receipt } : {}),
           ...(e.decisionSource ? { decisionSource: e.decisionSource } : {}),
         };
+        if (e.receipt && e.decision !== 'taken-over') applyDecisionToOrder(s, g, e.decision, e.at);
       }
       return;
     }
@@ -199,9 +201,11 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
         if (e.attempts !== undefined) next.deliveryAttempts = e.attempts;
       } else {
         delete next.deliveryPending;
-        delete next.deliveryAttempts;
-        if (e.outcome) next.deliveryOutcome = e.outcome;
+        if (!g.receipt) delete next.deliveryAttempts;
       }
+      if (e.outcome) next.deliveryOutcome = e.outcome;
+      if (e.detail) next.deliveryDetail = e.detail;
+      else delete next.deliveryDetail;
       s.gates[e.gateId] = next;
       return;
     }
@@ -263,6 +267,42 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     case 'tail-repaired':
       return;
   }
+}
+
+function applyDecisionToOrder(
+  s: ConductorSnapshot,
+  gate: Gate,
+  decision: 'approved' | 'rejected',
+  at: string,
+): void {
+  const effects = decisionOrderEffects(s, gate, decision);
+  if (!effects) return;
+  const order = s.orders[effects.orderId]!;
+  s.orders[order.id] = { ...order, status: effects.status, updatedAt: at };
+  if (effects.workerId) {
+    const next = { ...s.workers[effects.workerId]!, lastSeenAt: at };
+    delete next.waiting;
+    s.workers[next.id] = next;
+  }
+}
+
+export function decisionOrderEffects(
+  s: Readonly<ConductorSnapshot>,
+  gate: Gate,
+  decision: 'approved' | 'rejected',
+): { orderId: string; status: Order['status']; workerId?: string } | undefined {
+  const order = gate.orderId ? s.orders[gate.orderId] : undefined;
+  if (!order || (order.status !== 'waiting-gate' && order.status !== 'escalated')) return;
+  if (Object.values(s.gates).some((g) => g.orderId === order.id && g.status === 'open')) return;
+  if (order.mergedAt !== undefined) {
+    const status = decision === 'approved' ? 'merged' : 'escalated';
+    if (order.status === status) return;
+    return { orderId: order.id, status };
+  }
+  const worker = order.workerId ? s.workers[order.workerId] : undefined;
+  if (worker && (worker.status === 'running' || worker.status === 'starting'))
+    return { orderId: order.id, status: 'running', workerId: worker.id };
+  return { orderId: order.id, status: decision === 'approved' ? 'queued' : 'cancelled' };
 }
 
 const REMOVAL_WORDS = {

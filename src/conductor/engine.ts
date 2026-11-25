@@ -25,6 +25,7 @@ import {
   type WorkerActivitySnapshot,
 } from './activity-tick.js';
 import { updateWorkerInfo } from './activity.js';
+import { changedApprovalTarget, type ReadApprovalEvidence } from './bot-approval.js';
 import { saveFinishedSummaries } from './work-log.js';
 import { existingRepoContext } from './context.js';
 import type { ReadDeploymentEvidence } from './deployment-evidence.js';
@@ -113,6 +114,7 @@ export interface EngineDeps {
   prSource?: PrWatchSource;
   /** 사람이 넘겨받은 주문의 PR 머지를 확인한다. 없으면 머지 확인 없이 parked로 내리기만 한다 */
   prState?: PrStateSource;
+  readApprovalEvidence?: ReadApprovalEvidence;
   jira?: JiraClient;
   deploy?: DeploySource;
   deploymentEvidence?: ReadDeploymentEvidence;
@@ -405,6 +407,7 @@ async function runTick(
   const eventsBefore = store.snapshot.eventCount;
   const quietSinceLastTick = store.snapshot.lastTickEventCount === eventsBefore;
   await step(report, () => ingestReports(store, deps, report).then((c) => (cleared = c)));
+  await step(report, () => deliverSignedDecisions(store, deps, report));
   await step(report, () => intake(store, deps, report).then((n) => (unanswered = n)));
   let activity = new Map<string, WorkerActivitySnapshot>();
   await step(report, async () => {
@@ -615,30 +618,39 @@ async function intake(
   // 보관은 후속 주문이 생긴 게이트만 색인으로 옮기므로(archive.ts keepsFollowUp) 상태에 남은 게이트만 보면 된다
   for (const g of Object.values(store.snapshot.gates)) {
     if (g.type !== 'review-manual-switch' || g.orderId || g.decision !== 'approved') continue;
-    const sourceRef = approvedFollowUpRef(g);
-    if (store.hasSourceRef(sourceRef)) continue;
-    const prRef = g.payload?.prRef;
-    const repo = prRef ? repoOfPrRef(prRef) : null;
-    if (!prRef || !repo) continue;
-    const out = intakeOrder(
-      store,
-      {
-        source: 'pr-watch',
-        sourceRef,
-        repo,
-        title: `재리뷰: ${prRef}`,
-        prRef,
-        skillChain: ['review-loop'],
-      },
-      cfg,
-    );
-    if (out.created) report.created.push(out.order.id);
+    if (!g.receipt) createReviewFollowUp(store, deps, report, g);
   }
   for (const o of store.orders()) {
     if (o.status === 'queued' && o.issueKey && !o.jiraStatus)
       await moveJira(store, deps, report, o.id, 'identified');
   }
   return unanswered;
+}
+
+function createReviewFollowUp(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+  gate: Gate,
+): void {
+  const sourceRef = approvedFollowUpRef(gate);
+  if (store.hasSourceRef(sourceRef)) return;
+  const prRef = gate.payload?.prRef;
+  const repo = prRef ? repoOfPrRef(prRef) : null;
+  if (!prRef || !repo) return;
+  const out = intakeOrder(
+    store,
+    {
+      source: 'pr-watch',
+      sourceRef,
+      repo,
+      title: `재리뷰: ${prRef}`,
+      prRef,
+      skillChain: ['review-loop'],
+    },
+    { defaultScope: deps.config.defaultScope },
+  );
+  if (out.created) report.created.push(out.order.id);
 }
 
 /** 워커가 낸 결과를 inbox에 둔다. 검증은 여기서 하고 걸리면 던진다 */
@@ -994,6 +1006,142 @@ export async function deliverGateDecision(
  */
 const MAX_DELIVERY_ATTEMPTS = 3;
 
+async function deliverSignedDecisions(
+  store: ConductorStore,
+  deps: EngineDeps,
+  report: TickReport,
+): Promise<void> {
+  for (const gate of Object.values(store.snapshot.gates)) {
+    if (!gate.receipt || !gate.deliveryPending) continue;
+    try {
+      await deliverSignedDecision(store, gate, deps, report);
+    } catch (error) {
+      const detail = message(error);
+      store.append({
+        type: 'gate-delivery',
+        at: store.timestamp(),
+        gateId: gate.id,
+        pending: true,
+        outcome:
+          store.snapshot.gates[gate.id]?.deliveryOutcome === 'unknown' ? 'unknown' : 'failed',
+        detail,
+      });
+      report.errors.push(`${gate.id}: ${detail}`);
+    }
+  }
+}
+
+async function deliverSignedDecision(
+  store: ConductorStore,
+  gate: Gate,
+  deps: EngineDeps,
+  report: TickReport,
+): Promise<void> {
+  const receipt = gate.receipt!;
+  const followUp =
+    gate.type === 'review-manual-switch' && !gate.orderId && gate.decision === 'approved';
+  if (followUp && store.hasSourceRef(approvedFollowUpRef(gate))) {
+    recordGateDelivery(store, gate.id, 'no-worker');
+    return;
+  }
+  const changed = await changedApprovalTarget(store, gate, deps.readApprovalEvidence);
+  const order = gate.orderId ? store.order(gate.orderId) : undefined;
+  if (changed) {
+    let detail = changed;
+    if (order && ['running', 'waiting-gate', 'escalated', 'queued'].includes(order.status)) {
+      const gateRequest = store.openGates(order.id).find((g) => g.type === gate.type);
+      const replacement =
+        gateRequest ??
+        openOrReuse(store, {
+          orderId: order.id,
+          type: gate.type,
+          reason: `${changed}. ${gate.reason}`,
+          refs: gate.refs,
+          ...(gate.payload ? { payload: gate.payload } : {}),
+        }).gate;
+      detail = `${changed}. 새 게이트 ${replacement.id}에서 다시 결정해 주세요`;
+      report.escalated.push(replacement.id);
+    }
+    recordGateDelivery(store, gate.id, 'superseded', detail);
+    return;
+  }
+  if (followUp) createReviewFollowUp(store, deps, report, gate);
+  const worker = order?.workerId ? store.worker(order.workerId) : undefined;
+  if (
+    !worker ||
+    (worker.status !== 'running' && worker.status !== 'starting') ||
+    (order?.status !== 'running' &&
+      order?.status !== 'waiting-gate' &&
+      order?.status !== 'escalated')
+  ) {
+    if (gate.deliveryOutcome === 'unknown') {
+      recordGateDelivery(
+        store,
+        gate.id,
+        'unknown',
+        '워커가 종료돼 마지막 전달 결과를 확인할 수 없어요',
+      );
+    } else {
+      recordGateDelivery(store, gate.id, 'no-worker');
+    }
+    return;
+  }
+  const launcher = deps.launchers[worker.kind];
+  if (!launcher) throw new Error(`${worker.kind} 런처가 없어 ${worker.id}에 못 전했어요`);
+
+  if (worker.kind !== 'orca-worktree') {
+    const command = [
+      'gestalt conductor worker decision',
+      `--state-dir '${store.dir.replaceAll("'", "'\\''")}'`,
+      `--worker ${worker.id}`,
+      `--delivery ${receipt.deliveryId}`,
+    ].join(' ');
+    store.append({
+      type: 'gate-delivery',
+      at: store.timestamp(),
+      gateId: gate.id,
+      pending: true,
+      outcome: 'host-action',
+    });
+    report.hostActions.push({
+      type: 'send',
+      workerId: worker.id,
+      message: `서명한 게이트 결정이 왔어요. \`${command}\`로 결정을 받고, 이미 수신했으면 기존 처리만 이어가세요.`,
+    });
+    return;
+  }
+
+  // Orca가 받은 직후 응답을 잃어도 다음 tick은 같은 요청 ID로 이전 결과를 읽는다.
+  store.append({
+    type: 'gate-delivery',
+    at: store.timestamp(),
+    gateId: gate.id,
+    pending: true,
+    attempts: (gate.deliveryAttempts ?? 0) + 1,
+    outcome: 'unknown',
+  });
+  try {
+    await launcher.send(
+      worker,
+      `${decisionMessage(gate)}\n전달 ID: ${receipt.deliveryId}`,
+      receipt.deliveryId,
+    );
+  } catch (error) {
+    const detail = message(error);
+    store.append({
+      type: 'gate-delivery',
+      at: store.timestamp(),
+      gateId: gate.id,
+      pending: true,
+      outcome: 'unknown',
+      detail,
+    });
+    report.errors.push(`${gate.id}: 결정 전달 결과를 확인하지 못했어요. ${detail}`);
+    return;
+  }
+  recordGateDelivery(store, gate.id, 'delivered');
+}
+
 /**
  * 플러그인이 종료하고 못 전한 결정을 이번 tick의 hostActions로 내보낸다. 워커가 끝났으면 버린다.
  * send가 던지면 대기를 남겨 다음 tick에 다시 하고 MAX_DELIVERY_ATTEMPTS번 실패하면 그만둔다
@@ -1004,7 +1152,7 @@ async function deliverPendingDecisions(
   report: TickReport,
 ): Promise<void> {
   for (const gate of Object.values(store.snapshot.gates)) {
-    if (!gate.deliveryPending) continue;
+    if (!gate.deliveryPending || gate.receipt) continue;
     const r = await deliverGateDecision(store, gate, deps);
     report.hostActions.push(...r.hostActions);
     report.errors.push(...r.errors);
@@ -1032,8 +1180,16 @@ export function recordGateDelivery(
   store: ConductorStore,
   gateId: string,
   outcome: GateDeliveryOutcome,
+  detail?: string,
 ): void {
-  store.append({ type: 'gate-delivery', at: store.timestamp(), gateId, pending: false, outcome });
+  store.append({
+    type: 'gate-delivery',
+    at: store.timestamp(),
+    gateId,
+    pending: false,
+    outcome,
+    ...(detail ? { detail } : {}),
+  });
 }
 
 /**

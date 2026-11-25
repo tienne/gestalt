@@ -1,8 +1,9 @@
-import { newId, type ConductorStore } from './store.js';
+import { decisionOrderEffects, newId, type ConductorStore } from './store.js';
 import {
   TERMINAL_ORDER_STATUSES,
   type ApprovedDeployment,
   type BypassRecord,
+  type DecisionReceipt,
   type Gate,
   type GateType,
   type NeedKind,
@@ -181,6 +182,21 @@ export function openOrReuse(
     return { kind: 'gate', gate: store.snapshot.gates[existing.id]!, reused: true };
   }
 
+  // 워커는 결정이 도착하기 전에 같은 요청을 다시 올릴 수 있다.
+  const pending = Object.values(store.snapshot.gates).find(
+    (g) =>
+      g.receipt &&
+      g.deliveryPending &&
+      g.orderId === req.orderId &&
+      g.type === req.type &&
+      g.reason === req.reason &&
+      (req.refs === undefined ||
+        (req.refs.length === g.refs.length && req.refs.every((ref, i) => ref === g.refs[i]))) &&
+      Object.keys(req.payload ?? {}).length === Object.keys(g.payload ?? {}).length &&
+      Object.entries(req.payload ?? {}).every(([key, value]) => g.payload?.[key] === value),
+  );
+  if (pending) return { kind: 'gate', gate: pending, reused: true };
+
   const gate: Gate = {
     id: newId('gate'),
     ...(req.orderId ? { orderId: req.orderId } : {}),
@@ -223,6 +239,7 @@ export function resolveGate(
     decisionBy?: string;
     decisionSource?: OrcaItemSource;
     approvedDeployment?: ApprovedDeployment;
+    receipt?: DecisionReceipt;
   } = {},
 ): Gate {
   store.append({
@@ -234,28 +251,14 @@ export function resolveGate(
     ...options,
   });
   const gate = store.snapshot.gates[gateId]!;
-  const order = gate.orderId ? store.order(gate.orderId) : undefined;
-  if (!order || (order.status !== 'waiting-gate' && order.status !== 'escalated')) return gate;
-  if (store.openGates(order.id).length > 0) return gate;
-
-  if (order.mergedAt !== undefined) {
-    if (decision === 'approved') store.updateOrder(order.id, { status: 'merged' });
-    else if (order.status !== 'escalated') store.updateOrder(order.id, { status: 'escalated' });
-    return gate;
-  }
-
-  const live = order.workerId ? store.worker(order.workerId) : undefined;
-  const alive = live && (live.status === 'running' || live.status === 'starting');
-  if (alive) {
+  if (gate.receipt) return gate;
+  const effects = decisionOrderEffects(store.snapshot, gate, decision);
+  if (!effects) return gate;
+  if (effects.workerId) {
     // 게이트를 기다린 시간은 워커가 끊긴 시간이 아니다. 게이트를 종료한 시점부터 다시 센다.
     // 게이트 답을 기다린다고 알린 대기도 여기서 끝난다. 남겨 두면 다음 tick이 그 대기를 상한 초과로 다시 올린다
-    store.updateWorker(live.id, {
-      lastSeenAt: store.timestamp(),
-      ...(live.waiting ? { waiting: undefined } : {}),
-    });
-    store.updateOrder(order.id, { status: 'running' });
-  } else {
-    store.updateOrder(order.id, { status: decision === 'approved' ? 'queued' : 'cancelled' });
+    store.updateWorker(effects.workerId, { lastSeenAt: store.timestamp(), waiting: undefined });
   }
+  store.updateOrder(effects.orderId, { status: effects.status });
   return gate;
 }
