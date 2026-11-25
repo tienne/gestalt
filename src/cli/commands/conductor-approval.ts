@@ -10,6 +10,7 @@ import {
   startApprovalServer,
   type ApprovalHandlers,
 } from '../../conductor/approval-server.js';
+import { InputError } from '../../conductor/input-error.js';
 import { resolveStateDir } from '../../conductor/state-dir.js';
 import {
   addWebAuthnApprover,
@@ -31,13 +32,13 @@ const portOf = (value: string | undefined) => {
   return port;
 };
 
-/** 게이트를 찾지 못했거나 서명이 안 맞는 것처럼 요청 쪽 문제로 난 에러는 400으로 돌려준다 */
+/** 게이트를 찾지 못했거나 서명이 안 맞는 것처럼 요청 쪽 문제(InputError)만 400으로 돌려주고 나머지는 500으로 감춘다 */
 async function asInput<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (error) {
-    if (error instanceof HttpError) throw error;
-    throw new HttpError(400, error instanceof Error ? error.message : String(error));
+    if (error instanceof InputError) throw new HttpError(400, error.message);
+    throw error;
   }
 }
 
@@ -168,7 +169,7 @@ export async function conductorApproverEnrollCommand(
       throw new Error('--repo는 owner/name 꼴이에요');
     if (!/^[A-Za-z0-9._-]{1,64}$/.test(opts.id))
       throw new Error('--id는 영문, 숫자, 점, 밑줄, 하이픈으로 64자까지예요');
-    if (await approvalServerRunning(port).catch(() => true))
+    if (await approvalServerRunning(port))
       throw new Error(
         `승인 서버가 ${origin}에 떠 있어요. 15분 동안 요청이 없으면 스스로 내려가요. 바로 끄려면 \`lsof -nP -iTCP:${port} -sTCP:LISTEN\`로 pid를 확인해 종료한 뒤 다시 등록해 주세요`,
       );
@@ -200,7 +201,8 @@ export async function conductorApproverEnrollCommand(
               );
             attempted = true;
             try {
-              if (!sameCode(code, given)) throw new Error('등록 코드가 맞지 않아 등록을 닫았어요');
+              if (!sameCode(code, given))
+                throw new InputError('등록 코드가 맞지 않아 등록을 중단했어요');
               const credential = verifyWebAuthnRegistration(registration, challenge, origin);
               await addWebAuthnApprover(
                 stateDir,
@@ -213,7 +215,8 @@ export async function conductorApproverEnrollCommand(
             } catch (error) {
               const failed = error instanceof Error ? error : new Error(String(error));
               stop(failed);
-              throw new HttpError(400, failed.message);
+              if (error instanceof InputError) throw new HttpError(400, error.message);
+              throw error;
             }
             const message = `${label}를 등록했어요`;
             done(message);
@@ -228,7 +231,10 @@ export async function conductorApproverEnrollCommand(
       `기본 브라우저에서 ${url}을 열어 등록 코드 ${code.slice(0, 4)}-${code.slice(4)}을 넣고 Touch ID로 등록해 주세요`,
     );
     const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('5분 안에 등록하지 않아 닫았어요')), 5 * 60_000).unref(),
+      setTimeout(
+        () => reject(new Error('5분 안에 등록하지 않아 등록을 중단했어요')),
+        5 * 60_000,
+      ).unref(),
     );
     try {
       console.log(

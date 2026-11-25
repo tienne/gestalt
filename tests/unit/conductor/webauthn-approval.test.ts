@@ -16,6 +16,7 @@ import {
 import {
   approvalServerRunning,
   approvalStoreId,
+  HttpError,
   startApprovalServer,
 } from '../../../src/conductor/approval-server.js';
 import {
@@ -433,6 +434,34 @@ describe('Touch ID 승인 경계', () => {
     await expect(handlers.gateOptions('nope', 'approved')).rejects.toMatchObject({ status: 400 });
   });
 
+  it('nonce가 64개를 넘으면 가장 먼저 발급한 것부터 버린다', async () => {
+    const { privateKey, credential } = p256();
+    const { store, gate } = await fixture('file-overlap', credential);
+    const handlers = approvalGateHandlers({ stateDir: store.dir }, APPROVAL_PORT);
+    const nonces: string[] = [];
+    for (let i = 0; i < 65; i++)
+      nonces.push((await handlers.gateOptions(gate.id, 'approved')).nonce);
+    const message = messageFor(store, gate.id, 'approved');
+    const sign = (nonce: string) => assert(privateKey, credential.credentialId, message, { nonce });
+
+    await expect(
+      handlers.decide(gate.id, 'approved', sign(nonces[0]!), nonces[0]),
+    ).rejects.toMatchObject({ status: 400, message: expect.stringContaining('만료') });
+    await expect(
+      handlers.decide(gate.id, 'approved', sign(nonces[1]!), nonces[1]),
+    ).resolves.toMatchObject({ decision: 'approved' });
+  });
+
+  it('요청 쪽 문제가 아닌 실패는 400으로 바꾸지 않아 서버가 500으로 감춘다', async () => {
+    const { credential } = p256();
+    const { store, gate } = await fixture('file-overlap', credential);
+    writeFileSync(join(store.dir, BOT_POLICY_FILE), '{');
+    const handlers = approvalGateHandlers({ stateDir: store.dir }, APPROVAL_PORT);
+    const error = await handlers.gateOptions(gate.id, 'approved').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(HttpError);
+  });
+
   it('정책 파일이 깨졌으면 안내 에러를 내고 파일을 건드리지 않는다', async () => {
     const dir = tempStateDir();
     writeFileSync(join(dir, BOT_POLICY_FILE), '{');
@@ -457,6 +486,22 @@ describe('Touch ID 승인 경계', () => {
     expect(
       JSON.parse(readFileSync(join(dir, BOT_POLICY_FILE), 'utf8')).gateApprovers[repo],
     ).toHaveProperty('tienne');
+  });
+
+  it('잠금을 쥔 쪽이 쓴 승인자를 잠금이 풀린 뒤 등록이 덮지 않는다', async () => {
+    const dir = tempStateDir();
+    const lock = acquireLock(dir);
+    expect(lock.ok).toBe(true);
+    const pending = addWebAuthnApprover(dir, 'gate', repo, 'b', p256().credential, false, 5_000);
+    await new Promise((r) => setTimeout(r, 150));
+    writeFileSync(
+      join(dir, BOT_POLICY_FILE),
+      JSON.stringify({ gateApprovers: { [repo]: { a: { webauthn: p256().credential } } } }),
+    );
+    if (lock.ok) lock.release();
+    await pending;
+    const row = JSON.parse(readFileSync(join(dir, BOT_POLICY_FILE), 'utf8')).gateApprovers[repo];
+    expect(Object.keys(row).sort()).toEqual(['a', 'b']);
   });
 
   it('bot gate는 다른 포트로 등록한 승인자면 그 포트로 링크와 시작 명령을 만든다', async () => {
@@ -709,14 +754,15 @@ describe('approver enroll 명령', () => {
         algorithm: -7,
       };
     };
-    const finish = async (given: string) =>
+    const finishWith = (given: string, body: unknown) =>
       call(
         port,
         '/api/enroll/finish',
         headers,
-        JSON.stringify({ code: given, registration: await registration() }),
+        JSON.stringify({ code: given, registration: body }),
       );
-    return { dir, run, code, finish };
+    const finish = async (given: string) => finishWith(given, await registration());
+    return { dir, run, code, finish, finishWith, registration };
   };
 
   it('터미널에 찍힌 등록 코드를 넣어야 승인자를 등록한다', async () => {
@@ -729,14 +775,16 @@ describe('approver enroll 명령', () => {
     expect(lines.join('\n')).toContain('"enrolled":true');
   });
 
-  it('등록 코드가 틀리면 등록을 닫고 두 번째 시도는 받지 않는다', async () => {
-    const { dir, run, code, finish } = await start();
+  it('등록 코드가 틀리면 등록을 중단하고 두 번째 시도는 받지 않는다', async () => {
+    const { dir, run, code, finish, finishWith, registration } = await start();
     const wrong = code === '0000-0000' ? '1111-1111' : '0000-0000';
+    // 첫 실패 뒤 서버가 닫히기 전에 보내도록 두 번째 등록 응답을 미리 만든다
+    const prepared = await registration();
     const first = await finish(wrong);
     expect(first.status).toBe(400);
     expect(first.body).toContain('등록 코드가 맞지 않아');
-    const second = await finish(code).catch(() => ({ status: 0, body: '' }));
-    expect([0, 409]).toContain(second.status);
+    const second = await finishWith(code, prepared);
+    expect(second.status).toBe(409);
     expect(String(await run)).toContain('exit 1');
     expect(() => readFileSync(join(dir, BOT_POLICY_FILE), 'utf8')).toThrow();
   });

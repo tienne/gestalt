@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isPlainObject } from '../core/json-file.js';
 import { GhAccounts } from './adapters.js';
+import { InputError } from './input-error.js';
 import { execRunner, type CommandRunner } from './launcher.js';
 import { normalizePrRef, repoOfPrRef } from './pr-ref.js';
 import type { ConductorStore } from './store.js';
@@ -164,7 +165,7 @@ export function assertApproverReady(
   repo: string,
 ): Record<string, unknown> {
   const status = approverStatus(policy, gate.type, repo);
-  if (!status.ready || !policy) throw new Error(approverGuidance(gate, repo, status.gap!));
+  if (!status.ready || !policy) throw new InputError(approverGuidance(gate, repo, status.gap!));
   return policy;
 }
 
@@ -179,7 +180,7 @@ export function matchMergeGate(store: ConductorStore, id: string) {
     !ref ||
     repoOfPrRef(ref)?.toLowerCase() !== order.repo.toLowerCase()
   )
-    throw new Error('대상 레포의 PR이 연결된 머지 승인 게이트만 봇에서 처리할 수 있어요');
+    throw new InputError('대상 레포의 PR이 연결된 머지 승인 게이트만 봇에서 처리할 수 있어요');
   const url = `https://github.com/${ref.replace('#', '/pull/')}`;
   return { gate, order, ref, url };
 }
@@ -203,7 +204,7 @@ export interface BotGate {
 export function matchBotGate(store: ConductorStore, id: string): BotGate {
   const gate = store.snapshot.gates[id];
   if (!gate || !BOT_GATE_TYPES.includes(gate.type))
-    throw new Error('봇에서는 머지 승인, 파일 중첩, 리뷰 수동 전환 게이트만 처리할 수 있어요');
+    throw new InputError('봇에서는 머지 승인, 파일 중첩, 리뷰 수동 전환 게이트만 처리할 수 있어요');
   if (gate.type === 'merge') {
     const { order, ref, url } = matchMergeGate(store, id);
     return { gate, repo: order.repo, title: order.title, ref, url };
@@ -211,11 +212,11 @@ export function matchBotGate(store: ConductorStore, id: string): BotGate {
   const order = gate.orderId ? store.order(gate.orderId) : undefined;
   const prRef = gate.payload?.['prRef'];
   const repo = order?.repo ?? (prRef ? repoOfPrRef(prRef) : null);
-  if (!repo) throw new Error('레포를 알 수 없는 게이트는 봇에서 처리할 수 없어요');
+  if (!repo) throw new InputError('레포를 알 수 없는 게이트는 봇에서 처리할 수 없어요');
   const ref =
     gate.type === 'review-manual-switch' ? normalizePrRef(prRef ?? order?.prRef ?? '') : undefined;
   if (ref && repoOfPrRef(ref)?.toLowerCase() !== repo.toLowerCase())
-    throw new Error('승인 대상 레포의 PR인지 확인해 주세요');
+    throw new InputError('승인 대상 레포의 PR인지 확인해 주세요');
   return {
     gate,
     repo,

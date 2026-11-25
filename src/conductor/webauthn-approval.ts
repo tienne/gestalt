@@ -5,10 +5,11 @@ import { z } from 'zod';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
 import { approverField, BOT_POLICY_FILE, loadBotPolicy, repoApprovers } from './bot-approval.js';
 import { acquireLock } from './engine.js';
+import { InputError } from './input-error.js';
 import type { GateType } from './types.js';
 
 /**
- * Touch ID 승인. 승인 페이지는 고정 localhost 포트에서만 띄우고 RP ID는 localhost다.
+ * Touch ID 승인. 승인 페이지는 localhost에서만 띄우고(기본 포트 47219) RP ID는 localhost다.
  * localhost는 브라우저가 보안 컨텍스트로 쳐서 HTTPS 없이 WebAuthn을 쓸 수 있다
  */
 export const WEBAUTHN_RP_ID = 'localhost';
@@ -95,9 +96,9 @@ function readClientData(encoded: string) {
   try {
     value = JSON.parse(fromB64url(encoded).toString('utf8'));
   } catch {
-    throw new Error('WebAuthn 응답의 clientDataJSON을 읽지 못했어요');
+    throw new InputError('WebAuthn 응답의 clientDataJSON을 읽지 못했어요');
   }
-  if (!isPlainObject(value)) throw new Error('WebAuthn 응답의 clientDataJSON을 읽지 못했어요');
+  if (!isPlainObject(value)) throw new InputError('WebAuthn 응답의 clientDataJSON을 읽지 못했어요');
   return value;
 }
 
@@ -112,32 +113,34 @@ export function verifyWebAuthnAssertion(
   raw: unknown,
 ): { signCount: number } {
   const parsed = assertionSchema.safeParse(raw);
-  if (!parsed.success) throw new Error('WebAuthn 응답 형식을 확인하지 못했어요');
+  if (!parsed.success) throw new InputError('WebAuthn 응답 형식을 확인하지 못했어요');
   const assertion = parsed.data;
   if (assertion.credentialId !== credential.credentialId)
-    throw new Error('등록된 Touch ID 키가 아니에요');
+    throw new InputError('등록된 Touch ID 키가 아니에요');
   const client = readClientData(assertion.clientDataJSON);
-  if (client['type'] !== 'webauthn.get') throw new Error('WebAuthn 응답 유형이 승인이 아니에요');
+  if (client['type'] !== 'webauthn.get')
+    throw new InputError('WebAuthn 응답 유형이 승인이 아니에요');
   if (client['origin'] !== credential.origin)
-    throw new Error('승인 페이지 주소가 등록할 때와 달라요');
+    throw new InputError('승인 페이지 주소가 등록할 때와 달라요');
   if (client['origin'] !== expected.origin)
-    throw new Error('이 승인 서버에서 연 승인 페이지가 아니에요');
-  if (client['crossOrigin'] === true) throw new Error('다른 사이트 안에서 연 승인은 받지 않아요');
+    throw new InputError('이 승인 서버에서 연 승인 페이지가 아니에요');
+  if (client['crossOrigin'] === true)
+    throw new InputError('다른 사이트 안에서 연 승인은 받지 않아요');
   if (client['challenge'] !== expected.challenge)
-    throw new Error(
+    throw new InputError(
       '게이트 내용이나 PR HEAD가 바뀌었어요. 승인 페이지를 새로 열어 다시 승인해 주세요',
     );
   const auth = fromB64url(assertion.authenticatorData);
-  if (auth.length < 37) throw new Error('WebAuthn 인증 데이터가 짧아요');
+  if (auth.length < 37) throw new InputError('WebAuthn 인증 데이터가 짧아요');
   if (!auth.subarray(0, 32).equals(sha256(WEBAUTHN_RP_ID)))
-    throw new Error('WebAuthn RP ID가 localhost가 아니에요');
+    throw new InputError('WebAuthn RP ID가 localhost가 아니에요');
   const flags = auth[32]!;
   // 0x01 사용자 확인(UP), 0x04 생체나 암호 확인(UV). Touch ID로 본인 확인까지 한 서명만 받는다
   if ((flags & 0x01) === 0 || (flags & 0x04) === 0)
-    throw new Error('Touch ID 본인 확인을 거치지 않은 서명이에요');
+    throw new InputError('Touch ID 본인 확인을 거치지 않은 서명이에요');
   const signed = Buffer.concat([auth, sha256(fromB64url(assertion.clientDataJSON))]);
   if (!verify('sha256', signed, p256Key(credential.publicKey), fromB64url(assertion.signature)))
-    throw new Error('게이트와 결정에 대한 Touch ID 서명을 확인하지 못했어요');
+    throw new InputError('게이트와 결정에 대한 Touch ID 서명을 확인하지 못했어요');
   return { signCount: auth.readUInt32BE(33) };
 }
 
@@ -148,19 +151,25 @@ export function verifyWebAuthnRegistration(
   origin: string,
 ): WebAuthnCredential {
   const parsed = registrationSchema.safeParse(raw);
-  if (!parsed.success) throw new Error('WebAuthn 등록 응답 형식을 확인하지 못했어요');
+  if (!parsed.success) throw new InputError('WebAuthn 등록 응답 형식을 확인하지 못했어요');
   const reg = parsed.data;
-  if (reg.algorithm !== ES256) throw new Error('ES256(P-256) 키만 등록할 수 있어요');
+  if (reg.algorithm !== ES256) throw new InputError('ES256(P-256) 키만 등록할 수 있어요');
   const client = readClientData(reg.clientDataJSON);
-  if (client['type'] !== 'webauthn.create') throw new Error('WebAuthn 응답 유형이 등록이 아니에요');
-  if (client['origin'] !== origin) throw new Error('등록 페이지 주소가 달라요');
+  if (client['type'] !== 'webauthn.create')
+    throw new InputError('WebAuthn 응답 유형이 등록이 아니에요');
+  if (client['origin'] !== origin) throw new InputError('등록 페이지 주소가 달라요');
   if (client['challenge'] !== challenge)
-    throw new Error('등록 요청이 바뀌었어요. 다시 시도해 주세요');
-  const key = p256Key(
-    createPublicKey({ key: fromB64url(reg.publicKey), format: 'der', type: 'spki' })
-      .export({ type: 'spki', format: 'pem' })
-      .toString(),
-  );
+    throw new InputError('등록 요청이 바뀌었어요. 다시 시도해 주세요');
+  let key: KeyObject;
+  try {
+    key = p256Key(
+      createPublicKey({ key: fromB64url(reg.publicKey), format: 'der', type: 'spki' })
+        .export({ type: 'spki', format: 'pem' })
+        .toString(),
+    );
+  } catch {
+    throw new InputError('등록 응답의 공개키를 P-256 키로 읽지 못했어요');
+  }
   return {
     credentialId: reg.credentialId,
     publicKey: key.export({ type: 'spki', format: 'pem' }).toString(),
@@ -169,7 +178,7 @@ export function verifyWebAuthnRegistration(
 }
 
 /**
- * 승인자를 bot-policy.json에 넣는다. 컨덕터 상태 잠금 안에서 읽고 고쳐 써서 tick이나 다른 등록과 겹쳐도 앞 승인자를
+ * 승인자를 bot-policy.json에 넣는다. 컨덕터가 상태 디렉토리에 거는 잠금 안에서 읽고 고쳐 써서 tick이나 다른 등록과 겹쳐도 앞 승인자를
  * 덮지 않는다. 다른 칸은 그대로 두고 writeJsonAtomic으로 갈아 끼운다.
  * 개인키는 기기 밖으로 나오지 않아 여기 오는 건 공개키뿐이다
  */
@@ -186,7 +195,7 @@ export async function addWebAuthnApprover(
   let lock = acquireLock(dir);
   while (!lock.ok) {
     if (Date.now() >= deadline)
-      throw new Error('컨덕터가 상태를 갱신 중이에요. 잠시 뒤 다시 등록해 주세요');
+      throw new InputError('컨덕터가 상태를 갱신 중이에요. 잠시 뒤 다시 등록해 주세요');
     await delay(100);
     lock = acquireLock(dir);
   }
@@ -197,7 +206,9 @@ export async function addWebAuthnApprover(
     const key = repo.toLowerCase();
     const row = isPlainObject(table[key]) ? table[key] : {};
     if (Object.hasOwn(row, id) && !replace)
-      throw new Error(`${repo}의 ${id} 승인자가 이미 있어요. 바꾸려면 --replace를 붙여 주세요`);
+      throw new InputError(
+        `${repo}의 ${id} 승인자가 이미 있어요. 바꾸려면 --replace를 붙여 주세요`,
+      );
     const next = {
       ...policy,
       [name]: { ...table, [key]: { ...row, [id]: { webauthn: credential } } },

@@ -194,6 +194,7 @@ import {
   webAuthnChallenge,
   type WebAuthnAssertion,
 } from '../../conductor/webauthn-approval.js';
+import { InputError } from '../../conductor/input-error.js';
 import type { GateOptions } from '../../conductor/approval-server.js';
 import { resolveStateDir } from '../../conductor/state-dir.js';
 import {
@@ -835,7 +836,6 @@ function statusApprovers(
  * 컴팩트 횟수와 세션 id, 작업 디렉토리는 살아 있는 컨덕터 세션을 찾았을 때만 싣는다.
  * 오르카 플러그인이 세션 id와 디렉토리로 컨덕터 탭을 찾아간다
  */
-
 function conductorSummary(ctx: Ctx): Record<string, unknown> {
   const { store, config } = ctx;
   const disconnected = store
@@ -2097,7 +2097,7 @@ async function waitForDecisionLock(ctx: Ctx) {
     if (lock.ok) return lock;
     await delay(100);
   } while (Date.now() < deadline);
-  throw new Error('컨덕터가 상태를 갱신 중이에요. 잠시 뒤 같은 결정을 다시 요청해 주세요');
+  throw new InputError('컨덕터가 상태를 갱신 중이에요. 잠시 뒤 같은 결정을 다시 요청해 주세요');
 }
 
 async function closeAndDeliver(
@@ -2385,7 +2385,7 @@ function verifyBotDecision(
       (a) => a.credential.credentialId === webauthn.credentialId,
     );
     if (!approver)
-      throw new Error(
+      throw new InputError(
         `이 레포의 ${target.gate.type === 'merge' ? '머지' : '게이트'} 승인자로 등록된 Touch ID 키가 아니에요`,
       );
     const { signCount } = verifyWebAuthnAssertion(
@@ -2454,7 +2454,7 @@ async function applyBotDecision(
     const current = matchBotGate(ctx.store, gateId);
     const receiptTarget = decisionTarget(ctx.store, current);
     if (receiptTarget !== beforeTarget)
-      throw new Error('게이트나 PR이 바뀌었어요. 다시 확인해 주세요');
+      throw new InputError('게이트나 PR이 바뀌었어요. 다시 확인해 주세요');
     const head = evidence?.head;
     const { decision } = request;
     const approval = verifyBotDecision(
@@ -2468,19 +2468,19 @@ async function applyBotDecision(
     if (current.ref) {
       const now = await botGateEvidence(ctx, current);
       if (!now || !head || now.head !== head)
-        throw new Error('PR HEAD가 바뀌었어요. 새 HEAD로 다시 승인받아 주세요');
+        throw new InputError('PR HEAD가 바뀌었어요. 새 HEAD로 다시 승인받아 주세요');
       if (evidence?.base !== now.base)
-        throw new Error('PR의 base 브랜치가 바뀌었어요. 다시 확인해 주세요');
+        throw new InputError('PR의 base 브랜치가 바뀌었어요. 다시 확인해 주세요');
       if (
         current.gate.type === 'merge' &&
         decision === 'approved' &&
         (now.state !== 'OPEN' || now.draft)
       )
-        throw new Error('리뷰 준비가 끝난 열린 PR만 머지 승인할 수 있어요');
+        throw new InputError('리뷰 준비가 끝난 열린 PR만 머지 승인할 수 있어요');
       checked = now;
     }
     if (approval.expiresAt !== undefined && approval.expiresAt <= Date.now())
-      throw new Error('Orca 승인 증빙의 유효기간을 벗어났어요');
+      throw new InputError('Orca 승인 증빙의 유효기간을 벗어났어요');
     const answer =
       current.gate.type === 'merge' && checked && decision === 'approved'
         ? `승인된 PR HEAD는 ${checked.head}입니다. 머지는 반드시 --match-head-commit ${checked.head}로 제한하세요. HEAD가 바뀌면 새 승인을 요청하세요.`
@@ -2509,13 +2509,13 @@ export async function touchIdGateOptions(
   nonce: string,
 ): Promise<GateOptions> {
   const ctx = open(opts);
-  if (!ctx.store.snapshot.gates[gateId]) throw new Error('게이트를 찾을 수 없어요');
+  if (!ctx.store.snapshot.gates[gateId]) throw new InputError('게이트를 찾을 수 없어요');
   const target = matchBotGate(ctx.store, gateId);
-  if (target.gate.status !== 'open') throw new Error('이미 닫힌 게이트예요');
+  if (target.gate.status !== 'open') throw new InputError('이미 닫힌 게이트예요');
   const policy = assertApproverReady(loadBotPolicy(ctx.store.dir), target.gate, target.repo);
   const approvers = webAuthnApprovers(policy, target.gate.type, target.repo);
   if (!approvers.length)
-    throw new Error(
+    throw new InputError(
       `${target.repo} 레포에는 이 게이트를 닫을 Touch ID 승인자가 없어요. gestalt conductor approver enroll로 먼저 등록해 주세요`,
     );
   const evidence = await botGateEvidence(ctx, target);
@@ -2548,7 +2548,7 @@ export async function touchIdGateDecide(
   server: { nonce: string; origin: string },
 ) {
   const parsed = assertionSchema.safeParse(raw);
-  if (!parsed.success) throw new Error('WebAuthn 응답 형식을 확인하지 못했어요');
+  if (!parsed.success) throw new InputError('WebAuthn 응답 형식을 확인하지 못했어요');
   const ctx = open(opts);
   const target = ctx.store.snapshot.gates[gateId]?.receipt
     ? undefined
