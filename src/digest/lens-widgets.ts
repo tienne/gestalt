@@ -501,6 +501,8 @@ function lintAnalogy(
       );
     }
   }
+  // 안 맞는 곳은 원문 이름을 짚어야 해서 이름은 두고 원문 결과처럼 읽히는 숫자와 지표 말만 막는다
+  for (const l of labels.filter((x) => x.role === 'break')) illustrativeChecks(l, err);
   const sourceSide = labels.filter((x) => x.role === undefined);
   describedLabelChecks(sourceSide, w.cite, [], ctx, err);
   metricChecks(sourceSide, ctx, err);

@@ -162,6 +162,18 @@ describe('새 위젯 lint', () => {
     expect(codes(w)).toContain('ANALOGY_BREAKS_EMPTY');
   });
 
+  it('안 맞는 곳에는 원문 이름은 쓰되 숫자와 지표 말은 막는다', () => {
+    const name = parcel();
+    name.breaks = ['택배와 달리 release 브랜치는 다시 rebase된다'];
+    expect(codes(name)).not.toContain('B_HAS_NUMBER');
+    const num = parcel();
+    num.breaks = ['택배는 3일이면 오지만 배포는 다르다'];
+    expect(codes(num)).toContain('B_HAS_NUMBER');
+    const metric = parcel();
+    metric.breaks = ['택배처럼 정확도가 오르지는 않는다'];
+    expect(codes(metric)).toContain('B_METRIC_LABEL');
+  });
+
   it('비유 칸에 원문 이름이나 숫자, 지표 말을 쓰면 막는다', () => {
     const named = parcel();
     named.rows[0]!.analog = 'main 장부';
