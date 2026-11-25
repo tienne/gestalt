@@ -178,6 +178,7 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
           ...(e.decisionBy ? { decisionBy: e.decisionBy } : {}),
           ...(e.receipt ? { receipt: e.receipt } : {}),
           ...(e.decisionSource ? { decisionSource: e.decisionSource } : {}),
+          ...(e.decisionVia ? { decisionVia: e.decisionVia } : {}),
         };
         if (e.receipt && e.decision !== 'taken-over') applyDecisionToOrder(s, g, e.decision, e.at);
       }

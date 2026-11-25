@@ -9,6 +9,7 @@ import {
   type NeedKind,
   type Order,
   type OrcaItemSource,
+  type DecisionVia,
   type ShipApprovalStep,
 } from './types.js';
 
@@ -247,6 +248,7 @@ export function resolveGate(
     deliveryPending?: boolean;
     decisionBy?: string;
     decisionSource?: OrcaItemSource;
+    decisionVia?: DecisionVia;
     approvedDeployment?: ApprovedDeployment;
     receipt?: DecisionReceipt;
   } = {},

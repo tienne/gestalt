@@ -18,6 +18,15 @@ import {
   gateApprovalMessage,
   matchBotGate,
   readBotPolicy,
+  loadBotPolicy,
+  approverStatus,
+  approverGuidance,
+  assertApproverReady,
+  terminalResolveCommand,
+  approverRegistry,
+  peekBotPolicy,
+  type ApproverGap,
+  type ApproverRegistry,
   readMergeEvidence,
   verifyGateApproval,
   type BotGate,
@@ -177,8 +186,19 @@ import {
   type WaitTickOutcome,
 } from '../../conductor/wait.js';
 import { ConductorStore } from '../../conductor/store.js';
+import {
+  APPROVAL_PORT,
+  assertionSchema,
+  verifyWebAuthnAssertion,
+  webAuthnApprovers,
+  webAuthnChallenge,
+  type WebAuthnAssertion,
+} from '../../conductor/webauthn-approval.js';
+import { InputError } from '../../conductor/input-error.js';
+import type { GateOptions } from '../../conductor/approval-server.js';
 import { resolveStateDir } from '../../conductor/state-dir.js';
 import {
+  type DecisionVia,
   INTAKE_KINDS,
   ISSUE_TYPES,
   JIRA_STATUSES,
@@ -740,6 +760,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
           openedAt: g.openedAt,
         })),
         conductor: conductorSummary({ store, config }),
+        approvers: statusApprovers(store, config, orders),
         ...recentEventsField(store),
       });
     }
@@ -768,6 +789,16 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
         console.log(`  bypass ${b.at}  ${b.need}  ${b.action}`);
     }
     for (const b of bypassesOf.get('') ?? []) console.log(`bypass ${b.at}  ${b.need}  ${b.action}`);
+    const approvers = statusApprovers(store, config, orders);
+    if (approvers.policy !== 'present')
+      console.log(
+        `승인자: 봇 정책 파일이 ${approvers.policy === 'missing' ? '없어요' : '깨져서 못 읽어요'}. 봇 채팅에서는 게이트를 못 닫아요`,
+      );
+    else
+      for (const a of approvers.repos)
+        console.log(
+          `승인자 ${a.repo}  머지 ${a.merge ? `${a.merge}명` : '미등록'}  게이트 ${a.gate ? `${a.gate}명` : '미등록'}`,
+        );
     for (const g of gates) console.log(`게이트 ${g.id}  ${g.type}  ${g.reason}`);
   });
 }
@@ -786,6 +817,18 @@ function checkpointOf(store: ConductorStore, orderId: string): { checkpoint?: ob
       savedAt: c.savedAt,
     },
   };
+}
+
+/** 지금 보이는 주문과 경로를 등록한 레포, 정책에 적힌 레포의 승인자 등록 상태 */
+function statusApprovers(
+  store: Ctx['store'],
+  config: Ctx['config'],
+  orders: readonly { repo: string }[],
+): ApproverRegistry {
+  return approverRegistry(store.dir, [
+    ...orders.map((o) => o.repo),
+    ...Object.keys(config.repoPaths ?? {}),
+  ]);
 }
 
 /**
@@ -2054,7 +2097,7 @@ async function waitForDecisionLock(ctx: Ctx) {
     if (lock.ok) return lock;
     await delay(100);
   } while (Date.now() < deadline);
-  throw new Error('컨덕터가 상태를 갱신 중이에요. 잠시 뒤 같은 결정을 다시 요청해 주세요');
+  throw new InputError('컨덕터가 상태를 갱신 중이에요. 잠시 뒤 같은 결정을 다시 요청해 주세요');
 }
 
 async function closeAndDeliver(
@@ -2202,6 +2245,14 @@ async function botGateEvidence(ctx: Ctx, target: BotGate) {
     : undefined;
 }
 
+/** 서명 문자열에 PR과 HEAD가 들어가는 게이트는 그 값을 못 읽으면 승인 페이지에 원인을 400으로 돌려준다 */
+async function touchIdGateEvidence(ctx: Ctx, target: BotGate) {
+  const evidence = await botGateEvidence(ctx, target);
+  if (!evidence && (target.gate.type === 'merge' || target.gate.type === 'review-manual-switch'))
+    throw new InputError('이 게이트는 PR과 HEAD를 읽어야 서명을 확인할 수 있어요');
+  return evidence;
+}
+
 export async function conductorBotGateCommand(
   gateId: string,
   opts: ConductorCommonOptions,
@@ -2235,10 +2286,29 @@ export async function conductorBotGateCommand(
       refs: gate.refs,
     };
     if (gate.status === 'resolved') return print(base);
+    // 승인자가 없으면 서명을 요구할 이유가 없다. 봇이 터미널 안내로 바로 가게 서명 재료를 싣지 않는다
+    const read = peekBotPolicy(ctx.store.dir);
+    const policy = 'policy' in read ? read.policy : undefined;
+    const gap: ApproverGap | undefined =
+      'unreadable' in read ? 'unreadable' : approverStatus(policy, gate.type, target.repo).gap;
+    if (gap)
+      return print({
+        ...base,
+        approverReady: false,
+        approverGap: gap,
+        guidance: approverGuidance(gate, target.repo, gap),
+        terminal: {
+          approved: terminalResolveCommand(gate.id, 'approved'),
+          rejected: terminalResolveCommand(gate.id, 'rejected'),
+        },
+      });
     const evidence = await botGateEvidence(ctx, target);
     const issuer = await officialOrcaApprovalIssuer(caller);
+    const touchId = touchIdLinks(ctx, gate.id, webAuthnApprovers(policy, gate.type, target.repo));
     print({
       ...base,
+      approverReady: true,
+      ...touchId,
       ...(evidence ? { evidence } : {}),
       messages: {
         approved: gateApprovalMessage(target, evidence?.head, 'approved', evidence?.base),
@@ -2261,10 +2331,48 @@ export async function conductorBotGateCommand(
   }
 }
 
-type BotDecision = { decision: 'approved' | 'rejected' } & (
-  | { signer: string; signature: string; source?: Gate['decisionSource'] }
-  | { issuer: OrcaApprovalIssuer; proof: unknown; source: NonNullable<Gate['decisionSource']> }
-);
+/**
+ * 승인자가 Touch ID 키를 등록할 때의 주소로 승인 페이지 링크를 만든다. --port로 등록했으면 그 포트로 띄워야
+ * origin이 맞는다. 승인자마다 포트가 다르면 첫 승인자의 주소를 쓴다
+ */
+function touchIdLinks(
+  ctx: Ctx,
+  gateId: string,
+  approvers: ReturnType<typeof webAuthnApprovers>,
+): { touchId?: { links: Record<'approved' | 'rejected', string>; start: string } } {
+  const first = approvers[0];
+  if (!first) return {};
+  const origin = first.credential.origin;
+  const port = Number(new URL(origin).port) || APPROVAL_PORT;
+  const link = (decision: string) =>
+    `${origin}/gate/${encodeURIComponent(gateId)}?decision=${decision}`;
+  return {
+    touchId: {
+      links: { approved: link('approved'), rejected: link('rejected') },
+      start: `gestalt conductor approval serve --detach --state-dir ${JSON.stringify(ctx.store.dir)}${port === APPROVAL_PORT ? '' : ` --port ${port}`}`,
+    },
+  };
+}
+
+type WebAuthnDecision = {
+  decision: 'approved' | 'rejected';
+  webauthn: WebAuthnAssertion;
+  /** 승인 서버가 발급한 nonce와 그 서버의 주소. challenge와 origin을 이 값으로 다시 만든다 */
+  nonce: string;
+  origin: string;
+};
+
+type BotDecision =
+  | ({ decision: 'approved' | 'rejected' } & (
+      | { signer: string; signature: string; source?: Gate['decisionSource'] }
+      | { issuer: OrcaApprovalIssuer; proof: unknown; source: NonNullable<Gate['decisionSource']> }
+    ))
+  | WebAuthnDecision;
+
+/** 운영 봇 결정은 caller가 반드시 있다. caller 없이 오는 건 승인자 본인이 연 Touch ID 페이지뿐이다 */
+type DecisionCall =
+  | { caller: BotOwner; request: BotDecision }
+  | { caller?: undefined; request: WebAuthnDecision };
 
 function verifyBotDecision(
   policy: Record<string, unknown>,
@@ -2272,7 +2380,39 @@ function verifyBotDecision(
   receiptTarget: string,
   evidence: Awaited<ReturnType<typeof botGateEvidence>>,
   request: BotDecision,
-): { id: string; signer: string; source?: Gate['decisionSource']; expiresAt?: number } {
+): {
+  id: string;
+  signer: string;
+  source?: Gate['decisionSource'];
+  via?: DecisionVia;
+  expiresAt?: number;
+} {
+  if ('webauthn' in request) {
+    const { webauthn, decision, nonce, origin } = request;
+    const approver = webAuthnApprovers(policy, target.gate.type, target.repo).find(
+      (a) => a.credential.credentialId === webauthn.credentialId,
+    );
+    if (!approver)
+      throw new InputError(
+        `이 레포의 ${target.gate.type === 'merge' ? '머지' : '게이트'} 승인자로 등록된 Touch ID 키가 아니에요`,
+      );
+    const { signCount } = verifyWebAuthnAssertion(
+      approver.credential,
+      {
+        challenge: webAuthnChallenge(
+          gateApprovalMessage(target, evidence?.head, decision, evidence?.base),
+          nonce,
+        ),
+        origin,
+      },
+      webauthn,
+    );
+    return {
+      id: decisionId(approver.id, Buffer.from(webauthn.signature, 'base64url').toString('base64')),
+      signer: approver.id,
+      via: { kind: 'webauthn', credentialId: webauthn.credentialId, signCount },
+    };
+  }
   if ('issuer' in request) {
     const { issuer, proof, decision, source } = request;
     const targetHash = orcaApprovalTargetHash(receiptTarget, evidence);
@@ -2294,20 +2434,20 @@ function verifyBotDecision(
  */
 async function applyBotDecision(
   ctx: Ctx,
-  caller: BotOwner,
+  { caller, request }: DecisionCall,
   gateId: string,
   beforeTarget: string | undefined,
   evidence: Awaited<ReturnType<typeof botGateEvidence>>,
-  request: BotDecision,
   sameSource?: (gate: Gate) => boolean,
 ) {
   const lock = await waitForDecisionLock(ctx);
   try {
-    assertBotOwner(ctx.store.dir, caller);
+    // Touch ID 승인은 운영 봇이 아니라 승인자 본인이 연 페이지에서 온다. 승인 근거는 서명이라 봇 운영권을 묻지 않는다
+    if (caller || !('webauthn' in request)) assertBotOwner(ctx.store.dir, caller);
     ctx.store.reload();
     const existing = ctx.store.snapshot.gates[gateId];
     if (existing?.status === 'resolved')
-      return print({
+      return {
         ...botDecisionStatus(existing),
         alreadyResolved: true,
         ...(existing.receipt && 'signature' in request
@@ -2318,15 +2458,15 @@ async function applyBotDecision(
             }
           : {}),
         ...(sameSource ? { sameAnswer: sameSource(existing) } : {}),
-      });
+      };
     const current = matchBotGate(ctx.store, gateId);
     const receiptTarget = decisionTarget(ctx.store, current);
     if (receiptTarget !== beforeTarget)
-      throw new Error('게이트나 PR이 바뀌었어요. 다시 확인해 주세요');
+      throw new InputError('게이트나 PR이 바뀌었어요. 다시 확인해 주세요');
     const head = evidence?.head;
     const { decision } = request;
     const approval = verifyBotDecision(
-      readBotPolicy(ctx.store.dir),
+      assertApproverReady(loadBotPolicy(ctx.store.dir), current.gate, current.repo),
       current,
       receiptTarget,
       evidence,
@@ -2336,19 +2476,19 @@ async function applyBotDecision(
     if (current.ref) {
       const now = await botGateEvidence(ctx, current);
       if (!now || !head || now.head !== head)
-        throw new Error('PR HEAD가 바뀌었어요. 새 HEAD로 다시 승인받아 주세요');
+        throw new InputError('PR HEAD가 바뀌었어요. 새 HEAD로 다시 승인받아 주세요');
       if (evidence?.base !== now.base)
-        throw new Error('PR의 base 브랜치가 바뀌었어요. 다시 확인해 주세요');
+        throw new InputError('PR의 base 브랜치가 바뀌었어요. 다시 확인해 주세요');
       if (
         current.gate.type === 'merge' &&
         decision === 'approved' &&
         (now.state !== 'OPEN' || now.draft)
       )
-        throw new Error('리뷰 준비가 끝난 열린 PR만 머지 승인할 수 있어요');
+        throw new InputError('리뷰 준비가 끝난 열린 PR만 머지 승인할 수 있어요');
       checked = now;
     }
     if (approval.expiresAt !== undefined && approval.expiresAt <= Date.now())
-      throw new Error('Orca 승인 증빙의 유효기간을 벗어났어요');
+      throw new InputError('Orca 승인 증빙의 유효기간을 벗어났어요');
     const answer =
       current.gate.type === 'merge' && checked && decision === 'approved'
         ? `승인된 PR HEAD는 ${checked.head}입니다. 머지는 반드시 --match-head-commit ${checked.head}로 제한하세요. HEAD가 바뀌면 새 승인을 요청하세요.`
@@ -2358,11 +2498,87 @@ async function applyBotDecision(
       decisionBy: approval.signer,
       receipt: decisionReceipt(ctx.store, current, approval.id, checked),
       ...(approval.source ? { decisionSource: approval.source } : {}),
+      ...(approval.via ? { decisionVia: approval.via } : {}),
     });
-    print({ ...botDecisionStatus(closed), errors: [] });
+    return { ...botDecisionStatus(closed), errors: [] };
   } finally {
     lock.release();
   }
+}
+
+/** 승인 페이지는 승인자가 보는 자리라 깨진 정책 파일도 경로 대신 안내 문구로 돌려준다 */
+function touchIdPolicy(dir: string, gate: Gate, repo: string): Record<string, unknown> {
+  const read = peekBotPolicy(dir);
+  if ('unreadable' in read) throw new InputError(approverGuidance(gate, repo, 'unreadable'));
+  return assertApproverReady(read.policy, gate, repo);
+}
+
+/**
+ * Touch ID 승인 페이지가 서명 전에 보여 줄 게이트 내용과 challenge. 봇 운영권 없이 승인자 본인이 연다.
+ * nonce는 승인 서버가 발급해 메모리에 둔 값이다
+ */
+export async function touchIdGateOptions(
+  opts: ConductorCommonOptions,
+  gateId: string,
+  decision: 'approved' | 'rejected',
+  nonce: string,
+): Promise<GateOptions> {
+  const ctx = open(opts);
+  if (!ctx.store.snapshot.gates[gateId]) throw new InputError('게이트를 찾을 수 없어요');
+  const target = matchBotGate(ctx.store, gateId);
+  if (target.gate.status !== 'open') throw new InputError('이미 닫힌 게이트예요');
+  const policy = touchIdPolicy(ctx.store.dir, target.gate, target.repo);
+  const approvers = webAuthnApprovers(policy, target.gate.type, target.repo);
+  if (!approvers.length)
+    throw new InputError(
+      `${target.repo} 레포에는 이 게이트를 닫을 Touch ID 승인자가 없어요. gestalt conductor approver enroll로 먼저 등록해 주세요`,
+    );
+  const evidence = await touchIdGateEvidence(ctx, target);
+  return {
+    gate: {
+      id: target.gate.id,
+      type: target.gate.type,
+      repo: target.repo,
+      reason: target.gate.reason,
+      refs: target.gate.refs ?? [],
+      ...(target.url ? { pr: target.url } : {}),
+    },
+    ...(evidence ? { head: evidence.head } : {}),
+    decision,
+    challenge: webAuthnChallenge(
+      gateApprovalMessage(target, evidence?.head, decision, evidence?.base),
+      nonce,
+    ),
+    nonce,
+    credentialIds: approvers.map((a) => a.credential.credentialId),
+  };
+}
+
+/** Touch ID 서명으로 게이트를 닫는다. 서명 확인과 잠금, 기록은 봇 결정과 같은 경로를 탄다 */
+export async function touchIdGateDecide(
+  opts: ConductorCommonOptions,
+  gateId: string,
+  decision: 'approved' | 'rejected',
+  raw: unknown,
+  server: { nonce: string; origin: string },
+) {
+  const parsed = assertionSchema.safeParse(raw);
+  if (!parsed.success) throw new InputError('WebAuthn 응답 형식을 확인하지 못했어요');
+  const ctx = open(opts);
+  const target = ctx.store.snapshot.gates[gateId]?.receipt
+    ? undefined
+    : matchBotGate(ctx.store, gateId);
+  const beforeTarget = target ? decisionTarget(ctx.store, target) : undefined;
+  if (target?.gate.status === 'open') touchIdPolicy(ctx.store.dir, target.gate, target.repo);
+  const evidence =
+    target?.gate.status === 'open' ? await touchIdGateEvidence(ctx, target) : undefined;
+  return applyBotDecision(
+    ctx,
+    { request: { decision, webauthn: parsed.data, ...server } },
+    gateId,
+    beforeTarget,
+    evidence,
+  );
 }
 
 export async function conductorBotDecideCommand(
@@ -2381,13 +2597,20 @@ export async function conductorBotDecideCommand(
       ? undefined
       : matchBotGate(ctx.store, gateId);
     const beforeTarget = target ? decisionTarget(ctx.store, target) : undefined;
+    // 승인자가 없으면 GitHub를 읽기 전에 터미널 안내로 멈춘다. 잠금 안에서 한 번 더 본다
+    if (target?.gate.status === 'open')
+      assertApproverReady(loadBotPolicy(ctx.store.dir), target.gate, target.repo);
     const evidence =
       target?.gate.status === 'open' ? await botGateEvidence(ctx, target) : undefined;
-    await applyBotDecision(ctx, caller, gateId, beforeTarget, evidence, {
-      decision,
-      signer: opts.signer,
-      signature: opts.signature,
-    });
+    print(
+      await applyBotDecision(
+        ctx,
+        { caller, request: { decision, signer: opts.signer, signature: opts.signature } },
+        gateId,
+        beforeTarget,
+        evidence,
+      ),
+    );
   } catch (error) {
     exitWithError(error);
   }
@@ -2421,6 +2644,7 @@ export async function conductorBotItemDecideCommand(
       });
     if (!target) throw new Error('결정할 게이트를 찾을 수 없어요');
     const beforeTarget = decisionTarget(ctx.store, target);
+    assertApproverReady(loadBotPolicy(ctx.store.dir), target.gate, target.repo);
     const evidence = await botGateEvidence(ctx, target);
     const read = readItemDecision({
       show: await readOrcaItem(item),
@@ -2431,20 +2655,30 @@ export async function conductorBotItemDecideCommand(
       binding: itemBinding(target, evidence?.head, evidence?.base),
     });
     if (read.kind === 'signed') {
-      await applyBotDecision(ctx, caller, gateId, beforeTarget, evidence, read, sameSource);
+      print(
+        await applyBotDecision(
+          ctx,
+          { caller, request: read },
+          gateId,
+          beforeTarget,
+          evidence,
+          sameSource,
+        ),
+      );
       return;
     }
     const issuer = await officialOrcaApprovalIssuer(caller);
     if (!issuer) throw new OrcaContractError();
     const proof = await issuer.read(read.source);
-    await applyBotDecision(
-      ctx,
-      caller,
-      gateId,
-      beforeTarget,
-      evidence,
-      { ...read, issuer, proof },
-      sameSource,
+    print(
+      await applyBotDecision(
+        ctx,
+        { caller, request: { ...read, issuer, proof } },
+        gateId,
+        beforeTarget,
+        evidence,
+        sameSource,
+      ),
     );
   } catch (error) {
     exitWithError(error);
