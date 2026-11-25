@@ -128,6 +128,8 @@ export type GateView = {
   orderId: string | null
   reason: string
   openedAt?: string
+  /** 봇 채팅으로 닫을 수 있는 게이트면 true, 터미널이 필요하면 false. 이 값을 안 주는 CLI면 없다 */
+  approverReady?: boolean
 }
 
 export type ConductorView = {
