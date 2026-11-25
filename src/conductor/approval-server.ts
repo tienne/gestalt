@@ -1,4 +1,7 @@
+import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { resolve } from 'node:path';
 import { approvalOrigin, WEBAUTHN_RP_ID } from './webauthn-approval.js';
 
 type Decision = 'approved' | 'rejected';
@@ -8,16 +11,19 @@ export interface GateOptions {
   head?: string;
   decision: Decision;
   challenge: string;
+  /** 승인 서버가 이 요청에 발급한 값. 페이지가 decide에 그대로 돌려준다 */
+  nonce: string;
   credentialIds: string[];
 }
 
 export interface ApprovalHandlers {
   gateOptions(gateId: string, decision: Decision): Promise<GateOptions>;
-  decide(gateId: string, decision: Decision, assertion: unknown): Promise<unknown>;
+  decide(gateId: string, decision: Decision, assertion: unknown, nonce: unknown): Promise<unknown>;
   enroll?: {
     label: string;
     options(): { challenge: string; userId: string; userName: string };
-    finish(registration: unknown): unknown;
+    /** code는 운영자 터미널에만 찍힌 등록 코드다. 페이지에서 사람이 옮겨 적는다 */
+    finish(registration: unknown, code: unknown): Promise<unknown>;
   };
 }
 
@@ -27,7 +33,8 @@ export interface ApprovalServer {
   close(): Promise<void>;
 }
 
-class HttpError extends Error {
+/** 응답 상태를 정해 던지는 에러. 이것 말고 다른 예외는 서버 쪽 실패로 보고 500을 낸다 */
+export class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
@@ -48,7 +55,12 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
     if (size > MAX_BODY) throw new HttpError(413, '요청이 너무 커요');
     chunks.push(chunk as Buffer);
   }
-  const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new HttpError(400, 'JSON을 읽지 못했어요');
+  }
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new HttpError(400, 'JSON 객체가 아니에요');
   return value as Record<string, unknown>;
@@ -81,6 +93,8 @@ const json = (res: ServerResponse, status: number, value: unknown) =>
 export function startApprovalServer(opts: {
   port: number;
   handlers: ApprovalHandlers;
+  /** /health에 실을 상태 저장소 식별값(approvalStoreId) */
+  store?: string;
   idleMs?: number;
   onIdle?: () => void;
 }): Promise<ApprovalServer> {
@@ -98,7 +112,11 @@ export function startApprovalServer(opts: {
     const url = new URL(req.url ?? '/', origin);
     // 떠 있는지 확인하는 요청은 Host를 안 보고 대기 시간도 늘리지 않는다. 게이트 정보가 없어 새도 괜찮다
     if (req.method === 'GET' && url.pathname === '/health')
-      return json(res, 200, { ok: true, service: HEALTH_SERVICE });
+      return json(res, 200, {
+        ok: true,
+        service: HEALTH_SERVICE,
+        ...(opts.store ? { store: opts.store } : {}),
+      });
     touch();
     if (req.headers.host !== host)
       throw new HttpError(421, `승인 페이지는 ${origin}으로만 열 수 있어요`);
@@ -125,19 +143,26 @@ export function startApprovalServer(opts: {
       if (parts[3] === 'options')
         return json(res, 200, await opts.handlers.gateOptions(gateId, decision));
       if (parts[3] === 'decide')
-        return json(res, 200, await opts.handlers.decide(gateId, decision, body['assertion']));
+        return json(
+          res,
+          200,
+          await opts.handlers.decide(gateId, decision, body['assertion'], body['nonce']),
+        );
     }
     const enroll = opts.handlers.enroll;
     if (enroll && url.pathname === '/api/enroll/options') return json(res, 200, enroll.options());
     if (enroll && url.pathname === '/api/enroll/finish')
-      return json(res, 200, enroll.finish(body['registration']));
+      return json(res, 200, await enroll.finish(body['registration'], body['code']));
     throw new HttpError(404, '없는 주소예요');
   };
 
   const listener = (req: IncomingMessage, res: ServerResponse) => {
     handle(req, res).catch((error: unknown) => {
-      const status = error instanceof HttpError ? error.status : 400;
-      json(res, status, { error: error instanceof Error ? error.message : String(error) });
+      if (error instanceof HttpError) return json(res, error.status, { error: error.message });
+      console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
+      json(res, 500, {
+        error: '승인 서버가 요청을 처리하지 못했어요. 터미널 로그를 확인해 주세요',
+      });
     });
   };
   const listen = (server: Server, address: string) =>
@@ -154,11 +179,23 @@ export function startApprovalServer(opts: {
       server.close(() => done());
       server.closeAllConnections();
     });
-  // 브라우저가 localhost를 IPv6로 먼저 풀어도 닿게 ::1에도 붙는다. IPv6가 없는 기기면 127.0.0.1만 쓴다
+  // 브라우저가 localhost를 IPv6로 먼저 풀어도 닿게 ::1에도 붙는다. IPv6가 없는 기기면 127.0.0.1만 쓴다.
+  // ::1을 다른 프로세스가 잡고 있으면 브라우저가 그쪽으로 갈 수 있어서 시작하지 않는다
   const v4 = createServer(listener);
   const v6 = createServer(listener);
   return listen(v4, '127.0.0.1').then(async () => {
-    await listen(v6, '::1').catch(() => undefined);
+    try {
+      await listen(v6, '::1');
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'EADDRNOTAVAIL' && code !== 'EAFNOSUPPORT') {
+        await close(v4);
+        throw new Error(
+          `[::1]:${opts.port}에 붙지 못해 승인 서버를 띄우지 않았어요 (${code ?? String(error)})`,
+          { cause: error },
+        );
+      }
+    }
     touch();
     return {
       server: v4,
@@ -173,17 +210,39 @@ export function startApprovalServer(opts: {
 
 const HEALTH_SERVICE = 'gestalt-approval';
 
-/** 서버가 이미 떠 있는지 본다. 다른 프로그램이 포트를 잡았으면 false라 그대로 띄우다 실패한다 */
-export async function approvalServerRunning(port: number): Promise<boolean> {
+/**
+ * 상태 저장소를 가리키는 짧은 값. /health는 Host를 안 보므로 경로를 그대로 싣지 않고 해시 앞자리만 싣는다
+ */
+export function approvalStoreId(stateDir: string): string {
+  let path: string;
+  try {
+    path = realpathSync(stateDir);
+  } catch {
+    path = resolve(stateDir);
+  }
+  return createHash('sha256').update(path).digest('hex').slice(0, 16);
+}
+
+/**
+ * 서버가 이미 떠 있는지 본다. 다른 프로그램이 포트를 잡았으면 false라 그대로 띄우다 실패한다.
+ * store를 주면 다른 상태 저장소로 뜬 승인 서버를 재사용하지 않고 멈춘다
+ */
+export async function approvalServerRunning(port: number, store?: string): Promise<boolean> {
+  let body: { ok?: unknown; service?: unknown; store?: unknown };
   try {
     const res = await fetch(`http://127.0.0.1:${port}/health`, {
       signal: AbortSignal.timeout(800),
     });
-    const body = (await res.json()) as { ok?: unknown; service?: unknown };
-    return res.ok && body.ok === true && body.service === HEALTH_SERVICE;
+    body = (await res.json()) as typeof body;
+    if (!res.ok || body.ok !== true || body.service !== HEALTH_SERVICE) return false;
   } catch {
     return false;
   }
+  if (store !== undefined && body.store !== store)
+    throw new Error(
+      `다른 상태 저장소의 승인 서버가 localhost:${port}에 떠 있어요. 그 서버가 내려간 뒤 다시 시도해 주세요`,
+    );
+  return true;
 }
 
 const SHARED_SCRIPT = `
@@ -201,6 +260,7 @@ const out = (text, ok) => { const el = document.getElementById('out'); el.textCo
 const STYLE = `
 body { font: 15px -apple-system, system-ui, sans-serif; max-width: 640px; margin: 48px auto; padding: 0 20px; color: #1d1d1f; }
 h1 { font-size: 20px; } dt { color: #6e6e73; margin-top: 10px; } dd { margin: 2px 0 0; word-break: break-all; }
+input { font-size: 16px; padding: 8px; margin-top: 4px; }
 button { font-size: 16px; padding: 10px 18px; border-radius: 8px; border: 0; background: #0071e3; color: #fff; margin-top: 20px; }
 button.reject { background: #d70015; } .ok { color: #1a7f37; } .err { color: #d70015; } pre { white-space: pre-wrap; }
 `;
@@ -231,7 +291,7 @@ document.getElementById('go').onclick = async () => {
       allowCredentials: options.credentialIds.map((id) => ({ type: 'public-key', id: fromB64url(id), transports: ['internal'] })),
     } });
     const r = cred.response;
-    const result = await post('/api/gate/' + encodeURIComponent(gateId) + '/decide', { decision, assertion: {
+    const result = await post('/api/gate/' + encodeURIComponent(gateId) + '/decide', { decision, nonce: options.nonce, assertion: {
       credentialId: b64url(cred.rawId), clientDataJSON: b64url(r.clientDataJSON),
       authenticatorData: b64url(r.authenticatorData), signature: b64url(r.signature) } });
     out((result.alreadyResolved ? '이미 닫힌 게이트예요. ' : '${label}했어요. ') + (result.itemReport || ''), true);
@@ -243,11 +303,15 @@ document.getElementById('go').onclick = async () => {
 
 function enrollPage(label: string): string {
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>Touch ID 승인자 등록</title><style>${STYLE}</style></head>
-<body><h1>Touch ID 승인자 등록</h1><p id="label"></p><button id="go">Touch ID로 등록</button><pre id="out"></pre>
+<body><h1>Touch ID 승인자 등록</h1><p id="label"></p>
+<p><label for="code">등록 코드</label><br><input id="code" autocomplete="off" inputmode="numeric" placeholder="터미널에 찍힌 코드"></p>
+<button id="go">Touch ID로 등록</button><pre id="out"></pre>
 <script>${SHARED_SCRIPT}
 document.getElementById('label').textContent = ${JSON.stringify(label)};
 document.getElementById('go').onclick = async () => {
   try {
+    const code = document.getElementById('code').value.trim();
+    if (!code) throw new Error('터미널에 찍힌 등록 코드를 먼저 넣어 주세요');
     const o = await post('/api/enroll/options', {});
     const cred = await navigator.credentials.create({ publicKey: {
       challenge: fromB64url(o.challenge), rp: { id: ${JSON.stringify(WEBAUTHN_RP_ID)}, name: 'Gestalt 컨덕터' },
@@ -258,7 +322,7 @@ document.getElementById('go').onclick = async () => {
     const r = cred.response;
     const pub = r.getPublicKey && r.getPublicKey();
     if (!pub) throw new Error('이 브라우저는 공개키를 꺼내 주지 않아요. Safari나 Chrome 최신 버전으로 열어 주세요');
-    const result = await post('/api/enroll/finish', { registration: {
+    const result = await post('/api/enroll/finish', { code, registration: {
       credentialId: b64url(cred.rawId), clientDataJSON: b64url(r.clientDataJSON),
       publicKey: b64url(pub), algorithm: r.getPublicKeyAlgorithm() } });
     out('등록했어요. ' + result.message + ' 이 창은 닫아도 돼요.', true);

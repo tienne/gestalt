@@ -35,9 +35,11 @@ export interface WriteJsonOptions {
 export function writeJsonAtomic(path: string, data: unknown, options: WriteJsonOptions = {}): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  // 임시 파일 이름을 미리 만들어 둔 파일이나 링크가 있으면 따라가지 않고 실패한다
   writeFileSync(tmp, JSON.stringify(data, null, options.indent ?? 2), {
     encoding: 'utf-8',
     mode: options.mode,
+    flag: 'wx',
   });
   try {
     renameSync(tmp, path);

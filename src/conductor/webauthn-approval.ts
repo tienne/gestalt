@@ -1,9 +1,10 @@
 import { createHash, createPublicKey, verify, type KeyObject } from 'node:crypto';
-import { renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
-import { isPlainObject } from '../core/json-file.js';
-import { BOT_POLICY_FILE, loadBotPolicy } from './bot-approval.js';
+import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
+import { approverField, BOT_POLICY_FILE, loadBotPolicy, repoApprovers } from './bot-approval.js';
+import { acquireLock } from './engine.js';
 import type { GateType } from './types.js';
 
 /**
@@ -53,8 +54,6 @@ export type WebAuthnRegistration = z.infer<typeof registrationSchema>;
 const fromB64url = (value: string) => Buffer.from(value, 'base64url');
 const sha256 = (value: Buffer | string) => createHash('sha256').update(value).digest();
 
-const field = (type: GateType) => (type === 'merge' ? 'mergeApprovers' : 'gateApprovers');
-
 /** 정책의 승인자 값이 `{ webauthn: {...} }`면 Touch ID 승인자다. PEM 문자열이면 기존 Ed25519 승인자다 */
 function asCredential(value: unknown): WebAuthnCredential | undefined {
   if (!isPlainObject(value)) return undefined;
@@ -68,20 +67,20 @@ export function webAuthnApprovers(
   type: GateType,
   repo: string,
 ): { id: string; credential: WebAuthnCredential }[] {
-  const table = policy?.[field(type)];
-  const key = repo.toLowerCase();
-  if (!isPlainObject(table) || !Object.hasOwn(table, key)) return [];
-  const row = table[key];
-  if (!isPlainObject(row)) return [];
+  const row = policy ? repoApprovers(policy, approverField(type), repo) : undefined;
+  if (!row) return [];
   return Object.entries(row).flatMap(([id, value]) => {
     const credential = asCredential(value);
     return credential ? [{ id, credential }] : [];
   });
 }
 
-/** 서명 대상 문자열을 그대로 challenge로 쓰지 않고 해시한다. 길이가 일정하고 브라우저 제한에 안 걸린다 */
-export function webAuthnChallenge(message: string): string {
-  return sha256(message).toString('base64url');
+/**
+ * 서명 대상 문자열에 승인 서버가 발급한 nonce를 붙여 해시한다. 해시라 길이가 일정하고 브라우저 제한에 안 걸린다.
+ * nonce는 그 서버 메모리에만 있어서 다른 프로세스가 포트를 먼저 잡고 받아 간 서명은 진짜 서버에서 쓸 수 없다
+ */
+export function webAuthnChallenge(message: string, nonce: string): string {
+  return sha256(`${message}\n${nonce}`).toString('base64url');
 }
 
 function p256Key(pem: string): KeyObject {
@@ -103,12 +102,13 @@ function readClientData(encoded: string) {
 }
 
 /**
- * 게이트 서명 문자열(`gateApprovalMessage`)에 한 Touch ID 서명을 확인한다. challenge가 문자열의 해시라
- * 다른 게이트, 다른 결정, 바뀐 게이트 내용이나 HEAD에는 같은 서명을 쓸 수 없다
+ * 게이트에 한 Touch ID 서명을 확인한다. challenge가 게이트 서명 문자열(`gateApprovalMessage`)과 nonce의 해시라
+ * 다른 게이트, 다른 결정, 바뀐 게이트 내용이나 HEAD에는 같은 서명을 쓸 수 없다.
+ * origin은 등록할 때 주소이면서 지금 요청을 받은 승인 서버의 주소여야 한다
  */
 export function verifyWebAuthnAssertion(
   credential: WebAuthnCredential,
-  message: string,
+  expected: { challenge: string; origin: string },
   raw: unknown,
 ): { signCount: number } {
   const parsed = assertionSchema.safeParse(raw);
@@ -120,8 +120,10 @@ export function verifyWebAuthnAssertion(
   if (client['type'] !== 'webauthn.get') throw new Error('WebAuthn 응답 유형이 승인이 아니에요');
   if (client['origin'] !== credential.origin)
     throw new Error('승인 페이지 주소가 등록할 때와 달라요');
+  if (client['origin'] !== expected.origin)
+    throw new Error('이 승인 서버에서 연 승인 페이지가 아니에요');
   if (client['crossOrigin'] === true) throw new Error('다른 사이트 안에서 연 승인은 받지 않아요');
-  if (client['challenge'] !== webAuthnChallenge(message))
+  if (client['challenge'] !== expected.challenge)
     throw new Error(
       '게이트 내용이나 PR HEAD가 바뀌었어요. 승인 페이지를 새로 열어 다시 승인해 주세요',
     );
@@ -167,30 +169,41 @@ export function verifyWebAuthnRegistration(
 }
 
 /**
- * 승인자를 bot-policy.json에 넣는다. 다른 칸은 그대로 두고 임시 파일에 쓴 뒤 바꿔 끼워 반쯤 쓴 파일이 남지 않게 한다.
+ * 승인자를 bot-policy.json에 넣는다. 컨덕터 상태 잠금 안에서 읽고 고쳐 써서 tick이나 다른 등록과 겹쳐도 앞 승인자를
+ * 덮지 않는다. 다른 칸은 그대로 두고 writeJsonAtomic으로 갈아 끼운다.
  * 개인키는 기기 밖으로 나오지 않아 여기 오는 건 공개키뿐이다
  */
-export function addWebAuthnApprover(
+export async function addWebAuthnApprover(
   dir: string,
   type: 'merge' | 'gate',
   repo: string,
   id: string,
   credential: WebAuthnCredential,
   replace = false,
-): void {
-  const policy = loadBotPolicy(dir) ?? {};
-  const name = type === 'merge' ? 'mergeApprovers' : 'gateApprovers';
-  const table = isPlainObject(policy[name]) ? policy[name] : {};
-  const key = repo.toLowerCase();
-  const row = isPlainObject(table[key]) ? table[key] : {};
-  if (Object.hasOwn(row, id) && !replace)
-    throw new Error(`${repo}의 ${id} 승인자가 이미 있어요. 바꾸려면 --replace를 붙여 주세요`);
-  const next = {
-    ...policy,
-    [name]: { ...table, [key]: { ...row, [id]: { webauthn: credential } } },
-  };
-  const path = join(dir, BOT_POLICY_FILE);
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, path);
+  waitMs = 20_000,
+): Promise<void> {
+  const deadline = Date.now() + waitMs;
+  let lock = acquireLock(dir);
+  while (!lock.ok) {
+    if (Date.now() >= deadline)
+      throw new Error('컨덕터가 상태를 갱신 중이에요. 잠시 뒤 다시 등록해 주세요');
+    await delay(100);
+    lock = acquireLock(dir);
+  }
+  try {
+    const policy = loadBotPolicy(dir) ?? {};
+    const name = approverField(type);
+    const table = isPlainObject(policy[name]) ? policy[name] : {};
+    const key = repo.toLowerCase();
+    const row = isPlainObject(table[key]) ? table[key] : {};
+    if (Object.hasOwn(row, id) && !replace)
+      throw new Error(`${repo}의 ${id} 승인자가 이미 있어요. 바꾸려면 --replace를 붙여 주세요`);
+    const next = {
+      ...policy,
+      [name]: { ...table, [key]: { ...row, [id]: { webauthn: credential } } },
+    };
+    writeJsonAtomic(join(dir, BOT_POLICY_FILE), next, { mode: 0o600 });
+  } finally {
+    lock.release();
+  }
 }
