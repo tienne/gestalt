@@ -9,7 +9,11 @@ import { loadConfig } from '../../core/config.js';
 import { gestaltPath } from '../../core/home.js';
 import { isPlainObject } from '../../core/json-file.js';
 import { EventStore } from '../../events/store.js';
-import { claimPlanDestination, readPlanDestination } from '../../execute/plan-destination.js';
+import {
+  claimPlanDestination,
+  readLegacyPlanDestination,
+  readPlanDestination,
+} from '../../execute/plan-destination.js';
 import { ExecuteSessionManager } from '../../execute/session.js';
 import { githubRepositoryName } from '../../harness-review/related-repos.js';
 import { readBotOwnership, targetBotOwner, type BotOwner } from '../../conductor/bot-owner.js';
@@ -205,7 +209,7 @@ export async function conductorPlanSubmitCommand(
       planId: prepared.plan.planId,
       repo: prepared.repo,
     };
-    const destination = readPlanDestination(ids.planId);
+    const destination = readLegacyPlanDestination(ids.planId) ?? readPlanDestination(ids.planId);
     const stateDir = destination?.kind === 'conductor' ? destination.stateDir : requestedStateDir;
     if (!existsSync(stateDir)) throw new Error('등록된 Orca 컨덕터 운영 채팅이 없어요');
     const ctx: Ctx = { store: ConductorStore.open(stateDir), config: config.conductor };

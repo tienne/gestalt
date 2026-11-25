@@ -254,17 +254,31 @@ export class ExecuteSessionManager {
         'plan load가 반환한 cwd로 다시 호출해 주세요',
       );
     const original = githubRepositoryName(target.root);
+    if (!original || original !== target.name) {
+      const checkout = JSON.stringify(target.root);
+      const detail = original
+        ? `기록된 체크아웃 ${checkout}의 origin이 ${original}로 바뀌었어요`
+        : `기록된 체크아웃 ${checkout}에서 대상 레포 ${target.name}을 확인할 수 없어요`;
+      const remoteCommand = original
+        ? 'git remote set-url origin <확인한 URL>로 수정해 주세요.'
+        : 'git remote -v로 확인해 주세요. origin이 없으면 git remote add origin <확인한 URL>로 추가하고 기존 origin의 주소가 틀렸으면 git remote set-url origin <확인한 URL>로 수정해 주세요.';
+      this.rejectPlanBoundary(
+        session,
+        detail,
+        `기록된 체크아웃 ${checkout}에서 origin이 ${target.name}을 가리키도록 복구해 주세요. ${remoteCommand} 같은 계획을 다시 요청해 주세요. 해당 체크아웃을 복구할 수 없으면 올바른 체크아웃에서 Spec으로 계획을 다시 준비해 주세요`,
+      );
+    }
     const actual = location === target.root ? original : githubRepositoryName(location);
-    if (!original || !actual)
+    if (!actual)
       this.rejectPlanBoundary(
         session,
         `계획의 대상 레포 ${target.name}을 현재 작업 위치에서 확인할 수 없어요`,
         `작업 위치에서 origin이 ${target.name}을 가리키는지 확인한 뒤 다시 시도해 주세요`,
       );
-    if (original !== target.name || actual !== target.name)
+    if (actual !== target.name)
       this.rejectPlanBoundary(
         session,
-        `계획의 대상 레포 ${target.name}이 작업 위치의 레포 ${original !== target.name ? original : actual}와 달라요`,
+        `계획의 대상 레포 ${target.name}이 작업 위치의 레포 ${actual}와 달라요`,
         `origin이 ${target.name}인 체크아웃에서 다시 시도해 주세요. 레포 변경이 의도한 것이면 Spec으로 계획을 다시 준비해 주세요`,
       );
     if (session.planBoundaryError) {
