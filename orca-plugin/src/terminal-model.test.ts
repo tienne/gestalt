@@ -267,17 +267,50 @@ test('게이트가 열린 주문은 하위 주문이라도 승인 칸에 오래 
   assert.deepEqual(m.kinds, { orca: 2, git: 0, sub: 0 })
 })
 
-test('running이어도 대기 사유나 한도가 있거나 게이트 안 보이는 waiting-gate면 대기 칸으로 간다', () => {
+test('running이어도 대기 사유가 있거나 게이트 안 보이는 waiting-gate면 대기 칸으로 가고 한도는 진행 칸에 남는다', () => {
   const alive = orcaWorker('running')
   assert.equal(laneOf({ ...base, ...alive }), 'running')
   assert.equal(laneOf({ ...base, ...alive, workerStatus: 'starting' }), 'running')
   assert.equal(laneOf({ ...base, ...alive, waiting: { reason: 'ord-x 머지 대기', since: at(30) } }), 'waiting')
   assert.equal(laneOf({ ...base, ...alive, status: 'waiting-gate' }), 'waiting')
-  assert.equal(laneOf({ ...base, ...alive, rateLimitedAt: at(5) }), 'waiting')
+  assert.equal(laneOf({ ...base, ...alive, rateLimitedAt: at(5) }), 'running')
   assert.equal(laneOf({ ...base, status: 'queued' }), 'waiting')
   assert.equal(laneOf({ ...base, ...alive, workerStatus: 'released' }), 'ended')
   // workerStatus를 안 주는 옛 CLI는 워커가 붙어 있으면 돌고 있는 것으로 본다
   assert.equal(laneOf({ ...base, worker: 'w1' }), 'running')
+})
+
+test('부모가 대기나 끝남 칸이면 하위 주문은 부모 카드 안에 숨지 않고 제 칸에 나온다', () => {
+  const m = terminalModel(
+    lanesView([
+      { ...base, id: 'waiting-parent', ...orcaWorker('running'), waiting: { reason: '하위 주문 대기', since: at(30) } },
+      { ...base, id: 'child-a', parentOrderId: 'waiting-parent', ...orcaWorker('running') },
+      { ...base, id: 'ended-parent', ...orcaWorker('released') },
+      { ...base, id: 'child-b', parentOrderId: 'ended-parent', ...orcaWorker('running') }
+    ]),
+    NOW_25
+  )
+  assert.deepEqual(m.running.map((c) => c.order.id).sort(), ['child-a', 'child-b'])
+  assert.deepEqual(m.waiting.map((c) => c.order.id), ['waiting-parent'])
+  assert.deepEqual(m.ended.map((c) => c.order.id), ['ended-parent'])
+  assert.deepEqual(m.kinds, { orca: 3, git: 0, sub: 0 })
+})
+
+test('화면에 없는 같은 주문의 게이트는 한 항목으로 묶고 주문 없는 게이트와 시각 없는 게이트는 따로 둔다', () => {
+  const m = terminalModel(
+    lanesView(
+      [],
+      [
+        { id: 'g1', type: 'merge', orderId: 'gone', reason: 'a', openedAt: at(5) },
+        { id: 'g2', type: 'slack-post', orderId: 'gone', reason: 'b', openedAt: at(9) },
+        { id: 'g3', type: 'no-procedure', orderId: null, reason: 'c' },
+        { id: 'g4', type: 'no-procedure', orderId: null, reason: 'd' },
+        { id: 'g5', type: 'no-procedure', orderId: null, reason: 'e', openedAt: at(1) }
+      ]
+    ),
+    NOW_25
+  )
+  assert.deepEqual(m.approval.map((e) => e.gates.map((g) => g.gate.id)), [['g1', 'g2'], ['g5'], ['g3'], ['g4']])
 })
 
 test('진행 칸 카드는 마지막 활동이 STALL_MS를 넘으면 멈춤 표시를 단다', () => {

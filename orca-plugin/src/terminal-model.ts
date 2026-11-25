@@ -228,7 +228,7 @@ export type TerminalModel = {
   running: Card[]
   waiting: Card[]
   ended: Card[]
-  /** 끝나지 않은 워커가 붙은 뿌리 카드를 워커 종류별로 센다 */
+  /** 끝나지 않은 워커가 붙은 카드를 워커 종류별로 센다. 부모 카드 안에 줄로 들어간 하위 주문은 세지 않는다 */
   kinds: Record<Exclude<KindKey, 'none'>, number>
   workers: number
   activeWorkers: number
@@ -257,12 +257,13 @@ function lastActivity(o: OrderView): number | null {
 }
 
 /**
- * 게이트가 없는 뿌리 카드의 칸. 워커가 끝났으면 끝남, 워커가 돌고 있고 대기나 한도가 없으면 진행이다.
- * 나머지(대기 사유, 게이트가 안 보이는 waiting-gate, 한도, 워커 없는 접수나 사람 담당)는 대기로 모은다
+ * 부모 카드 안에 들어가지 않고 게이트도 없는 주문의 칸. 워커가 끝났으면 끝남, 워커가 돌고 있고 대기가 없으면 진행이다.
+ * 한도에 걸린 워커도 진행 칸에 두고 상태줄로 한도를 보인다.
+ * 나머지(대기 사유, 게이트가 안 보이는 waiting-gate, 워커 없는 접수나 사람 담당)는 대기로 모은다
  */
 export function laneOf(o: OrderView): Exclude<Lane, 'approval'> {
   if (workerEnded(o)) return 'ended'
-  if (workerActive(o) && o.status === 'running' && !o.waiting && !o.rateLimitedAt) return 'running'
+  if (workerActive(o) && o.status === 'running' && !o.waiting) return 'running'
   return 'waiting'
 }
 
@@ -278,8 +279,13 @@ export function terminalModel(v: ConductorView, now: number, showPrivate = true)
   const liveIds = new Set(live.map((o) => o.id))
   const gatesOf = new Map<string, GateView[]>()
   for (const g of v.gates) if (g.orderId) gatesOf.set(g.orderId, [...(gatesOf.get(g.orderId) ?? []), g])
-  // 부모가 화면에 카드로 있으면 하위 주문은 부모 카드 안에 줄로 넣는다
-  const nested = (o: OrderView) => o.parentOrderId !== undefined && liveIds.has(o.parentOrderId)
+  // 하위 주문은 부모가 승인이나 진행 칸에 카드로 그려질 때만 그 카드 안에 줄로 넣는다.
+  // 부모가 접힌 대기나 끝남 칸의 한 줄이면 하위 주문이 안 보이니 제 칸으로 올린다
+  const byId = new Map(live.map((o) => [o.id, o]))
+  const nested = (o: OrderView) => {
+    const p = o.parentOrderId === undefined ? undefined : byId.get(o.parentOrderId)
+    return p !== undefined && (gatesOf.has(p.id) || laneOf(p) === 'running')
+  }
   const byRecent = (a: OrderView, b: OrderView) => (ms(b.updatedAt) ?? 0) - (ms(a.updatedAt) ?? 0)
   const byStatus = (a: OrderView, b: OrderView) =>
     (STATUS_RANK.get(displayStatus(a)) ?? 99) - (STATUS_RANK.get(displayStatus(b)) ?? 99) || byRecent(a, b)
@@ -324,9 +330,26 @@ export function terminalModel(v: ConductorView, now: number, showPrivate = true)
   const gated = live.filter((o) => gatesOf.has(o.id))
   const approval: ApprovalEntry[] = gated.map((o) => ({ card: toCard(o, 'approval'), gates: gatesOf.get(o.id)!.map(gateItem) }))
   // 주문이 없거나 화면에 없는 주문의 게이트도 사람이 닫아야 해서 카드 없이 싣는다
-  for (const g of v.gates) if (!g.orderId || !liveIds.has(g.orderId)) approval.push({ gates: [gateItem(g)] })
+  // 화면에 없는 같은 주문의 게이트는 한 항목으로 묶고, 주문 없는 컨덕터 게이트는 서로 무관해서 따로 둔다
+  const orphan = new Map<string, ApprovalEntry>()
+  for (const g of v.gates) {
+    if (g.orderId && liveIds.has(g.orderId)) continue
+    const same = g.orderId ? orphan.get(g.orderId) : undefined
+    if (same) {
+      same.gates.push(gateItem(g))
+      continue
+    }
+    const entry: ApprovalEntry = { gates: [gateItem(g)] }
+    if (g.orderId) orphan.set(g.orderId, entry)
+    approval.push(entry)
+  }
+  // 오래 기다린 순. 열린 시각을 모르는 게이트(옛 CLI)는 맨 뒤로 보낸다
   const openedAt = (e: ApprovalEntry) => Math.min(...e.gates.map((g) => ms(g.gate.openedAt) ?? Infinity))
-  approval.sort((a, b) => openedAt(a) - openedAt(b))
+  approval.sort((a, b) => {
+    const x = openedAt(a)
+    const y = openedAt(b)
+    return x === y ? 0 : x < y ? -1 : 1
+  })
 
   const roots = live.filter((o) => !nested(o) && !gatesOf.has(o.id))
   const lane = (name: Exclude<Lane, 'approval'>, sort: (a: OrderView, b: OrderView) => number) =>
@@ -335,14 +358,14 @@ export function terminalModel(v: ConductorView, now: number, showPrivate = true)
   const waiting = lane('waiting', byStatus)
   const ended = lane('ended', byRecent)
 
-  // 하위 주문 카드는 부모 카드가 워커를 이미 세서 뺀다
-  const rootCards = [...approval.flatMap((e) => (e.card && !nested(e.card.order) ? [e.card] : [])), ...running, ...waiting, ...ended]
+  const cards = [...approval.flatMap((e) => (e.card ? [e.card] : [])), ...running, ...waiting, ...ended]
+  // 부모 카드 안에 줄로 들어간 하위 주문의 워커는 예전처럼 세지 않는다
   const kinds = { orca: 0, git: 0, sub: 0 }
-  for (const c of rootCards) if (c.kind !== 'none') kinds[c.kind]++
+  for (const c of cards) if (c.kind !== 'none' && !nested(c.order)) kinds[c.kind]++
   const workers = kinds.orca + kinds.git + kinds.sub
   const info = v.conductor
   return {
-    cards: [...approval.flatMap((e) => (e.card ? [e.card] : [])), ...running, ...waiting, ...ended],
+    cards,
     approval,
     running,
     waiting,
