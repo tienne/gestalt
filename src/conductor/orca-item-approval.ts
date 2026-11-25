@@ -1,5 +1,5 @@
 import { isPlainObject } from '../core/json-file.js';
-import type { BotGate } from './bot-approval.js';
+import { reviewApprovalScope, type BotGate } from './bot-approval.js';
 import type { BotOwner } from './bot-owner.js';
 import { detectOrca, execRunner, type CommandRunner } from './launcher.js';
 import type { OrcaItemSource } from './types.js';
@@ -21,15 +21,21 @@ export const ORCA_APPROVAL_CONTRACT = [
 export const ORCA_ITEM_BINDING = 'gestalt/orca-item/v1';
 
 /** 질문에 그대로 실을 한 줄. 게이트를 다시 열거나 PR HEAD가 바뀌면 값이 달라져 옛 질문의 답이 안 맞는다 */
-export function itemBinding(target: BotGate, head: string | undefined): string {
+export function itemBinding(target: BotGate, head: string | undefined, base?: string): string {
   const { gate, repo, ref } = target;
+  const review =
+    gate.type === 'review-manual-switch' ? reviewApprovalScope(ref, head, base) : undefined;
   return JSON.stringify([
     ORCA_ITEM_BINDING,
     gate.id,
     gate.type,
     gate.openedAt,
     repo.toLowerCase(),
-    ...(gate.type === 'merge' ? [ref ?? '', head ?? ''] : []),
+    ...(review
+      ? [review.ref, review.head, review.base]
+      : gate.type === 'merge'
+        ? [ref ?? '', head ?? '']
+        : []),
   ]);
 }
 

@@ -61,7 +61,7 @@ import {
 } from './launcher.js';
 import { watchHumanOwned, type HumanOwnedChange, type PrStateSource } from './ownership.js';
 import { repoOfPrRef } from './pr-ref.js';
-import { pollPrs, type PrWatchSource } from './pr-watch.js';
+import { openReviewReapproval, pollPrs, type PrWatchSource } from './pr-watch.js';
 import { copyReportRefs } from './ref-copy.js';
 import { parseWorkerReport } from './result.js';
 import {
@@ -1138,11 +1138,14 @@ export async function recheckSignedDecision(
     deps.gitRunner ?? execRunner,
     deps.launchers,
   );
-  const reason = overlap
-    ? `${overlap.payload.overlapWith}와 겹치는 파일 범위가 달라졌어요(현재 ${overlap.count}개)`
+  const change = overlap
+    ? {
+        reason: `${overlap.payload.overlapWith}와 겹치는 파일 범위가 달라졌어요(현재 ${overlap.count}개)`,
+      }
     : await changedApprovalTarget(store, gate, deps.readApprovalEvidence);
-  if (!reason) return;
+  if (!change) return;
 
+  const { reason } = change;
   let detail = reason;
   let replacement: string | undefined;
   const order = gate.orderId ? store.order(gate.orderId) : undefined;
@@ -1167,8 +1170,10 @@ export async function recheckSignedDecision(
         ...(payload ? { payload } : {}),
       }).gate
     ).id;
-    detail = `${reason}. 새 게이트 ${replacement}에서 다시 결정해 주세요`;
+  } else if (!gate.orderId && change.reviewScope) {
+    replacement = openReviewReapproval(store, gate, change.reviewScope);
   }
+  if (replacement) detail = `${reason}. 새 게이트 ${replacement}에서 다시 결정해 주세요`;
   recordGateDelivery(store, gate.id, 'superseded', detail);
   return { detail, ...(replacement ? { replacement } : {}) };
 }

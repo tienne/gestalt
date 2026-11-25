@@ -12,7 +12,6 @@ import {
   matchBotGate,
   readBotPolicy,
   readMergeEvidence,
-  reviewedHead,
   verifyGateApproval,
   type BotGate,
 } from '../../conductor/bot-approval.js';
@@ -2128,11 +2127,11 @@ export async function conductorBotGateCommand(
       ...base,
       ...(evidence ? { evidence } : {}),
       messages: {
-        approved: gateApprovalMessage(target, evidence?.head, 'approved'),
-        rejected: gateApprovalMessage(target, evidence?.head, 'rejected'),
+        approved: gateApprovalMessage(target, evidence?.head, 'approved', evidence?.base),
+        rejected: gateApprovalMessage(target, evidence?.head, 'rejected', evidence?.base),
       },
       orcaItem: {
-        binding: itemBinding(target, evidence?.head),
+        binding: itemBinding(target, evidence?.head, evidence?.base),
         options: ['승인', '거절'],
         answer: '첫 줄에 승인 또는 거절, 둘째 줄에 서명 <승인자-ID> <base64>',
       },
@@ -2189,7 +2188,7 @@ async function applySignedDecision(
       current.gate.type,
       current.repo,
       signed.signer,
-      gateApprovalMessage(current, head, signed.decision),
+      gateApprovalMessage(current, head, signed.decision, evidence?.base),
       signed.signature,
     );
     let checked: typeof evidence;
@@ -2199,9 +2198,6 @@ async function applySignedDecision(
         throw new Error('PR HEAD가 바뀌었어요. 새 HEAD로 다시 승인받아 주세요');
       if (evidence?.base !== now.base)
         throw new Error('PR의 base 브랜치가 바뀌었어요. 다시 확인해 주세요');
-      const previousReview = reviewedHead(current.gate);
-      if (previousReview && previousReview !== now.head)
-        throw new Error('재리뷰 요청에 기록된 PR HEAD가 바뀌었어요');
       if (
         current.gate.type === 'merge' &&
         signed.decision === 'approved' &&
@@ -2293,7 +2289,7 @@ export async function conductorBotItemDecideCommand(
       item,
       question: opts.question,
       answer: opts.answer,
-      binding: itemBinding(target, evidence?.head),
+      binding: itemBinding(target, evidence?.head, evidence?.base),
     });
     await applySignedDecision(ctx, caller, gateId, beforeTarget, evidence, read, {
       source: read.source,

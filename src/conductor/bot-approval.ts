@@ -133,26 +133,41 @@ export type ReadApprovalEvidence = (ref: string) => Promise<{
   draft: boolean;
 }>;
 
-export function reviewedHead(gate: Gate): string | undefined {
-  return /^pr-watch:replies:.+@([a-f0-9]{40}):\d+$/.exec(gate.payload?.sourceRef ?? '')?.[1];
+export interface ReviewApprovalScope {
+  ref: string;
+  head: string;
+  base: string;
+}
+
+export function reviewApprovalScope(
+  ref: string | undefined,
+  head: string | undefined,
+  base: string | undefined,
+): ReviewApprovalScope {
+  if (!ref || !head || !base)
+    throw new Error('재리뷰 게이트는 PR, HEAD와 base 브랜치가 있어야 서명을 확인할 수 있어요');
+  return { ref, head, base };
 }
 
 export async function changedApprovalTarget(
   store: ConductorStore,
   gate: Gate,
   readEvidence?: ReadApprovalEvidence,
-): Promise<string | undefined> {
+): Promise<{ reason: string; reviewScope?: ReviewApprovalScope } | undefined> {
   const receipt = gate.receipt;
   if (!receipt) return;
   let target: BotGate;
   try {
     target = matchBotGate(store, gate.id);
   } catch {
-    return '승인 대상 레포 또는 PR 연결이 바뀌었어요';
+    return { reason: '승인 대상 레포 또는 PR 연결이 바뀌었어요' };
   }
   const order = gate.orderId ? store.order(gate.orderId) : undefined;
-  if (decisionTarget(store, target) !== receipt.target)
-    return '승인 범위, PR 또는 담당 워커가 바뀌었어요';
+  const ref = target.ref;
+  const review = gate.type === 'review-manual-switch';
+  const scopeChanged = decisionTarget(store, target) !== receipt.target;
+  const scopeReason = '승인 범위, PR 또는 담당 워커가 바뀌었어요';
+  if (scopeChanged && !(review && !gate.orderId && ref)) return { reason: scopeReason };
   if (
     order &&
     store
@@ -163,24 +178,26 @@ export async function changedApprovalTarget(
           (gate.type !== 'file-overlap' || g.payload?.overlapWith === gate.payload?.overlapWith),
       )
   )
-    return '같은 유형의 새 게이트가 열렸어요';
+    return { reason: '같은 유형의 새 게이트가 열렸어요' };
 
-  if (gate.type === 'review-manual-switch' && target.ref && !receipt.base)
-    return '재리뷰 승인 당시의 base 브랜치 기록이 없어 새 결정이 필요해요';
-  const head = receipt.head ?? reviewedHead(gate);
-  const ref = target.ref;
-  if (!head || !ref) return;
+  const head = receipt.head;
+  if (!ref || (!head && !review)) return;
   if (!readEvidence) throw new Error('GitHub에서 승인 대상을 다시 읽을 수 없어요');
   const current = await readEvidence(ref);
-  if (current.head !== head) return '승인 대상 PR HEAD가 바뀌었어요';
+  const reviewScope = review ? reviewApprovalScope(ref, current.head, current.base) : undefined;
+  const change = (reason: string) => ({ reason, ...(reviewScope ? { reviewScope } : {}) });
+  if (scopeChanged) return change(scopeReason);
+  if (review && (!receipt.head || !receipt.base))
+    return change('재리뷰 승인 당시의 HEAD 또는 base 브랜치 기록이 없어 새 결정이 필요해요');
+  if (current.head !== head) return change('승인 대상 PR HEAD가 바뀌었어요');
   if (receipt.base && current.base !== receipt.base)
-    return '승인 대상 PR의 base 브랜치가 바뀌었어요';
+    return change('승인 대상 PR의 base 브랜치가 바뀌었어요');
   if (
     gate.type === 'merge' &&
     gate.decision === 'approved' &&
     (current.state !== 'OPEN' || current.draft)
   )
-    return '승인 대상 PR 상태가 바뀌었어요';
+    return change('승인 대상 PR 상태가 바뀌었어요');
 }
 
 export async function readMergeEvidence(
@@ -263,11 +280,26 @@ export function gateApprovalMessage(
   target: BotGate,
   head: string | undefined,
   decision: Decision,
+  base?: string,
 ): string {
   const { gate, repo, ref } = target;
   if (gate.type === 'merge') {
     if (!ref || !head) throw new Error('머지 게이트는 PR과 HEAD가 있어야 서명을 확인할 수 있어요');
     return approvalMessage(gate, ref, head, decision);
+  }
+  if (gate.type === 'review-manual-switch') {
+    const scope = reviewApprovalScope(ref, head, base);
+    return JSON.stringify([
+      'gestalt/review-approval/v1',
+      gate.id,
+      gate.openedAt,
+      repo.toLowerCase(),
+      scope.ref,
+      scope.head,
+      scope.base,
+      decision,
+      gateDetails(gate),
+    ]);
   }
   return JSON.stringify([
     'gestalt/gate-approval/v1',

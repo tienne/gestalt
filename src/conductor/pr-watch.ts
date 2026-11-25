@@ -1,4 +1,5 @@
 import { openOrReuse } from './gates.js';
+import type { ReviewApprovalScope } from './bot-approval.js';
 import { intakeOrder } from './intake.js';
 import type { ConductorStore } from './store.js';
 import {
@@ -39,6 +40,72 @@ export interface PrWatchResult {
   gated: Gate[];
   /** 이번에 본 PR 전체에서 답이 없는 대응 대상 스레드 수 */
   unansweredThreads: number;
+}
+
+function reviewReapprovalPrefix(ref: string, head: string): string {
+  return `pr-watch:reapproval:${ref}@${head}:`;
+}
+
+export function openReviewReapproval(
+  store: ConductorStore,
+  previous: Gate,
+  scope: ReviewApprovalScope,
+): string | undefined {
+  const sourceRef = `${reviewReapprovalPrefix(scope.ref, scope.head)}${previous.id}`;
+  const gates = Object.values(store.snapshot.gates);
+  const existing =
+    gates.find((g) => g.payload?.sourceRef === sourceRef) ??
+    gates.find(
+      (g) =>
+        g.status === 'open' &&
+        g.type === 'review-manual-switch' &&
+        !g.orderId &&
+        g.payload?.prRef === scope.ref &&
+        g.payload.reapprovalOf,
+    );
+  const reason = `재리뷰 승인 범위가 달라졌어요: ${scope.ref} (HEAD ${scope.head}, base ${scope.base})`;
+  const payload = {
+    prRef: scope.ref,
+    sourceRef,
+    reapprovalOf: previous.id,
+    approvalBase: scope.base,
+  };
+  if (existing) {
+    // 범위 확인 뒤 새 게이트를 쓴 시점에 끊겨도 같은 요청을 다시 쓴다.
+    if (existing.status === 'open' && existing.reason !== reason)
+      store.append({
+        type: 'gate-updated',
+        at: store.timestamp(),
+        gateId: existing.id,
+        reason,
+        refs: [scope.ref],
+        payload,
+      });
+    return existing.id;
+  }
+  if (store.askedSourceRef(sourceRef)) return;
+  return openOrReuse(store, { type: 'review-manual-switch', reason, refs: [scope.ref], payload })
+    .gate.id;
+}
+
+function requiresReviewReapproval(store: ConductorStore, pr: WatchedPr): boolean {
+  const prefix = reviewReapprovalPrefix(pr.ref, pr.headSha);
+  const headChanged = pr.headSha !== pr.reviewedHeadSha;
+  return (
+    Object.values(store.snapshot.gates).some(
+      (g) =>
+        g.type === 'review-manual-switch' &&
+        !g.orderId &&
+        g.payload?.prRef === pr.ref &&
+        g.payload.reapprovalOf &&
+        (g.status === 'open' ||
+          g.deliveryPending ||
+          (headChanged &&
+            (g.receipt?.head === pr.headSha || g.payload.sourceRef?.startsWith(prefix)))),
+    ) ||
+    (headChanged &&
+      Object.keys(store.snapshot.askedSourceRefs).some((ref) => ref.startsWith(prefix)))
+  );
 }
 
 /**
@@ -97,7 +164,7 @@ export async function pollPrs(
   }
 
   for (const pr of reviewing) {
-    if (!pr.reviewedHeadSha || busy.has(pr.ref)) continue;
+    if (!pr.reviewedHeadSha || busy.has(pr.ref) || requiresReviewReapproval(store, pr)) continue;
     if (pr.headSha !== pr.reviewedHeadSha) {
       const out = intakeOrder(
         store,
