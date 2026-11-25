@@ -1,15 +1,16 @@
 import type { Widget, WidgetValue } from './lens-widget-schema.js';
 import { cellNumber, type LensSource } from './lens-source.js';
-import { numbersIn } from './lint-lens.js';
+import { numbersIn, sourceNumbersIn } from './lint-lens.js';
 import type { DigestIssue } from './lint.js';
 import type { Cite } from './schema-base.js';
 
-/** 인터랙티브 그림 lint. 스키마와 A, B, C 구분은 lens-widget-schema.ts에 있다 */
+/** 인터랙티브 그림 lint. 스키마와 A, B, C, D 구분은 lens-widget-schema.ts에 있다 */
 
 const ALLOWED_KINDS: Record<Widget['class'], readonly Widget['kind'][]> = {
   A: ['toggleBars', 'heatmap', 'beforeAfter'],
   B: ['stepSlider', 'beforeAfter'],
   C: ['stepSlider', 'toggleBars', 'heatmap', 'beforeAfter'],
+  D: ['stepSlider', 'beforeAfter'],
 };
 
 /**
@@ -70,9 +71,19 @@ export function widgetValues(w: Widget, wp: string): Array<{ v: WidgetValue; pat
   return out;
 }
 
-/** 그림 안 글자. 윤문과 지표 검사가 같은 목록을 본다 */
-export function widgetLabels(w: Widget, wp: string): Array<{ text: string; path: string }> {
-  const out: Array<{ text: string; path: string }> = [];
+/**
+ * 그림 안 글자. 윤문과 지표 검사가 같은 목록을 본다.
+ * step은 그 글자가 속한 단계 번호이고 illustrative는 원문에 없는 예시 요소의 글자다. D 검사가 쓴다
+ */
+export interface WidgetLabel {
+  text: string;
+  path: string;
+  step?: number;
+  illustrative?: boolean;
+}
+
+export function widgetLabels(w: Widget, wp: string): WidgetLabel[] {
+  const out: WidgetLabel[] = [];
   if (w.kind === 'toggleBars') {
     out.push(
       { text: w.toggle.off, path: `${wp}.toggle.off` },
@@ -86,17 +97,26 @@ export function widgetLabels(w: Widget, wp: string): Array<{ text: string; path:
     }
   } else if (w.kind === 'stepSlider') {
     w.steps.forEach((s, k) => {
-      out.push({ text: s.label, path: `${wp}.steps.${k}.label` });
-      if (s.note) out.push({ text: s.note, path: `${wp}.steps.${k}.note` });
+      out.push({ text: s.label, path: `${wp}.steps.${k}.label`, step: k });
+      if (s.note) out.push({ text: s.note, path: `${wp}.steps.${k}.note`, step: k });
       s.nodes.forEach((n, j) =>
-        out.push({ text: n.label, path: `${wp}.steps.${k}.nodes.${j}.label` }),
+        out.push({
+          text: n.label,
+          path: `${wp}.steps.${k}.nodes.${j}.label`,
+          step: k,
+          ...(n.illustrative ? { illustrative: true } : {}),
+        }),
       );
     });
   } else {
     for (const side of ['before', 'after'] as const) {
       out.push({ text: w[side].title, path: `${wp}.${side}.title` });
       w[side].items.forEach((it, k) =>
-        out.push({ text: it.label, path: `${wp}.${side}.items.${k}.label` }),
+        out.push({
+          text: it.label,
+          path: `${wp}.${side}.items.${k}.label`,
+          ...(it.illustrative ? { illustrative: true } : {}),
+        }),
       );
     }
   }
@@ -125,6 +145,94 @@ function sourceNames(source: LensSource | null): { exact: Set<string>; contained
   return { exact, contained };
 }
 
+type Err = (path: string, code: string, message: string) => void;
+
+/** B 그림과 D의 예시 요소 글자가 받는 검사. 원문 값이나 결과처럼 읽히는 글자를 막는다 */
+function illustrativeChecks(l: WidgetLabel, err: Err): void {
+  // "1단계"처럼 순서를 적은 숫자도 원문 값처럼 읽혀서 처음, 다음, 끝으로 쓴다
+  if (numbersIn(l.text).length > 0) {
+    err(
+      l.path,
+      'B_HAS_NUMBER',
+      `"${l.text}"에 숫자가 있다. 설명용 그림이나 예시 요소는 값처럼 읽히는 숫자를 쓰지 않는다. 순서는 처음, 다음, 끝으로 쓴다`,
+    );
+  }
+  if (metricWords(l.text).length > 0 || l.text.includes('%')) {
+    err(
+      l.path,
+      'B_METRIC_LABEL',
+      `"${l.text}"는 결과 지표로 읽힌다. 설명용 그림이나 예시 요소에는 점수나 정확도, %를 쓰지 않는다`,
+    );
+  }
+}
+
+/**
+ * D 그림에서 원문과 대조할 이름. 영문자가 든 토큰이고 release/20260728이나 force-push처럼 /, -, _, .로 이어진 건 통째로 본다.
+ * 한국어 설명 말은 대조하지 않는다
+ */
+function nameTokens(text: string): string[] {
+  return [...text.matchAll(/[A-Za-z0-9]+(?:[-/_.][A-Za-z0-9]+)*/g)]
+    .map((m) => m[0])
+    .filter((t) => t.length >= 2 && /[A-Za-z]/.test(t));
+}
+
+function nameInSource(name: string, allText: string): boolean {
+  return new RegExp(`(?<![A-Za-z0-9])${escapeRe(name)}(?![A-Za-z0-9])`, 'i').test(allText);
+}
+
+/**
+ * D 그림 검사. 이름은 원문 어디에든 있으면 된다. 한 번 정의한 이름을 여러 문단에서 가리키기 때문이다.
+ * 숫자는 그 단계의 출처 문단과 위젯 출처 문단 안에 있어야 한다
+ */
+function lintDescribed(
+  w: Widget,
+  wp: string,
+  labels: WidgetLabel[],
+  ctx: WidgetLintContext,
+  err: Err,
+): void {
+  if (w.figure) {
+    err(`${wp}.figure`, 'D_FIGURE_REF', '원문 그림을 다시 그리는 자리면 C로 만든다');
+  }
+  const stepCites = w.kind === 'stepSlider' ? w.steps.map((s) => s.cite) : [];
+  stepCites.forEach((c, k) => {
+    if (!c) {
+      err(
+        `${wp}.steps.${k}.cite`,
+        'D_STEP_NO_CITE',
+        'D 그림은 단계마다 그 단계가 옮긴 원문 문단(cite)을 단다',
+      );
+    }
+  });
+  const widgetNumbers = new Set(sourceNumbersIn(ctx.unitText(w.cite)));
+  for (const l of labels) {
+    if (l.illustrative) {
+      illustrativeChecks(l, err);
+      continue;
+    }
+    for (const name of new Set(nameTokens(l.text))) {
+      if (nameInSource(name, ctx.allText)) continue;
+      err(
+        l.path,
+        'D_NAME_UNKNOWN',
+        `"${name}"가 원문에 없다. 원문 이름을 글자 그대로 쓴다. 원문에 없는 요소면 illustrative를 단다`,
+      );
+    }
+    const stepCite = l.step === undefined ? undefined : stepCites[l.step];
+    const allowed = stepCite
+      ? new Set([...widgetNumbers, ...sourceNumbersIn(ctx.unitText(stepCite))])
+      : widgetNumbers;
+    const unknown = [...new Set(numbersIn(l.text))].filter((n) => n !== 0 && !allowed.has(n));
+    if (unknown.length > 0) {
+      err(
+        l.path,
+        'D_NUMBER_UNKNOWN',
+        `숫자 ${unknown.join(', ')}이 그 단계나 그림의 출처 문단에 없다. 원문 숫자만 그대로 쓴다`,
+      );
+    }
+  }
+}
+
 export interface WidgetLintContext {
   source: LensSource | null;
   /** 원문 문단 글자. 문단 출처 값과 지표 말을 대조한다 */
@@ -142,8 +250,7 @@ export function lintWidget(
   ctx: WidgetLintContext,
   issues: DigestIssue[],
 ): void {
-  const err = (path: string, code: string, message: string) =>
-    issues.push({ path, severity: 'error', code, message });
+  const err: Err = (path, code, message) => issues.push({ path, severity: 'error', code, message });
   if (!ALLOWED_KINDS[w.class].includes(w.kind)) {
     err(
       `${wp}.kind`,
@@ -179,7 +286,7 @@ export function lintWidget(
   }
 
   const values = widgetValues(w, wp);
-  const labels = [{ text: w.title, path: `${wp}.title` }, ...widgetLabels(w, wp)];
+  const labels: WidgetLabel[] = [{ text: w.title, path: `${wp}.title` }, ...widgetLabels(w, wp)];
   if (w.caption) labels.push({ text: w.caption, path: `${wp}.caption` });
 
   if (w.class === 'B') {
@@ -200,21 +307,7 @@ export function lintWidget(
     }
     const names = sourceNames(ctx.source);
     for (const l of labels) {
-      // "1단계"처럼 순서를 적은 숫자도 원문 값처럼 읽혀서 처음, 다음, 끝으로 쓴다
-      if (numbersIn(l.text).length > 0) {
-        err(
-          l.path,
-          'B_HAS_NUMBER',
-          `"${l.text}"에 숫자가 있다. B 그림은 값처럼 읽히는 숫자를 쓰지 않는다. 순서는 처음, 다음, 끝으로 쓴다`,
-        );
-      }
-      if (metricWords(l.text).length > 0 || l.text.includes('%')) {
-        err(
-          l.path,
-          'B_METRIC_LABEL',
-          `"${l.text}"는 결과 지표로 읽힌다. B 그림에는 점수나 정확도, %를 쓰지 않는다`,
-        );
-      }
+      illustrativeChecks(l, err);
       const t = l.text.trim().toLowerCase();
       if (names.exact.has(t) || names.contained.some((re) => re.test(t))) {
         err(
@@ -261,12 +354,14 @@ export function lintWidget(
           `값 ${v.value}가 ${ref.table} ${ref.row}행 ${ref.col}열 "${cell}"과 다르다`,
         );
       }
-    } else if (!numbersIn(ctx.unitText(src.cite)).includes(Math.abs(v.value))) {
+    } else if (!sourceNumbersIn(ctx.unitText(src.cite)).includes(Math.abs(v.value))) {
       err(path, 'WIDGET_VALUE_MISMATCH', `값 ${v.value}가 출처 문단에 없다`);
     }
   }
-  // heatmap 축 라벨도 widgetLabels에 들어 있어 같이 본다
+  if (w.class === 'D') lintDescribed(w, wp, labels, ctx, err);
+  // heatmap 축 라벨도 widgetLabels에 들어 있어 같이 본다. D의 예시 요소는 위에서 B 규칙으로 봤다
   for (const l of labels) {
+    if (l.illustrative) continue;
     for (const word of new Set(metricWords(l.text))) {
       if (metricInSource(word, ctx.allText)) continue;
       err(

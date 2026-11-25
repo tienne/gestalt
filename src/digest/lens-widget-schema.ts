@@ -10,9 +10,11 @@ import { citeSchema, idSchema, textSchema } from './schema-base.js';
  * - A 원문 데이터 그림: 값마다 원문 표 칸이나 문단을 출처로 단다. lint가 칸 숫자와 대조한다
  * - B 개념 설명 그림: 원문 데이터를 빌리지 않는 설명용 예시다. 숫자와 결과 지표, 원문 이름을 쓰지 않는다
  * - C 원문 그림 재구성: 원문 그림 옆에 둔다. 장면 수를 넘지 않고 원문과 다르게 그린 점을 적는다
+ * - D 원문 서술 그림: 원문이 글로 설명한 절차나 사례를 옮긴다. 이름은 원문에 있고 숫자는 출처 문단에 있어야 한다.
+ *   원문에 없는 요소는 illustrative를 달고 B 규칙을 받는다
  */
 
-export const WIDGET_CLASSES = ['A', 'B', 'C'] as const;
+export const WIDGET_CLASSES = ['A', 'B', 'C', 'D'] as const;
 export const WIDGET_KINDS = ['stepSlider', 'toggleBars', 'heatmap', 'beforeAfter'] as const;
 
 const label = z.string().min(1).max(40);
@@ -32,14 +34,17 @@ const base = {
   caption: textSchema.optional(),
   /** C가 다시 그린 원문 그림 id */
   figure: idSchema.optional(),
-  /** C가 원문 그림과 다르게 그린 점. 뷰어가 배지 아래 펼쳐 둔다 */
+  /** C와 D가 원문과 다르게 그린 점. 뷰어가 배지 아래 펼쳐 둔다. C는 필수, D는 선택이다 */
   differences: z.array(z.string()).optional(),
 };
+
+/** D 그림에서 원문에 없는 요소. 렌더러가 점선과 "예시" 꼬리표로 그리고 lint는 B 규칙으로 본다 */
+const illustrative = z.boolean().optional();
 
 const sideSchema = z.object({
   title: label,
   items: z
-    .array(z.object({ label, value: widgetValueSchema.optional() }))
+    .array(z.object({ label, value: widgetValueSchema.optional(), illustrative }))
     .min(1)
     .max(8),
 });
@@ -73,8 +78,10 @@ export const widgetSchema = z.discriminatedUnion('kind', [
         z.object({
           label,
           note: textSchema.optional(),
+          /** 이 단계가 옮긴 원문 문단. D는 단계마다 단다 */
+          cite: citeSchema.optional(),
           nodes: z
-            .array(z.object({ id: idSchema, label }))
+            .array(z.object({ id: idSchema, label, illustrative }))
             .min(2)
             .max(12),
           edges: z
