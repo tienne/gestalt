@@ -40,3 +40,19 @@ export const deployCodes = (w: Widget) =>
   lintErrors(lintDigest(lensDigest(withWidget(w)), deployTranscript(), { source: lensSource() }))
     .map((i) => i.code)
     .filter((c) => c !== 'SECTION_GAP');
+
+/** 배포 문단을 택배 출고에 빗댄 비유 표. 비유 표 테스트와 먼저 보기 테스트가 같이 쓴다 */
+export const parcel = (): Extract<Widget, { kind: 'analogyMap' }> => ({
+  id: 'parcel',
+  class: 'B',
+  kind: 'analogyMap',
+  title: '배포를 택배 출고에 빗대면',
+  cite: at(3),
+  domain: '택배 출고',
+  rows: [
+    { term: 'main', termCite: at(0), analog: '배송이 끝난 물건의 기록 장부' },
+    { term: 'release 브랜치', termCite: at(3), analog: '그날 출고분만 담은 상자' },
+    { term: 'alpha QA', termCite: at(3), analog: '보내기 전에 상자를 열어 보는 검수' },
+  ],
+  breaks: ['상자는 한 번 보내면 끝이지만 release 브랜치는 main이 앞으로 가면 다시 rebase한다.'],
+});

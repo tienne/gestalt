@@ -6,7 +6,13 @@ import { extractProse } from '../../../src/digest/prose.js';
 import { parseDigest } from '../../../src/digest/schema.js';
 import { VIEWER_JS } from '../../../src/digest/viewer-js.js';
 import { lensDigest, lensSource } from './fixture.js';
-import { at, deployCodes as codes, deployTranscript, withWidget } from './deploy-fixture.js';
+import {
+  at,
+  deployCodes as codes,
+  deployTranscript,
+  parcel,
+  withWidget,
+} from './deploy-fixture.js';
 
 const lanes = (): Extract<Widget, { kind: 'laneGraph' }> => ({
   id: 'overlap',
@@ -81,21 +87,6 @@ const journey = (): Extract<Widget, { kind: 'stepper' }> => ({
     { id: 'prod', label: 'production 배포', cite: at(4) },
   ],
   loops: [{ from: 'alpha', to: 'squash', label: '버그가 나오면 수정 PR로' }],
-});
-
-const parcel = (): Extract<Widget, { kind: 'analogyMap' }> => ({
-  id: 'parcel',
-  class: 'B',
-  kind: 'analogyMap',
-  title: '배포를 택배 출고에 빗대면',
-  cite: at(3),
-  domain: '택배 출고',
-  rows: [
-    { term: 'main', termCite: at(0), analog: '배송이 끝난 물건의 기록 장부' },
-    { term: 'release 브랜치', termCite: at(3), analog: '그날 출고분만 담은 상자' },
-    { term: 'alpha QA', termCite: at(3), analog: '보내기 전에 상자를 열어 보는 검수' },
-  ],
-  breaks: ['상자는 한 번 보내면 끝이지만 release 브랜치는 main이 앞으로 가면 다시 rebase한다.'],
 });
 
 describe('새 위젯 lint', () => {
@@ -256,7 +247,7 @@ describe('새 위젯 렌더', () => {
 
   it('윤문은 상태 키를 빼고 값만 받는다', () => {
     const r = withWidget(lanes());
-    const paths = extractProse(lensDigest(r), deployTranscript()).map((p) => p.path);
+    const paths = extractProse(lensDigest(r)).map((p) => p.path);
     expect(paths.some((p) => p.endsWith('.state.0.value'))).toBe(true);
     expect(paths.some((p) => p.endsWith('.state.0.key'))).toBe(false);
   });
