@@ -240,19 +240,6 @@ export class ExecuteSessionManager {
         '계획의 기준 레포가 기록되지 않았어요',
         '현재 레포의 origin을 확인한 뒤 Spec으로 계획을 다시 준비해 주세요',
       );
-    if (expectedRepo && target.name !== expectedRepo)
-      this.rejectPlanBoundary(
-        session,
-        `기록된 레포 ${target.name}과 대상 레포 ${expectedRepo}가 달라요`,
-        `origin이 ${target.name}인 체크아웃에서 다시 시도해 주세요. 다른 레포가 대상이면 해당 레포에서 Spec으로 계획을 준비해 주세요`,
-      );
-    const location = cwd ?? target.root;
-    if (session.assignedWorktree && real(location) !== real(session.assignedWorktree))
-      this.rejectPlanBoundary(
-        session,
-        '이 주문의 작업과 검증은 배정된 워크트리에서 진행해 주세요',
-        'plan load가 반환한 cwd로 다시 호출해 주세요',
-      );
     const original = githubRepositoryName(target.root);
     if (!original || original !== target.name) {
       const checkout = JSON.stringify(target.root);
@@ -268,6 +255,19 @@ export class ExecuteSessionManager {
         `기록된 체크아웃 ${checkout}에서 origin이 ${target.name}을 가리키도록 복구해 주세요. ${remoteCommand} 같은 계획을 다시 요청해 주세요. 해당 체크아웃을 복구할 수 없으면 올바른 체크아웃에서 Spec으로 계획을 다시 준비해 주세요`,
       );
     }
+    if (expectedRepo && target.name !== expectedRepo)
+      this.rejectPlanBoundary(
+        session,
+        `기록된 레포 ${target.name}과 대상 레포 ${expectedRepo}가 달라요`,
+        `origin이 ${target.name}인 체크아웃에서 다시 시도해 주세요. 다른 레포가 대상이면 해당 레포에서 Spec으로 계획을 준비해 주세요`,
+      );
+    const location = cwd ?? target.root;
+    if (session.assignedWorktree && real(location) !== real(session.assignedWorktree))
+      this.rejectPlanBoundary(
+        session,
+        '이 주문의 작업과 검증은 배정된 워크트리에서 진행해 주세요',
+        'plan load가 반환한 cwd로 다시 호출해 주세요',
+      );
     const actual = location === target.root ? original : githubRepositoryName(location);
     if (!actual)
       this.rejectPlanBoundary(

@@ -286,6 +286,51 @@ describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
     },
   );
 
+  it.each(['sessionId', 'planId'] as const)(
+    '%s로 준비할 때 기록된 체크아웃의 origin을 먼저 진단하고 복구 후 같은 계획을 재사용한다',
+    async (selector) => {
+      const fx = createExecuteFixture('conductor-prepare-origin-recovery');
+      const root = repoForPlanning('before');
+      const originalUrl = 'https://github.com/acme/before.git';
+      try {
+        const { sessionId, spec } = fx.startedSession(makeSpec(), root);
+        for (const stepResult of planningSteps(spec))
+          await fx.call({ action: 'plan_step', sessionId, stepResult });
+        const plan = await fx.call({ action: 'plan_complete', sessionId, conductor: true });
+        expect(plan).toMatchObject({ status: 'ready_for_conductor', sessionId });
+        const prepare = () =>
+          fx.call(
+            executeInputSchema.parse({
+              action: 'prepare_conductor',
+              [selector]: plan[selector],
+              codeGraphRepoRoot: root,
+            }),
+          );
+
+        execFileSync('git', ['remote', 'set-url', 'origin', 'https://github.com/acme/after.git'], {
+          cwd: root,
+        });
+        const stopped = await prepare();
+        expect(stopped).toMatchObject({
+          error: expect.stringContaining('origin이 acme/after로 바뀌었어요'),
+          nextStep: expect.stringContaining('git remote set-url origin'),
+        });
+        expect(stopped['nextStep']).toContain(root);
+        expect(stopped['nextStep']).toContain('acme/before');
+        expect(stopped).not.toHaveProperty('status', 'ready_for_conductor');
+        expect(fx.engine.getSession(sessionId).planBoundaryError).toBe(stopped['error']);
+
+        execFileSync('git', ['remote', 'set-url', 'origin', originalUrl], { cwd: root });
+        await expect(prepare()).resolves.toEqual(plan);
+        expect(fx.engine.getSession(sessionId).planBoundaryError).toBeUndefined();
+        expect(fx.engine.listSessions()).toHaveLength(1);
+      } finally {
+        fx.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('origin이 없는 레포에서 처음 준비하면 계획을 만들지 않고 다음 조치를 준다', async () => {
     const fx = createExecuteFixture('conductor-missing-initial-origin');
     const root = repoForPlanning('initial');
