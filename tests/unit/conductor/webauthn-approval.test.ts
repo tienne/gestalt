@@ -836,4 +836,16 @@ describe('approver enroll 명령', () => {
     expect(String(await run)).toContain('exit 1');
     expect(() => readFileSync(join(dir, BOT_POLICY_FILE), 'utf8')).toThrow();
   });
+
+  it('등록 서버 경유로 정책 파일이 깨졌으면 경로 없이 500을 내고 명령을 바로 끝낸다', async () => {
+    const { dir, run, code, finish } = await start();
+    writeFileSync(join(dir, BOT_POLICY_FILE), '{');
+    const failed = await finish(code);
+    expect(failed.status).toBe(500);
+    expect(JSON.parse(failed.body)).toEqual({
+      error: '승인 서버가 요청을 처리하지 못했어요. 터미널 로그를 확인해 주세요',
+    });
+    expect(failed.body).not.toContain(dir);
+    expect(String(await run)).toContain('exit 1');
+  });
 });

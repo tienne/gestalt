@@ -206,21 +206,21 @@ export async function conductorApproverEnrollCommand(
               );
             attempted = true;
             try {
-              if (!sameCode(code, given))
-                throw new InputError('등록 코드가 맞지 않아 등록을 중단했어요');
-              const credential = verifyWebAuthnRegistration(registration, challenge, origin);
-              await addWebAuthnApprover(
-                stateDir,
-                type,
-                opts.repo,
-                opts.id,
-                credential,
-                opts.replace,
-              );
+              await asInput(async () => {
+                if (!sameCode(code, given))
+                  throw new InputError('등록 코드가 맞지 않아 등록을 중단했어요');
+                const credential = verifyWebAuthnRegistration(registration, challenge, origin);
+                await addWebAuthnApprover(
+                  stateDir,
+                  type,
+                  opts.repo,
+                  opts.id,
+                  credential,
+                  opts.replace,
+                );
+              });
             } catch (error) {
-              const failed = error instanceof Error ? error : new Error(String(error));
-              stop(failed);
-              if (error instanceof InputError) throw new HttpError(400, error.message);
+              stop(error instanceof Error ? error : new Error(String(error)));
               throw error;
             }
             const message = `${label}를 등록했어요`;
