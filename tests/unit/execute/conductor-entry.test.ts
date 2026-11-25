@@ -238,6 +238,7 @@ describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
     async (change) => {
       const fx = createExecuteFixture('conductor-origin-error');
       const root = repoForPlanning('before');
+      const other = repoForPlanning('before');
       const spec = makeSpec();
       try {
         const started = await fx.call({
@@ -258,7 +259,7 @@ describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
           action: 'plan_complete',
           sessionId,
           conductor: true,
-          cwd: root,
+          cwd: other,
         });
         expect(stopped).toMatchObject({
           error: expect.stringContaining(change === 'changed' ? 'acme/after' : '확인할 수 없어요'),
@@ -267,9 +268,20 @@ describe('인터뷰, 스펙, 실행의 컨덕터 준비 진입점', () => {
           ),
         });
         expect(stopped).not.toHaveProperty('status', 'ready_for_conductor');
+        expect(stopped['nextStep']).toContain(root);
+        expect(stopped['nextStep']).not.toContain(other);
+        const restore = change === 'changed' ? 'set-url' : 'add';
+        expect(stopped['nextStep']).toContain(`git remote ${restore} origin`);
+        execFileSync('git', ['remote', restore, 'origin', 'https://github.com/acme/before.git'], {
+          cwd: root,
+        });
+        await expect(
+          fx.call({ action: 'plan_complete', sessionId, conductor: true, cwd: other }),
+        ).resolves.toMatchObject({ status: 'ready_for_conductor', sessionId });
       } finally {
         fx.close();
         rmSync(root, { recursive: true, force: true });
+        rmSync(other, { recursive: true, force: true });
       }
     },
   );

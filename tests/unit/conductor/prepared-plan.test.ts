@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -8,7 +9,10 @@ import { changeBotOwner } from '../../../src/conductor/bot-owner.js';
 import { buildWorkerPrompt, chooseWorkerKind } from '../../../src/conductor/launcher.js';
 import { prepareOrderPlan, preparedPlanSourceRef } from '../../../src/conductor/prepared-plan.js';
 import { EventType } from '../../../src/events/types.js';
-import { claimPlanDestination } from '../../../src/execute/plan-destination.js';
+import {
+  claimPlanDestination,
+  readPlanDestination,
+} from '../../../src/execute/plan-destination.js';
 import { gestaltPath } from '../../../src/core/home.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import { EventStore } from '../../../src/events/store.js';
@@ -461,6 +465,49 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
     },
   );
 
+  it('이전 목적지에 기록한 주문을 새 형식으로 복구해도 같은 주문을 유지한다', async () => {
+    const otherStore = resolve(tempStateDir());
+    vi.stubEnv('GESTALT_CONDUCTOR_STATE_DIR', otherStore);
+    const { sessionId } = fx.plannedSession(undefined, undefined, dir);
+    const prepared = prepareOrderPlan(fx.engine.getSession(sessionId), 'acme/app');
+    const planId = prepared.plan.planId;
+    const prior = fixtureOrder({
+      sourceRef: preparedPlanSourceRef(planId),
+      scope: 'approval',
+      preparedPlan: prepared,
+    });
+    const legacy = gestaltPath('prepared-plans', 'destinations');
+    mkdirSync(legacy, { recursive: true });
+    writeFileSync(
+      join(legacy, createHash('sha256').update(planId).digest('hex')),
+      JSON.stringify({ kind: 'conductor', stateDir }),
+    );
+    ConductorStore.open(stateDir).append({
+      type: 'order-added',
+      at: prior.createdAt,
+      order: prior,
+    });
+
+    const checkLocal = () => {
+      const events = new EventStore(fx.dbPath);
+      try {
+        expect(new PassthroughExecuteEngine(events).startExecution(sessionId).ok).toBe(false);
+      } finally {
+        events.close();
+      }
+    };
+    expect(readPlanDestination(planId)).toBeUndefined();
+    checkLocal();
+    await cli('conductor', 'plan', 'submit', sessionId, '--state-dir', otherStore, '--json');
+    expect(last()).toMatchObject({ status: 'accepted', orderId: prior.id });
+    expect(readPlanDestination(planId)).toEqual({ kind: 'conductor', stateDir, orderId: prior.id });
+    checkLocal();
+    await cli('conductor', 'plan', 'submit', sessionId, '--check', '--json');
+    expect(last()).toMatchObject({ status: 'accepted', orderId: prior.id });
+    expect(orders().map((order) => order.id)).toEqual([prior.id]);
+    expect(ConductorStore.open(otherStore).orders()).toHaveLength(0);
+  });
+
   it('일반 계획은 재시작해도 다른 컨덕터 저장소를 읽지 않고 로컬에서 실행한다', () => {
     vi.stubEnv('GESTALT_CONDUCTOR_STATE_DIR', stateDir);
     writeFileSync(join(stateDir, 'base.json'), '깨진 별도 저장소');
@@ -554,7 +601,7 @@ describe('공식 실행 계획의 컨덕터 접수', () => {
           'tsx',
           '--input-type=module',
           '-e',
-          `import { claimPlanDestination } from ${JSON.stringify(moduleUrl)}; claimPlanDestination(${JSON.stringify(planId)}, ${JSON.stringify(destination)});`,
+          `import { claimPlanDestination, readPlanDestination } from ${JSON.stringify(moduleUrl)}; claimPlanDestination(${JSON.stringify(planId)}, ${JSON.stringify(destination)});`,
         ],
         { cwd },
       );
