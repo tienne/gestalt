@@ -25,6 +25,7 @@ import {
   type WorkerActivitySnapshot,
 } from './activity-tick.js';
 import { updateWorkerInfo } from './activity.js';
+import { changedApprovalOverlap, overlapScope } from './approval-overlap.js';
 import { changedApprovalTarget, type ReadApprovalEvidence } from './bot-approval.js';
 import { saveFinishedSummaries } from './work-log.js';
 import { existingRepoContext } from './context.js';
@@ -509,7 +510,7 @@ function checkFileOverlaps(
   const overlaps = fileOverlaps(
     workers,
     (w) => store.order(w.orderId)?.repo,
-    (w) => activity.get(w.id)?.info.changedFiles,
+    (w) => activity.get(w.id)?.changedFiles,
   );
   const byWorker = new Map<string, { orderId: string; files: string[] }[]>();
   const note = (w: Worker, orderId: string, files: string[]) =>
@@ -533,8 +534,7 @@ function checkFileOverlaps(
       orderId: later.orderId,
       type: 'file-overlap',
       reason: `${first.orderId}와 같은 파일 ${files.length}개를 고치고 있어요(기준 ${limit}개). 이어서 할지 정해 주세요`,
-      refs: files.slice(0, 20),
-      payload: { overlapWith: first.orderId },
+      ...overlapScope(first.orderId, files),
     });
     asked.add(key);
     waiting.add(later.orderId);
@@ -1044,25 +1044,10 @@ async function deliverSignedDecision(
     recordGateDelivery(store, gate.id, 'no-worker');
     return;
   }
-  const changed = await changedApprovalTarget(store, gate, deps.readApprovalEvidence);
+  const changed = await recheckSignedDecision(store, gate, deps);
   const order = gate.orderId ? store.order(gate.orderId) : undefined;
   if (changed) {
-    let detail = changed;
-    if (order && ['running', 'waiting-gate', 'escalated', 'queued'].includes(order.status)) {
-      const gateRequest = store.openGates(order.id).find((g) => g.type === gate.type);
-      const replacement =
-        gateRequest ??
-        openOrReuse(store, {
-          orderId: order.id,
-          type: gate.type,
-          reason: `${changed}. ${gate.reason}`,
-          refs: gate.refs,
-          ...(gate.payload ? { payload: gate.payload } : {}),
-        }).gate;
-      detail = `${changed}. 새 게이트 ${replacement.id}에서 다시 결정해 주세요`;
-      report.escalated.push(replacement.id);
-    }
-    recordGateDelivery(store, gate.id, 'superseded', detail);
+    if (changed.replacement) report.escalated.push(changed.replacement);
     return;
   }
   if (followUp) createReviewFollowUp(store, deps, report, gate);
@@ -1074,7 +1059,7 @@ async function deliverSignedDecision(
       order?.status !== 'waiting-gate' &&
       order?.status !== 'escalated')
   ) {
-    if (gate.deliveryOutcome === 'unknown') {
+    if (gate.deliveryOutcome === 'unknown' || gate.hostOfferedAt) {
       recordGateDelivery(
         store,
         gate.id,
@@ -1106,7 +1091,7 @@ async function deliverSignedDecision(
     report.hostActions.push({
       type: 'send',
       workerId: worker.id,
-      message: `서명한 게이트 결정이 왔어요. \`${command}\`로 결정을 받고, 이미 수신했으면 기존 처리만 이어가세요.`,
+      message: `서명한 게이트 결정이 왔어요. \`${command}\`로 결정과 처리 기록을 확인하세요. 같은 전달 ID로 실행한 결과가 있으면 대조하고, 결과를 모르면 결정을 다시 실행하기 전에 컨덕터에 알려 주세요. 결과를 확인하면 같은 명령에 --report <결과-참조>를 붙여 기록하세요.`,
     });
     return;
   }
@@ -1140,6 +1125,52 @@ async function deliverSignedDecision(
     return;
   }
   recordGateDelivery(store, gate.id, 'delivered');
+}
+
+export async function recheckSignedDecision(
+  store: ConductorStore,
+  gate: Gate,
+  deps: Pick<EngineDeps, 'gitRunner' | 'launchers' | 'readApprovalEvidence'>,
+): Promise<{ detail: string; replacement?: string } | undefined> {
+  const overlap = await changedApprovalOverlap(
+    store,
+    gate,
+    deps.gitRunner ?? execRunner,
+    deps.launchers,
+  );
+  const reason = overlap
+    ? `${overlap.payload.overlapWith}와 겹치는 파일 범위가 달라졌어요(현재 ${overlap.count}개)`
+    : await changedApprovalTarget(store, gate, deps.readApprovalEvidence);
+  if (!reason) return;
+
+  let detail = reason;
+  let replacement: string | undefined;
+  const order = gate.orderId ? store.order(gate.orderId) : undefined;
+  if (order && ['running', 'waiting-gate', 'escalated', 'queued'].includes(order.status)) {
+    const existing =
+      !overlap &&
+      store
+        .openGates(order.id)
+        .find(
+          (g) =>
+            g.type === gate.type &&
+            (gate.type !== 'file-overlap' || g.payload?.overlapWith === gate.payload?.overlapWith),
+        );
+    const payload = overlap?.payload ?? gate.payload;
+    replacement = (
+      existing ||
+      openOrReuse(store, {
+        orderId: order.id,
+        type: gate.type,
+        reason: overlap ? `${reason}. 이어서 할지 다시 정해 주세요` : `${reason}. ${gate.reason}`,
+        refs: overlap?.refs ?? gate.refs,
+        ...(payload ? { payload } : {}),
+      }).gate
+    ).id;
+    detail = `${reason}. 새 게이트 ${replacement}에서 다시 결정해 주세요`;
+  }
+  recordGateDelivery(store, gate.id, 'superseded', detail);
+  return { detail, ...(replacement ? { replacement } : {}) };
 }
 
 /**
@@ -1387,6 +1418,7 @@ async function retirePrevious(
   previous: Worker,
 ): Promise<'released' | 'deferred' | 'escalated'> {
   if (previous.kind !== 'orca-worktree') return 'released';
+  if (orderHasPendingDecisionDelivery(store, order.id)) return 'deferred';
   const launcher = deps.launchers['orca-worktree'];
   try {
     if (!launcher) throw new Error('오르카 런처가 없어 앞 워커 터미널을 못 거둬요');
@@ -1636,6 +1668,12 @@ function worktreeRemoval(
  * 사람이 승인한 Orca 워커는 종료와 정리 증빙까지 맞으면 released로 둔다.
  * 거절한 게이트는 기존 자동 정리 경로에서 다시 시도한다.
  */
+function orderHasPendingDecisionDelivery(store: ConductorStore, orderId: string): boolean {
+  return Object.values(store.snapshot.gates).some(
+    (g) => g.orderId === orderId && g.deliveryPending,
+  );
+}
+
 async function cleanupWorkers(
   store: ConductorStore,
   deps: EngineDeps,
@@ -1650,6 +1688,10 @@ async function cleanupWorkers(
     const mode = worktreeRemoval(w, order, deps.config);
     const removeWorktree = mode !== undefined;
     if (!isCleanupTarget(w, order, removeWorktree)) continue;
+    if (orderHasPendingDecisionDelivery(store, w.orderId)) {
+      report.warnings.push(`${w.id} 워커 정리 보류: 승인 결정 전달 결과를 확인 중이에요`);
+      continue;
+    }
     const mine = cleanupGates.filter((g) => g.payload?.workerId === w.id);
     const open = mine.find((g) => g.status === 'open');
     if (open) {
@@ -1702,10 +1744,11 @@ async function cleanupWorkers(
         store.reload();
         if (
           !isDeepStrictEqual(store.worker(worker.id), worker) ||
-          orderHasPendingSlack(store.snapshot, worker.orderId)
+          orderHasPendingSlack(store.snapshot, worker.orderId) ||
+          orderHasPendingDecisionDelivery(store, worker.orderId)
         ) {
           report.warnings.push(
-            `${worker.id} 워커 정리 보류: 정리 대상이나 Slack 게시 상태가 바뀌었어요`,
+            `${worker.id} 워커 정리 보류: 정리 대상, 승인 결정 전달 또는 Slack 게시 상태가 바뀌었어요`,
           );
           return false;
         }
@@ -1734,10 +1777,13 @@ async function cleanupWorkers(
         },
         () =>
           isDeepStrictEqual(store.worker(w.id), w) &&
-          !orderHasPendingSlack(store.snapshot, w.orderId),
+          !orderHasPendingSlack(store.snapshot, w.orderId) &&
+          !orderHasPendingDecisionDelivery(store, w.orderId),
       );
       if (!saved) {
-        report.warnings.push(`${w.id} 워커 정리 보류: 정리 중 워커나 Slack 게시 상태가 바뀌었어요`);
+        report.warnings.push(
+          `${w.id} 워커 정리 보류: 정리 중 워커, 승인 결정 전달 또는 Slack 게시 상태가 바뀌었어요`,
+        );
         return;
       }
       store.append({

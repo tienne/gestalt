@@ -228,6 +228,7 @@ export interface DecisionReceipt {
   deliveryId: string;
   target: string;
   repo: string;
+  workerId?: string;
   prRef?: string;
   head?: string;
   base?: string;
@@ -292,6 +293,8 @@ export interface Gate {
   deliveryAttempts?: number;
   deliveryOutcome?: GateDeliveryOutcome;
   deliveryDetail?: string;
+  hostOfferedAt?: string;
+  workerReport?: { at: string; workerId: string; ref: string };
   decisionBy?: string;
   receipt?: DecisionReceipt;
   /** Orca 항목의 사람 답으로 닫았을 때 그 답의 위치. 같은 답이 다시 와도 결정을 새로 쓰지 않는 근거다 */
@@ -416,7 +419,14 @@ export type ConductorEvent =
     }
   | { type: 'checkpoint-saved'; at: string; checkpoint: Checkpoint }
   | { type: 'gate-opened'; at: string; gate: Gate }
-  | { type: 'gate-updated'; at: string; gateId: string; reason: string; refs: string[] }
+  | {
+      type: 'gate-updated';
+      at: string;
+      gateId: string;
+      reason: string;
+      refs: string[];
+      payload?: Record<string, string>;
+    }
   | {
       type: 'gate-resolved';
       at: string;
@@ -439,6 +449,8 @@ export type ConductorEvent =
       attempts?: number;
       outcome?: GateDeliveryOutcome;
       detail?: string;
+      hostOfferedAt?: string;
+      workerReport?: NonNullable<Gate['workerReport']>;
     }
   | { type: 'bypass'; at: string; record: BypassRecord }
   | { type: 'jira-transition'; at: string; record: JiraTransitionRecord }

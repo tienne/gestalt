@@ -1431,6 +1431,7 @@ export function createCli(): Command {
     .description('호스트에서 온 서명 결정을 전달 ID로 한 번 받는다')
     .requiredOption('--worker <id>', '워커 id')
     .requiredOption('--delivery <id>', '전달 id')
+    .option('--report <ref>', '처리 결과를 확인할 참조를 남긴다')
     .addOption(stateDir())
     .action(conductorWorkerDecisionCommand);
 

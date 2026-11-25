@@ -164,11 +164,19 @@ export function openOrReuse(
 ): { kind: 'gate'; gate: Gate; reused: boolean } {
   const existing = store
     .openGates(req.orderId)
-    .find((g) => g.type === req.type && (req.orderId !== undefined || g.reason === req.reason));
+    .find(
+      (g) =>
+        g.type === req.type &&
+        (req.orderId !== undefined || g.reason === req.reason) &&
+        (req.type !== 'file-overlap' || g.payload?.overlapWith === req.payload?.overlapWith),
+    );
   if (existing) {
     const refs = req.refs ?? existing.refs;
+    const overlapPayload = req.type === 'file-overlap' ? req.payload : undefined;
     const changed =
       existing.reason !== req.reason ||
+      (overlapPayload !== undefined &&
+        existing.payload?.overlapDigest !== overlapPayload.overlapDigest) ||
       refs.length !== existing.refs.length ||
       refs.some((r, i) => r !== existing.refs[i]);
     if (!changed) return { kind: 'gate', gate: existing, reused: true };
@@ -178,6 +186,7 @@ export function openOrReuse(
       gateId: existing.id,
       reason: req.reason,
       refs,
+      ...(overlapPayload ? { payload: overlapPayload } : {}),
     });
     return { kind: 'gate', gate: store.snapshot.gates[existing.id]!, reused: true };
   }

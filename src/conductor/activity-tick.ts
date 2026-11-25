@@ -22,6 +22,7 @@ export async function changedFilesOf(
   runner: CommandRunner,
   cwd: string,
   baseBranch: string | undefined,
+  complete = false,
 ): Promise<{ files: string[]; base: string } | undefined> {
   const git = (args: string[]) => runner('git', args, { cwd, timeoutMs: GIT_TIMEOUT_MS });
   const candidates = [
@@ -42,18 +43,22 @@ export async function changedFilesOf(
     }
   }
   if (!mergeBase || !base) return undefined;
-  const diff = await git(['diff', '--name-only', mergeBase]);
+  const nul = complete ? ['-z'] : [];
+  const diff = await git(['diff', '--name-only', ...nul, mergeBase]);
   if (diff.code !== 0) return undefined;
-  const untracked = await git(['ls-files', '--others', '--exclude-standard']);
-  const lines = (s: string) =>
-    s
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean);
+  const untracked = await git(['ls-files', '--others', '--exclude-standard', ...nul]);
+  if (complete && untracked.code !== 0) return undefined;
+  const paths = (s: string) =>
+    complete
+      ? s.split('\0').filter(Boolean)
+      : s
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean);
   const files = [
-    ...new Set([...lines(diff.stdout), ...(untracked.code === 0 ? lines(untracked.stdout) : [])]),
+    ...new Set([...paths(diff.stdout), ...(untracked.code === 0 ? paths(untracked.stdout) : [])]),
   ].sort();
-  return { files: files.slice(0, MAX_CHANGED_FILES), base };
+  return { files: complete ? files : files.slice(0, MAX_CHANGED_FILES), base };
 }
 
 function sameChanged(info: WorkerActivityInfo, next: { files: string[]; base: string }): boolean {
@@ -68,6 +73,7 @@ function sameChanged(info: WorkerActivityInfo, next: { files: string[]; base: st
 
 export interface WorkerActivitySnapshot {
   info: WorkerActivityInfo;
+  changedFiles?: string[];
   /** 트랜스크립트에서 읽은 마지막 줄의 시각. 못 읽었으면 없다 */
   lastEventAt?: string;
   backgroundGate?: BackgroundGate;
@@ -102,8 +108,11 @@ export async function refreshWorkerActivity(
         if (path) info = updateWorkerInfo(deps.stateDir, w.id, { worktreePath: path });
       }
       const cwd = info.worktreePath;
+      let changedFiles: string[] | undefined;
       if (cwd && existsSync(cwd)) {
-        const changed = await changedFilesOf(deps.runner, cwd, orderOf(w)?.baseBranch);
+        const current = await changedFilesOf(deps.runner, cwd, orderOf(w)?.baseBranch, true);
+        changedFiles = current?.files;
+        const changed = current && { ...current, files: current.files.slice(0, MAX_CHANGED_FILES) };
         // 목록이 그대로면 쓰지 않는다. tick마다 같은 파일을 다시 쓰면 changedAt만 바뀐다
         if (changed && !sameChanged(info, changed))
           info = updateWorkerInfo(deps.stateDir, w.id, {
@@ -121,6 +130,7 @@ export async function refreshWorkerActivity(
       const d = state?.digest;
       out.set(w.id, {
         info,
+        ...(changedFiles ? { changedFiles } : {}),
         ...(d?.lastEventAt ? { lastEventAt: d.lastEventAt } : {}),
         ...(d?.backgroundGate ? { backgroundGate: d.backgroundGate } : {}),
       });

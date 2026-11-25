@@ -5,7 +5,6 @@ import { dirname, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { handleGithubOrder, readGithubOrder } from '../../conductor/bot-github.js';
 import {
-  changedApprovalTarget,
   decisionId,
   decisionReceipt,
   decisionTarget,
@@ -13,6 +12,7 @@ import {
   matchBotGate,
   readBotPolicy,
   readMergeEvidence,
+  reviewedHead,
   verifyGateApproval,
   type BotGate,
 } from '../../conductor/bot-approval.js';
@@ -49,6 +49,7 @@ import {
   deliverGateDecision,
   decisionMessage,
   recordGateDelivery,
+  recheckSignedDecision,
   inboxDirOf,
   tick,
   staleTickWarning,
@@ -1374,7 +1375,7 @@ export interface ConductorGateResolveOptions extends ConductorCommonOptions {
 }
 
 export async function conductorWorkerDecisionCommand(
-  opts: ConductorCommonOptions & { worker: string; delivery: string },
+  opts: ConductorCommonOptions & { worker: string; delivery: string; report?: string },
 ): Promise<void> {
   try {
     assertOwnWorkerId(opts.worker);
@@ -1389,29 +1390,72 @@ export async function conductorWorkerDecisionCommand(
       const worker = ctx.store.worker(opts.worker);
       if (
         !gate ||
+        (gate.receipt?.workerId ?? order?.workerId) !== opts.worker ||
+        !worker ||
+        worker.kind === 'orca-worktree' ||
+        worker.orderId !== gate.orderId
+      )
+        throw new Error('이 워커가 받을 수 있는 전달 ID가 아니에요');
+      const received = (alreadyReceived: boolean, report?: Gate['workerReport']) => ({
+        deliveryId: opts.delivery,
+        alreadyReceived,
+        processing: report ? 'reported' : 'pending',
+        ...(report ? { workerReport: report } : {}),
+      });
+      if (gate.workerReport) return print(received(true, gate.workerReport));
+
+      if (opts.report !== undefined) {
+        const ref = opts.report.trim();
+        if (!gate.hostOfferedAt || !ref || ref.length > 500)
+          throw new Error('결정을 조회한 뒤 처리 결과를 확인할 참조를 500자 이내로 주세요');
+        const at = ctx.store.timestamp();
+        const workerReport = { at, workerId: worker.id, ref };
+        ctx.store.append({
+          type: 'gate-delivery',
+          at,
+          gateId: gate.id,
+          pending: false,
+          outcome: gate.deliveryOutcome === 'superseded' ? 'superseded' : 'delivered',
+          ...(gate.deliveryDetail && gate.deliveryOutcome === 'superseded'
+            ? { detail: gate.deliveryDetail }
+            : {}),
+          workerReport,
+        });
+        return print(received(true, workerReport));
+      }
+
+      if (
         order?.workerId !== opts.worker ||
         (order.status !== 'running' &&
           order.status !== 'waiting-gate' &&
           order.status !== 'escalated') ||
-        !worker ||
-        worker.kind === 'orca-worktree' ||
-        (worker.status !== 'running' && worker.status !== 'starting')
+        (worker.status !== 'running' && worker.status !== 'starting') ||
+        (!gate.deliveryPending && gate.deliveryOutcome !== 'delivered')
       )
-        throw new Error('이 워커가 받을 수 있는 전달 ID가 아니에요');
-      const alreadyReceived = gate.deliveryOutcome === 'delivered';
-      if (!alreadyReceived && (!gate.deliveryPending || gate.deliveryOutcome !== 'host-action'))
         throw new Error('이 결정은 지금 받을 수 없어요. 컨덕터에서 전달 상태를 확인해 주세요');
       const gh = new GhAccounts(ctx.config.accounts);
-      const changed = await changedApprovalTarget(ctx.store, gate, (ref) =>
-        readMergeEvidence(ref, gh),
-      );
-      if (changed) throw new Error(changed);
-      if (!alreadyReceived) recordGateDelivery(ctx.store, gate.id, 'delivered');
+      const changed = await recheckSignedDecision(ctx.store, gate, {
+        ...launchersFor(ctx, process.env),
+        readApprovalEvidence: (ref) => readMergeEvidence(ref, gh),
+      });
+      if (changed) throw new Error(changed.detail);
+      if (!gate.hostOfferedAt) {
+        const at = ctx.store.timestamp();
+        ctx.store.append({
+          type: 'gate-delivery',
+          at,
+          gateId: gate.id,
+          pending: true,
+          outcome: 'host-action',
+          hostOfferedAt: at,
+        });
+      }
       return print({
-        deliveryId: opts.delivery,
-        alreadyReceived,
+        ...received(Boolean(gate.hostOfferedAt) || gate.deliveryOutcome === 'delivered'),
         decision: gate.decision,
         message: decisionMessage(gate),
+        nextAction:
+          '같은 전달 ID의 기존 처리 결과를 먼저 대조하세요. 처리 후 --report로 결과 참조를 남겨 주세요.',
       });
     } finally {
       lock.release();
@@ -1949,6 +1993,17 @@ function botDecisionStatus(gate: Gate) {
       ? 'pending'
       : (gate.deliveryOutcome ?? 'unknown');
   const nextAction = receipt ? approvalNextAction(gate) : undefined;
+  const processing = gate.workerReport
+    ? 'reported'
+    : gate.deliveryOutcome === 'no-worker'
+      ? 'no-worker'
+      : gate.deliveryOutcome === 'delivered' ||
+          gate.deliveryOutcome === 'unknown' ||
+          (gate.deliveryOutcome === 'superseded' && gate.hostOfferedAt)
+        ? 'unknown'
+        : gate.deliveryOutcome === 'superseded'
+          ? 'superseded'
+          : 'pending';
   const source = gate.decisionSource;
   const decided =
     gate.decision === 'approved' ? '승인' : gate.decision === 'rejected' ? '거절' : gate.decision;
@@ -1972,6 +2027,9 @@ function botDecisionStatus(gate: Gate) {
             base: receipt.base,
           },
           deliveryPending: gate.deliveryPending === true,
+          processing,
+          ...(gate.hostOfferedAt ? { hostOfferedAt: gate.hostOfferedAt } : {}),
+          ...(gate.workerReport ? { workerReport: gate.workerReport } : {}),
           nextAction,
         }
       : {}),
@@ -1988,6 +2046,7 @@ function botDecisionStatus(gate: Gate) {
             `판단: ${decided}${gate.decisionBy ? ` (서명 ${gate.decisionBy})` : ''}${source ? `, Orca 항목 ${source.item}의 답 ${source.answer}` : ''}`,
             ...(receipt ? [`결정 접수 및 게이트 반영: ${gate.resolvedAt}`] : []),
             `워커 전달: ${DELIVERY_LABELS[delivery] ?? delivery}${gate.deliveryAttempts ? `, 시도 ${gate.deliveryAttempts}번` : ''}`,
+            ...(gate.workerReport ? [`워커 처리 보고: ${gate.workerReport.ref}`] : []),
             ...(gate.deliveryDetail ? [gate.deliveryDetail] : []),
             ...(nextAction ? [nextAction] : []),
           ].join('\n'),
@@ -2001,7 +2060,9 @@ function approvalNextAction(gate: Gate): string | undefined {
     case 'superseded':
       return '변경된 대상에 대해 새 결정을 접수해 주세요.';
     case 'host-action':
-      return '호스트가 워커에 전달하고 워커가 전달 ID로 수신합니다.';
+      return gate.hostOfferedAt
+        ? '같은 전달 ID로 처리 결과를 대조한 뒤 워커가 결과 참조를 남깁니다.'
+        : '호스트가 워커에 전달하고 워커가 전달 ID로 조회합니다.';
     case 'unknown':
       return gate.deliveryPending
         ? '다음 tick이 같은 전달 ID로 Orca의 결과를 확인합니다.'
@@ -2009,6 +2070,7 @@ function approvalNextAction(gate: Gate): string | undefined {
     case 'failed':
       return '다음 tick이 같은 결정으로 다시 시도합니다.';
     case 'delivered':
+      return gate.workerReport ? undefined : '워커의 실제 처리 결과는 워커 보고에서 확인해 주세요.';
     case 'no-worker':
       return undefined;
     default:
@@ -2131,18 +2193,25 @@ async function applySignedDecision(
       signed.signature,
     );
     let checked: typeof evidence;
-    if (current.gate.type === 'merge') {
+    if (current.ref) {
       const now = await botGateEvidence(ctx, current);
       if (!now || !head || now.head !== head)
         throw new Error('PR HEAD가 바뀌었어요. 새 HEAD로 다시 승인받아 주세요');
       if (evidence?.base !== now.base)
         throw new Error('PR의 base 브랜치가 바뀌었어요. 다시 확인해 주세요');
-      if (signed.decision === 'approved' && (now.state !== 'OPEN' || now.draft))
+      const previousReview = reviewedHead(current.gate);
+      if (previousReview && previousReview !== now.head)
+        throw new Error('재리뷰 요청에 기록된 PR HEAD가 바뀌었어요');
+      if (
+        current.gate.type === 'merge' &&
+        signed.decision === 'approved' &&
+        (now.state !== 'OPEN' || now.draft)
+      )
         throw new Error('리뷰 준비가 끝난 열린 PR만 머지 승인할 수 있어요');
       checked = now;
     }
     const answer =
-      checked && signed.decision === 'approved'
+      current.gate.type === 'merge' && checked && signed.decision === 'approved'
         ? `승인된 PR HEAD는 ${checked.head}입니다. 머지는 반드시 --match-head-commit ${checked.head}로 제한하세요. HEAD가 바뀌면 새 승인을 요청하세요.`
         : undefined;
     const closed = resolveGate(ctx.store, gateId, signed.decision, answer, {

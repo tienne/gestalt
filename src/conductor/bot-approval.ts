@@ -60,7 +60,16 @@ export function matchBotGate(store: ConductorStore, id: string): BotGate {
   const prRef = gate.payload?.['prRef'];
   const repo = order?.repo ?? (prRef ? repoOfPrRef(prRef) : null);
   if (!repo) throw new Error('레포를 알 수 없는 게이트는 봇에서 처리할 수 없어요');
-  return { gate, repo, ...(order ? { title: order.title } : {}) };
+  const ref =
+    gate.type === 'review-manual-switch' ? normalizePrRef(prRef ?? order?.prRef ?? '') : undefined;
+  if (ref && repoOfPrRef(ref)?.toLowerCase() !== repo.toLowerCase())
+    throw new Error('승인 대상 레포의 PR인지 확인해 주세요');
+  return {
+    gate,
+    repo,
+    ...(order ? { title: order.title } : {}),
+    ...(ref ? { ref, url: `https://github.com/${ref.replace('#', '/pull/')}` } : {}),
+  };
 }
 
 export function decisionTarget(store: ConductorStore, target: BotGate): string {
@@ -104,11 +113,13 @@ export function decisionReceipt(
 ): DecisionReceipt {
   const rawRef = target.ref ?? target.gate.payload?.prRef;
   const prRef = rawRef ? normalizePrRef(rawRef) : undefined;
+  const workerId = target.gate.orderId ? store.order(target.gate.orderId)?.workerId : undefined;
   return {
     id,
     deliveryId: randomUUID(),
     target: decisionTarget(store, target),
     repo: target.repo,
+    ...(workerId ? { workerId } : {}),
     ...(prRef ? { prRef } : {}),
     ...(evidence ? { head: evidence.head } : {}),
     ...(evidence?.base ? { base: evidence.base } : {}),
@@ -121,6 +132,10 @@ export type ReadApprovalEvidence = (ref: string) => Promise<{
   state: string;
   draft: boolean;
 }>;
+
+export function reviewedHead(gate: Gate): string | undefined {
+  return /^pr-watch:replies:.+@([a-f0-9]{40}):\d+$/.exec(gate.payload?.sourceRef ?? '')?.[1];
+}
 
 export async function changedApprovalTarget(
   store: ConductorStore,
@@ -138,21 +153,33 @@ export async function changedApprovalTarget(
   const order = gate.orderId ? store.order(gate.orderId) : undefined;
   if (decisionTarget(store, target) !== receipt.target)
     return '승인 범위, PR 또는 담당 워커가 바뀌었어요';
-  if (order && store.openGates(order.id).some((g) => g.type === gate.type))
+  if (
+    order &&
+    store
+      .openGates(order.id)
+      .some(
+        (g) =>
+          g.type === gate.type &&
+          (gate.type !== 'file-overlap' || g.payload?.overlapWith === gate.payload?.overlapWith),
+      )
+  )
     return '같은 유형의 새 게이트가 열렸어요';
 
-  const reviewHead = /^pr-watch:replies:.+@([a-f0-9]{40}):\d+$/.exec(
-    gate.payload?.sourceRef ?? '',
-  )?.[1];
-  const head = receipt.head ?? reviewHead;
-  const ref = target.ref ?? (reviewHead ? receipt.prRef : undefined);
+  if (gate.type === 'review-manual-switch' && target.ref && !receipt.base)
+    return '재리뷰 승인 당시의 base 브랜치 기록이 없어 새 결정이 필요해요';
+  const head = receipt.head ?? reviewedHead(gate);
+  const ref = target.ref;
   if (!head || !ref) return;
   if (!readEvidence) throw new Error('GitHub에서 승인 대상을 다시 읽을 수 없어요');
   const current = await readEvidence(ref);
   if (current.head !== head) return '승인 대상 PR HEAD가 바뀌었어요';
   if (receipt.base && current.base !== receipt.base)
     return '승인 대상 PR의 base 브랜치가 바뀌었어요';
-  if (receipt.head && gate.decision === 'approved' && (current.state !== 'OPEN' || current.draft))
+  if (
+    gate.type === 'merge' &&
+    gate.decision === 'approved' &&
+    (current.state !== 'OPEN' || current.draft)
+  )
     return '승인 대상 PR 상태가 바뀌었어요';
 }
 
@@ -208,7 +235,15 @@ type Decision = 'approved' | 'rejected';
 
 const gateDetails = (gate: Gate) =>
   createHash('sha256')
-    .update(JSON.stringify([gate.reason, gate.refs]))
+    .update(
+      JSON.stringify([
+        gate.reason,
+        gate.refs,
+        ...(gate.type === 'file-overlap' && gate.payload?.overlapDigest
+          ? [gate.payload.overlapDigest]
+          : []),
+      ]),
+    )
     .digest('hex');
 
 export function approvalMessage(gate: Gate, ref: string, head: string, decision: Decision): string {

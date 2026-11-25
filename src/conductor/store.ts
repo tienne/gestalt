@@ -150,7 +150,13 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       return;
     case 'gate-updated': {
       const g = s.gates[e.gateId];
-      if (g) s.gates[e.gateId] = { ...g, reason: e.reason, refs: [...e.refs] };
+      if (g)
+        s.gates[e.gateId] = {
+          ...g,
+          reason: e.reason,
+          refs: [...e.refs],
+          ...(e.payload ? { payload: e.payload } : {}),
+        };
       return;
     }
     case 'gate-resolved': {
@@ -206,6 +212,8 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       if (e.outcome) next.deliveryOutcome = e.outcome;
       if (e.detail) next.deliveryDetail = e.detail;
       else delete next.deliveryDetail;
+      if (e.hostOfferedAt && !next.hostOfferedAt) next.hostOfferedAt = e.hostOfferedAt;
+      if (e.workerReport && !next.workerReport) next.workerReport = e.workerReport;
       s.gates[e.gateId] = next;
       return;
     }
@@ -376,6 +384,8 @@ export function removalBlocker(
     return `열린 게이트가 있어서 못 ${cannot}: ${orderId}`;
   if (action === 'archive' && gates.some((g) => g.approvedDeployment && !g.completion))
     return `배포 완료 증빙을 대조 중이라 못 ${cannot}: ${orderId}`;
+  if (action === 'archive' && gates.some((g) => g.deliveryPending))
+    return `승인 결정 전달 결과를 확인 중이라 못 ${cannot}: ${orderId}`;
   const workers = workersOfOrder(s, o.id, index);
   if (workers.some((w) => ACTIVE_WORKER_STATUSES.has(w.status)))
     return `도는 워커가 있어서 못 ${cannot}: ${orderId}`;
