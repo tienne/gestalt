@@ -888,11 +888,79 @@ describe('이미 끝난 배포와 워커의 게이트 증빙 대조', () => {
       expect((await tick(reopened, d, { force: true })).warnings).toEqual([
         expect.stringContaining('교체 후보가 여러 개'),
       ]);
+      expect(reopened.snapshot.slackDraftReplacementHolds[gate.id]).toBe(slackDeliveryId(approved));
       expect(reopened.snapshot.slackDraftReplacements[gate.id]).toBeUndefined();
       expect(reopened.worker('wrk-superseded')?.status).toBe('finished');
       expect(reopened.openGates()).toEqual([]);
       expect(orca.released).toEqual([]);
       expect(posts).toBe(0);
+    },
+  );
+
+  it.each(['replacement', 'hold', 'legacy-base'] as const)(
+    '다른 승인 작업의 %s 기록은 현재 단일 교체를 막지 않는다',
+    async (kind) => {
+      const { store, now } = clockedStore();
+      const orderId = replacementWorker(store);
+      const draft = { orderId, channel: 'C123', text: '이전 본문', threadTs: '12344.000001' };
+      const { gate } = draftSlack(store, draft, tempStateDir());
+      const approved = resolveGate(store, gate.id, 'approved');
+      const { gate: candidate } = draftSlack(store, { ...draft, text: '새 본문' }, tempStateDir());
+      const duplicate = {
+        ...candidate,
+        id: 'gate-duplicate',
+        payload: { ...candidate.payload, draftFile: join(tempStateDir(), 'duplicate.md') },
+      };
+      writeFileSync(duplicate.payload.draftFile, '새 본문');
+      store.openGate(duplicate);
+      const replacement = {
+        replacementGateId: candidate.id,
+        approvedDeliveryId: slackDeliveryId(approved),
+        previousDigest: gate.payload!.digest!,
+        replacementDigest: candidate.payload!.digest!,
+      };
+      appendFileSync(
+        join(store.dir, EVENTS_FILE),
+        JSON.stringify({
+          type: kind === 'hold' ? 'slack-draft-replacement-held' : 'slack-draft-replaced',
+          at: store.timestamp(),
+          gateId: gate.id,
+          replacement: {
+            ...replacement,
+            approvedDeliveryId: slackDeliveryId({ ...approved, id: 'gate-other-approval' }),
+          },
+        }) + '\n',
+      );
+      store.reload();
+      expect(store.snapshot.slackPosted[gate.id]).toBeUndefined();
+      expect(store.snapshot.slackDraftReplacementHolds[gate.id]).toBeUndefined();
+      if (kind === 'legacy-base') {
+        store.append({
+          type: 'slack-posted',
+          at: store.timestamp(),
+          gateId: gate.id,
+          ref: 'ambiguous-replacement',
+        });
+      }
+      resolveGate(store, duplicate.id, 'rejected');
+      await foldEvents(store.dir, { settleMs: 0 });
+      const reopened = ConductorStore.open(store.dir, { now });
+      reopened.append({
+        type: 'slack-draft-replaced',
+        at: reopened.timestamp(),
+        gateId: gate.id,
+        replacement,
+      });
+      resolveGate(reopened, candidate.id, 'rejected');
+      await foldEvents(store.dir, { settleMs: 0 });
+      const orca = fakeLauncher('orca-worktree');
+      const { deps: d } = deps({ launchers: { 'orca-worktree': orca.launcher } });
+      for (let i = 0; i < 2; i++) {
+        const restarted = ConductorStore.open(store.dir, { now });
+        expect((await tick(restarted, d, { force: true })).warnings).toEqual([]);
+        expect(restarted.snapshot.slackDraftReplacements[gate.id]).toEqual(replacement);
+      }
+      expect(orca.released).toEqual(['wrk-superseded']);
     },
   );
 
