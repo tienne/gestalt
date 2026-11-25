@@ -18,6 +18,7 @@ import {
   approvalServerRunning,
   approvalStoreId,
   HttpError,
+  OPERATOR_SERVER_ERROR,
   startApprovalServer,
 } from '../../../src/conductor/approval-server.js';
 import {
@@ -114,7 +115,7 @@ function fakePr(head = sha) {
 
 function failingGh() {
   const bin = tempStateDir();
-  executable(join(bin, 'gh'), 'exit 1');
+  executable(join(bin, 'gh'), "echo 'gh: 토큰이 만료됐어요' >&2\nexit 1");
   vi.stubEnv('PATH', `${bin}:${process.env['PATH'] ?? ''}`);
 }
 
@@ -507,6 +508,36 @@ describe('Touch ID 승인 경계', () => {
         status: 400,
         message: 'GitHub에서 검증 결과를 읽지 못했어요',
       });
+    expect(
+      lines.filter((l) => l.includes(`gh pr view ${pr}`) && l.includes('토큰이 만료됐어요')),
+    ).toHaveLength(2);
+  });
+
+  it('PR이 없는 리뷰 수동 전환 게이트는 서명할 내용을 못 만들어 400으로 거절한다', async () => {
+    const { privateKey, credential } = p256();
+    const store = ConductorStore.open(tempStateDir());
+    const o = order({ repo, status: 'running' });
+    store.addOrder(o);
+    const { gate } = openOrReuse(store, {
+      type: 'review-manual-switch',
+      orderId: o.id,
+      reason: '답글만 달렸어요',
+    });
+    await addWebAuthnApprover(store.dir, 'gate', repo, 'tienne', credential);
+    changeBotOwner(store.dir, undefined, owner);
+    const handlers = approvalGateHandlers({ stateDir: store.dir }, APPROVAL_PORT);
+    const missing = { message: 'PR과 HEAD를 읽어야 서명을 확인할 수 있어요' };
+    await expect(handlers.gateOptions(gate.id, 'approved')).rejects.toMatchObject({
+      status: 400,
+      message: expect.stringContaining(missing.message),
+    });
+    const raw = assert(privateKey, credential.credentialId, 'msg', { nonce: 'n' });
+    await expect(
+      touchIdGateDecide({ stateDir: store.dir }, gate.id, 'approved', raw, {
+        nonce: 'n',
+        origin: approvalOrigin(APPROVAL_PORT),
+      }),
+    ).rejects.toThrow(missing.message);
   });
 
   it('정책 파일이 깨졌으면 안내 에러를 내고 파일을 건드리지 않는다', async () => {
@@ -834,6 +865,7 @@ describe('approver enroll 명령', () => {
     const second = await finishWith(code, prepared);
     expect(second.status).toBe(409);
     expect(String(await run)).toContain('exit 1');
+    expect(lines.join('\n')).toContain('등록 코드가 맞지 않아 등록을 중단했어요');
     expect(() => readFileSync(join(dir, BOT_POLICY_FILE), 'utf8')).toThrow();
   });
 
@@ -843,7 +875,7 @@ describe('approver enroll 명령', () => {
     const failed = await finish(code);
     expect(failed.status).toBe(500);
     expect(JSON.parse(failed.body)).toEqual({
-      error: '승인 서버가 요청을 처리하지 못했어요. 터미널 로그를 확인해 주세요',
+      error: OPERATOR_SERVER_ERROR,
     });
     expect(failed.body).not.toContain(dir);
     expect(String(await run)).toContain('exit 1');

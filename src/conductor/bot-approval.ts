@@ -298,7 +298,7 @@ export function reviewApprovalScope(
   base: string | undefined,
 ): ReviewApprovalScope {
   if (!ref || !head || !base)
-    throw new InputError('재리뷰 게이트는 PR, HEAD와 base 브랜치가 있어야 서명을 확인할 수 있어요');
+    throw new Error('재리뷰 게이트는 PR, HEAD와 base 브랜치가 있어야 서명을 확인할 수 있어요');
   return { ref, head, base };
 }
 
@@ -373,11 +373,17 @@ export async function readMergeEvidence(
     ],
     { ...(env ? { env } : {}), timeoutMs: 15_000 },
   );
-  if (result.code !== 0) throw new InputError('GitHub에서 검증 결과를 읽지 못했어요');
+  if (result.code !== 0) {
+    console.error(
+      `gh pr view ${ref} 실패(code ${result.code}): ${result.stderr.trim().slice(0, 500)}`,
+    );
+    throw new InputError('GitHub에서 검증 결과를 읽지 못했어요');
+  }
   let value: unknown;
   try {
     value = JSON.parse(result.stdout);
   } catch {
+    console.error(`gh pr view ${ref} 응답이 JSON이 아니에요: ${result.stdout.slice(0, 200)}`);
     throw new InputError('GitHub의 PR 검증 결과를 읽을 수 없어요');
   }
   if (
@@ -389,8 +395,10 @@ export async function readMergeEvidence(
     typeof value['state'] !== 'string' ||
     typeof value['isDraft'] !== 'boolean' ||
     !Array.isArray(value['statusCheckRollup'])
-  )
+  ) {
+    console.error(`gh pr view ${ref} 응답 형식이 달라요: ${result.stdout.slice(0, 200)}`);
     throw new InputError('GitHub의 PR 검증 결과를 읽을 수 없어요');
+  }
   const checks = value['statusCheckRollup'].flatMap((row: unknown) => {
     if (!isPlainObject(row)) return [];
     const name = row['name'] ?? row['context'];
@@ -442,8 +450,7 @@ export function gateApprovalMessage(
 ): string {
   const { gate, repo, ref } = target;
   if (gate.type === 'merge') {
-    if (!ref || !head)
-      throw new InputError('머지 게이트는 PR과 HEAD가 있어야 서명을 확인할 수 있어요');
+    if (!ref || !head) throw new Error('머지 게이트는 PR과 HEAD가 있어야 서명을 확인할 수 있어요');
     return approvalMessage(gate, ref, head, decision);
   }
   if (gate.type === 'review-manual-switch') {

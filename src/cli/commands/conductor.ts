@@ -2245,6 +2245,14 @@ async function botGateEvidence(ctx: Ctx, target: BotGate) {
     : undefined;
 }
 
+/** 서명 문자열에 PR과 HEAD가 들어가는 게이트는 그 값을 못 읽으면 승인 페이지에 원인을 400으로 돌려준다 */
+async function touchIdGateEvidence(ctx: Ctx, target: BotGate) {
+  const evidence = await botGateEvidence(ctx, target);
+  if (!evidence && (target.gate.type === 'merge' || target.gate.type === 'review-manual-switch'))
+    throw new InputError('이 게이트는 PR과 HEAD를 읽어야 서명을 확인할 수 있어요');
+  return evidence;
+}
+
 export async function conductorBotGateCommand(
   gateId: string,
   opts: ConductorCommonOptions,
@@ -2525,7 +2533,7 @@ export async function touchIdGateOptions(
     throw new InputError(
       `${target.repo} 레포에는 이 게이트를 닫을 Touch ID 승인자가 없어요. gestalt conductor approver enroll로 먼저 등록해 주세요`,
     );
-  const evidence = await botGateEvidence(ctx, target);
+  const evidence = await touchIdGateEvidence(ctx, target);
   return {
     gate: {
       id: target.gate.id,
@@ -2562,7 +2570,8 @@ export async function touchIdGateDecide(
     : matchBotGate(ctx.store, gateId);
   const beforeTarget = target ? decisionTarget(ctx.store, target) : undefined;
   if (target?.gate.status === 'open') touchIdPolicy(ctx.store.dir, target.gate, target.repo);
-  const evidence = target?.gate.status === 'open' ? await botGateEvidence(ctx, target) : undefined;
+  const evidence =
+    target?.gate.status === 'open' ? await touchIdGateEvidence(ctx, target) : undefined;
   return applyBotDecision(
     ctx,
     { request: { decision, webauthn: parsed.data, ...server } },
