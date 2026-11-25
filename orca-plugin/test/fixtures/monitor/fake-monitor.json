@@ -1,0 +1,9 @@
+{
+  "owner": { "botId": "bot-fixture", "name": "컨덕터 fixture", "chatId": "chat-fixture" },
+  "orca": {
+    "automationId": "automation-fixture",
+    "nextCheckAt": 1795539000000,
+    "latestRun": { "id": "run-skip", "at": 1795537800000, "state": "precheck-skipped" },
+    "latestPosting": { "id": "run-post", "at": 1795537500000, "state": "post-failed" }
+  }
+}

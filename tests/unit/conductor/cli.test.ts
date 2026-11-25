@@ -1,4 +1,6 @@
+import { execFile } from 'node:child_process';
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -12,6 +14,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   conductorArchiveAction,
@@ -34,6 +37,7 @@ import {
   conductorWorkerReportCommand,
 } from '../../../src/cli/commands/conductor.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
+import { recordSuccessfulTick } from '../../../src/conductor/successful-tick.js';
 import { registerSession } from '../../../src/conductor/handoff.js';
 import { touchSessionTick } from '../../../src/conductor/session-owner.js';
 import { claimWaitOwner } from '../../../src/conductor/wait.js';
@@ -783,6 +787,68 @@ describe('gestalt conductor', () => {
     expect(report.errors.some((e) => e.includes('broken.json'))).toBe(true);
     expect(readdirSync(dir)).toEqual(['failed']);
   });
+
+  it('기존 tick과 큐 읽기 실패를 성공으로 보지 않고 정상 tick에서만 성공 시각을 갱신한다', async () => {
+    const stateDir = tempStateDir();
+    const queue = join(stateDir, 'queue');
+    const options = { stateDir, json: true, force: true, prWatch: false };
+    const legacyAt = '2026-11-23T16:00:00.000Z';
+    ConductorStore.open(stateDir).append({ type: 'tick', at: legacyAt });
+    conductorStatusCommand(options);
+    expect(last()).toMatchObject({ lastTickAt: legacyAt, lastSuccessfulTickAt: null });
+    mkdirSync(queue, { recursive: true });
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      for (const [at, broken, lastSuccess] of [
+        ['2026-11-24T16:00:00.000Z', true, null],
+        ['2026-11-24T16:25:00.000Z', false, '2026-11-24T16:25:00.000Z'],
+        ['2026-11-24T16:50:00.000Z', true, '2026-11-24T16:25:00.000Z'],
+        ['2026-11-24T17:15:00.000Z', false, '2026-11-24T17:15:00.000Z'],
+      ] as const) {
+        vi.setSystemTime(new Date(at));
+        if (broken) writeFileSync(join(queue, 'broken.json'), '{"repo"');
+        await conductorTickCommand(options);
+        const errors = last()['errors'] as string[];
+        if (broken) expect(errors).toEqual([expect.stringContaining('broken.json')]);
+        else expect(errors).toEqual([]);
+        conductorStatusCommand(options);
+        expect(last()).toMatchObject({ lastTickAt: at, lastSuccessfulTickAt: lastSuccess });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('끊긴 성공 기록은 이후 쓰기와 재시작 뒤에도 가장 최근 성공을 가리지 않는다', async () => {
+    const stateDir = tempStateDir();
+    const first = '2026-11-24T16:00:00.000Z';
+    const latest = '2026-11-24T16:25:00.000Z';
+    const torn = '2026-11-24T16:50:00.000Z';
+    recordSuccessfulTick(stateDir, first);
+    appendFileSync(join(stateDir, 'successful-ticks.log'), torn);
+    conductorStatusCommand({ stateDir, json: true });
+    expect(last()['lastSuccessfulTickAt']).toBe(first);
+
+    recordSuccessfulTick(stateDir, latest);
+    recordSuccessfulTick(stateDir, first);
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        'bin/gestalt.ts',
+        'conductor',
+        'status',
+        '--state-dir',
+        stateDir,
+        '--json',
+      ],
+      { encoding: 'utf8', timeout: 8_000 },
+    );
+    const restarted = JSON.parse(stdout) as { lastSuccessfulTickAt: string | null };
+    expect(restarted.lastSuccessfulTickAt).toBe(latest);
+  }, 10_000);
 
   it('wait는 할 일 없는 tick엔 아무것도 출력하지 않다가 게이트가 열린 tick에서 그 게이트를 내고 끝난다', async () => {
     const stateDir = tempStateDir();

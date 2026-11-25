@@ -72,6 +72,7 @@ import type { ConductorConfig } from './scheduler.js';
 import { planSlots } from './scheduler.js';
 import { publishApprovedSlack, type SlackClient } from './slack.js';
 import { newId, type ConductorStore } from './store.js';
+import { recordSuccessfulTick } from './successful-tick.js';
 import type {
   Gate,
   GateDeliveryOutcome,
@@ -307,7 +308,7 @@ function formatGap(ms: number): string {
 export async function tick(
   store: ConductorStore,
   deps: EngineDeps,
-  opts: { force?: boolean; admit?: () => void } = {},
+  opts: { force?: boolean; admit?: () => void; inputErrors?: () => string[] } = {},
 ): Promise<TickReport> {
   assertCanSpawn(deps.env);
   const report = emptyReport(store.timestamp());
@@ -342,11 +343,19 @@ export async function tick(
     const gap = tickGapWarning(last, report.at, deps.config.staleAfterSec * 1000);
     if (gap) report.warnings.push(gap);
     result = await store.deferSnapshot(() => runTick(store, deps, report));
+    result.errors.push(...(opts.inputErrors?.() ?? []));
   } finally {
     lock.release();
   }
   // 보관은 같은 잠금을 스스로 잡으므로 놓은 뒤에 부른다
   if (deps.archive) await archiveStep(store, deps.archive, result);
+  if (result.errors.length === 0) {
+    try {
+      recordSuccessfulTick(store.dir, result.at);
+    } catch (e) {
+      result.errors.push(`tick 성공 시각을 기록하지 못했어요: ${(e as Error).message}`);
+    }
+  }
   return result;
 }
 

@@ -54,6 +54,7 @@ import {
   conductorQueueAddCommand,
   conductorSlackDraftCommand,
   conductorStatusCommand,
+  conductorMonitorCommand,
   conductorTickCommand,
   conductorWaitCommand,
   conductorWorkerReportCommand,
@@ -1283,6 +1284,13 @@ export function createCli(): Command {
       'JSON 주문마다 작업 내용(지금 tool, 고친 파일, todo, 서브에이전트)을 싣는다. --json과 같이 쓴다',
     )
     .action((o) => conductorStatusCommand(o));
+
+  conductor
+    .command('monitor')
+    .description('운영 채팅의 Orca 정기 점검과 게시 이력을 JSON으로 읽는다')
+    .addOption(stateDir())
+    .option('--json', 'JSON으로 출력 (기본)')
+    .action((o) => conductorMonitorCommand(o));
 
   const results = conductor
     .command('results')
