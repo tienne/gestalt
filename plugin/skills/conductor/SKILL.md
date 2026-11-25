@@ -184,10 +184,17 @@ tick 응답의 `humanOwned`에는 사람이 넘겨받은 주문 중 상태가 �
 초안을 맡으면 `slack-messenger`로 쓰고 파일에 둔 뒤 사람 승인 단계로 올린다.
 
 ```bash
-gestalt conductor slack draft --channel "#release" --text-file "$tmp/draft.txt" --json
+gestalt conductor slack draft --channel "C0123456789" --text-file "$tmp/draft.txt" --json
 ```
 
 승인되면 다음 tick의 `hostActions`에 `slack-post`가 나온다.
+게시할 때 Slack `chat.postMessage`에 지정된 채널 ID, 본문, 스레드와 `metadata`를 넘긴다. 같은 작업의 성공 응답 JSON을 보관하고 작업의 `gateId`에 기록한다.
+
+```bash
+gestalt conductor slack posted <gateId> --result-file <slack-response.json>
+```
+
+세션이 끊겼다면 `gestalt conductor slack delivery <gateId>`로 승인한 작업을 다시 읽는다. 보관한 같은 작업의 성공 응답이 있다면 그대로 기록한다. 퍼머링크만 반환하거나 메타데이터를 넘길 수 없는 도구라면 게시 확인을 보류한다.
 
 ## 6. 배포 결과
 

@@ -70,6 +70,6 @@ if (args[1] === 'browse') {
     process.stdout.write(`컨덕터 결과 뷰어: http://127.0.0.1:${server.address().port}\nCtrl+C로 멈춰요.\n`)
   })
 } else {
-const file = { gate: 'fake-resolve.json', order: 'fake-remove.json' }[args[1]] ?? 'fake-status.json'
+const file = { gate: 'fake-resolve.json', order: 'fake-remove.json', monitor: 'fake-monitor.json' }[args[1]] ?? 'fake-status.json'
 process.stdout.write(readFileSync(join(dir, file), 'utf8'))
 }

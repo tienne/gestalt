@@ -44,6 +44,7 @@ import {
   writeDeploySignal,
   writeQueueMessage,
 } from '../../conductor/adapters.js';
+import { approveDeployment, readDeploymentEvidence } from '../../conductor/deployment-evidence.js';
 import {
   acquireLock,
   afterHumanMerge,
@@ -84,6 +85,8 @@ import {
 } from '../../conductor/session-owner.js';
 import { readAutoCompactWindow } from '../../conductor/claude-settings.js';
 import { readRecentEvents, type RecentEvent } from '../../conductor/recent-events.js';
+import { readConductorMonitor } from '../../conductor/monitor.js';
+import { readLastSuccessfulTick } from '../../conductor/successful-tick.js';
 import { removeOrderRefCopies } from '../../conductor/ref-copy.js';
 import {
   archiveAndCompress,
@@ -137,7 +140,8 @@ import {
   type HandoffCloseResult,
 } from '../../conductor/handoff-close.js';
 import type { ConductorConfig } from '../../conductor/scheduler.js';
-import { draftSlack } from '../../conductor/slack.js';
+import { confirmSlackDelivery, draftSlack, pendingSlackDelivery } from '../../conductor/slack.js';
+import { isSlackChannelId } from '../../conductor/slack-state.js';
 import {
   claimWaitOwner,
   consumeWaitCarry,
@@ -632,6 +636,19 @@ export interface ConductorStatusOptions extends ConductorCommonOptions {
   withActivity?: boolean;
 }
 
+export async function conductorMonitorCommand(
+  opts: Pick<ConductorCommonOptions, 'stateDir'>,
+): Promise<void> {
+  try {
+    const dir = resolveStateDir(opts.stateDir, loadConfig().conductor);
+    const owner = readBotOwnership(dir).active;
+    const orca = await readConductorMonitor(owner);
+    print({ owner: owner ?? null, orca });
+  } catch (e) {
+    exitWithError(e);
+  }
+}
+
 export function conductorStatusCommand(opts: ConductorStatusOptions): void {
   run(() => {
     const { store, config } = open(opts);
@@ -649,6 +666,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
       return print({
         stateDir: store.dir,
         lastTickAt: store.snapshot.lastTickAt ?? null,
+        lastSuccessfulTickAt: readLastSuccessfulTick(store.dir),
         orders: orders.map((o) => {
           const w = o.workerId ? store.worker(o.workerId) : undefined;
           return {
@@ -981,6 +999,7 @@ async function runConductorTick(
     jira: hostJiraClient(deferred),
     slack: hostSlackClient(deferred),
     deploy: fileDeploySource(join(ctx.store.dir, 'deploy')),
+    deploymentEvidence: (target) => readDeploymentEvidence(target, gh),
     ...(prSource ? { prSource } : {}),
     prState: new GhPrStateSource({ accounts: gh }),
     ...(queue ? { queue } : {}),
@@ -992,12 +1011,15 @@ async function runConductorTick(
   const report = await tick(ctx.store, deps, {
     force: opts.force === true,
     admit: () => assertBotOwner(ctx.store.dir, caller),
+    inputErrors: () => [
+      ...(queue?.errors ?? []),
+      ...(watch?.errors ?? []),
+      ...[...(prSource?.truncatedRepos ?? [])].map(
+        (repo) => `${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`,
+      ),
+    ],
   });
   report.hostActions.push(...deferred);
-  // 건너뛴 tick은 감시를 안 돌았다. 경로 누락 오류를 붙이면 출력이 그걸 건너뛴 이유로 보여 준다
-  if (!report.skipped) report.errors.push(...(queue?.errors ?? []), ...(watch?.errors ?? []));
-  for (const repo of prSource?.truncatedRepos ?? [])
-    report.errors.push(`${repo}: 열린 PR이 상한에 닿아 뒤쪽 PR은 이번 감시에서 빠졌어요`);
   const handoff = sessionId ? sessionHandoff(ctx, sessionId) : undefined;
   return { report, ...(handoff ? { handoff } : {}), handoffClose };
 }
@@ -1400,6 +1422,7 @@ export interface ConductorGateResolveOptions extends ConductorCommonOptions {
   takeOver?: boolean;
   answer?: string;
   deferDelivery?: boolean;
+  completedDeploy?: string;
 }
 
 export async function conductorGateResolveCommand(
@@ -1409,6 +1432,8 @@ export async function conductorGateResolveCommand(
   try {
     const picked = [opts.approve, opts.reject, opts.takeOver].filter(Boolean).length;
     if (picked !== 1) throw new Error('--approve, --reject, --take-over 중 하나만 주세요');
+    if (opts.completedDeploy !== undefined && (!opts.approve || opts.deferDelivery))
+      throw new Error('--completed-deploy는 이미 끝난 배포 주문의 --approve에만 쓸 수 있어요');
     const ctx = open(opts);
     assertConductorSession(ctx, 'gate resolve');
     if (await tickBotCaller(ctx))
@@ -1421,6 +1446,18 @@ export async function conductorGateResolveCommand(
       const gate = ctx.store.snapshot.gates[gateId];
       if (!gate) throw new Error(`모르는 게이트예요: ${gateId}`);
       if (gate.status !== 'open') throw new Error(`이미 종료된 게이트예요: ${gateId}`);
+      if (opts.completedDeploy !== undefined) {
+        const order = gate.orderId ? ctx.store.order(gate.orderId) : undefined;
+        if (order?.scope !== 'approval' || order.status !== 'done')
+          throw new Error('끝난 승인 주문의 배포 게이트만 완료 대조를 예약할 수 있어요');
+        const approvedDeployment = approveDeployment(gate, order.repo, opts.completedDeploy);
+        const closed = resolveGate(ctx.store, gateId, 'approved', opts.answer, {
+          approvedDeployment,
+        });
+        if (opts.json) return print({ gate: closed });
+        console.log(`${gateId} 배포 범위를 승인했어요. 다음 tick에서 성공 증빙을 대조해요`);
+        return;
+      }
       if (opts.takeOver) {
         if (!gate.orderId)
           throw new Error(`${gateId}는 주문이 없는 게이트라 넘겨받을 주문이 없어요`);
@@ -1648,22 +1685,73 @@ export interface ConductorSlackDraftOptions extends ConductorCommonOptions {
 
 export function conductorSlackDraftCommand(opts: ConductorSlackDraftOptions): void {
   run(() => {
-    const { store } = open(opts);
+    const ctx = open(opts);
+    const { store } = ctx;
+    if (!isSlackChannelId(opts.channel)) throw new Error('Slack 채널 이름 대신 채널 ID를 주세요');
     const text = readFileSync(opts.textFile, 'utf-8').trim();
     if (!text) throw new Error('초안이 비었어요');
-    const { gate, reused } = draftSlack(
-      store,
-      {
-        channel: opts.channel,
-        text,
-        ...(opts.order ? { orderId: opts.order } : {}),
-        ...(opts.thread ? { threadTs: opts.thread } : {}),
-      },
-      join(store.dir, 'slack'),
-    );
-    if (opts.json) return print({ gateId: gate.id, reused });
-    console.log(`승인을 기다려요: ${gate.id}${reused ? ' (같은 초안이 이미 올라가 있어요)' : ''}`);
+    const lock = acquireDecisionLock(ctx);
+    try {
+      store.reload();
+      const { gate, reused } = draftSlack(
+        store,
+        {
+          channel: opts.channel,
+          text,
+          ...(opts.order ? { orderId: opts.order } : {}),
+          ...(opts.thread ? { threadTs: opts.thread } : {}),
+        },
+        join(store.dir, 'slack'),
+      );
+      if (opts.json) return print({ gateId: gate.id, reused });
+      console.log(
+        `승인을 기다려요: ${gate.id}${reused ? ' (같은 초안이 이미 올라가 있어요)' : ''}`,
+      );
+    } finally {
+      lock.release();
+    }
   });
+}
+
+export async function conductorSlackDeliveryCommand(
+  gateId: string,
+  opts: ConductorCommonOptions,
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'slack delivery');
+    assertBotOwner(ctx.store.dir, await tickBotCaller(ctx));
+    ctx.store.reload();
+    print(pendingSlackDelivery(ctx.store, gateId));
+  } catch (error) {
+    exitWithError(error);
+  }
+}
+
+export async function conductorSlackPostedCommand(
+  gateId: string,
+  opts: ConductorCommonOptions & { resultFile: string },
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    assertConductorSession(ctx, 'slack posted');
+    const caller = await tickBotCaller(ctx);
+    const resultData: unknown = JSON.parse(readFileSync(opts.resultFile, 'utf8'));
+    const lock = acquireDecisionLock(ctx);
+    try {
+      assertBotOwner(ctx.store.dir, caller);
+      const result = confirmSlackDelivery(ctx.store, gateId, resultData);
+      ctx.store.flushSnapshot();
+      if (opts.json) return print({ gateId, ...result });
+      console.log(
+        result.recorded ? 'Slack 게시 결과를 남겼어요' : '같은 Slack 게시 결과가 이미 있어요',
+      );
+    } finally {
+      lock.release();
+    }
+  } catch (error) {
+    exitWithError(error);
+  }
 }
 
 export interface ConductorMetricsOptions {

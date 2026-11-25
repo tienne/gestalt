@@ -2,9 +2,27 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { ConductorStore } from '../../../src/conductor/store.js';
+import type { SlackClient } from '../../../src/conductor/slack.js';
 import type { Order, Worker } from '../../../src/conductor/types.js';
 
 const made: string[] = [];
+
+export function slackSuccess(
+  message: Parameters<SlackClient['post']>[0],
+  delivery: Parameters<SlackClient['post']>[1],
+  ts = '12345.000001',
+) {
+  return {
+    ok: true,
+    channel: message.channel,
+    ts,
+    message: {
+      ts,
+      metadata: delivery.metadata,
+      ...(message.threadTs ? { thread_ts: message.threadTs } : {}),
+    },
+  };
+}
 
 /** 테스트마다 고유 경로를 쓴다. 파일이 병렬로 돌아도 서로의 로그를 안 읽는다 */
 export function tempStateDir(): string {

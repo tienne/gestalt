@@ -11,8 +11,19 @@ import {
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { withFileLock } from '../core/file-lock.js';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
 import { log } from '../core/log.js';
+import {
+  orderHasPendingSlack,
+  slackDraftReplacementStatus,
+  slackMessageKey,
+  slackPublicationConfirmed,
+  slackPublicationMatches,
+  slackReplacementConfirmed,
+  SLACK_AMBIGUOUS_REPLACEMENT,
+  SUPERSEDED_PREFIX,
+} from './slack-state.js';
 import {
   ACTIVE_WORKER_STATUSES,
   TERMINAL_ORDER_STATUSES,
@@ -35,10 +46,8 @@ import {
  * 자리는 `deferSnapshot`으로 묶어 사본을 끝에 한 번만 쓴다.
  *
  * 워커 프로세스도 `gestalt conductor checkpoint save`로 같은 로그에 덧붙인다. 한 줄짜리
- * append는 O_APPEND로 쓴다. 줄 단위로 섞이지 않는다는 전제는 store.test.ts의
- * '두 프로세스가 동시에 덧붙여도 모든 줄이 온전하다'가 확인한다. 다른 프로세스가 쓰는
- * 도중에 끝을 읽으면 멀쩡한 줄 뒤에도 tail-repaired가 붙을 수 있는데, replay는 못 읽는
- * 줄만 버리므로 이벤트는 빠지지 않는다. 결과 보고는 inbox에 파일로 두고 tick이 읽는다.
+ * append는 쓰기 잠금을 잡고 O_APPEND로 한 줄씩 쓴다. 증빙 완료는 같은 잠금 아래
+ * 최신 로그를 읽고 검사한 뒤 기록한다. 결과 보고는 inbox에 파일로 두고 tick이 읽는다.
  */
 
 export const EVENTS_FILE = 'events.jsonl';
@@ -82,6 +91,9 @@ export function emptySnapshot(): ConductorSnapshot {
     bypasses: [],
     jiraTransitions: [],
     slackPosted: {},
+    slackDraftReplacements: {},
+    slackDraftReplacementHolds: {},
+    slackMessageClaims: {},
     appliedReports: {},
     reports: {},
     ticks: 0,
@@ -134,6 +146,7 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     case 'gate-opened':
       if (e.gate.orderId !== undefined && isRetired(s, e.gate.orderId)) return;
       s.gates[e.gate.id] = { ...e.gate };
+      Reflect.deleteProperty(s.gates[e.gate.id]!, 'slackReplacement');
       return;
     case 'gate-updated': {
       const g = s.gates[e.gateId];
@@ -146,6 +159,7 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
         s.gates[e.gateId] = {
           ...g,
           status: 'resolved',
+          ...(e.approvedDeployment ? { approvedDeployment: e.approvedDeployment } : {}),
           decision: e.decision,
           resolvedAt: e.at,
           ...(e.answer !== undefined ? { answer: e.answer } : {}),
@@ -154,6 +168,18 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
           ...(e.decisionSource ? { decisionSource: e.decisionSource } : {}),
         };
       }
+      return;
+    }
+    case 'gate-completed': {
+      const g = s.gates[e.gateId];
+      if (!g || !completionMatches(s, g, e.evidence)) return;
+      if (e.evidence.kind === 'orca-worker') {
+        const w = s.workers[e.evidence.workerId]!;
+        const next: Worker = { ...w, status: 'released' };
+        delete next.releaseRefusedAt;
+        s.workers[w.id] = next;
+      }
+      s.gates[e.gateId] = { ...g, completion: { at: e.at, evidence: e.evidence } };
       return;
     }
     case 'bypass':
@@ -179,11 +205,44 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       s.gates[e.gateId] = next;
       return;
     }
-    case 'slack-posted':
+    case 'slack-posted': {
       // 주문과 함께 빠졌거나 보관에서 버린 게이트에 늦게 온 줄이다
-      if (!s.gates[e.gateId]) return;
-      s.slackPosted[e.gateId] = e.ref;
+      const gate = s.gates[e.gateId];
+      if (
+        gate &&
+        s.slackPosted[e.gateId] !== SLACK_AMBIGUOUS_REPLACEMENT &&
+        !slackPublicationConfirmed(s, gate) &&
+        !slackReplacementConfirmed(s, gate)
+      )
+        s.slackPosted[e.gateId] = e.ref;
       return;
+    }
+    case 'slack-draft-replaced':
+    case 'slack-draft-replacement-held': {
+      const gate = s.gates[e.gateId];
+      if (!gate || !e.replacement) return;
+      const status = slackDraftReplacementStatus(s, gate, e.replacement);
+      if (status === 'ambiguous') {
+        s.slackDraftReplacementHolds[e.gateId] = e.replacement.approvedDeliveryId;
+        s.slackPosted[e.gateId] = SLACK_AMBIGUOUS_REPLACEMENT;
+        return;
+      }
+      if (status !== 'ready' || e.type !== 'slack-draft-replaced') return;
+      s.slackDraftReplacements[e.gateId] = { ...e.replacement };
+      delete s.slackDraftReplacementHolds[e.gateId];
+      s.slackPosted[e.gateId] = `${SUPERSEDED_PREFIX}${e.replacement.replacementGateId}`;
+      return;
+    }
+    case 'slack-publication-confirmed': {
+      const gate = s.gates[e.gateId];
+      if (!gate || !e.evidence || !slackPublicationMatches(s, gate, e.evidence)) return;
+      s.slackMessageClaims[slackMessageKey(e.evidence.channel, e.evidence.ts)] = {
+        ...e.evidence,
+        gateId: e.gateId,
+      };
+      s.slackPosted[e.gateId] = e.evidence.ts;
+      return;
+    }
     case 'order-removed':
       removeFromSnapshot(s, e.orderId, e.at);
       return;
@@ -272,8 +331,11 @@ export function removalBlocker(
   if (!o) return `모르는 주문이에요: ${orderId}`;
   if (!TERMINAL_ORDER_STATUSES.has(o.status))
     return `끝난 주문만 ${can} 수 있어요: ${orderId}(${o.status})`;
-  if (gatesOfOrder(s, o.id, index).some((g) => g.status === 'open'))
+  const gates = gatesOfOrder(s, o.id, index);
+  if (gates.some((g) => g.status === 'open'))
     return `열린 게이트가 있어서 못 ${cannot}: ${orderId}`;
+  if (action === 'archive' && gates.some((g) => g.approvedDeployment && !g.completion))
+    return `배포 완료 증빙을 대조 중이라 못 ${cannot}: ${orderId}`;
   const workers = workersOfOrder(s, o.id, index);
   if (workers.some((w) => ACTIVE_WORKER_STATUSES.has(w.status)))
     return `도는 워커가 있어서 못 ${cannot}: ${orderId}`;
@@ -307,6 +369,8 @@ export function detachOrder(s: ConductorSnapshot, orderId: string, index?: Order
   for (const g of gatesOfOrder(s, orderId, index)) {
     delete s.gates[g.id];
     delete s.slackPosted[g.id];
+    delete s.slackDraftReplacements[g.id];
+    delete s.slackDraftReplacementHolds[g.id];
   }
   s.bypasses = s.bypasses.filter((b) => b.orderId !== orderId);
   s.jiraTransitions = s.jiraTransitions.filter((t) => t.orderId !== orderId);
@@ -339,7 +403,14 @@ export function orderOfEvent(e: ConductorEvent, s: ConductorSnapshot): string | 
     case 'gate-resolved':
     case 'gate-delivery':
     case 'slack-posted':
+    case 'slack-draft-replaced':
+    case 'slack-draft-replacement-held':
+    case 'slack-publication-confirmed':
       return s.gates[e.gateId]?.orderId;
+    case 'gate-completed':
+      return e.evidence.kind === 'orca-worker'
+        ? s.workers[e.evidence.workerId]?.orderId
+        : s.gates[e.gateId]?.orderId;
     case 'bypass':
     case 'jira-transition':
       return e.record.orderId;
@@ -398,6 +469,22 @@ export class ConductorStore {
   }
 
   append(event: ConductorEvent): void {
+    withFileLock(join(this.dir, 'events-write.lock'), ({ stillMine }) => {
+      this.writeEvent(event, stillMine);
+    });
+  }
+
+  /** 잠금 안에서 최신 로그를 대조한다. 조건이 유효할 때만 이벤트를 남긴다 */
+  appendIfCurrent(event: ConductorEvent, matches: () => boolean): boolean {
+    return withFileLock(join(this.dir, 'events-write.lock'), ({ stillMine }) => {
+      this.reload();
+      if (!matches()) return false;
+      this.writeEvent(event, stillMine);
+      return true;
+    });
+  }
+
+  private writeEvent(event: ConductorEvent, stillMine: () => boolean): void {
     validate(event, this.state);
     const path = join(this.dir, EVENTS_FILE);
     // 앞 프로세스가 줄 중간에 죽었으면 개행부터 붙인다. 안 그러면 깨진 꼬리와 새 이벤트가
@@ -407,6 +494,7 @@ export class ConductorStore {
       ? { type: 'tail-repaired', at: this.timestamp() }
       : undefined;
     const prefix = repair ? `\n${JSON.stringify(repair)}\n` : '';
+    if (!stillMine()) throw new Error('이벤트 쓰기 잠금을 잃었어요');
     appendFileSync(path, `${prefix}${JSON.stringify(event)}\n`, 'utf-8');
     if (repair) applyEvent(this.state, repair);
     applyEvent(this.state, event);
@@ -613,6 +701,43 @@ function validate(event: ConductorEvent, s: ConductorSnapshot): void {
     if (!g) throw new Error(`모르는 게이트예요: ${event.gateId}`);
     if (g.status !== 'open') throw new Error(`이미 종료된 게이트예요: ${event.gateId}`);
   }
+  if (event.type === 'gate-completed') {
+    const g = s.gates[event.gateId];
+    if (!g || !completionMatches(s, g, event.evidence))
+      throw new Error(`현재 승인으로 완료를 남길 수 없는 게이트예요: ${event.gateId}`);
+  }
+  if (event.type === 'slack-publication-confirmed') {
+    const gate = s.gates[event.gateId];
+    if (!gate || !slackPublicationMatches(s, gate, event.evidence))
+      throw new Error('현재 승인과 일치하는 Slack 게시 증빙이 아니에요');
+  }
+  if (event.type === 'slack-draft-replaced' || event.type === 'slack-draft-replacement-held') {
+    const gate = s.gates[event.gateId];
+    const expected = event.type === 'slack-draft-replaced' ? 'ready' : 'ambiguous';
+    if (!gate || slackDraftReplacementStatus(s, gate, event.replacement) !== expected)
+      throw new Error('이전 승인과 새 Slack 초안의 교체 관계가 맞지 않아요');
+  }
+}
+
+function completionMatches(
+  state: ConductorSnapshot,
+  gate: Gate,
+  evidence: Extract<ConductorEvent, { type: 'gate-completed' }>['evidence'],
+): boolean {
+  if (gate.status !== 'resolved' || gate.decision !== 'approved' || gate.completion) return false;
+  if (evidence.kind === 'github-deployment')
+    return JSON.stringify(gate.approvedDeployment) === JSON.stringify(evidence.target);
+  const worker = state.workers[evidence.workerId];
+  return (
+    gate.type === 'no-procedure' &&
+    gate.payload?.kind === 'cleanup-failed' &&
+    gate.payload.workerId === evidence.workerId &&
+    worker?.kind === 'orca-worktree' &&
+    worker.handle === evidence.dispatchId &&
+    worker.orderId === gate.payload.orderId &&
+    ['finished', 'failed', 'stopped'].includes(worker.status) &&
+    !orderHasPendingSlack(state, worker.orderId)
+  );
 }
 
 function endsWithoutNewline(path: string): boolean {
@@ -755,6 +880,10 @@ export function readBase(dir: string): BaseFile | undefined {
   if (!isPlainObject(parsed.state.archivedOrders)) parsed.state.archivedOrders = {};
   // 게이트 색인이 들어가기 전에 쓴 base.json에는 이 칸이 없다
   if (!isPlainObject(parsed.state.askedSourceRefs)) parsed.state.askedSourceRefs = {};
+  if (!isPlainObject(parsed.state.slackMessageClaims)) parsed.state.slackMessageClaims = {};
+  if (!isPlainObject(parsed.state.slackDraftReplacements)) parsed.state.slackDraftReplacements = {};
+  if (!isPlainObject(parsed.state.slackDraftReplacementHolds))
+    parsed.state.slackDraftReplacementHolds = {};
   return parsed;
 }
 

@@ -26,6 +26,7 @@ import {
   type FoldResult,
 } from './fold.js';
 import { REFS_DIR, SAFE_ORDER_ID, removeOrderRefCopies } from './ref-copy.js';
+import { slackAwaitingPublication } from './slack-state.js';
 import {
   ConductorStore,
   detachOrder,
@@ -160,13 +161,9 @@ function archiveBlocker(
   if (workers.some((w) => w.status === 'finished' || w.status === 'failed'))
     return `아직 정리 안 된 워커가 있어서 못 옮겨요: ${orderId}`;
   if (openCleanup.has(orderId)) return `워커 정리 실패 게이트가 열려 있어서 못 옮겨요: ${orderId}`;
-  if ((index.gates.get(orderId) ?? []).some((g) => unposted(s, g)))
+  if ((index.gates.get(orderId) ?? []).some((g) => slackAwaitingPublication(s, g)))
     return `아직 안 올린 슬랙 게시가 있어서 못 옮겨요: ${orderId}`;
   return undefined;
-}
-
-function unposted(s: ConductorSnapshot, g: Gate): boolean {
-  return g.type === 'slack-post' && g.decision === 'approved' && s.slackPosted[g.id] === undefined;
 }
 
 /**
@@ -179,7 +176,7 @@ function unposted(s: ConductorSnapshot, g: Gate): boolean {
 function keepsFollowUp(s: ConductorSnapshot, g: Gate, taken: ReadonlySet<string>): boolean {
   if (g.decision !== 'approved') return false;
   if (g.type === 'review-manual-switch' && !taken.has(approvedFollowUpRef(g))) return true;
-  if (unposted(s, g)) return true;
+  if (slackAwaitingPublication(s, g)) return true;
   if (g.payload?.kind === CLEANUP_FAILED) {
     const w = g.payload.workerId ? s.workers[g.payload.workerId] : undefined;
     return w !== undefined && w.status !== 'released';
@@ -252,6 +249,8 @@ export async function archiveOrders(
           });
         delete state.gates[id];
         delete state.slackPosted[id];
+        delete state.slackDraftReplacements[id];
+        delete state.slackDraftReplacementHolds[id];
       }
       return plan.orders.length + plan.removed.length + plan.gates.length > 0;
     },

@@ -84,6 +84,28 @@ async function run(
 
 const lastBar = (calls: unknown[]) => calls.at(-1) as { text: string; tone: string; tooltip: string }
 
+test('운영 조회의 채팅이 status와 같을 때만 Orca 데이터를 싣는다', async () => {
+  const owner = { botId: 'bot-fixture', name: '컨덕터 fixture', chatId: 'chat-fixture' }
+  const s = store({ ...STATUS, conductor: { botOwner: owner } })
+  const orca = {
+    automationId: 'automation-fixture',
+    nextCheckAt: 1795539000000,
+    latestRun: { id: 'run-fixture', at: 1795537500000, state: 'post-failed' },
+    latestPosting: { id: 'run-fixture', at: 1795537500000, state: 'post-failed' }
+  }
+  const put = (chatId: string) => writeFileSync(join(s.dir, 'fake-monitor.json'), JSON.stringify({ owner: { ...owner, chatId }, orca }))
+  put(owner.chatId)
+  await run(s, host(s.dir), async (worker) => {
+    const matched = await worker.request('conductor.refresh')
+    assert.deepEqual(matched.monitor, orca)
+    put('other-chat')
+    const mismatch = await worker.request('conductor.refresh')
+    assert.equal(mismatch.monitor, undefined)
+    assert.equal(mismatch.lastTickAt, STATUS.lastTickAt)
+    assert.ok(s.calls().some(({ args }) => args[1] === 'monitor' && args.includes(`--state-dir=${s.dir}`)))
+  })
+})
+
 test('저장소가 비었으면 CLI를 부르지 않고 저장소 없음을 띄운다', async () => {
   const s = store()
   const h = host(s.dir)
