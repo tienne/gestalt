@@ -219,6 +219,43 @@ export type GateDecision = 'approved' | 'rejected' | 'taken-over';
 
 export type GateDeliveryOutcome = 'delivered' | 'failed' | 'host-action' | 'no-worker';
 
+export interface SlackPublicationEvidence {
+  deliveryId: string;
+  channel: string;
+  ts: string;
+  threadTs?: string;
+}
+
+export interface SlackDraftReplacement {
+  replacementGateId: string;
+  approvedDeliveryId: string;
+  previousDigest: string;
+  replacementDigest: string;
+}
+
+export interface ApprovedDeployment {
+  repo: string;
+  ref: string;
+  sha: string;
+  environment: string;
+  runId: number;
+  attempt: number;
+  deploymentId: number;
+}
+
+export type GateCompletionEvidence =
+  | { kind: 'github-deployment'; target: ApprovedDeployment; statusId: number; jobId: number }
+  | {
+      kind: 'orca-worker';
+      workerId: string;
+      dispatchId: string;
+      runId: string;
+      state: 'stopped' | 'succeeded';
+      liveness: 'exited' | 'gone';
+      terminalState: 'released';
+      removedWorkspace?: string;
+    };
+
 export interface Gate {
   id: string;
   orderId?: string;
@@ -228,6 +265,8 @@ export interface Gate {
   refs: string[];
   /** 슬랙 초안의 채널과 본문 경로처럼 승인 뒤 다시 쓸 값 */
   payload?: Record<string, string>;
+  approvedDeployment?: ApprovedDeployment;
+  completion?: { at: string; evidence: GateCompletionEvidence };
   openedAt: string;
   resolvedAt?: string;
   decision?: GateDecision;
@@ -367,11 +406,13 @@ export type ConductorEvent =
       at: string;
       gateId: string;
       decision: GateDecision;
+      approvedDeployment?: ApprovedDeployment;
       answer?: string;
       deliveryPending?: boolean;
       decisionBy?: string;
       decisionSource?: OrcaItemSource;
     }
+  | { type: 'gate-completed'; at: string; gateId: string; evidence: GateCompletionEvidence }
   /** pending이 true면 결정 전달을 tick에 넘겼고 false면 tick이 그 일을 마쳤다 */
   | {
       type: 'gate-delivery';
@@ -384,6 +425,19 @@ export type ConductorEvent =
   | { type: 'bypass'; at: string; record: BypassRecord }
   | { type: 'jira-transition'; at: string; record: JiraTransitionRecord }
   | { type: 'slack-posted'; at: string; gateId: string; ref: string }
+  | { type: 'slack-draft-replaced'; at: string; gateId: string; replacement: SlackDraftReplacement }
+  | {
+      type: 'slack-draft-replacement-held';
+      at: string;
+      gateId: string;
+      replacement: SlackDraftReplacement;
+    }
+  | {
+      type: 'slack-publication-confirmed';
+      at: string;
+      gateId: string;
+      evidence: SlackPublicationEvidence;
+    }
   /** 사람이 끝난 주문을 지웠다. 그 주문의 워커, 체크포인트, 게이트, bypass 기록도 스냅샷에서 뺀다 */
   | { type: 'order-removed'; at: string; orderId: string }
   /**
@@ -434,6 +488,12 @@ export interface ConductorSnapshot {
   bypasses: BypassRecord[];
   jiraTransitions: JiraTransitionRecord[];
   slackPosted: Record<string, string>;
+  /** gate-opened의 필드와 구분해 전용 교체 이벤트에서 확인한 관계만 보관한다 */
+  slackDraftReplacements: Record<string, SlackDraftReplacement>;
+  /** 복수 후보를 확인한 승인 작업 ID */
+  slackDraftReplacementHolds: Record<string, string>;
+  /** 먼저 붙은 게이트를 보관한 뒤에도 같은 메시지를 다른 작업에 쓰지 못하게 한다 */
+  slackMessageClaims: Record<string, string | (SlackPublicationEvidence & { gateId: string })>;
   /** 적용한 보고 파일 이름과 시각 */
   appliedReports: Record<string, string>;
   reports: Record<string, (StoredReport & { at: string })[]>;

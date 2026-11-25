@@ -57,6 +57,17 @@ export type WorkView = {
 /** 워커가 status waiting으로 알린 대기 */
 export type WaitingView = { reason: string; since: string; until?: string }
 
+export type BotOwnerView = { botId: string; name: string; chatId: string }
+export const MONITOR_RUN_STATES = ['chat-unavailable', 'precheck-skipped', 'post-failed', 'completed', 'unknown'] as const
+export type MonitorRunState = (typeof MONITOR_RUN_STATES)[number]
+export type MonitorRun = { id: string; at: number; state: MonitorRunState }
+export type MonitorView = {
+  automationId: string
+  nextCheckAt: number | null
+  latestRun: MonitorRun | null
+  latestPosting: MonitorRun | null
+}
+
 /** 컨덕터 칸에 쓰는 값. 컨덕터가 안 주는 칸은 비어 있고 화면도 그 칸을 뺀다 */
 export type ConductorInfo = {
   pollIntervalSec?: number
@@ -68,6 +79,7 @@ export type ConductorInfo = {
   compactions?: number
   /** 최근에 tick을 돌린 컨덕터 세션. 플러그인이 이 세션의 오르카 탭을 찾아간다 */
   session?: { id: string; cwd?: string }
+  botOwner?: BotOwnerView
 }
 
 /** CLI가 이벤트 로그에서 고른 한 줄. summary에 바깥에서 온 글이 섞여 있으니 텍스트로만 그린다 */
@@ -124,6 +136,7 @@ export type ConductorView = {
   stateDir: string | null
   error?: string
   lastTickAt: string | null
+  lastSuccessfulTickAt?: string
   orders: OrderView[]
   gates: GateView[]
   unassignedBypasses: Bypass[]
@@ -136,6 +149,7 @@ export type ConductorView = {
   terminalFieldsMissing?: boolean
   /** 옛 CLI에는 없다 */
   conductor?: ConductorInfo
+  monitor?: MonitorView
   recentEvents?: EventView[]
   refreshedAt: number
 }

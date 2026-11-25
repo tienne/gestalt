@@ -1,12 +1,16 @@
 // CLI 출력을 패널과 상태 표시줄이 쓰는 꼴로 바꾼다. Node와 오르카 호스트를 모르는 순수 함수만 둔다.
 import {
   TERMINAL_ORDER_STATUSES,
+  MONITOR_RUN_STATES,
+  type BotOwnerView,
   type Bypass,
   type CheckpointView,
   type ConductorInfo,
   type ConductorView,
   type EventView,
   type GateView,
+  type MonitorRun,
+  type MonitorView,
   type OrderView,
   type WaitingView,
   type WorkSubagent,
@@ -47,6 +51,7 @@ export type RawOrder = {
 export type RawStatus = {
   stateDir?: string
   lastTickAt: string | null
+  lastSuccessfulTickAt?: string
   orders: RawOrder[]
   unassignedBypasses: Bypass[]
   gates: GateView[]
@@ -128,11 +133,43 @@ function conductorInfo(v: unknown): ConductorInfo | undefined {
     const cwd = str(session['cwd'])
     if (id && SESSION_ID_RE.test(id)) out.session = { id, ...(cwd && isAbsolute(cwd) ? { cwd } : {}) }
   }
+  const owner = botOwner(v['botOwner'])
+  if (owner) out.botOwner = owner
   return out
 }
 
 const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 const isAbsolute = (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
+
+function botOwner(v: unknown): BotOwnerView | undefined {
+  if (!isRecord(v)) return undefined
+  const { botId, name, chatId } = v
+  if (typeof botId !== 'string' || !SESSION_ID_RE.test(botId) || typeof name !== 'string' || !name.trim() ||
+      typeof chatId !== 'string' || !SESSION_ID_RE.test(chatId)) return undefined
+  return { botId, name, chatId }
+}
+
+const monitorTime = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0 && v <= 8.64e15
+
+function monitorRun(v: unknown): MonitorRun | null {
+  if (!isRecord(v) || typeof v['id'] !== 'string' || !SESSION_ID_RE.test(v['id']) || !monitorTime(v['at'])) return null
+  return { id: v['id'], at: v['at'], state: MONITOR_RUN_STATES.find((state) => state === v['state']) ?? 'unknown' }
+}
+
+export function parseMonitor(v: unknown, owner: BotOwnerView): MonitorView | undefined {
+  if (!isRecord(v) || !isRecord(v['orca'])) return undefined
+  const readOwner = botOwner(v['owner'])
+  if (readOwner?.chatId !== owner.chatId || readOwner.botId !== owner.botId) return undefined
+  const orca = v['orca']
+  const id = str(orca['automationId'])
+  if (!id || !SESSION_ID_RE.test(id)) return undefined
+  return {
+    automationId: id,
+    nextCheckAt: monitorTime(orca['nextCheckAt']) ? orca['nextCheckAt'] : null,
+    latestRun: monitorRun(orca['latestRun']),
+    latestPosting: monitorRun(orca['latestPosting'])
+  }
+}
 
 /** 컨덕터 세션이 도는 디렉토리를 품은 워크스페이스. 여럿이면 가장 깊은 것 */
 export function workspaceForPath(cwd: string, workspaces: readonly Workspace[]): Workspace | undefined {
@@ -284,11 +321,13 @@ export function parseStatus(value: unknown): RawStatus {
     gates.push(gate)
   }
   const stateDir = str(value['stateDir'])
+  const lastSuccessfulTickAt = str(value['lastSuccessfulTickAt'])
   const info = conductorInfo(value['conductor'])
   const recent = events(value['recentEvents'])
   return {
     ...(stateDir ? { stateDir } : {}),
     lastTickAt: str(value['lastTickAt']) ?? null,
+    ...(lastSuccessfulTickAt ? { lastSuccessfulTickAt } : {}),
     orders,
     unassignedBypasses: bypasses(value['unassignedBypasses']),
     gates,
@@ -360,6 +399,7 @@ export function toView(
     state: 'ok',
     stateDir,
     lastTickAt: raw.lastTickAt,
+    ...(raw.lastSuccessfulTickAt ? { lastSuccessfulTickAt: raw.lastSuccessfulTickAt } : {}),
     orders: raw.orders.map((o): OrderView => {
       const ws = findWorkspace(o, workspaces)
       const parent = o.parentWorktree

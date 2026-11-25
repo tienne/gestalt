@@ -52,8 +52,11 @@ import {
   conductorOrderShowCommand,
   conductorOrderTakeOverCommand,
   conductorQueueAddCommand,
+  conductorSlackDeliveryCommand,
   conductorSlackDraftCommand,
+  conductorSlackPostedCommand,
   conductorStatusCommand,
+  conductorMonitorCommand,
   conductorTickCommand,
   conductorWaitCommand,
   conductorWorkerReportCommand,
@@ -1311,6 +1314,13 @@ export function createCli(): Command {
     )
     .action((o) => conductorStatusCommand(o));
 
+  conductor
+    .command('monitor')
+    .description('운영 채팅의 Orca 정기 점검과 게시 이력을 JSON으로 읽는다')
+    .addOption(stateDir())
+    .option('--json', 'JSON으로 출력 (기본)')
+    .action((o) => conductorMonitorCommand(o));
+
   const results = conductor
     .command('results')
     .description('끝난 주문까지 결과 보고와 refs 본문을 찾아 읽는다 (읽기 전용)');
@@ -1468,6 +1478,10 @@ export function createCli(): Command {
       '--defer-delivery',
       '직접 못 전하는 결정은 다음 tick에 넘긴다 (hostActions를 못 돌리는 호출자용)',
     )
+    .option(
+      '--completed-deploy <json>',
+      '끝난 배포의 승인 범위. JSON에 runId, attempt, deploymentId, environment를 지정한다',
+    )
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action(async (id, o) => {
@@ -1518,18 +1532,32 @@ export function createCli(): Command {
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorQueueAddCommand(o));
 
-  conductor
-    .command('slack')
-    .description('슬랙 초안')
+  const conductorSlack = conductor.command('slack').description('슬랙 초안과 게시 결과');
+
+  conductorSlack
     .command('draft')
     .description('초안을 승인 게이트로 올린다. 승인되면 다음 tick이 게시할 일로 돌려준다')
-    .requiredOption('--channel <name>', '채널')
+    .requiredOption('--channel <id>', 'Slack 채널 ID')
     .requiredOption('--text-file <path>', '초안 본문 파일')
     .option('--order <id>', '관련 주문')
     .option('--thread <ts>', '답글로 달 스레드')
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorSlackDraftCommand(o));
+
+  conductorSlack
+    .command('delivery <gateId>')
+    .description('인계한 Slack 게시 작업을 JSON으로 읽는다')
+    .addOption(stateDir())
+    .action(async (id, o) => conductorSlackDeliveryCommand(id, o));
+
+  conductorSlack
+    .command('posted <gateId>')
+    .description('인계한 Slack 작업의 게시 결과를 확인한다')
+    .requiredOption('--result-file <path>', '게시 작업 메타데이터가 들어 있는 Slack 성공 응답 JSON')
+    .addOption(stateDir())
+    .option('--json', '에이전트가 파싱할 JSON으로')
+    .action(async (id, o) => conductorSlackPostedCommand(id, o));
 
   conductor
     .command('metrics')

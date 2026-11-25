@@ -26,6 +26,7 @@ import type { PrState, PrStateSource } from './ownership.js';
 import { normalizePrRef } from './pr-ref.js';
 import type { PrWatchSource, WatchedPr } from './pr-watch.js';
 import type { SlackClient } from './slack.js';
+import { isSlackChannelId } from './slack-state.js';
 import type { Order } from './types.js';
 
 /**
@@ -48,14 +49,19 @@ export function hostJiraClient(actions: HostAction[]): JiraClient {
 /** 승인된 초안을 호스트에 넘긴다. 게시 기록은 넘긴 시점에 남아 같은 초안을 두 번 넘기지 않는다 */
 export function hostSlackClient(actions: HostAction[]): SlackClient {
   return {
-    post: async (m) => {
-      actions.push({
-        type: 'slack-post',
-        channel: m.channel,
-        text: m.text,
-        ...(m.threadTs ? { threadTs: m.threadTs } : {}),
-      });
-      return 'host';
+    post: async (m, delivery) => {
+      if (!isSlackChannelId(m.channel))
+        throw new Error('Slack 게시를 승인하려면 채널 ID를 사용해야 해요');
+      return {
+        enqueue: () =>
+          actions.push({
+            type: 'slack-post',
+            ...delivery,
+            channel: m.channel,
+            text: m.text,
+            ...(m.threadTs ? { threadTs: m.threadTs } : {}),
+          }),
+      };
     },
   };
 }

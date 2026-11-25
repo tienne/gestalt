@@ -1,6 +1,7 @@
 import { newId, type ConductorStore } from './store.js';
 import {
   TERMINAL_ORDER_STATUSES,
+  type ApprovedDeployment,
   type BypassRecord,
   type Gate,
   type GateType,
@@ -217,7 +218,12 @@ export function resolveGate(
   gateId: string,
   decision: 'approved' | 'rejected',
   answer?: string,
-  options: { deliveryPending?: boolean; decisionBy?: string; decisionSource?: OrcaItemSource } = {},
+  options: {
+    deliveryPending?: boolean;
+    decisionBy?: string;
+    decisionSource?: OrcaItemSource;
+    approvedDeployment?: ApprovedDeployment;
+  } = {},
 ): Gate {
   store.append({
     type: 'gate-resolved',

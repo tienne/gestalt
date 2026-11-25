@@ -1,4 +1,6 @@
+import { execFile } from 'node:child_process';
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -12,6 +14,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   conductorArchiveAction,
@@ -27,13 +30,20 @@ import {
   conductorOrderRemoveCommand,
   conductorOrderShowCommand,
   conductorQueueAddCommand,
+  conductorSlackDeliveryCommand,
   conductorSlackDraftCommand,
+  conductorSlackPostedCommand,
   conductorStatusCommand,
   conductorTickCommand,
   conductorWaitCommand,
   conductorWorkerReportCommand,
 } from '../../../src/cli/commands/conductor.js';
-import { ConductorStore } from '../../../src/conductor/store.js';
+import { ConductorStore, EVENTS_FILE } from '../../../src/conductor/store.js';
+import { hostSlackClient } from '../../../src/conductor/adapters.js';
+import { publishApprovedSlack } from '../../../src/conductor/slack.js';
+import { orderHasPendingSlack } from '../../../src/conductor/slack-state.js';
+import type { HostAction } from '../../../src/conductor/launcher.js';
+import { recordSuccessfulTick } from '../../../src/conductor/successful-tick.js';
 import { registerSession } from '../../../src/conductor/handoff.js';
 import { touchSessionTick } from '../../../src/conductor/session-owner.js';
 import { claimWaitOwner } from '../../../src/conductor/wait.js';
@@ -589,7 +599,7 @@ describe('gestalt conductor', () => {
     const stateDir = tempStateDir();
     const textFile = join(stateDir, 'draft.txt');
     writeFileSync(textFile, '배포 끝났어요~');
-    conductorSlackDraftCommand({ stateDir, json: true, channel: '#release', textFile });
+    conductorSlackDraftCommand({ stateDir, json: true, channel: 'C123', textFile });
     const gateId = String(last()['gateId']);
 
     conductorGateListCommand({ stateDir, json: true });
@@ -603,6 +613,127 @@ describe('gestalt conductor', () => {
       'exit 1',
     );
     expect(err.at(-1)).toContain('이미 종료된');
+  });
+
+  it('중단 뒤 Slack 인계를 찾고 같은 작업의 게시 결과만 한 번 기록한다', async () => {
+    const stateDir = tempStateDir();
+    const textFile = join(stateDir, 'draft.txt');
+    const store = ConductorStore.open(stateDir);
+    store.addOrder(order({ id: 'ord-slack', status: 'done' }));
+    writeFileSync(textFile, '게시할 본문');
+    conductorSlackDraftCommand({
+      stateDir,
+      json: true,
+      order: 'ord-slack',
+      channel: 'C123',
+      textFile,
+    });
+    const gateId = String(last()['gateId']);
+    await conductorGateResolveCommand(gateId, { stateDir, approve: true });
+    const actions: HostAction[] = [];
+    const client = hostSlackClient(actions);
+    store.reload();
+    await publishApprovedSlack(store, client);
+    const action = actions[0];
+    if (action?.type !== 'slack-post') throw new Error('Slack 인계가 없어요');
+    expect(action).toMatchObject({ gateId, orderId: 'ord-slack', channel: 'C123' });
+
+    const restarted = ConductorStore.open(stateDir);
+    expect((await publishApprovedSlack(restarted, client)).posted).toEqual([]);
+    expect(actions).toHaveLength(1);
+    await conductorSlackDeliveryCommand(gateId, { stateDir });
+    expect(last()).toEqual({
+      gateId,
+      orderId: 'ord-slack',
+      channel: 'C123',
+      text: '게시할 본문',
+      deliveryId: action.deliveryId,
+      metadata: action.metadata,
+      pendingReason: expect.stringContaining('증빙을 기다리고'),
+    });
+    const resultFile = join(stateDir, 'result.json');
+    const opts = { stateDir, json: true, resultFile };
+    const response = {
+      ok: true,
+      channel: 'C123',
+      ts: '12345.000001',
+      message: { ts: '12345.000001', metadata: action.metadata },
+    };
+    const confirm = (id: string, result: unknown) => {
+      writeFileSync(resultFile, JSON.stringify(result));
+      return conductorSlackPostedCommand(id, opts);
+    };
+    expect(last()['metadata']).toEqual(action.metadata);
+    await expect(
+      confirm(gateId, {
+        ...response,
+        message: {
+          ...response.message,
+          metadata: { ...action.metadata, event_payload: { delivery_id: 'different' } },
+        },
+      }),
+    ).rejects.toThrow('exit 1');
+    expect(err.at(-1)).toContain('식별자가 달라');
+    await expect(
+      confirm(gateId, 'https://example.slack.com/archives/C999/p12345000001'),
+    ).rejects.toThrow('exit 1');
+    await expect(confirm(gateId, { ...response, channel: 'C999' })).rejects.toThrow('exit 1');
+    expect(err.at(-1)).toContain('채널이나 스레드가');
+    await expect(confirm(gateId, { ...response, message: { ts: response.ts } })).rejects.toThrow(
+      'exit 1',
+    );
+    expect(orderHasPendingSlack(ConductorStore.open(stateDir).snapshot, 'ord-slack')).toBe(true);
+    expect(ConductorStore.open(stateDir).snapshot.slackPosted[gateId]).toBe('host');
+    await confirm(gateId, response);
+    expect(last()).toMatchObject({ gateId, recorded: true, ref: response.ts });
+    await confirm(gateId, response);
+    expect(last()).toMatchObject({ gateId, recorded: false });
+
+    store.reload();
+    expect(store.snapshot.slackPosted[gateId]).toBe(response.ts);
+    expect(orderHasPendingSlack(store.snapshot, 'ord-slack')).toBe(false);
+    store.removeOrder('ord-slack');
+    store.addOrder(order({ id: 'ord-new-slack', status: 'done' }));
+    writeFileSync(textFile, '다음 주문의 본문');
+    conductorSlackDraftCommand({
+      stateDir,
+      json: true,
+      order: 'ord-new-slack',
+      channel: 'C123',
+      textFile,
+    });
+    const nextGateId = String(last()['gateId']);
+    await conductorGateResolveCommand(nextGateId, { stateDir, approve: true });
+    store.reload();
+    await publishApprovedSlack(store, client);
+    const next = actions[1];
+    if (next?.type !== 'slack-post') throw new Error('다음 Slack 인계가 없어요');
+    await expect(confirm(nextGateId, response)).rejects.toThrow('exit 1');
+    expect(err.at(-1)).toContain('식별자가 달라');
+    await expect(
+      confirm(nextGateId, {
+        ...response,
+        message: { ...response.message, metadata: next.metadata },
+      }),
+    ).rejects.toThrow('exit 1');
+    expect(err.at(-1)).toContain('다른 Slack 게시 작업');
+    appendFileSync(
+      join(stateDir, EVENTS_FILE),
+      JSON.stringify({
+        type: 'slack-publication-confirmed',
+        at: store.timestamp(),
+        gateId: nextGateId,
+        evidence: { deliveryId: next.deliveryId, channel: response.channel, ts: response.ts },
+      }) + '\n',
+    );
+    const replayed = ConductorStore.open(stateDir);
+    expect(replayed.snapshot.slackMessageClaims['C123:12345.000001']).toMatchObject({ gateId });
+    expect(replayed.snapshot.slackPosted[nextGateId]).toBe('host');
+    expect(orderHasPendingSlack(replayed.snapshot, 'ord-new-slack')).toBe(true);
+    const receipts = readFileSync(join(stateDir, EVENTS_FILE), 'utf8').match(
+      new RegExp(`"gateId":"${gateId}","evidence"`, 'g'),
+    );
+    expect(receipts).toHaveLength(1);
   });
 
   it('주문의 --pr과 --skills, --issue-key는 꼴이 틀리면 받지 않는다', () => {
@@ -783,6 +914,68 @@ describe('gestalt conductor', () => {
     expect(report.errors.some((e) => e.includes('broken.json'))).toBe(true);
     expect(readdirSync(dir)).toEqual(['failed']);
   });
+
+  it('기존 tick과 큐 읽기 실패를 성공으로 보지 않고 정상 tick에서만 성공 시각을 갱신한다', async () => {
+    const stateDir = tempStateDir();
+    const queue = join(stateDir, 'queue');
+    const options = { stateDir, json: true, force: true, prWatch: false };
+    const legacyAt = '2026-11-23T16:00:00.000Z';
+    ConductorStore.open(stateDir).append({ type: 'tick', at: legacyAt });
+    conductorStatusCommand(options);
+    expect(last()).toMatchObject({ lastTickAt: legacyAt, lastSuccessfulTickAt: null });
+    mkdirSync(queue, { recursive: true });
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      for (const [at, broken, lastSuccess] of [
+        ['2026-11-24T16:00:00.000Z', true, null],
+        ['2026-11-24T16:25:00.000Z', false, '2026-11-24T16:25:00.000Z'],
+        ['2026-11-24T16:50:00.000Z', true, '2026-11-24T16:25:00.000Z'],
+        ['2026-11-24T17:15:00.000Z', false, '2026-11-24T17:15:00.000Z'],
+      ] as const) {
+        vi.setSystemTime(new Date(at));
+        if (broken) writeFileSync(join(queue, 'broken.json'), '{"repo"');
+        await conductorTickCommand(options);
+        const errors = last()['errors'] as string[];
+        if (broken) expect(errors).toEqual([expect.stringContaining('broken.json')]);
+        else expect(errors).toEqual([]);
+        conductorStatusCommand(options);
+        expect(last()).toMatchObject({ lastTickAt: at, lastSuccessfulTickAt: lastSuccess });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('끊긴 성공 기록은 이후 쓰기와 재시작 뒤에도 가장 최근 성공을 가리지 않는다', async () => {
+    const stateDir = tempStateDir();
+    const first = '2026-11-24T16:00:00.000Z';
+    const latest = '2026-11-24T16:25:00.000Z';
+    const torn = '2026-11-24T16:50:00.000Z';
+    recordSuccessfulTick(stateDir, first);
+    appendFileSync(join(stateDir, 'successful-ticks.log'), torn);
+    conductorStatusCommand({ stateDir, json: true });
+    expect(last()['lastSuccessfulTickAt']).toBe(first);
+
+    recordSuccessfulTick(stateDir, latest);
+    recordSuccessfulTick(stateDir, first);
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        'bin/gestalt.ts',
+        'conductor',
+        'status',
+        '--state-dir',
+        stateDir,
+        '--json',
+      ],
+      { encoding: 'utf8', timeout: 8_000 },
+    );
+    const restarted = JSON.parse(stdout) as { lastSuccessfulTickAt: string | null };
+    expect(restarted.lastSuccessfulTickAt).toBe(latest);
+  }, 10_000);
 
   it('wait는 할 일 없는 tick엔 아무것도 출력하지 않다가 게이트가 열린 tick에서 그 게이트를 내고 끝난다', async () => {
     const stateDir = tempStateDir();

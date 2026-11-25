@@ -102,7 +102,16 @@ export type HostAction =
   | { type: 'send'; workerId: string; message: string }
   // 외부 쓰기는 호스트 세션이 MCP로 한다. tick은 무엇을 할지만 돌려준다
   | { type: 'jira-transition'; issueKey: string; to: JiraStatus }
-  | { type: 'slack-post'; channel: string; text: string; threadTs?: string };
+  | {
+      type: 'slack-post';
+      gateId: string;
+      deliveryId: string;
+      metadata: import('./slack.js').SlackDelivery['metadata'];
+      orderId?: string;
+      channel: string;
+      text: string;
+      threadTs?: string;
+    };
 
 export interface LaunchSpec {
   order: Order;
@@ -138,8 +147,21 @@ export interface Launcher {
   probe?(worker: Worker): Promise<WorkerProbe>;
   /** 터미널이 살아 있는지와 출력 중인지만 본다. 출력을 넘겨 읽지 않아 probe보다 싸다 */
   peek?(worker: Worker): Promise<WorkerPeek>;
+  /** 오르카가 보고한 dispatch와 종료 상태를 읽는다 */
+  completion?(worker: Worker): Promise<OrcaWorkerCompletion>;
+  workspaceRemoved?(worker: Worker, workspace: string): Promise<boolean>;
   /** 워커 워크트리 경로. 작업 내용(고친 파일, 트랜스크립트)을 찾는 데 쓴다 */
   worktreePath?(worker: Worker): Promise<string | undefined>;
+}
+
+export interface OrcaWorkerCompletion {
+  dispatchId?: string;
+  runId?: string;
+  state?: string;
+  liveness?: string;
+  terminalState?: string;
+  waitingOnHuman?: string;
+  workspace?: string;
 }
 
 /** 오르카가 아직 살아 있는 워커를 거두지 못했을 때 재시도할 수 있다 */
@@ -1451,11 +1473,27 @@ export class OrcaLauncher implements Launcher {
     return shown.activity === 'working' ? 'working' : 'live';
   }
 
-  private async show(worker: Worker): Promise<{
-    liveness?: string;
-    activity?: string;
-    terminalState?: string;
-  }> {
+  async completion(worker: Worker): Promise<OrcaWorkerCompletion> {
+    if (!worker.handle) throw new Error('dispatch id가 없어요');
+    return this.show(worker);
+  }
+
+  async workspaceRemoved(worker: Worker, workspace: string): Promise<boolean> {
+    const split = workspace.indexOf('::');
+    const path = workspace.slice(split + 2);
+    if (split <= 0 || !isAbsolute(path) || basename(path) !== orcaWorktreeName(worker))
+      return false;
+    const shown = await this.runner(
+      this.opts.orcaCommand,
+      ['worktree', 'show', '--worktree', `id:${workspace}`, '--json'],
+      { timeoutMs: DEFAULT_COMMAND_TIMEOUT_MS },
+    );
+    if (shown.code === 0) return false;
+    if (errorCode(shown.stdout) === 'selector_not_found') return true;
+    throw new Error('Orca에서 워크트리 정리 증빙을 읽지 못했어요');
+  }
+
+  private async show(worker: Worker): Promise<OrcaWorkerCompletion & { activity?: string }> {
     const out = await mustRun(
       this.runner,
       this.opts.orcaCommand,
@@ -1464,12 +1502,20 @@ export class OrcaLauncher implements Launcher {
     );
     const r = resultOf(out);
     if (!r) throw new Error(`worker-show 응답을 못 읽었어요: ${oneLine(out, 200)}`);
-    const pick = (k: string) => stringField(r, k);
-    return {
-      ...(pick('liveness') ? { liveness: pick('liveness')! } : {}),
-      ...(pick('activity') ? { activity: pick('activity')! } : {}),
-      ...(pick('terminalState') ? { terminalState: pick('terminalState')! } : {}),
-    };
+    return Object.fromEntries(
+      [
+        'dispatchId',
+        'runId',
+        'state',
+        'liveness',
+        'activity',
+        'terminalState',
+        'waitingOnHuman',
+        'workspace',
+      ]
+        .map((key) => [key, stringField(r, key)])
+        .filter(([, value]) => value !== undefined),
+    );
   }
 
   /**
