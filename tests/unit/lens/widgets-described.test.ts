@@ -1,33 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Widget } from '../../../src/digest/lens-widget-schema.js';
 import { lintSteps, stepFrames, stepsSchema, type Step } from '../../../src/digest/lens-steps.js';
-import { lintDigest, lintErrors, type DigestIssue } from '../../../src/digest/lint.js';
+import type { DigestIssue } from '../../../src/digest/lint.js';
 import { numbersIn, sourceNumbersIn } from '../../../src/digest/lint-lens.js';
 import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
-import { parseDigest, type Transcript } from '../../../src/digest/schema.js';
-import { lensDigest, lensReport, lensSource, lensTranscript } from './fixture.js';
-
-/** 배포 절차를 글로 설명한 문단을 덧붙인 원문. D 그림이 옮길 대상이다 */
-const DEPLOY = [
-  'release/20260721 브랜치를 main으로 rebase 머지하면 production에 나간다.',
-  '그 직후 release/20260728이 main에서 갈라져 나와 alpha에 올라간다.',
-  'main이 0721로 앞으로 나가면 release/20260728을 다시 rebase하고 force push한다.',
-];
-
-function deployTranscript(): Transcript {
-  const t = lensTranscript();
-  const base = t.segments.length;
-  DEPLOY.forEach((text, k) =>
-    t.segments.push({ i: base + k, startSec: 0, text, page: 3, role: 'para' }),
-  );
-  return t;
-}
-
-const at = (k: number) => {
-  const i = lensTranscript().segments.length + k;
-  return { key: i, from: i, to: i };
-};
+import { parseDigest } from '../../../src/digest/schema.js';
+import { lensDigest, lensSource } from './fixture.js';
+import { at, deployCodes, deployTranscript, withWidget } from './deploy-fixture.js';
 
 const flow = (): Widget => ({
   id: 'deploy-flow',
@@ -59,17 +39,7 @@ const flow = (): Widget => ({
   ],
 });
 
-function withWidget(w: Widget) {
-  const r = lensReport();
-  r.sections[1]!.subsections[0]!.widgets = [w];
-  return r;
-}
-
-/** 덧붙인 배포 문단은 리포트 섹션이 덮지 않아 SECTION_GAP이 난다. 그림 검사와 무관해 뺀다 */
-const codes = (w: Widget) =>
-  lintErrors(lintDigest(lensDigest(withWidget(w)), deployTranscript(), { source: lensSource() }))
-    .map((i) => i.code)
-    .filter((c) => c !== 'SECTION_GAP');
+const codes = deployCodes;
 
 describe('이름 속 숫자', () => {
   it('리포트 쪽은 이름 속 숫자를 세지 않고 원문 쪽은 모은다', () => {
