@@ -1461,6 +1461,10 @@ export const VIEWER_JS =
     showWidgetState(box, String(next));
     var pos = box.querySelector('.w-pos');
     if (pos) pos.textContent = '단계 ' + (next + 1) + ' / ' + n;
+    // 바뀐 단계가 무엇을 보여 주는지까지 읽어야 그림을 못 보는 사람도 따라온다
+    var live = box.querySelector('.w-live');
+    var step = states[next].querySelector('.ws-step');
+    if (live) live.textContent = '단계 ' + (next + 1) + ' / ' + n + (step ? ': ' + step.textContent.trim() : '');
     var prev = box.querySelector('[data-w-step="prev"]');
     var fwd = box.querySelector('[data-w-step="next"]');
     // disabled로 막으면 버튼에 있던 포커스가 빠져 화살표 키가 더는 안 먹는다

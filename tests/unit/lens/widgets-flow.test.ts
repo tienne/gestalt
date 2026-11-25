@@ -222,7 +222,10 @@ describe('새 위젯 렌더', () => {
     const frames = [...out.matchAll(/<div data-w-state="(\d+)"( hidden)?>/g)];
     expect(frames.map((m) => m[1])).toEqual(['0', '1', '2']);
     expect(frames.map((m) => Boolean(m[2]))).toEqual([false, true, true]);
-    expect(out).toContain('<span class="w-pos" aria-live="polite">단계 1 / 3</span>');
+    expect(out).toContain('<span class="w-pos">단계 1 / 3</span>');
+    // 단계 라벨까지 읽히게 늘 있는 알림 자리를 두고 뷰어가 채운다
+    expect(out).toContain('<span class="w-live sr-only" aria-live="polite"></span>');
+    expect(VIEWER_JS).toContain("querySelector('.ws-step')");
     expect(out).toContain('data-w-step="prev" aria-disabled="true"');
   });
 

@@ -62,7 +62,7 @@ export function framed(
       return `<div data-w-state="${k}"${k === 0 ? '' : ' hidden'}><p class="ws-step"><b>${ctx.escape(s.label)}</b>${s.note ? ` ${ctx.inline(s.note)}` : ''}${s.cite ? ctx.cite(s.cite) : ''}</p>${draw(fr.looks, k)}${stateHtml(fr, ctx)}</div>`;
     })
     .join('');
-  return `<div class="w-nav" data-w-steps="${n}"><button type="button" data-w-step="prev" aria-disabled="true">이전</button><span class="w-pos" aria-live="polite">단계 1 / ${n}</span><button type="button" data-w-step="next" aria-disabled="false">다음</button></div>${body}`;
+  return `<div class="w-nav" data-w-steps="${n}"><button type="button" data-w-step="prev" aria-disabled="true">이전</button><span class="w-pos">단계 1 / ${n}</span><button type="button" data-w-step="next" aria-disabled="false">다음</button><span class="w-live sr-only" aria-live="polite"></span></div>${body}`;
 }
 
 /** copyOf를 따라 올라간 원래 점의 줄. 복사된 점은 원래 줄 색으로 칠한다 */

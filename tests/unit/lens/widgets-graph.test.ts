@@ -179,7 +179,7 @@ describe('상태 전이, 순서도, 역할별 줄 렌더', () => {
     expect(out).toContain('role="img" aria-label="PR이 production까지 거치는 상태"');
     expect(out).toContain('class="wg-start"');
     expect(out).toContain('class="wg-final"');
-    expect(out).toContain('<span class="w-pos" aria-live="polite">단계 1 / 2</span>');
+    expect(out).toContain('<span class="w-pos">단계 1 / 2</span>');
     expect(frame(out, 0)).toContain('wg-edge w-focus');
     // alpha QA → PR 리뷰는 위층으로 거슬러 올라가 곡선이다
     expect(out).toMatch(/<g class="wg-edge w-focus"><path d="M[\d.,]+ Q/);
@@ -193,7 +193,7 @@ describe('상태 전이, 순서도, 역할별 줄 렌더', () => {
 
   it('sequence는 단계가 없으면 메시지 하나를 한 단계로 보이고 순번을 붙인다', () => {
     const out = html(rebase());
-    expect(out).toContain('<span class="w-pos" aria-live="polite">단계 1 / 3</span>');
+    expect(out).toContain('<span class="w-pos">단계 1 / 3</span>');
     expect(frame(out, 0)).toContain('<b>rebase</b>');
     expect(frame(out, 0)).toContain('wg-msg wg-reply w-hide');
     expect(frame(out, 2)).toContain('wg-msg wg-reply w-focus');
