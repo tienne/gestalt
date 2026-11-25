@@ -482,7 +482,7 @@ export const GRAPH_WIDGET_CSS = `
 .wg-node rect,.wg-actor rect{fill:var(--card);stroke:var(--accent);stroke-width:1.5}
 .wg-node.w-focus rect,.wg-actor.w-focus rect{fill:color-mix(in srgb, var(--accent) 18%, var(--card));stroke-width:2.5}
 .wg-node.w-ill rect,.wg-actor.w-ill rect{stroke-dasharray:4 3;stroke:var(--muted)}
-.wg-node.w-gone rect{stroke-dasharray:3 3}
+.wg-node.w-gone rect,.wg-actor.w-gone rect{stroke-dasharray:3 3}
 .wg-final{fill:none;stroke:var(--accent);stroke-width:1}
 .wg-start{fill:var(--fg)}
 .wg-line{stroke:var(--muted);stroke-width:1.5}

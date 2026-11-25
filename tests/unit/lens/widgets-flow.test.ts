@@ -6,6 +6,7 @@ import { extractProse } from '../../../src/digest/prose.js';
 import { parseDigest } from '../../../src/digest/schema.js';
 import { lintDigest, lintErrors } from '../../../src/digest/lint.js';
 import { VIEWER_JS } from '../../../src/digest/viewer-js.js';
+import { FLOW_WIDGET_CSS } from '../../../src/digest/render-widgets-flow.js';
 import { lensDigest, lensSource } from './fixture.js';
 import {
   at,
@@ -291,5 +292,12 @@ describe('새 위젯 렌더', () => {
   it('뷰어 스크립트는 이전, 다음 버튼과 좌우 화살표로 단계를 넘긴다', () => {
     expect(VIEWER_JS).toContain("closest('[data-w-step]')");
     expect(VIEWER_JS).toContain("ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight'");
+  });
+
+  it('사라진 요소는 흐리게 하지 않고 점선과 취소선으로 보이고 단계 버튼에 포커스 테두리가 있다', () => {
+    expect(FLOW_WIDGET_CSS).not.toMatch(/\.w-gone\{opacity/);
+    expect(FLOW_WIDGET_CSS).toContain('.wc-span.w-gone{background:none;border:1px dashed var(--muted);text-decoration:line-through}');
+    expect(FLOW_WIDGET_CSS).toContain('.wst-card.w-gone b{text-decoration:line-through}');
+    expect(FLOW_WIDGET_CSS).toContain('.w-nav button:focus-visible{outline:2px solid var(--accent)');
   });
 });

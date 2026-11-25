@@ -382,11 +382,11 @@ export const FLOW_WIDGET_CSS = `
 .w-nav{display:flex;gap:8px;align-items:center;margin:6px 0;font-size:.9em}
 .w-nav button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:2px 12px;cursor:pointer}
 .w-nav button[aria-disabled="true"]{opacity:.4;cursor:default}
+.w-nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .w-pos{color:var(--muted);font-variant-numeric:tabular-nums}
 .w-state{display:flex;flex-wrap:wrap;gap:6px 14px;margin:6px 0;font-size:.86em}
 .w-state div{display:flex;gap:6px}
 .w-state dt{color:var(--muted)}.w-state dd{margin:0;font-weight:600}
-.w-gone{opacity:.35}
 .w-hide{visibility:hidden}
 .w-tag{font-size:.75em;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 4px}
 .w-cell-ref{border:0;background:none;color:var(--accent);font-size:.8em;cursor:pointer;padding:0 2px}
@@ -411,6 +411,7 @@ path.w-gone{stroke-dasharray:3 3}
 .wc-release{background:var(--accent);color:var(--on-accent)}
 .wc-warn{background:color-mix(in srgb, var(--warn) 22%, transparent)}
 .wc-span.w-ill{background:none;border:1px dashed var(--muted)}
+.wc-span.w-gone{background:none;border:1px dashed var(--muted);text-decoration:line-through}
 .wc-span.w-focus{outline:2px solid var(--fg)}
 .wst-svg{display:block;height:auto;max-width:none}
 .wst-line,.wst-loop{fill:none;stroke:var(--muted);stroke-width:1.5}
@@ -419,12 +420,14 @@ path.w-gone{stroke-dasharray:3 3}
 .wst-dot circle{fill:var(--card);stroke:var(--accent);stroke-width:1.5}
 .wst-dot text{fill:var(--fg);font-size:10px}
 .wst-dot.wst-opt circle{stroke-dasharray:3 2}
+.wst-dot.w-gone circle{stroke:var(--muted);stroke-dasharray:3 2}
 .wst-dot.w-focus circle{fill:var(--accent)}.wst-dot.w-focus text{fill:var(--on-accent)}
 .wst-cards{list-style:none;padding:0;margin:6px 0;display:grid;gap:6px}
 .wst-card{display:flex;gap:10px;border:1px solid var(--line);border-radius:8px;padding:6px 10px}
 .wst-card p{margin:2px 0;font-size:.9em}
 .wst-card.wst-opt{border-style:dashed}
 .wst-card.w-ill{border-style:dashed;color:var(--muted)}
+.wst-card.w-gone{border-style:dashed}.wst-card.w-gone b{text-decoration:line-through}
 .wst-card.w-focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .wst-n{flex:none;width:22px;height:22px;border-radius:50%;background:var(--chip);display:grid;place-items:center;font-size:.8em;font-weight:700}
 .wst-back{color:var(--warn)}
