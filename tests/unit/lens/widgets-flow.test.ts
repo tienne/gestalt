@@ -282,7 +282,7 @@ describe('새 위젯 렌더', () => {
     expect(out).not.toContain('alpha\nQA');
   });
 
-  it('목록 줄의 라벨은 줄바꿈과 마크다운 문법 글자를 막는다', () => {
+  it('마크다운 목록은 라벨에 줄바꿈이 있어도 줄 수가 늘지 않고 문법 글자를 이스케이프한다', () => {
     const plain = md(journey()).split('\n').length;
     const w = journey();
     w.items[1]!.label = '# 배포\n- 끼어든 줄';

@@ -428,7 +428,7 @@ describe('인터랙티브 그림 렌더', () => {
     expect(md).toContain('- 노드를 다섯 개로 줄였다.');
   });
 
-  it('전후 비교 목록 줄의 제목과 라벨은 줄바꿈과 마크다운 문법 글자를 막는다', () => {
+  it('전후 비교 위젯의 마크다운 목록은 제목과 라벨에 줄바꿈이 있어도 줄 수가 늘지 않고 문법 글자를 이스케이프한다', () => {
     const md = (w: Widget) =>
       renderDigestMarkdown(lensDigest(withWidgets(w)), lensTranscript(), { source: lensSource() });
     const plain = md(pair('B')).split('\n').length;
