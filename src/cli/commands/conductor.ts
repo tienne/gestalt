@@ -7,7 +7,7 @@ import { handoffBot, type BotHandoffOptions } from '../../conductor/bot-handoff.
 import {
   automationCoordinationDir,
   automationCoordinationRoot,
-  readAutomationClaim,
+  handoffCancellationPending,
 } from '../../conductor/bot-handoff-coordination.js';
 import { readEditReceipt } from '../../conductor/bot-handoff-edit.js';
 import {
@@ -784,7 +784,8 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
   const { active: botOwner, revision: botOwnerRevision, handoffs } = readBotOwnership(store.dir);
   const latestHandoff = handoffs.at(-1);
   const cancelCleanupPending =
-    latestHandoff?.outcome === 'cancelled' && handoffCancelCleanupPending(store.dir, latestHandoff);
+    latestHandoff &&
+    handoffCancellationPending(store.dir, latestHandoff, automationCoordinationRoot());
   const session = botOwner
     ? undefined
     : findActiveConductor(store.dir, '', Date.now(), activeConductorWindowMs(config));
@@ -818,19 +819,6 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
         }
       : {}),
   };
-}
-
-function handoffCancelCleanupPending(dir: string, handoff: BotHandoffRecord): boolean {
-  try {
-    const coordinationDir = automationCoordinationDir(
-      automationCoordinationRoot(),
-      handoff.automationId,
-    );
-    const claim = readAutomationClaim(coordinationDir);
-    return claim?.store === realpathSync(dir) && claim.request === handoff.id;
-  } catch {
-    return true;
-  }
 }
 
 function botHandoffEditStatus(handoff: BotHandoffRecord): Record<string, unknown> {

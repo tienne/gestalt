@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { automationCoordinationRoot, lockAutomationHandoff } from './bot-handoff-coordination.js';
+import {
+  automationCoordinationRoot,
+  handoffCancellationPending,
+  lockAutomationHandoff,
+} from './bot-handoff-coordination.js';
 import {
   hasEditAttempts,
   launchAutomationEdit,
@@ -199,14 +203,13 @@ async function handoffLocked(
     }
     stage = 'coordinate';
     const claim = coordination.read();
-    const clearInitialClaim = () => {
-      if (claim?.store === dir && claim.request === options.request) coordination.clear();
-    };
+    const ownsInitialClaim = claim?.store === dir && claim.request === options.request;
     settlingCancellation =
-      journal?.outcome === 'cancelled' &&
-      options.cancel === true &&
-      claim?.store === dir &&
-      claim.request === options.request;
+      journal?.cancelPending === true || (journal?.outcome === 'cancelled' && ownsInitialClaim);
+    if (settlingCancellation && !options.cancel) {
+      stage = 'reconcile-edit';
+      throw new Error('취소 복구가 남아 있어요. 기존 승인값으로 --cancel을 다시 실행해 주세요');
+    }
     if (journal?.outcome === 'cancelled' && !settlingCancellation) {
       return { ...recordResult(ownership, options, journal), replayed: true };
     }
@@ -225,9 +228,10 @@ async function handoffLocked(
       options.cancel &&
       foreignClaim &&
       journal &&
-      !attempt &&
-      journal.editUncertain === undefined &&
-      !hasEditAttempts(coordination.dir, journal.approval);
+      (settlingCancellation ||
+        (!attempt &&
+          journal.editUncertain === undefined &&
+          !hasEditAttempts(coordination.dir, journal.approval)));
     if (foreignClaim && !cancelUnsentLocal)
       throw new Error(
         `다른 상태 저장소가 이 Orca 자동화를 맡고 있어요 (${foreignClaim.store}, 요청 ${foreignClaim.request})`,
@@ -258,11 +262,22 @@ async function handoffLocked(
       claim &&
       !cancelUnsentLocal &&
       claim.request !== options.request &&
-      !ownership.handoffs.some((entry) => entry.id === claim.request && entry.outcome)
+      !ownership.handoffs.some(
+        (entry) =>
+          entry.id === claim.request &&
+          entry.outcome &&
+          !handoffCancellationPending(dir, entry, deps.coordinationRoot()),
+      )
     )
       throw new Error(`공유 담당 기록의 요청 ${claim.request}을 먼저 이어가거나 취소해 주세요`);
     stage = 'preflight';
-    if (ownership.handoffs.some((entry) => !entry.outcome && entry.id !== options.request))
+    if (
+      ownership.handoffs.some(
+        (entry) =>
+          entry.id !== options.request &&
+          (!entry.outcome || handoffCancellationPending(dir, entry, deps.coordinationRoot())),
+      )
+    )
       throw new Error('진행 중인 인계를 먼저 완료하거나 취소해 주세요');
 
     const source = assertSource(ownership, options, journal);
@@ -350,19 +365,26 @@ async function handoffLocked(
       if (!journal && claim?.request !== options.request)
         throw new Error('취소할 인계 요청이 없어요');
       stage = 'reconcile-edit';
-      observed = await show();
-      verify(observed);
-      if (observed.settings !== proposed.settings)
-        throw new Error('취소 전에 승인된 Orca 자동화 설정을 복구해 주세요');
-      if (automation.chatId !== source.chatId || observed.chatId !== source.chatId)
-        throw new Error(
-          receipt?.outcome === 'applied'
-            ? '편집 응답을 확인했어요. 자동화를 기존 채팅으로 되돌린 뒤 취소해 주세요'
-            : '자동화 대상이 기존 책임 채팅과 달라요. Orca에서 외부 편집을 확인하고 설정과 대상을 복구해 주세요',
-        );
+      const verifyCancellationSchedule = (latest: ScheduledBotAutomation) => {
+        verify(latest);
+        if (latest.settings !== proposed.settings)
+          throw new Error('취소 전에 승인된 Orca 자동화 설정을 복구해 주세요');
+        if (latest.chatId !== source.chatId)
+          throw new Error(
+            receipt?.outcome === 'applied'
+              ? '편집 응답을 확인했어요. 자동화를 기존 채팅으로 되돌린 뒤 취소해 주세요'
+              : '자동화 대상이 기존 책임 채팅과 달라요. Orca에서 외부 편집을 확인하고 설정과 대상을 복구해 주세요',
+          );
+      };
+      verifyCancellationSchedule(automation);
+      const beforeChat = await show();
+      observed = beforeChat;
+      verifyCancellationSchedule(beforeChat);
       const receiving = await deps.chat(options.bot, source.chatId);
       if (receiving.botId !== source.botId || receiving.chatId !== source.chatId)
         throw new Error('취소 전에 기존 책임 채팅이 메일을 받을 수 있는지 확인해 주세요');
+      observed = await show();
+      verifyCancellationSchedule(observed);
       const currentClaim = coordination.read();
       if (digest(currentClaim ?? null) !== digest(claim ?? null))
         throw new Error('취소를 검증하는 동안 Orca 자동화의 담당 예약이 바뀌었어요');
@@ -373,7 +395,10 @@ async function handoffLocked(
             `담당 저장소 ${foreignClaim.store}의 운영권과 현재 일정이 일치하는지 확인해 주세요`,
           );
         const foreignEdit = foreign.handoffs.find(
-          (entry) => entry.automationId === options.automation && !entry.outcome,
+          (entry) =>
+            entry.automationId === options.automation &&
+            (!entry.outcome ||
+              handoffCancellationPending(foreignClaim.store, entry, deps.coordinationRoot())),
         );
         const foreignReceipt = foreignEdit?.editAttempt
           ? readEditReceipt(coordination.dir, foreignEdit.approval, foreignEdit.editAttempt)
@@ -391,10 +416,16 @@ async function handoffLocked(
         current.active.botId !== receiving.botId
       )
         throw new Error('취소 전에 기존 책임 채팅의 운영권을 다시 확인해 주세요');
+      verifyCancellationSchedule(beforeChat);
+      verifyCancellationSchedule(observed);
       stage = 'cancel';
-      if (!settlingCancellation)
-        save({ ...(journal ?? { ...proposed, approval }), outcome: 'cancelled' });
-      clearInitialClaim();
+      const cancelRecord: BotHandoffRecord = journal ?? { ...proposed, approval };
+      const { outcome: _outcome, cancelPending: _cancelPending, ...intent } = cancelRecord;
+      if (ownsInitialClaim) {
+        if (!journal?.cancelPending) save({ ...intent, cancelPending: true });
+        coordination.clear();
+      }
+      save({ ...intent, outcome: 'cancelled' });
       return { ...base, status: 'cancelled', automationChatId: observed.chatId };
     }
     if (!journal) {

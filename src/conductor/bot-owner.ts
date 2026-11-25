@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
+import {
+  automationCoordinationRoot,
+  handoffCancellationPending,
+} from './bot-handoff-coordination.js';
+import { isBotHandoffRecord, type BotHandoffRecord } from './bot-handoff-record.js';
 import { acquireLock } from './engine.js';
 import { isSessionId } from './handoff.js';
 import { detectOrca, execRunner, type CommandRunner } from './launcher.js';
@@ -11,21 +16,7 @@ export interface BotOwner {
   chatId: string;
 }
 
-export interface BotHandoffRecord {
-  id: string;
-  approval: string;
-  automationId: string;
-  from: string;
-  to: string;
-  botId: string;
-  settings: string;
-  revision: number;
-  editUncertain?: boolean;
-  editAttempt?: string;
-  cancelledWithoutEdit?: boolean;
-  outcome?: 'completed' | 'cancelled';
-  nextRunAt?: number;
-}
+export type { BotHandoffRecord } from './bot-handoff-record.js';
 
 export interface BotOwnership {
   active?: BotOwner;
@@ -45,26 +36,6 @@ function ownerRecord(value: unknown): value is BotOwner {
 }
 
 const ownershipPath = (dir: string) => join(dir, 'bot-owner.json');
-
-export function isBotHandoffRecord(value: unknown): value is BotHandoffRecord {
-  return (
-    isPlainObject(value) &&
-    ['id', 'approval', 'automationId', 'from', 'to', 'botId', 'settings'].every(
-      (key) => typeof value[key] === 'string',
-    ) &&
-    typeof value['revision'] === 'number' &&
-    Number.isSafeInteger(value['revision']) &&
-    (value['editUncertain'] === undefined || typeof value['editUncertain'] === 'boolean') &&
-    (value['editAttempt'] === undefined ||
-      (typeof value['editAttempt'] === 'string' && isSessionId(value['editAttempt']))) &&
-    (value['cancelledWithoutEdit'] === undefined ||
-      typeof value['cancelledWithoutEdit'] === 'boolean') &&
-    (value['outcome'] === undefined ||
-      value['outcome'] === 'completed' ||
-      value['outcome'] === 'cancelled') &&
-    (value['nextRunAt'] === undefined || Number.isFinite(value['nextRunAt']))
-  );
-}
 
 export function readBotOwnership(dir: string): BotOwnership {
   let data: unknown;
@@ -103,12 +74,21 @@ export function writeBotOwnership(dir: string, ownership: BotOwnership): void {
 }
 
 /** 운영권 교체와 tick 진입이 같은 잠금을 써야 앞 채팅이 뒤늦게 tick을 시작할 수 없다. */
-export function changeBotOwner(dir: string, previous: string | undefined, next?: BotOwner): void {
+export function changeBotOwner(
+  dir: string,
+  previous: string | undefined,
+  next?: BotOwner,
+  coordinationRoot = automationCoordinationRoot(),
+): void {
   const lock = acquireLock(dir);
   if (!lock.ok) throw new Error('tick이 끝난 뒤 운영권 변경을 다시 시도해 주세요');
   try {
     const { active, retired, revision, handoffs } = readBotOwnership(dir);
-    if (handoffs.some((record) => !record.outcome))
+    if (
+      handoffs.some(
+        (record) => !record.outcome || handoffCancellationPending(dir, record, coordinationRoot),
+      )
+    )
       throw new Error('진행 중인 bot handoff를 먼저 완료하거나 취소해 주세요');
     if (active?.chatId !== previous) throw new Error('현재 운영 채팅이 바뀌었어요');
     if (next && retired.includes(next.chatId))

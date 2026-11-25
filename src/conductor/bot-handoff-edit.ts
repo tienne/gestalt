@@ -93,6 +93,7 @@ export async function runAutomationEdit(
     if (
       !pending ||
       pending.outcome ||
+      pending.cancelPending ||
       pending.approval !== approval ||
       pending.editAttempt !== attempt ||
       active?.chatId !== pending.from ||

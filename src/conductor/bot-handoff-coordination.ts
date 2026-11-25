@@ -1,8 +1,8 @@
-import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
-import { isBotHandoffRecord, type BotHandoffRecord } from './bot-owner.js';
+import { isBotHandoffRecord, type BotHandoffRecord } from './bot-handoff-record.js';
 import { acquireLock } from './engine.js';
 import { digest } from './orca-automation.js';
 
@@ -64,4 +64,20 @@ export function readAutomationClaim(dir: string): AutomationClaim | undefined {
     request: value['request'],
     ...(value['intent'] ? { intent: value['intent'] } : {}),
   };
+}
+
+/** 취소 기록을 먼저 쓰던 버전에서도 아직 예약이 남았다면 복구가 끝나지 않았다. */
+export function handoffCancellationPending(
+  dir: string,
+  record: BotHandoffRecord,
+  root: string,
+): boolean {
+  if (record.cancelPending) return true;
+  if (record.outcome !== 'cancelled') return false;
+  try {
+    const claim = readAutomationClaim(automationCoordinationDir(root, record.automationId));
+    return claim?.store === realpathSync(dir) && claim.request === record.id;
+  } catch {
+    return true;
+  }
 }
