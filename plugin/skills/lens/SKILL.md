@@ -50,7 +50,7 @@ inputs:
   difficulty:
     type: string
     required: false
-    description: "만들 난이도. 비우면 'easy'와 같다. 보통 리포트를 쓰고 그걸 풀어 쓴 쉬운 리포트를 더하며 뷰어는 쉬운 리포트를 먼저 연다. 'easy'를 직접 주면 쉬운 리포트가 이미 있어도 다시 쓴다. 'normal'은 보통 리포트만 쓰고 이미 있어도 다시 쓴다"
+    description: "만들 난이도. 비우면 'easy'와 같다. 보통 리포트를 쓰고 그걸 풀어 쓴 쉬운 리포트를 더하며 뷰어는 쉬운 리포트를 먼저 연다. 'easy'를 직접 주면 쉬운 리포트가 이미 있어도 다시 쓴다. 'normal'은 보통 리포트만 쓰고 이미 있어도 다시 쓰며 쉬운 리포트가 있으면 그것도 다시 쓴다"
   templates:
     type: string
     required: false
