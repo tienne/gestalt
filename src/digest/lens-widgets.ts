@@ -573,7 +573,11 @@ function lintShape(w: Widget, wp: string, ctx: WidgetLintContext, err: Err, issu
       w.tracks.map((t) => t.id),
       `${wp}.tracks`,
     );
-    dupes(stepElementIds(w), `${wp}.spans`);
+    // id 없는 칸을 빈 값으로 남겨야 겹친 칸의 경로가 spans 순번과 맞는다
+    dupes(
+      w.spans.map((sp) => sp.id ?? ''),
+      `${wp}.spans`,
+    );
     const tracks = new Set(w.tracks.map((t) => t.id));
     const last = w.columns.length - 1;
     w.spans.forEach((sp, k) => {

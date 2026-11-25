@@ -4,6 +4,7 @@ import { renderDigestHtml } from '../../../src/digest/render-html.js';
 import { renderDigestMarkdown } from '../../../src/digest/render-md.js';
 import { extractProse } from '../../../src/digest/prose.js';
 import { parseDigest } from '../../../src/digest/schema.js';
+import { lintDigest, lintErrors } from '../../../src/digest/lint.js';
 import { VIEWER_JS } from '../../../src/digest/viewer-js.js';
 import { lensDigest, lensSource } from './fixture.js';
 import {
@@ -154,6 +155,16 @@ describe('새 위젯 lint', () => {
     const w = journey();
     w.loops = [{ from: 'alpha', to: 'nowhere' }];
     expect(codes(w)).toContain('STEPPER_LOOP_UNKNOWN');
+  });
+
+  it('calendar 칸 id가 겹치면 겹친 칸의 순번을 짚는다', () => {
+    const w = week();
+    delete w.spans[0]!.id;
+    w.spans[3]!.id = w.spans[2]!.id;
+    const dup = lintErrors(
+      lintDigest(lensDigest(withWidget(w)), deployTranscript(), { source: lensSource() }),
+    ).find((i) => i.code === 'WIDGET_ID_DUPLICATE');
+    expect(dup?.path).toMatch(/\.spans\.3\.id$/);
   });
 
   it('비유 표는 안 맞는 지점이 비면 막는다', () => {
