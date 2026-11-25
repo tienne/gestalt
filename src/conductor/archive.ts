@@ -249,6 +249,7 @@ export async function archiveOrders(
           });
         delete state.gates[id];
         delete state.slackPosted[id];
+        delete state.slackDraftReplacements[id];
       }
       return plan.orders.length + plan.removed.length + plan.gates.length > 0;
     },

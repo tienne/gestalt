@@ -8,6 +8,7 @@ import type {
 
 export const SLACK_HOST_HANDOFF = 'host';
 export const SLACK_UNVERIFIED_RESPONSE = 'unverified';
+export const SLACK_AMBIGUOUS_REPLACEMENT = 'ambiguous-replacement';
 export const SUPERSEDED_PREFIX = 'superseded:';
 export const SLACK_DELIVERY_EVENT = 'gestalt_conductor_slack_delivery';
 
@@ -82,15 +83,33 @@ export function canReplaceSlackDraft(
 ): boolean {
   const next = state.gates[proof.replacementGateId];
   return (
-    !gate.slackReplacement &&
+    !state.slackDraftReplacements[gate.id] &&
     state.slackPosted[gate.id] === undefined &&
     next?.status === 'open' &&
-    replacementMatches(gate, next, proof)
+    replacementMatches(gate, next, proof) &&
+    openSlackReplacementCandidates(state, gate, proof.replacementDigest).length === 1
+  );
+}
+
+export function openSlackReplacementCandidates(
+  state: ConductorSnapshot,
+  gate: Gate,
+  digest: string,
+): Gate[] {
+  return Object.values(state.gates).filter(
+    (next) =>
+      next.type === 'slack-post' &&
+      next.status === 'open' &&
+      next.id !== gate.id &&
+      next.orderId === gate.orderId &&
+      next.payload?.channel === gate.payload?.channel &&
+      next.payload?.threadTs === gate.payload?.threadTs &&
+      next.payload?.digest === digest,
   );
 }
 
 export function slackReplacementConfirmed(state: ConductorSnapshot, gate: Gate): boolean {
-  const proof = gate.slackReplacement;
+  const proof = state.slackDraftReplacements[gate.id];
   return (
     proof !== undefined && replacementMatches(gate, state.gates[proof.replacementGateId], proof)
   );
@@ -143,6 +162,7 @@ export function slackPublicationBlocker(state: ConductorSnapshot, gate: Gate): s
   if (ref === undefined) return 'Slack 게시 결과를 기다리고 있어요';
   if (ref === SLACK_HOST_HANDOFF) return '호스트에 넘긴 Slack 게시의 증빙을 기다리고 있어요';
   if (ref === SLACK_UNVERIFIED_RESPONSE) return '직접 게시 응답에서 승인 범위를 확인하지 못했어요';
+  if (ref === SLACK_AMBIGUOUS_REPLACEMENT) return 'Slack 초안 교체 후보가 여러 개예요';
   if (ref.startsWith(SUPERSEDED_PREFIX))
     return '이전 Slack 기록에서 초안 교체 증빙을 확인하지 못했어요';
   return '이전 Slack 게시 기록에 채널, 스레드와 작업 증빙이 없어요';

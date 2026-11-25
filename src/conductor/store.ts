@@ -15,12 +15,15 @@ import { withFileLock } from '../core/file-lock.js';
 import { isPlainObject, writeJsonAtomic } from '../core/json-file.js';
 import { log } from '../core/log.js';
 import {
+  approvedSlackUnrecorded,
   canReplaceSlackDraft,
+  openSlackReplacementCandidates,
   orderHasPendingSlack,
   slackMessageKey,
   slackPublicationConfirmed,
   slackPublicationMatches,
   slackReplacementConfirmed,
+  SLACK_AMBIGUOUS_REPLACEMENT,
   SUPERSEDED_PREFIX,
 } from './slack-state.js';
 import {
@@ -90,6 +93,7 @@ export function emptySnapshot(): ConductorSnapshot {
     bypasses: [],
     jiraTransitions: [],
     slackPosted: {},
+    slackDraftReplacements: {},
     slackMessageClaims: {},
     appliedReports: {},
     reports: {},
@@ -143,6 +147,7 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     case 'gate-opened':
       if (e.gate.orderId !== undefined && isRetired(s, e.gate.orderId)) return;
       s.gates[e.gate.id] = { ...e.gate };
+      Reflect.deleteProperty(s.gates[e.gate.id]!, 'slackReplacement');
       return;
     case 'gate-updated': {
       const g = s.gates[e.gateId];
@@ -204,14 +209,28 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
     case 'slack-posted': {
       // 주문과 함께 빠졌거나 보관에서 버린 게이트에 늦게 온 줄이다
       const gate = s.gates[e.gateId];
-      if (gate && !slackPublicationConfirmed(s, gate) && !slackReplacementConfirmed(s, gate))
+      if (
+        gate &&
+        s.slackPosted[e.gateId] !== SLACK_AMBIGUOUS_REPLACEMENT &&
+        !slackPublicationConfirmed(s, gate) &&
+        !slackReplacementConfirmed(s, gate)
+      )
         s.slackPosted[e.gateId] = e.ref;
       return;
     }
     case 'slack-draft-replaced': {
       const gate = s.gates[e.gateId];
-      if (!gate || !e.replacement || !canReplaceSlackDraft(s, gate, e.replacement)) return;
-      s.gates[e.gateId] = { ...gate, slackReplacement: e.replacement };
+      if (!gate || !e.replacement) return;
+      if (!canReplaceSlackDraft(s, gate, e.replacement)) {
+        if (
+          typeof e.replacement.replacementDigest === 'string' &&
+          approvedSlackUnrecorded(s, gate) &&
+          openSlackReplacementCandidates(s, gate, e.replacement.replacementDigest).length > 1
+        )
+          s.slackPosted[e.gateId] = SLACK_AMBIGUOUS_REPLACEMENT;
+        return;
+      }
+      s.slackDraftReplacements[e.gateId] = { ...e.replacement };
       s.slackPosted[e.gateId] = `${SUPERSEDED_PREFIX}${e.replacement.replacementGateId}`;
       return;
     }
@@ -351,6 +370,7 @@ export function detachOrder(s: ConductorSnapshot, orderId: string, index?: Order
   for (const g of gatesOfOrder(s, orderId, index)) {
     delete s.gates[g.id];
     delete s.slackPosted[g.id];
+    delete s.slackDraftReplacements[g.id];
   }
   s.bypasses = s.bypasses.filter((b) => b.orderId !== orderId);
   s.jiraTransitions = s.jiraTransitions.filter((t) => t.orderId !== orderId);
@@ -859,6 +879,7 @@ export function readBase(dir: string): BaseFile | undefined {
   // 게이트 색인이 들어가기 전에 쓴 base.json에는 이 칸이 없다
   if (!isPlainObject(parsed.state.askedSourceRefs)) parsed.state.askedSourceRefs = {};
   if (!isPlainObject(parsed.state.slackMessageClaims)) parsed.state.slackMessageClaims = {};
+  if (!isPlainObject(parsed.state.slackDraftReplacements)) parsed.state.slackDraftReplacements = {};
   return parsed;
 }
 

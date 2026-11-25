@@ -6,6 +6,8 @@ import {
   approvedSlackUnrecorded,
   canReplaceSlackDraft,
   isSlackChannelId,
+  openSlackReplacementCandidates,
+  SLACK_AMBIGUOUS_REPLACEMENT,
   SLACK_DELIVERY_EVENT,
   SLACK_HOST_HANDOFF,
   SLACK_UNVERIFIED_RESPONSE,
@@ -198,6 +200,26 @@ export interface PublishResult {
   reopened: { gateId: string; newGateId: string }[];
 }
 
+function holdAmbiguousReplacement(store: ConductorStore, gate: Gate): never {
+  store.appendIfCurrent(
+    {
+      type: 'slack-posted',
+      at: store.timestamp(),
+      gateId: gate.id,
+      ref: SLACK_AMBIGUOUS_REPLACEMENT,
+    },
+    () => {
+      const current = store.snapshot.gates[gate.id];
+      return (
+        current !== undefined &&
+        approvedSlackUnrecorded(store.snapshot, current) &&
+        slackDeliveryId(current) === slackDeliveryId(gate)
+      );
+    },
+  );
+  throw new Error('Slack 초안 교체 후보가 여러 개예요');
+}
+
 /**
  * 승인된 슬랙 초안을 한 번씩만 게시한다.
  *
@@ -228,16 +250,20 @@ export async function publishApprovedSlack(
       if (!previousDigest) throw new Error('승인한 Slack 초안의 해시가 없어요');
       const replacementDigest = draftDigest(channel, threadTs, text);
       if (replacementDigest !== previousDigest) {
-        const { gate: next } = draftSlack(
-          store,
-          {
-            channel,
-            text,
-            ...(gate.orderId ? { orderId: gate.orderId } : {}),
-            ...(threadTs ? { threadTs } : {}),
-          },
-          dirname(draftFile),
-        );
+        const candidates = openSlackReplacementCandidates(store.snapshot, gate, replacementDigest);
+        if (candidates.length > 1) holdAmbiguousReplacement(store, gate);
+        const next =
+          candidates[0] ??
+          draftSlack(
+            store,
+            {
+              channel,
+              text,
+              ...(gate.orderId ? { orderId: gate.orderId } : {}),
+              ...(threadTs ? { threadTs } : {}),
+            },
+            dirname(draftFile),
+          ).gate;
         const replacement = {
           replacementGateId: next.id,
           approvedDeliveryId: slackDeliveryId(gate),
@@ -253,7 +279,15 @@ export async function publishApprovedSlack(
             );
           },
         );
-        if (!recorded) throw new Error('Slack 초안을 교체하는 사이 게이트가 바뀌었어요');
+        if (!recorded) {
+          const current = store.snapshot.gates[gate.id];
+          if (
+            current &&
+            openSlackReplacementCandidates(store.snapshot, current, replacementDigest).length > 1
+          )
+            holdAmbiguousReplacement(store, gate);
+          throw new Error('Slack 초안을 교체하는 사이 게이트가 바뀌었어요');
+        }
         result.reopened.push({ gateId: gate.id, newGateId: next.id });
         result.failed.push({
           gateId: gate.id,

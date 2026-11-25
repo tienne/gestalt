@@ -264,7 +264,6 @@ export interface Gate {
   /** 슬랙 초안의 채널과 본문 경로처럼 승인 뒤 다시 쓸 값 */
   payload?: Record<string, string>;
   approvedDeployment?: ApprovedDeployment;
-  slackReplacement?: SlackDraftReplacement;
   completion?: { at: string; evidence: GateCompletionEvidence };
   openedAt: string;
   resolvedAt?: string;
@@ -481,6 +480,8 @@ export interface ConductorSnapshot {
   bypasses: BypassRecord[];
   jiraTransitions: JiraTransitionRecord[];
   slackPosted: Record<string, string>;
+  /** gate-opened의 필드와 구분해 전용 교체 이벤트에서 확인한 관계만 보관한다 */
+  slackDraftReplacements: Record<string, SlackDraftReplacement>;
   /** 먼저 붙은 게이트를 보관한 뒤에도 같은 메시지를 다른 작업에 쓰지 못하게 한다 */
   slackMessageClaims: Record<string, string | (SlackPublicationEvidence & { gateId: string })>;
   /** 적용한 보고 파일 이름과 시각 */
