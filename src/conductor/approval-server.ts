@@ -86,6 +86,10 @@ function send(res: ServerResponse, status: number, body: string, type: string) {
 const json = (res: ServerResponse, status: number, value: unknown) =>
   send(res, status, JSON.stringify(value), 'application/json; charset=utf-8');
 
+/** 운영자 터미널에서 띄운 등록 서버의 기본 500 문구. 원인은 그 터미널 stderr에 찍힌다 */
+export const OPERATOR_SERVER_ERROR =
+  '승인 서버가 요청을 처리하지 못했어요. 터미널 로그를 확인해 주세요';
+
 /**
  * 고정 localhost 포트에 승인 페이지를 띄운다. 127.0.0.1에만 붙고 Host와 Origin을 고정 주소로 확인해 다른 사이트나
  * DNS 재바인딩으로 들어온 요청을 거른다. 게이트를 닫는 근거는 이 확인이 아니라 Touch ID 서명이다
@@ -163,9 +167,7 @@ export function startApprovalServer(opts: {
       if (error instanceof HttpError) return json(res, error.status, { error: error.message });
       console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
       json(res, 500, {
-        error:
-          opts.serverErrorMessage ??
-          '승인 서버가 요청을 처리하지 못했어요. 터미널 로그를 확인해 주세요',
+        error: opts.serverErrorMessage ?? OPERATOR_SERVER_ERROR,
       });
     });
   };
