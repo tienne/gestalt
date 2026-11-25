@@ -527,9 +527,7 @@ describe('Orca 인계 프로세스 중단 복구', () => {
     const { dir, shared, schedule, editing, invoke, approve } = fixture();
     const approval = await approve();
     expect(await invoke({ approve: approval, phase: 'after-claim' })).toBe('killed');
-    expect(await invoke({ approve: approval, cancel: true, phase: 'before-clear' })).toBe(
-      'killed',
-    );
+    expect(await invoke({ approve: approval, cancel: true, phase: 'before-clear' })).toBe('killed');
     const claimDir = join(shared, digest(options.automation));
     const claimFile = join(claimDir, 'claim.json');
     const original = readFileSync(claimFile, 'utf8');
@@ -543,11 +541,13 @@ describe('Orca 인계 프로세스 중단 복구', () => {
     const owner = readFileSync(ownerFile, 'utf8');
     const automation = readFileSync(schedule, 'utf8');
 
-    expect(await invoke({ approve: approval, cancel: true, phase: 'no-orca-reads' })).toMatchObject({
-      status: 'partial',
-      retryStage: 'reconcile-edit',
-      detail: expect.stringContaining('공유 예약의 승인 스냅샷'),
-    });
+    expect(await invoke({ approve: approval, cancel: true, phase: 'no-orca-reads' })).toMatchObject(
+      {
+        status: 'partial',
+        retryStage: 'reconcile-edit',
+        detail: expect.stringContaining('공유 예약의 승인 스냅샷'),
+      },
+    );
     expect(readFileSync(claimFile, 'utf8')).toBe(changed);
     expect(readFileSync(ownerFile, 'utf8')).toBe(owner);
     expect(readFileSync(schedule, 'utf8')).toBe(automation);
@@ -556,7 +556,9 @@ describe('Orca 인계 프로세스 중단 복구', () => {
     expect(await invoke({ phase: 'owner-release' })).toMatchObject({ status: 'blocked' });
 
     writeFileSync(claimFile, original);
-    expect(await invoke({ approve: approval, cancel: true })).toMatchObject({ status: 'cancelled' });
+    expect(await invoke({ approve: approval, cancel: true })).toMatchObject({
+      status: 'cancelled',
+    });
   }, 20_000);
 
   it('해제 기록의 스냅샷이 달라지면 타 저장소의 인계 완료 후에도 로컬 취소를 보류한다', async () => {
