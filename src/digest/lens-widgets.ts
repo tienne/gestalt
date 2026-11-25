@@ -1,6 +1,6 @@
 import type { Widget, WidgetValue } from './lens-widget-schema.js';
 import { cellNumber, type LensSource } from './lens-source.js';
-import { numbersIn, sourceNumbersIn } from './lint-lens.js';
+import { metricWords, numbersIn, sourceNumbersIn } from './lint-lens.js';
 import type { CellRef } from './lens-schema.js';
 import { lintSteps, type Step } from './lens-steps.js';
 import type { DigestIssue } from './lint.js';
@@ -16,12 +16,6 @@ const ALLOWED_KINDS: Record<Widget['class'], readonly Widget['kind'][]> = {
   D: ['stepSlider', 'beforeAfter', 'laneGraph', 'calendar', 'stepper'],
 };
 
-/**
- * 결과로 읽히는 지표 말. B는 아예 못 쓰고 A와 C는 원문에 나온 말만 쓴다.
- * 라벨 하나에 지표 말이 여럿 들 수 있어 g로 전부 본다. F1-score는 F1보다 먼저 둬야 통째로 잡힌다
- */
-const METRIC =
-  /(점수|정확도|정답률|일치도|성능|정밀도|재현율|오차|손실|F1-score|F-score|score|accuracy|precision|recall|\bF1\b|\bNMI\b|\bMSE\b|\bBLEU\b|\bAUC\b|loss)/gi;
 /** 한국어 리포트가 영어 원문의 지표를 옮겨 쓴 경우를 받으려고 짝을 둔다. 어느 쪽이든 원문에 있으면 원문 지표다 */
 const METRIC_ALIASES: Record<string, string[]> = {
   점수: ['score'],
@@ -36,8 +30,6 @@ const METRIC_ALIASES: Record<string, string[]> = {
 };
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-const metricWords = (text: string): string[] => [...text.matchAll(METRIC)].map((m) => m[0]);
 
 /**
  * 영숫자 경계로 감싸 대조한다(knowledge.ts의 노트 검색과 같은 꼴). \b는 한글 앞뒤를 경계로 못 잡는다.

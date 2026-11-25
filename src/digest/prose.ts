@@ -73,6 +73,12 @@ function diagramLabels(d: Diagram, dp: string): LabelField[] {
 function collectLabelFields(digest: Digest): LabelField[] {
   const out: LabelField[] = [];
   digest.reports.forEach((report, ri) => {
+    const analogy = report.lead.primer?.analogy;
+    if (analogy) {
+      const ap = `reports.${ri}.lead.primer.analogy`;
+      for (const l of widgetLabels(analogy, ap))
+        out.push({ path: l.path, text: l.text, group: ap });
+    }
     report.sections.forEach((section, si) => {
       const sp = `reports.${ri}.sections.${si}`;
       if (section.diagram) out.push(...diagramLabels(section.diagram, `${sp}.diagram`));

@@ -61,6 +61,19 @@ const sideSchema = z.object({
 
 const axisSchema = z.object({ title: label.optional(), labels: z.array(label).min(1).max(8) });
 
+/** 원문 말과 비유를 나란히 놓은 표. 배지는 구분과 상관없이 비유로 고정이고 B만 받는다 */
+export const analogyMapSchema = z.object({
+  ...base,
+  kind: z.literal('analogyMap'),
+  domain: label,
+  rows: z
+    .array(z.object({ term: label, termCite: citeSchema, analog: z.string().min(1).max(80) }))
+    .min(3)
+    .max(8),
+  /** 비유가 원문과 안 맞는 지점. 비어 있으면 lint가 막는다 */
+  breaks: z.array(z.string().max(200)).max(4),
+});
+
 export const widgetSchema = z.discriminatedUnion('kind', [
   z.object({
     ...base,
@@ -179,18 +192,7 @@ export const widgetSchema = z.discriminatedUnion('kind', [
       .optional(),
     steps: stepsSchema.optional(),
   }),
-  /** 원문 말과 비유를 나란히 놓은 표. 배지는 구분과 상관없이 비유로 고정이고 B만 받는다 */
-  z.object({
-    ...base,
-    kind: z.literal('analogyMap'),
-    domain: label,
-    rows: z
-      .array(z.object({ term: label, termCite: citeSchema, analog: z.string().min(1).max(80) }))
-      .min(3)
-      .max(8),
-    /** 비유가 원문과 안 맞는 지점. 비어 있으면 lint가 막는다 */
-    breaks: z.array(z.string().max(200)).max(4),
-  }),
+  analogyMapSchema,
 ]);
 
 export type Widget = z.infer<typeof widgetSchema>;

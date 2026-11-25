@@ -3,6 +3,14 @@ import { cellNumber, type LensSource } from './lens-source.js';
 import type { DigestIssue } from './lint.js';
 import type { Bullet, Cite, LensKind, Report, Transcript } from './schema.js';
 
+/**
+ * 결과로 읽히는 지표 말. B 그림과 지어낸 예시는 아예 못 쓰고 A와 C, D는 원문에 나온 말만 쓴다.
+ * 라벨 하나에 지표 말이 여럿 들 수 있어 g로 전부 본다. F1-score는 F1보다 먼저 둬야 통째로 잡힌다
+ */
+const METRIC =
+  /(점수|정확도|정답률|일치도|성능|정밀도|재현율|오차|손실|F1-score|F-score|score|accuracy|precision|recall|\bF1\b|\bNMI\b|\bMSE\b|\bBLEU\b|\bAUC\b|loss)/gi;
+export const metricWords = (text: string): string[] => [...text.matchAll(METRIC)].map((m) => m[0]);
+
 /** 자료 종류마다 한눈에 보기에 꼭 있어야 할 칸. 순서는 뷰어가 그리는 순서다 */
 export const GLANCE_REQUIRED: Record<LensKind, readonly GlanceKind[]> = {
   pdf: ['problem', 'method', 'result', 'limit'],
@@ -361,6 +369,101 @@ function checkSourceRefs(
   });
 }
 
+export const ASIDE_LABEL = { analogy: '비유', example: '예시' } as const;
+
+/**
+ * 설명 장치(aside)는 쉬운 리포트에만 연다. 보통 리포트는 원문 가까이 보는 리포트라 설명 장치가 섞이면 두 리포트 차이가 흐려진다.
+ * 비유는 숫자를 못 쓰고 예시는 숫자를 지어낼 수 있는 대신 결과처럼 읽히는 지표 말을 못 쓴다
+ */
+function checkAsides(report: Report, p: string, issues: DigestIssue[]): void {
+  const easy = report.options.difficulty === 'easy';
+  const err = (path: string, code: string, message: string) =>
+    issues.push({ path, severity: 'error', code, message });
+  report.sections.forEach((section, si) => {
+    section.subsections.forEach((sub, bi) => {
+      const prefix = `${p}.sections.${si}.subsections.${bi}.bullets`;
+      for (const { bullet, path } of walk(sub.bullets, prefix)) {
+        if (!bullet.aside) continue;
+        const label = ASIDE_LABEL[bullet.aside];
+        if (!easy) {
+          err(
+            `${path}.aside`,
+            'ASIDE_ON_NORMAL',
+            `${label} 불릿은 쉬운 리포트에만 쓴다. 보통 리포트는 원문 주장만 옮긴다`,
+          );
+        }
+        if (bullet.doubt) {
+          err(
+            `${path}.doubt`,
+            'ASIDE_HAS_DOUBT',
+            `${label} 불릿에는 의심 표시를 달지 않는다. 의심은 원문 주장을 옮긴 불릿에 단다`,
+          );
+        }
+        if (bullet.aside === 'analogy' && numbersIn(bullet.text).length > 0) {
+          err(
+            `${path}.text`,
+            'ASIDE_HAS_NUMBER',
+            '비유에는 숫자를 쓰지 않는다. 숫자가 필요하면 예시(example)로 바꾼다',
+          );
+        }
+        if (
+          bullet.aside === 'example' &&
+          (metricWords(bullet.text).length > 0 || bullet.text.includes('%'))
+        ) {
+          err(
+            `${path}.text`,
+            'ASIDE_METRIC_LABEL',
+            '지어낸 예시에 점수, 정확도, % 같은 결과 지표 말을 쓰지 않는다. 원문 결과처럼 읽힌다',
+          );
+        }
+      }
+      const asides = sub.bullets.filter((b) => b.aside).length;
+      if (asides * 2 > sub.bullets.length) {
+        issues.push({
+          path: prefix,
+          severity: 'warning',
+          code: 'ASIDE_TOO_MANY',
+          message: `불릿 ${sub.bullets.length}개 가운데 설명 장치가 ${asides}개다. 원문 주장이 절반을 넘게 남긴다`,
+        });
+      }
+    });
+  });
+}
+
+/** 먼저 보기 규칙 줄은 원문 주장이라 출처 칸과 숫자를 대조한다. 비유 표는 위젯 lint가 본다 */
+function checkPrimer(
+  report: Report,
+  p: string,
+  source: LensSource | null,
+  transcript: Transcript,
+  issues: DigestIssue[],
+  problem?: 'missing' | 'invalid',
+): void {
+  const primer = report.lead.primer;
+  if (!primer) return;
+  const pp = `${p}.lead.primer`;
+  if (report.options.difficulty !== 'easy') {
+    issues.push({
+      path: pp,
+      severity: 'error',
+      code: 'ASIDE_ON_NORMAL',
+      message: '먼저 보기(primer)는 쉬운 리포트에만 쓴다',
+    });
+  }
+  primer.rules.forEach((rule, k) => {
+    const rp = `${pp}.rules.${k}`;
+    const ev: Evidence = 'table' in rule.cite ? rule.cite : { cite: rule.cite };
+    if (isCellRef(ev)) checkEvidence([ev], `${rp}.cite`, source, issues, problem);
+    checkNumbers(
+      rule.text,
+      allowedNumbers([ev], source, transcript),
+      `${rp}.text`,
+      'PRIMER_NUMBER_UNKNOWN',
+      issues,
+    );
+  });
+}
+
 /**
  * 읽기 렌즈 리포트가 원문과 맞물리는지 본다. 숫자가 든 칸은 원문 표나 문단과 대조한다.
  * 의심 표시는 원문 안의 어긋남만 받는다. 바깥 반론은 맥락 카드로 간다
@@ -386,4 +489,6 @@ export function lintLensReport(
   checkSourceRefs(report, p, source, issues, sourceProblem);
   checkDoubts(report, p, source, transcript, issues, sourceProblem);
   checkLimits(report, p, source, transcript, issues, sourceProblem);
+  checkAsides(report, p, issues);
+  checkPrimer(report, p, source, transcript, issues, sourceProblem);
 }

@@ -67,8 +67,8 @@ const beforeAfter: Diagram = {
 };
 
 describe('새 도식 네 종류', () => {
-  it('스키마 버전은 허브와 핵심 수치, 격자 고르기 도식까지 더한 1.7.0이다', () => {
-    expect(DIGEST_SCHEMA_VERSION).toBe('1.7.0');
+  it('스키마 버전은 읽기 렌즈 흐름 그림과 설명 장치까지 더한 1.8.0이다', () => {
+    expect(DIGEST_SCHEMA_VERSION).toBe('1.8.0');
   });
 
   it('스키마와 lint를 통과한다', () => {
