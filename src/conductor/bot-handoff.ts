@@ -5,7 +5,6 @@ import {
   handoffCancellationPending,
   lockAutomationHandoff,
   matchesApproval,
-  type AutomationClaim,
 } from './bot-handoff-coordination.js';
 import {
   hasEditAttempts,
@@ -225,23 +224,17 @@ async function handoffLocked(
         : undefined;
       if (journal.editUncertain !== undefined || localReceipt?.outcome === 'dispatched')
         throw new Error('이 요청의 Orca 편집 응답을 확인한 뒤 로컬 취소를 복구해 주세요');
-      if (
-        coordination.hasMatchingRelease(dir, journal) ||
-        (claim?.store &&
-          claim.store !== dir &&
-          completedForeignHandoff(claim, journal, coordination.dir))
-      ) {
-        const source = assertSource(ownership, options, journal);
-        if (source.name !== options.bot) throw new Error('현재 운영 봇 이름과 달라요');
-        const { cancelPending: _cancelPending, ...intent } = journal;
-        const cancelled = { ...intent, outcome: 'cancelled' } as const;
-        save(cancelled);
-        return {
-          ...recordResult(ownership, options, cancelled),
-          detail:
-            '로컬 인계 요청의 취소를 복구했어요. Orca 일정을 조회하지 않고 현재 담당 예약을 보존했어요',
-        };
-      }
+      coordination.assertMatchingRelease(dir, journal);
+      const source = assertSource(ownership, options, journal);
+      if (source.name !== options.bot) throw new Error('현재 운영 봇 이름과 달라요');
+      const { cancelPending: _cancelPending, ...intent } = journal;
+      const cancelled = { ...intent, outcome: 'cancelled' } as const;
+      save(cancelled);
+      return {
+        ...recordResult(ownership, options, cancelled),
+        detail:
+          '로컬 인계 요청의 취소를 복구했어요. Orca 일정을 조회하지 않고 현재 담당 예약을 보존했어요',
+      };
     }
     let attempt = journal?.editAttempt;
     if (options.cancel && journal && (!journal.outcome || settlingCancellation)) {
@@ -559,27 +552,4 @@ async function handoffLocked(
   } finally {
     if (cancelLock?.ok) cancelLock.release();
   }
-}
-
-function completedForeignHandoff(
-  claim: AutomationClaim,
-  local: BotHandoffRecord,
-  coordinationDir: string,
-): boolean {
-  const foreign = readBotOwnership(claim.store);
-  const completed = foreign.handoffs.find(
-    (record) =>
-      record.automationId === local.automationId &&
-      record.botId === local.botId &&
-      record.outcome === 'completed' &&
-      record.to === foreign.active?.chatId &&
-      record.botId === foreign.active.botId &&
-      record.revision + 1 === foreign.revision,
-  );
-  return (
-    !!completed?.editAttempt &&
-    matchesApproval(claim, claim.store, completed) &&
-    readEditReceipt(coordinationDir, completed.approval, completed.editAttempt)?.outcome ===
-      'applied'
-  );
 }

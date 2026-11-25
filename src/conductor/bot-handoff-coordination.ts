@@ -10,7 +10,7 @@ import {
 import { acquireLock } from './engine.js';
 import { digest } from './orca-automation.js';
 
-export interface AutomationClaim {
+interface AutomationClaim {
   store: string;
   request: string;
   intent?: BotHandoffRecord;
@@ -41,12 +41,14 @@ export function lockAutomationHandoff(root: string, automationId: string) {
         { mode: 0o600 },
       );
     },
-    hasMatchingRelease(store: string, record: BotHandoffRecord) {
+    assertMatchingRelease(store: string, record: BotHandoffRecord) {
       const released = readClaimFile(releasePath(dir, record.approval));
-      if (!released) return false;
+      if (!released)
+        throw new Error(
+          '현재 요청의 공유 예약과 해제 기록이 모두 없어요. 운영자에게 요청 ID와 공유 예약 및 Orca 일정을 함께 확인해 달라고 요청해 주세요',
+        );
       if (!matchesApproval(released, store, record))
         throw new Error('Orca 공유 예약 해제 기록의 승인 스냅샷이 현재 요청과 달라요');
-      return true;
     },
     releaseClaim(store: string, record: BotHandoffRecord) {
       if (!matchesApproval(readAutomationClaim(dir), store, record))
