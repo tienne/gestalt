@@ -369,7 +369,7 @@ B는 원문과 무관한 장난감 예시라 지금 규칙(`B_BORROWS_NAME`, `B_
 
 ### 개수와 배치
 
-- 소섹션당 위젯 0~3개는 그대로 둔다. 쉬운 리포트는 대섹션 머리의 `primer`(아래 P0-2)에 하나를 더 둘 수 있다.
+- 소섹션당 위젯 0~3개는 그대로 둔다. 쉬운 리포트는 `lead`의 `primer`(아래 P0-2)에 하나를 더 둘 수 있다.
 - 새 위젯 렌더러는 `src/digest/render-widgets-flow.ts`에 종류별 함수로 두고 `render-widgets.ts`가 종류를 보고 넘긴다. 마크다운 출력은 위젯마다 표나 목록으로 떨어뜨린다(`laneGraph`는 줄별 목록과 단계 목록, `calendar`는 칸 표, `stepper`는 번호 목록, `analogyMap`은 두 칸 표). 상자와 화살표로 그리는 `stateMachine`, `sequence`, `swimlane`은 `src/digest/render-widgets-graph.ts`에 따로 둔다. 마크다운은 상태 목록과 전이 목록, 번호 붙은 메시지 목록, 줄별 활동 목록으로 떨어뜨린다.
 - 위젯은 렌즈 전용이고 영상 리포트에서는 `LENS_FIELD_ON_VIDEO`로 막힌다. 공용 도식(`diagram-schema.ts`, `svg.ts`)은 P0에서 건드리지 않아서 video-digest 회귀 범위가 생기지 않는다. 뷰어 스크립트(`viewer-js.ts`)를 고치면 video-digest 뷰어 테스트를 같이 돌린다.
 

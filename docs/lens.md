@@ -49,7 +49,7 @@ PDF 경로나 주소를 같이 주면 된다. Orca 내장 브라우저로 보던
 | 리포트 작성         | 출처와 의심 표시가 달린 리포트 한 벌을 쓴다                                            | `lens-reader` 에이전트                                                                |
 | 합치기와 검사       | 리포트를 `digest.json`에 합치며 표 칸에 붙은 출처와 의심 표시의 숫자를 원문과 대조한다 | `gestalt digest merge`                                                                |
 | 바깥 맥락과 내 노트 | 맥락 카드와 연결 카드를 쓰고 붙인다                                                    | `lens-context`, `lens-link` 에이전트, `gestalt lens knowledge`, `gestalt lens attach` |
-| 쉬운 리포트와 확장  | 요청했을 때만 더 쓴다                                                                  | `lens-reader`, `video-summarizer` 에이전트, `gestalt digest merge --extension`        |
+| 쉬운 리포트와 확장  | 쉬운 리포트는 기본으로 더 쓰고 확장은 요청했을 때만 쓴다                               | `lens-reader`, `video-summarizer` 에이전트, `gestalt digest merge --extension`        |
 | 윤문                | 한국어 리포트의 문장을 다듬는다                                                        | `ges_digest`의 `prose_extract`와 `prose_apply`                                        |
 | 렌더와 띄우기       | HTML과 마크다운을 코드로 만들고 뷰어를 띄운다                                          | `ges_digest`의 `render`, `gestalt digest serve`, `gestalt digest export`              |
 
