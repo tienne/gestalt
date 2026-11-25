@@ -253,8 +253,8 @@ function stateSvg(w: StateMachine, looks: Map<string, ElementLook>, ctx: LensHtm
       const opposite = pairs.has(`${t.to}>${t.from}`) && t.from !== t.to;
       const skip = Math.abs(pb.row - pa.row);
       const back = pb.row < pa.row || (pb.row === pa.row && pb.col < pa.col);
-      // 한 층 아래로 가는 화살표만 곧게 긋는다. 같은 칸에서 층을 건너뛰면 곡선 꼭대기가 상자 밖으로 나가게
-      // 크게 휘어 가운데 상자를 비켜 간다(이차 곡선 꼭대기는 bend의 절반이다)
+      // 같은 칸에서 층을 건너뛰는 화살표는 곡선 꼭대기가 상자 밖으로 나가게 크게 휘어 가운데 상자를 비켜 간다
+      // (이차 곡선 꼭대기는 bend의 절반이다). 서로 오가는 짝과 거슬러 올라가는 화살표는 작게 휘고 나머지는 곧게 긋는다
       const bend =
         a === b
           ? 0
