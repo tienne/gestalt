@@ -140,7 +140,7 @@ export interface Launcher {
   readonly kind: WorkerKind;
   start(spec: LaunchSpec): Promise<LaunchResult>;
   /** 도는 워커에 지시를 전한다. 컨덕터 세션이 대신 전해야 하면 HostAction을 돌려준다 */
-  send(worker: Worker, message: string): Promise<HostAction | undefined>;
+  send(worker: Worker, message: string, deliveryId?: string): Promise<HostAction | undefined>;
   /** 끝난 워커의 자원을 정리한다 */
   release(worker: Worker, opts?: ReleaseOptions): Promise<void>;
   /** 소식이 끊긴 워커의 터미널을 들여다본다. 들여다볼 터미널이 없는 런처는 두지 않는다 */
@@ -1358,7 +1358,7 @@ export class OrcaLauncher implements Launcher {
     return `${order.id}: 워크트리에 참조 ${oneLine(ref, 120)}를 못 붙였어요: ${outputHead(r)}`;
   }
 
-  async send(worker: Worker, message: string): Promise<undefined> {
+  async send(worker: Worker, message: string, deliveryId?: string): Promise<undefined> {
     if (!worker.handle) throw new Error(`워커 ${worker.id}의 dispatch id가 없어요`);
     await mustRun(
       this.runner,
@@ -1372,6 +1372,7 @@ export class OrcaLauncher implements Launcher {
         `conductor: ${worker.orderId}`,
         '--body',
         message,
+        ...(deliveryId ? ['--retry-request', deliveryId, '--full'] : []),
       ],
       { timeoutMs: ORCA_TIMEOUT_MS },
     );

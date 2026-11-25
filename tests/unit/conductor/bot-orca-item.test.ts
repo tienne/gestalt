@@ -68,10 +68,11 @@ esac`,
   return (show: unknown) => writeFileSync(itemFile, JSON.stringify({ ok: true, result: show }));
 }
 
-function fakePr(head = sha) {
+function fakePr(head = sha, base = 'main') {
   const bin = tempStateDir();
   const evidence = {
     headRefOid: head,
+    baseRefName: base,
     state: 'OPEN',
     isDraft: false,
     statusCheckRollup: [{ name: 'CI', conclusion: 'SUCCESS' }],
@@ -132,7 +133,14 @@ function signFor(
   const target = matchBotGate(store, gate.id);
   return sign(
     null,
-    Buffer.from(gateApprovalMessage(target, gate.type === 'merge' ? head : undefined, decision)),
+    Buffer.from(
+      gateApprovalMessage(
+        target,
+        gate.type === 'file-overlap' ? undefined : head,
+        decision,
+        'main',
+      ),
+    ),
     key,
   ).toString('base64');
 }
@@ -143,7 +151,7 @@ function show(
   answerText: string,
   over: { head?: string; chat?: string; answerActor?: object; extra?: object[] } = {},
 ): { item: unknown; events: { id: string; kind: string; actor: object; data: object }[] } {
-  const binding = itemBinding(matchBotGate(store, gate.id), over.head ?? sha);
+  const binding = itemBinding(matchBotGate(store, gate.id), over.head ?? sha, 'main');
   const bot = { kind: 'bot', botId: owner.botId, chatId: owner.chatId };
   return {
     item: {
@@ -197,9 +205,9 @@ describe('Orca 항목 답으로 게이트 종료', () => {
       delivery: 'pending',
       source: { kind: 'orca-item', item: 7, question: 'e11', answer: 'e12', botId: owner.botId },
     });
-    expect(last().itemReport).toBe(
-      '판단: 승인 (서명 approver-1), Orca 항목 7의 답 e12\n워커 전달: 대기 중(다음 tick이 전해요)',
-    );
+    expect(last().itemReport).toContain('판단: 승인 (서명 approver-1), Orca 항목 7의 답 e12');
+    expect(last().itemReport).toContain('결정 접수 및 게이트 반영:');
+    expect(last().itemReport).toContain('워커 전달: 대기 중(다음 tick이 전해요)');
     store.reload();
     expect(store.snapshot.gates[gate.id]?.answer).toContain(`--match-head-commit ${sha}`);
 
@@ -220,18 +228,36 @@ describe('Orca 항목 답으로 게이트 종료', () => {
     });
     await conductorBotItemDecideCommand(gate.id, { ...itemOpts(store), answer: 'e99' });
     expect(last()).toMatchObject({ alreadyResolved: true, sameAnswer: false, failedAttempts: 2 });
-    expect(last().itemReport).toContain('다시 시도 2번');
+    expect(last().itemReport).toContain('시도 2번');
   });
 
   it('파일 중첩과 리뷰 수동 전환 게이트도 gateApprovers 서명으로 닫는다', async () => {
     for (const type of ['file-overlap', 'review-manual-switch'] as const) {
       const item = fakeOrca(owner);
+      if (type === 'review-manual-switch') fakePr();
       const { store, gate, privateKey } = fixture(type);
       const sig = signFor(store, gate, privateKey, 'rejected');
       item(show(store, gate, `거절\napprover-1 ${sig}`));
       await conductorBotItemDecideCommand(gate.id, itemOpts(store));
       expect(last()).toMatchObject({ decision: 'rejected', delivery: 'pending' });
     }
+  });
+
+  it('재리뷰 Orca 질문의 base가 바뀌면 이전 질문의 답을 접수하지 않는다', async () => {
+    const item = fakeOrca(owner);
+    fakePr();
+    const { store, gate, privateKey } = fixture('review-manual-switch');
+    await conductorBotGateCommand(gate.id, { stateDir: store.dir });
+    const before = last();
+    expect(JSON.parse(before.orcaItem.binding)).toEqual(expect.arrayContaining([pr, sha, 'main']));
+    const sig = signFor(store, gate, privateKey, 'approved');
+    item(show(store, gate, `승인\n서명 approver-1 ${sig}`));
+    fakePr(sha, 'release');
+    await conductorBotGateCommand(gate.id, { stateDir: store.dir });
+    expect(last().orcaItem.binding).not.toBe(before.orcaItem.binding);
+    await expect(conductorBotItemDecideCommand(gate.id, itemOpts(store))).rejects.toThrow('exit 1');
+    store.reload();
+    expect(store.snapshot.gates[gate.id]?.status).toBe('open');
   });
 
   it('머지 서명 문자열에 한 서명을 파일 중첩 게이트에 옮겨 쓸 수 없다', async () => {

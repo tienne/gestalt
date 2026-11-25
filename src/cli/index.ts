@@ -34,6 +34,7 @@ import {
   conductorBotItemDecideCommand,
   conductorBotGateCommand,
   conductorBotGithubCommand,
+  conductorBotHandoffCommand,
   conductorCheckBotMutation,
   conductorBotReleaseCommand,
   conductorCheckpointSaveCommand,
@@ -60,6 +61,7 @@ import {
   conductorTickCommand,
   conductorWaitCommand,
   conductorWorkerReportCommand,
+  conductorWorkerDecisionCommand,
 } from './commands/conductor.js';
 import {
   conductorAcceptPreparedPlan,
@@ -1117,6 +1119,19 @@ export function createCli(): Command {
     .option('--json')
     .action(conductorBotBindCommand);
   bot
+    .command('handoff')
+    .description('기존 Orca 정기 자동화와 운영권을 함께 인계한다')
+    .requiredOption('--request <id>', '인계 요청 ID. 재시도할 때도 같은 값')
+    .requiredOption('--automation <id>', '기존 Orca 자동화 ID')
+    .requiredOption('--bot <name>', 'Orca 봇 이름')
+    .requiredOption('--from-chat <id>', '현재 운영 채팅 ID')
+    .requiredOption('--chat <id>', '새 운영 채팅 ID')
+    .option('--approve <snapshot>', '미리보기에서 받은 인계 승인값')
+    .option('--cancel', '자동화가 기존 채팅에 있을 때 진행 중인 요청 취소')
+    .addOption(stateDir())
+    .option('--json')
+    .action(conductorBotHandoffCommand);
+  bot
     .command('release')
     .description('봇 운영을 마치고 터미널에서 이어받을 수 있게 한다')
     .requiredOption('--from-chat <id>', '현재 운영 채팅 ID')
@@ -1419,9 +1434,8 @@ export function createCli(): Command {
       await conductorHandoffCommand(o);
     });
 
-  conductor
-    .command('worker')
-    .description('워커가 쓰는 명령')
+  const conductorWorker = conductor.command('worker').description('워커가 쓰는 명령');
+  conductorWorker
     .command('report')
     .description('워커 결과를 넘긴다. 요약과 참조만 받고 diff나 로그 원문은 거절한다')
     .requiredOption('--worker <id>', '워커 id')
@@ -1453,6 +1467,14 @@ export function createCli(): Command {
     .addOption(stateDir())
     .option('--json', '에이전트가 파싱할 JSON으로')
     .action((o) => conductorWorkerReportCommand(o));
+  conductorWorker
+    .command('decision')
+    .description('호스트에서 온 서명 결정을 전달 ID로 한 번 받는다')
+    .requiredOption('--worker <id>', '워커 id')
+    .requiredOption('--delivery <id>', '전달 id')
+    .option('--report <ref>', '처리 결과를 확인할 참조를 남긴다')
+    .addOption(stateDir())
+    .action(conductorWorkerDecisionCommand);
 
   const gate = conductor.command('gate').description('사람 확인 자리');
   gate

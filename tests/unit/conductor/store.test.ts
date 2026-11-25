@@ -3,6 +3,8 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { foldEvents } from '../../../src/conductor/fold.js';
+import { resolveGate } from '../../../src/conductor/gates.js';
 import {
   EVENTS_FILE,
   ConductorStore,
@@ -122,6 +124,74 @@ describe('ConductorStore', () => {
     a.append({ type: 'gate-delivery', at: a.timestamp(), gateId: 'gate-1', pending: false });
     expect(ConductorStore.open(dir).snapshot.gates['gate-1']).not.toHaveProperty('deliveryPending');
   });
+
+  it.each([true, false])(
+    '승인 기록과 배포 범위가 완료·전달 이벤트 순서와 상관없이 복원된다',
+    async (completeFirst) => {
+      const dir = tempStateDir();
+      const store = ConductorStore.open(dir);
+      const at = store.timestamp();
+      const gateId = 'gate-fixture';
+      const receipt = {
+        id: 'decision-fixture',
+        deliveryId: 'transfer-fixture',
+        target: 'target-fixture',
+        repo: 'acme/app',
+      };
+      const approvedDeployment = {
+        repo: 'acme/app',
+        ref: 'main',
+        sha: 'a'.repeat(40),
+        environment: 'stage',
+        runId: 12,
+        attempt: 1,
+        deploymentId: 13,
+      };
+      store.openGate({
+        id: gateId,
+        type: 'no-procedure',
+        status: 'open',
+        reason: '',
+        refs: [],
+        openedAt: at,
+      });
+      resolveGate(store, gateId, 'approved', undefined, {
+        receipt,
+        approvedDeployment,
+        deliveryPending: true,
+      });
+      const complete = () =>
+        store.append({
+          type: 'gate-completed',
+          at,
+          gateId,
+          evidence: {
+            kind: 'github-deployment',
+            target: approvedDeployment,
+            statusId: 15,
+            jobId: 14,
+          },
+        });
+      const deliver = () =>
+        store.append({ type: 'gate-delivery', at, gateId, pending: false, outcome: 'delivered' });
+      if (completeFirst) {
+        complete();
+        deliver();
+      } else {
+        deliver();
+        complete();
+      }
+      const expected = {
+        receipt,
+        approvedDeployment,
+        completion: { at },
+        deliveryOutcome: 'delivered',
+      };
+      expect(ConductorStore.open(dir).snapshot.gates[gateId]).toMatchObject(expected);
+      await expect(foldEvents(dir, { settleMs: 0 })).resolves.toMatchObject({ status: 'folded' });
+      expect(ConductorStore.open(dir).snapshot.gates[gateId]).toMatchObject(expected);
+    },
+  );
 
   it('append 도중 끊겨 반쯤 쓴 마지막 줄은 버리고 복원한다', () => {
     const dir = tempStateDir();

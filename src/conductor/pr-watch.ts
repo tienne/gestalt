@@ -1,4 +1,5 @@
 import { openOrReuse } from './gates.js';
+import type { ReviewApprovalScope } from './bot-approval.js';
 import { intakeOrder } from './intake.js';
 import type { ConductorStore } from './store.js';
 import {
@@ -39,6 +40,102 @@ export interface PrWatchResult {
   gated: Gate[];
   /** 이번에 본 PR 전체에서 답이 없는 대응 대상 스레드 수 */
   unansweredThreads: number;
+}
+
+function reviewReapprovalPrefix(ref: string, head: string): string {
+  return `pr-watch:reapproval:${ref}@${head}:`;
+}
+
+export function openReviewReapproval(
+  store: ConductorStore,
+  previous: Gate,
+  scope: ReviewApprovalScope,
+  reapprovalReason: string,
+): string | undefined {
+  const sourceRef = `${reviewReapprovalPrefix(scope.ref, scope.head)}${previous.id}`;
+  const gates = Object.values(store.snapshot.gates);
+  const existing =
+    gates.find((g) => g.payload?.sourceRef === sourceRef) ??
+    gates.find(
+      (g) =>
+        g.status === 'open' &&
+        g.type === 'review-manual-switch' &&
+        !g.orderId &&
+        g.payload?.prRef === scope.ref &&
+        g.payload.reapprovalOf,
+    );
+  const reason = `재리뷰 승인 범위가 달라졌어요: ${scope.ref} (HEAD ${scope.head}, base ${scope.base})`;
+  const payload = {
+    prRef: scope.ref,
+    sourceRef,
+    reapprovalOf: previous.id,
+    reapprovalReason,
+    approvalBase: scope.base,
+  };
+  if (existing) {
+    // 범위 확인 뒤 새 게이트를 쓴 시점에 끊겨도 같은 요청을 다시 쓴다.
+    if (
+      existing.status === 'open' &&
+      (existing.reason !== reason || existing.payload?.reapprovalOf !== previous.id)
+    )
+      store.append({
+        type: 'gate-updated',
+        at: store.timestamp(),
+        gateId: existing.id,
+        reason,
+        refs: [scope.ref],
+        payload,
+      });
+    return existing.id;
+  }
+  if (store.askedSourceRef(sourceRef)) return;
+  return openOrReuse(store, { type: 'review-manual-switch', reason, refs: [scope.ref], payload })
+    .gate.id;
+}
+
+export function recordedReviewReapproval(
+  store: ConductorStore,
+  previous: Gate,
+): { detail: string; replacement?: string } | undefined {
+  if (previous.type !== 'review-manual-switch' || previous.orderId) return;
+  // 이전 버전에서 접힌 상태 파일은 교체와 무효화를 별도 기록으로 저장했다.
+  const gate = Object.values(store.snapshot.gates).find(
+    (g) =>
+      g.type === 'review-manual-switch' && !g.orderId && g.payload?.reapprovalOf === previous.id,
+  );
+  if (gate) {
+    const reason = gate.payload?.reapprovalReason ?? gate.reason;
+    return {
+      detail: `${reason}. 새 게이트 ${gate.id}에서 다시 결정해 주세요`,
+      replacement: gate.id,
+    };
+  }
+  if (
+    Object.keys(store.snapshot.askedSourceRefs).some(
+      (ref) => ref.startsWith('pr-watch:reapproval:') && ref.endsWith(`:${previous.id}`),
+    )
+  )
+    return { detail: '재리뷰 승인 범위 변경으로 교체 게이트를 기록했어요' };
+}
+
+function requiresReviewReapproval(store: ConductorStore, pr: WatchedPr): boolean {
+  const prefix = reviewReapprovalPrefix(pr.ref, pr.headSha);
+  const headChanged = pr.headSha !== pr.reviewedHeadSha;
+  return (
+    Object.values(store.snapshot.gates).some(
+      (g) =>
+        g.type === 'review-manual-switch' &&
+        !g.orderId &&
+        g.payload?.prRef === pr.ref &&
+        g.payload.reapprovalOf &&
+        (g.status === 'open' ||
+          g.deliveryPending ||
+          (headChanged &&
+            (g.receipt?.head === pr.headSha || g.payload.sourceRef?.startsWith(prefix)))),
+    ) ||
+    (headChanged &&
+      Object.keys(store.snapshot.askedSourceRefs).some((ref) => ref.startsWith(prefix)))
+  );
 }
 
 /**
@@ -97,7 +194,7 @@ export async function pollPrs(
   }
 
   for (const pr of reviewing) {
-    if (!pr.reviewedHeadSha || busy.has(pr.ref)) continue;
+    if (!pr.reviewedHeadSha || busy.has(pr.ref) || requiresReviewReapproval(store, pr)) continue;
     if (pr.headSha !== pr.reviewedHeadSha) {
       const out = intakeOrder(
         store,
