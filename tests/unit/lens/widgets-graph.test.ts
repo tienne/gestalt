@@ -197,7 +197,20 @@ describe('상태 전이, 순서도, 역할별 줄 렌더', () => {
     expect(frame(out, 0)).toContain('<b>rebase</b>');
     expect(frame(out, 0)).toContain('wg-msg wg-reply w-hide');
     expect(frame(out, 2)).toContain('wg-msg wg-reply w-focus');
-    expect(out).toContain('>1. rebase</text>');
+    expect(out).toContain('>1. rebase</tspan></text>');
+  });
+
+  it('긴 화살표 라벨과 메시지 라벨은 두 줄로 접고 넘치면 줄임표로 끝낸다', () => {
+    const long = '버그가 나오면 수정 PR을 다시 squash 머지하고 alpha QA를 처음부터 다시 돌린다';
+    const state = prState();
+    state.transitions[2]!.label = long;
+    const edge = html(state).match(/<text class="wg-elabel"[^>]*>((?:<tspan[^>]*>[^<]*<\/tspan>)+)<\/text>/g) ?? [];
+    const wrapped = edge.find((t) => t.includes('…'));
+    expect(wrapped?.match(/<tspan/g)).toHaveLength(2);
+    const seq = rebase();
+    seq.messages[0]!.label = long;
+    const msg = html(seq);
+    expect(msg).toMatch(/<text class="wg-elabel"[^>]*><tspan[^>]*>1\. [^<]*<\/tspan><tspan[^>]*>[^<]*…<\/tspan><\/text>/);
   });
 
   it('일부 상태에만 자리 힌트를 줘도 자동 배치가 끝나고 칸이 안 겹친다', () => {

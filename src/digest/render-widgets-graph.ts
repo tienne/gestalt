@@ -77,9 +77,16 @@ export function wrapLabel(label: string, max = 9.8, lines = 3): string[] {
   return kept;
 }
 
-function textLines(lines: string[], x: number, cy: number, ctx: LensHtmlContext, cls = ''): string {
+function textLines(
+  lines: string[],
+  x: number,
+  cy: number,
+  ctx: LensHtmlContext,
+  cls = '',
+  anchor: 'middle' | 'start' = 'middle',
+): string {
   const top = cy - ((lines.length - 1) * LINE) / 2 + 4;
-  return `<text${cls ? ` class="${cls}"` : ''} x="${f1(x)}" y="${f1(top)}" text-anchor="middle">${lines
+  return `<text${cls ? ` class="${cls}"` : ''} x="${f1(x)}" y="${f1(top)}" text-anchor="${anchor}">${lines
     .map((l, k) => `<tspan x="${f1(x)}"${k ? ` dy="${LINE}"` : ''}>${ctx.escape(l)}</tspan>`)
     .join('')}</text>`;
 }
@@ -145,9 +152,13 @@ function connect(a: Box, b: Box, bend: number): Edge {
   };
 }
 
+/** 화살표 라벨 글자 폭. 상자보다 조금 넓게 두 줄까지 쓰고 넘치면 줄임표로 끝낸다 */
+const ARROW_LABEL_MAX = 12;
+const ARROW_LABEL_LINES = 2;
+
 const edgeLabel = (e: Edge, text: string | undefined, ctx: LensHtmlContext) =>
   text
-    ? `<text class="wg-elabel" x="${f1(e.lx)}" y="${f1(e.ly)}" text-anchor="middle">${ctx.escape(text)}</text>`
+    ? textLines(wrapLabel(text, ARROW_LABEL_MAX, ARROW_LABEL_LINES), e.lx, e.ly - 4, ctx, 'wg-elabel')
     : '';
 
 const svgOpen = (w: number, h: number, title: string, ctx: LensHtmlContext) =>
@@ -290,13 +301,19 @@ function stateSvg(w: StateMachine, looks: Map<string, ElementLook>, ctx: LensHtm
 function sequenceSvg(w: Sequence, looks: Map<string, ElementLook>, ctx: LensHtmlContext): string {
   const n = w.actors.length;
   const colW = Math.max(132, Math.min(170, 680 / n));
-  const W = n * colW;
   const col = new Map(w.actors.map((a, k) => [a.id, (k + 0.5) * colW]));
   const heads = w.actors.map((a) => wrapLabel(named(a.label, a.illustrative)));
   const headH = Math.max(...heads.map((l) => l.length)) * LINE + 12;
-  const rowH = 36;
-  const top = 8 + headH + 22;
+  const texts = w.messages.map((m, k) =>
+    wrapLabel(`${k + 1}. ${named(m.label, m.illustrative)}`, ARROW_LABEL_MAX, ARROW_LABEL_LINES),
+  );
+  const extra = (Math.max(1, ...texts.map((l) => l.length)) - 1) * LINE;
+  const rowH = 36 + extra;
+  const top = 8 + headH + 22 + extra;
   const H = top + (w.messages.length - 1) * rowH + 30;
+  // 자기 자신에게 보내는 메시지 라벨은 고리 오른쪽에 붙어서 마지막 참여자 밖으로 나간다
+  const selfLast = w.messages.some((m) => m.from === m.to && m.from === w.actors[n - 1]?.id);
+  const W = n * colW + (selfLast ? ARROW_LABEL_MAX * 12 - colW / 2 + 40 : 0);
   const actors = w.actors
     .map((a, k) => {
       const x = col.get(a.id)!;
@@ -311,14 +328,16 @@ function sequenceSvg(w: Sequence, looks: Map<string, ElementLook>, ctx: LensHtml
       const y = top + k * rowH;
       const look = arrowLook(looks.get(m.id), looks.get(m.from), looks.get(m.to));
       const cls = `wg-msg${m.reply ? ' wg-reply' : ''}${m.illustrative ? ' w-ill' : ''}${lookClass(look)}`;
-      const text = `${k + 1}. ${named(m.label, m.illustrative)}`;
+      const lines = texts[k]!;
       if (x1 === x2) {
         const d = `M${f1(x1)},${f1(y - 6)} h28 v14 h-26`;
-        return `<g class="${cls}"><path d="${d}"/>${head(x1 + 1, y + 8, x1 + 10, y + 8, 'wg-head')}<text class="wg-elabel" x="${f1(x1 + 34)}" y="${f1(y + 4)}">${ctx.escape(text)}</text></g>`;
+        return `<g class="${cls}"><path d="${d}"/>${head(x1 + 1, y + 8, x1 + 10, y + 8, 'wg-head')}${textLines(lines, x1 + 34, y, ctx, 'wg-elabel', 'start')}</g>`;
       }
       const dir = x2 > x1 ? 1 : -1;
       const end = x2 - dir;
-      return `<g class="${cls}"><line x1="${f1(x1)}" y1="${f1(y)}" x2="${f1(end)}" y2="${f1(y)}"/>${head(end, y, x1, y, 'wg-head')}<text class="wg-elabel" x="${f1((x1 + x2) / 2)}" y="${f1(y - 6)}" text-anchor="middle">${ctx.escape(text)}</text></g>`;
+      // 라벨 마지막 줄이 화살표 바로 위에 오게 줄 수만큼 올린다
+      const cy = y - 10 - ((lines.length - 1) * LINE) / 2;
+      return `<g class="${cls}"><line x1="${f1(x1)}" y1="${f1(y)}" x2="${f1(end)}" y2="${f1(y)}"/>${head(end, y, x1, y, 'wg-head')}${textLines(lines, (x1 + x2) / 2, cy, ctx, 'wg-elabel')}</g>`;
     })
     .join('');
   return `${svgOpen(W, H, w.title, ctx)}${actors}${messages}</svg></div>`;
