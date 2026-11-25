@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readAutomationClaim } from '../../../src/conductor/bot-handoff-coordination.js';
 import { readEditReceipt } from '../../../src/conductor/bot-handoff-edit.js';
+import { handoffApproval } from '../../../src/conductor/bot-handoff-record.js';
 import {
   changeBotOwner,
   readBotOwnership,
@@ -213,7 +214,7 @@ const release = ${JSON.stringify(release)};
     expect(preview).toMatchObject({ status: 'ready', approval: expect.any(String) });
     return (preview as Result).approval!;
   };
-  return { dir, shared, editing, release, invoke, approve, setChat };
+  return { dir, shared, schedule, editing, release, invoke, approve, setChat };
 }
 
 afterEach(cleanupStateDirs);
@@ -521,6 +522,84 @@ describe('Orca 인계 프로세스 중단 복구', () => {
     },
     25_000,
   );
+
+  it('다른 승인으로 저장된 활성 예약은 취소를 재개해도 해제하지 않는다', async () => {
+    const { dir, shared, schedule, editing, invoke, approve } = fixture();
+    const approval = await approve();
+    expect(await invoke({ approve: approval, phase: 'after-claim' })).toBe('killed');
+    expect(await invoke({ approve: approval, cancel: true, phase: 'before-clear' })).toBe(
+      'killed',
+    );
+    const claimDir = join(shared, digest(options.automation));
+    const claimFile = join(claimDir, 'claim.json');
+    const original = readFileSync(claimFile, 'utf8');
+    const claim = readAutomationClaim(claimDir)!;
+    const intent = { ...claim.intent!, settings: 'another-approved-schedule' };
+    intent.approval = handoffApproval(dir, intent);
+    expect(intent.approval).not.toBe(approval);
+    const changed = JSON.stringify({ ...claim, intent });
+    writeFileSync(claimFile, changed);
+    const ownerFile = join(dir, 'bot-owner.json');
+    const owner = readFileSync(ownerFile, 'utf8');
+    const automation = readFileSync(schedule, 'utf8');
+
+    expect(await invoke({ approve: approval, cancel: true, phase: 'no-orca-reads' })).toMatchObject({
+      status: 'partial',
+      retryStage: 'reconcile-edit',
+      detail: expect.stringContaining('공유 예약의 승인 스냅샷'),
+    });
+    expect(readFileSync(claimFile, 'utf8')).toBe(changed);
+    expect(readFileSync(ownerFile, 'utf8')).toBe(owner);
+    expect(readFileSync(schedule, 'utf8')).toBe(automation);
+    expect(existsSync(join(claimDir, 'released', `${approval}.json`))).toBe(false);
+    expect(existsSync(editing)).toBe(false);
+    expect(await invoke({ phase: 'owner-release' })).toMatchObject({ status: 'blocked' });
+
+    writeFileSync(claimFile, original);
+    expect(await invoke({ approve: approval, cancel: true })).toMatchObject({ status: 'cancelled' });
+  }, 20_000);
+
+  it('해제 기록의 스냅샷이 달라지면 타 저장소의 인계 완료 후에도 로컬 취소를 보류한다', async () => {
+    const { dir, shared, schedule, editing, invoke, approve } = fixture();
+    const approval = await approve();
+    expect(await invoke({ approve: approval, phase: 'after-claim' })).toBe('killed');
+    expect(await invoke({ approve: approval, cancel: true, phase: 'after-clear' })).toBe('killed');
+    const claimDir = join(shared, digest(options.automation));
+    const releaseFile = join(claimDir, 'released', `${approval}.json`);
+    const original = readFileSync(releaseFile, 'utf8');
+    const released = JSON.parse(original);
+    released.intent.settings = 'unapproved-settings';
+    writeFileSync(releaseFile, JSON.stringify(released));
+
+    const other = resolve(tempStateDir());
+    const otherOwner = join(other, 'bot-owner.json');
+    writeFileSync(otherOwner, JSON.stringify({ active: source, retired: [] }));
+    const foreign = { store: other, request: 'foreign-handoff' };
+    const preview = (await invoke(foreign)) as Result;
+    expect(await invoke({ ...foreign, approve: preview.approval! })).toMatchObject({
+      status: 'completed',
+    });
+    const localOwner = join(dir, 'bot-owner.json');
+    const preserved = [join(claimDir, 'claim.json'), otherOwner, schedule, editing];
+    const before = preserved.map((path) => readFileSync(path, 'utf8'));
+    const localBefore = readFileSync(localOwner, 'utf8');
+    const cancel = { approve: approval, cancel: true, phase: 'no-orca-reads' };
+    expect(await invoke(cancel)).toMatchObject({
+      status: 'partial',
+      retryStage: 'reconcile-edit',
+      detail: expect.stringContaining('해제 기록의 승인 스냅샷'),
+    });
+    expect(readFileSync(localOwner, 'utf8')).toBe(localBefore);
+    expect(preserved.map((path) => readFileSync(path, 'utf8'))).toEqual(before);
+
+    writeFileSync(releaseFile, original);
+    expect(await invoke(cancel)).toMatchObject({
+      status: 'cancelled',
+      orcaVerification: 'not-checked',
+    });
+    expect(await invoke({ phase: 'owner-release' })).toMatchObject({ status: 'owner-changed' });
+    expect(preserved.map((path) => readFileSync(path, 'utf8'))).toEqual(before);
+  }, 20_000);
 
   it('마지막 일정 조회 중 기존 채팅이 닫히면 공유 예약을 해제하지 않는다', async () => {
     const { dir, shared, invoke, approve, editing } = fixture();
