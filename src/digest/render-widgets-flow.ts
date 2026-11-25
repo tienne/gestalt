@@ -16,7 +16,7 @@ type AnalogyMap = Extract<Widget, { kind: 'analogyMap' }>;
 
 export const ILL_TAG = '예시';
 
-const f1 = (n: number) => n.toFixed(1);
+export const f1 = (n: number) => n.toFixed(1);
 
 /** 요소 출처 칩. 표 칸이면 그 표가 실린 문단을 연다 */
 function refChip(ref: Cite | CellRef | undefined, ctx: LensHtmlContext): string {
@@ -27,7 +27,7 @@ function refChip(ref: Cite | CellRef | undefined, ctx: LensHtmlContext): string 
   return ` <button type="button" class="w-cell-ref" data-cell="${ctx.escape(`${ref.table}:${ref.row}:${ref.col}`)}" data-unit="${table.unit}">표 ${ctx.escape(table.number)} ${ref.row + 1}행 ${ref.col + 1}열</button>`;
 }
 
-const lookClass = (look: ElementLook | undefined) =>
+export const lookClass = (look: ElementLook | undefined) =>
   look === 'gone' ? ' w-gone' : look === 'focus' ? ' w-focus' : look === 'hidden' ? ' w-hide' : '';
 
 function stateHtml(frame: StepFrame, ctx: LensHtmlContext): string {
@@ -41,7 +41,7 @@ function stateHtml(frame: StepFrame, ctx: LensHtmlContext): string {
  * 단계가 있으면 단계마다 그림을 미리 그리고 이전, 다음 버튼을 붙인다. 없으면 모든 요소가 보이는 그림 하나다.
  * 순번 표시는 렌더러가 붙여서 모델이 라벨에 "1단계"를 쓸 이유가 없다
  */
-function framed(
+export function framed(
   ids: string[],
   steps: Step[] | undefined,
   draw: (looks: Map<string, ElementLook>, k: number) => string,
@@ -300,7 +300,7 @@ export function flowWidgetHtml(w: FlowWidget, ctx: LensHtmlContext): string {
 
 const ill = (label: string, on?: boolean) => (on ? `${label} (${ILL_TAG})` : label);
 
-function stepsMarkdown(steps: Step[] | undefined): string[] {
+export function stepsMarkdown(steps: Step[] | undefined): string[] {
   if (!steps?.length) return [];
   const out = ['', '단계:'];
   steps.forEach((s, k) => {

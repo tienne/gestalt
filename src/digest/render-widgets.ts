@@ -7,6 +7,12 @@ import {
   flowWidgetMarkdown,
   isFlowWidget,
 } from './render-widgets-flow.js';
+import {
+  GRAPH_WIDGET_CSS,
+  graphWidgetHtml,
+  graphWidgetMarkdown,
+  isGraphWidget,
+} from './render-widgets-graph.js';
 
 /**
  * 인터랙티브 그림 렌더러. 상태마다 그림을 다 그려 두고 하나만 보인다.
@@ -168,13 +174,15 @@ function beforeAfterHtml(
 export function widgetHtml(w: Widget, ctx: LensHtmlContext): string {
   const body = isFlowWidget(w)
     ? flowWidgetHtml(w, ctx)
-    : w.kind === 'toggleBars'
-      ? toggleBarsHtml(w, ctx)
-      : w.kind === 'heatmap'
-        ? heatmapHtml(w, ctx)
-        : w.kind === 'stepSlider'
-          ? stepSliderHtml(w, ctx)
-          : beforeAfterHtml(w, ctx);
+    : isGraphWidget(w)
+      ? graphWidgetHtml(w, ctx)
+      : w.kind === 'toggleBars'
+        ? toggleBarsHtml(w, ctx)
+        : w.kind === 'heatmap'
+          ? heatmapHtml(w, ctx)
+          : w.kind === 'stepSlider'
+            ? stepSliderHtml(w, ctx)
+            : beforeAfterHtml(w, ctx);
   const badge = badgeOf(w);
   const diffs =
     (w.class === 'C' || w.class === 'D') && w.differences?.length
@@ -207,6 +215,8 @@ export function widgetMarkdown(w: Widget, ctx: { cell: (v: WidgetValue) => strin
   const ill = (label: string, on?: boolean) => (on ? `${label} (${ILL_TAG})` : label);
   if (isFlowWidget(w)) {
     out.push(...flowWidgetMarkdown(w));
+  } else if (isGraphWidget(w)) {
+    out.push(...graphWidgetMarkdown(w));
   } else if (w.kind === 'toggleBars') {
     out.push(`| 항목 | ${w.toggle.off} | ${w.toggle.on} |`, '| --- | --- | --- |');
     for (const it of w.items)
@@ -237,7 +247,7 @@ export function widgetMarkdown(w: Widget, ctx: { cell: (v: WidgetValue) => strin
   return out;
 }
 
-export const WIDGET_CSS = `${FLOW_WIDGET_CSS}
+export const WIDGET_CSS = `${FLOW_WIDGET_CSS}${GRAPH_WIDGET_CSS}
 .widget{margin:16px 0;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:10px 14px}
 .w-head{margin:0 0 6px}
 .w-badge{display:inline-block;font-size:.75em;font-weight:700;border-radius:999px;padding:1px 9px;border:1px solid currentColor}
