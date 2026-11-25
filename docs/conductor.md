@@ -262,7 +262,7 @@ openssl pkeyutl -sign -rawin -inkey approver.key -in decision.txt | openssl base
 
 #### Orca 항목 답으로 게이트 승인
 
-운영 봇은 게이트를 Orca 항목 질문으로 올릴 수 있다. 질문 본문에 `bot gate`가 준 사유와 근거, 서명할 문자열, `orcaItem.binding` 한 줄을 그대로 싣고 `승인`, `거절` 선택지를 단다. 운영자는 항목에 두 줄로 답한다.
+운영 봇은 게이트를 Orca 항목 질문으로 올릴 수 있다. 질문 본문에 `bot gate`가 준 사유와 근거, 서명할 문자열, `orcaItem.binding` 한 줄을 그대로 싣는다. `orcaItem.buttonApproval.enabled`가 켜졌을 때만 `orcaItem.options`의 선택지를 단다. 운영자는 항목에 두 줄로 서명 답을 달 수 있다.
 
 ```text
 승인
@@ -277,7 +277,17 @@ gestalt conductor bot item-decide <게이트-ID> --item <항목-번호> --questi
 
 Gestalt는 봇이 옮겨 적은 말 대신 `orca bot item show`로 Orca가 저장한 항목을 직접 읽는다. 항목이 등록된 운영 봇과 채팅의 것인지, 질문이 그 봇이 쓴 것이고 지금 게이트의 `binding` 줄(게이트 ID, 유형, 연 시각, 레포, 머지면 PR과 HEAD, 재리뷰면 PR과 HEAD 및 base 브랜치)를 담았는지, 답이 질문 뒤에 사람(`owner`)이 단 것인지, 사이에 더 새 게이트 질문이 없는지 본다. 그다음 `bot decide`와 같은 승인자 서명 검사를 거쳐 게이트를 닫고 항목, 질문, 답 이벤트를 `decisionSource`로 남긴다. 같은 답이 다시 오면 `alreadyResolved`와 `sameAnswer: true`로 기존 결정을 돌려준다. 다른 경로로 먼저 닫혔으면 `sameAnswer: false`다.
 
-서명 줄이 없는 답(선택지 클릭만)은 게이트를 그대로 두고 실패로 끝난다. Orca 1.4.269의 항목 이벤트는 답한 쪽을 `owner` 하나로만 적는다. 사람마다 다른 식별자, 레포별 권한, Orca 밖에서 확인할 서명이 없어서 같은 계정으로 도는 봇 에이전트가 만든 기록과 사람의 답을 가를 수 없다. 서명 없는 답을 받으려면 Orca가 승인자 식별자와 레포별 권한 확인 결과, 항목과 질문, 답, 결정을 묶은 서명을 줘야 한다. 이 계약이 생기기 전까지는 서명이 승인 근거다.
+Orca 1.4.269의 공식 CLI에서 `bot item show`로 항목과 이벤트를 읽을 수 있다. 답 이벤트에는 `actor.kind: owner`와 질문을 가리키는 `data.answers`가 있다. 이 필드로는 승인자의 신원을 확인할 수 없다. 해당 버전의 항목 CLI와 응답 구현, 플러그인 호스트 API에서 승인 증빙 발행, 조회, 발행 키 확인 기능을 찾지 못했다. `bot gate`는 버튼 승인을 비활성으로 표시하고 그 이유를 `orcaItem.buttonApproval.diagnostic`에 싣는다. 클릭만 한 답을 받으면 게이트를 열어 둔다. [Orca 1.4.269 항목 CLI](https://github.com/stablyai/orca/blob/v1.4.269/src/cli/specs/bot-items.ts), [Orca 1.4.269 항목 답 기록](https://github.com/stablyai/orca/blob/v1.4.269/src/main/bots/bot-items-owner.ts)
+
+##### Orca 증빙 생산자 연동 계약
+
+- Orca 코어가 로그인한 사람이 누른 버튼을 직접 확인해야 한다. Gestalt 정책의 승인자 ID를 찾아 해당 레포와 게이트 유형에서 그 사람이 결정할 권한이 있는지 검사한다. 발행 권한은 Orca 코어에 둔다.
+- 발행과 조회는 공식 Orca 인터페이스가 맡는다. Gestalt의 `officialOrcaApprovalIssuer` 연결 지점에 등록할 어댑터는 공식 기능의 지원을 확인하고 신뢰할 수 있는 발행자 ID와 Ed25519 공개키를 확보해야 한다. 조회는 운영 봇, 채팅, 항목, 질문 이벤트, 답 이벤트로 범위를 한정한다. 증빙 본문이나 항목 텍스트에서 받은 키, 환경 변수나 명령 인자로 준 키는 신뢰 근거로 삼지 않는다.
+- 서명 대상은 UTF-8로 인코딩한 JSON 배열이다. 순서는 `["gestalt/orca-approval/v1", issuer, botId, chatId, item, itemUid, question, answer, decision, targetHash, approver, authorized, issuedAt, expiresAt]`이다. `item`은 항목 번호이고 `itemUid`는 항목의 고유 ID다. `decision`은 `approved` 또는 `rejected`이며 `authorized`는 `true`여야 한다. 시각은 Unix epoch 기준 밀리초 정수다. 조회 결과는 이 필드들을 담은 객체와 base64 Ed25519 서명을 반환한다.
+- `targetHash`는 공통 결정 접수의 대상 해시와 PR HEAD, base를 묶어 계산한다. Orca 질문 하나에 선택지 두 개를 붙여 한 게이트만 묻는다. 생산자는 이 질문에 등록한 해시와 실제 사람이 선택한 결정을 증빙에 넣는다. 공식 어댑터를 연동하면 `bot gate`는 질문에 전달할 해시를 `orcaItem.buttonApproval.targetHash`에 싣는다.
+- Gestalt는 운영권과 기존 레포별 승인자 정책을 적용한다. 게이트 잠금 안에서 서명과 항목 범위, 결정, 대상 해시, 유효기간을 확인한다. PR이 연결된 승인에서는 HEAD와 base를 다시 읽고 접수한다. 검증한 Orca 이벤트 키를 공통 접수 기록의 결정 ID로 저장한다. 같은 답을 다시 받거나 재시작 뒤 전달을 다시 시도하면 기록된 결정 ID와 전달 ID를 재사용한다.
+
+레포의 계약 테스트는 가상 발행자 키와 항목으로 이 경로를 검증한다. Orca 코어의 증빙 발행 기능과 공식 조회 및 키 배포 경로를 실제 통합에서 검증한 뒤 버튼을 활성화한다.
 
 #### GitHub 팀 주문
 

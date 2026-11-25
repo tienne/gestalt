@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, randomUUID, verify } from 'node:crypto';
+import { createHash, createPublicKey, randomUUID, verify, type KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isPlainObject } from '../core/json-file.js';
@@ -331,6 +331,18 @@ export function verifyGateApproval(
   message: string,
   signature: string,
 ): void {
+  const key = requireGateApprover(policy, type, repo, signer);
+  if (!verifyEd25519(key, message, signature))
+    throw new Error('게이트와 결정에 대한 서명을 확인하지 못했어요');
+}
+
+/** 레포 승인자 ID를 확인하고 수동 서명 승인에 쓸 공개키를 반환한다 */
+export function requireGateApprover(
+  policy: Record<string, unknown>,
+  type: GateType,
+  repo: string,
+  signer: string,
+): KeyObject {
   const approvers = policy[type === 'merge' ? 'mergeApprovers' : 'gateApprovers'];
   const allowed =
     isPlainObject(approvers) && Object.hasOwn(approvers, repo.toLowerCase())
@@ -343,10 +355,15 @@ export function verifyGateApproval(
       `이 레포의 ${type === 'merge' ? '머지' : '게이트'} 승인 권한이 없는 서명자예요`,
     );
   const key = createPublicKey(pem);
-  if (
-    key.asymmetricKeyType !== 'ed25519' ||
-    !/^[A-Za-z0-9+/]{86}==$/.test(signature) ||
-    !verify(null, Buffer.from(message), key, Buffer.from(signature, 'base64'))
-  )
+  if (key.asymmetricKeyType !== 'ed25519')
     throw new Error('게이트와 결정에 대한 서명을 확인하지 못했어요');
+  return key;
+}
+
+export function verifyEd25519(key: KeyObject, message: string, signature: string): boolean {
+  return (
+    key.asymmetricKeyType === 'ed25519' &&
+    /^[A-Za-z0-9+/]{86}==$/.test(signature) &&
+    verify(null, Buffer.from(message), key, Buffer.from(signature, 'base64'))
+  );
 }
