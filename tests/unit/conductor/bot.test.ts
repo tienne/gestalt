@@ -11,12 +11,7 @@ import {
   conductorWorkerDecisionCommand,
 } from '../../../src/cli/commands/conductor.js';
 import { GhAccounts, fileQueue } from '../../../src/conductor/adapters.js';
-import {
-  approvalMessage,
-  BOT_POLICY_FILE,
-  gateApprovalMessage,
-  matchBotGate,
-} from '../../../src/conductor/bot-approval.js';
+import { approvalMessage, BOT_POLICY_FILE } from '../../../src/conductor/bot-approval.js';
 import { readGithubOrder, handleGithubOrder } from '../../../src/conductor/bot-github.js';
 import {
   assertBotOwner,
@@ -80,11 +75,11 @@ esac`,
   vi.stubEnv('ORCA_AGENT_SESSION_ID', 'mock-session-id');
 }
 
-function fakePr(head = sha) {
+function fakePr(head = sha, base = 'main') {
   const bin = tempStateDir();
   const evidence = {
     headRefOid: head,
-    baseRefName: 'main',
+    baseRefName: base,
     state: 'OPEN',
     isDraft: false,
     statusCheckRollup: [{ name: 'CI', conclusion: 'SUCCESS' }],
@@ -190,6 +185,18 @@ const tickDeps = () => ({
   orcaAvailable: true,
   readApprovalEvidence: async () => prEvidence,
 });
+
+function watchedReviewFixture() {
+  const { store, opts, privateKey, w } = gateFixture();
+  store.updateOrder(w.orderId, { prRef: `${repo}#99` });
+  const { gate } = openOrReuse(store, {
+    type: 'review-manual-switch',
+    reason: '답글 재리뷰',
+    refs: [pr],
+    payload: { prRef: pr, sourceRef: `pr-watch:replies:${pr}@${sha}:1` },
+  });
+  return { store, gate, opts, privateKey };
+}
 
 describe('Orca 채팅 머지 승인', () => {
   it('검증 결과를 표시하고 서명된 결정을 한 번만 기록한 뒤 전달 대기를 보여 준다', async () => {
@@ -348,35 +355,108 @@ describe('Orca 채팅 머지 승인', () => {
     expect(reopened.snapshot.gates[gate.id]?.deliveryPending).toBeUndefined();
   });
 
-  it('재리뷰를 승인할 때의 base가 바뀌면 서명된 결정으로 주문을 만들지 않는다', async () => {
-    fakeOrca(owner);
-    fakePr();
-    const { store, opts, privateKey } = gateFixture();
-    const { gate } = openOrReuse(store, {
-      type: 'review-manual-switch',
-      reason: '답글 재리뷰',
-      refs: [pr],
-      payload: { prRef: pr, sourceRef: `pr-watch:replies:${pr}@${sha}:1` },
-    });
-    const signature = sign(
-      null,
-      Buffer.from(gateApprovalMessage(matchBotGate(store, gate.id), undefined, 'approved')),
-      privateKey,
-    ).toString('base64');
-    await conductorBotDecideCommand(gate.id, { ...opts, signature });
-    expect(last()).toMatchObject({ target: { base: 'main', head: sha }, delivery: 'pending' });
-    const reopened = ConductorStore.open(store.dir);
-    const result = await tick(
-      reopened,
-      { ...tickDeps(), readApprovalEvidence: async () => ({ ...prEvidence, base: 'release' }) },
-      { force: true },
-    );
-    expect(result.created).toHaveLength(0);
-    expect(reopened.snapshot.gates[gate.id]).toMatchObject({
-      deliveryOutcome: 'superseded',
-      deliveryDetail: expect.stringContaining('base 브랜치'),
-    });
-  });
+  const changedReviewScope = [
+    [{ ...prEvidence, head: 'b'.repeat(40) }, 'HEAD'],
+    [{ ...prEvidence, base: 'release' }, 'base 브랜치'],
+  ] as const;
+
+  it.each(changedReviewScope)(
+    '발급 뒤 재리뷰 범위가 바뀌면 예전 서명으로 접수하지 않는다',
+    async (current) => {
+      fakeOrca(owner);
+      fakePr();
+      const { store, gate, opts, privateKey } = watchedReviewFixture();
+      await conductorBotGateCommand(gate.id, opts);
+      const initial = last();
+      expect(JSON.parse(initial.messages.approved)).toEqual(
+        expect.arrayContaining([pr, sha, 'main']),
+      );
+      const signature = sign(null, Buffer.from(initial.messages.approved), privateKey).toString(
+        'base64',
+      );
+
+      fakePr(current.head, current.base);
+      await conductorBotGateCommand(gate.id, opts);
+      expect(last().messages.approved).not.toBe(initial.messages.approved);
+      expect(last().orcaItem.binding).not.toBe(initial.orcaItem.binding);
+      await expect(conductorBotDecideCommand(gate.id, { ...opts, signature })).rejects.toThrow(
+        'exit 1',
+      );
+      expect(lines.at(-1)).toContain('서명을 확인하지 못했어요');
+      expect(ConductorStore.open(store.dir).snapshot.gates[gate.id]?.status).toBe('open');
+    },
+  );
+
+  it.each(changedReviewScope)(
+    '접수 뒤 재리뷰 범위가 바뀌면 주문 없이 현재 범위의 승인을 한 번 다시 연다',
+    async (current, reason) => {
+      fakeOrca(owner);
+      fakePr();
+      const { store, gate, opts, privateKey } = watchedReviewFixture();
+      await conductorBotGateCommand(gate.id, opts);
+      const signature = sign(null, Buffer.from(last().messages.approved), privateKey).toString(
+        'base64',
+      );
+      await conductorBotDecideCommand(gate.id, { ...opts, signature });
+      expect(last()).toMatchObject({ target: { base: 'main', head: sha }, delivery: 'pending' });
+      const deps = {
+        ...tickDeps(),
+        readApprovalEvidence: async () => current,
+        prSource: {
+          authored: async () => [],
+          reviewing: async () => [
+            {
+              ref: pr,
+              repo,
+              title: '재리뷰 PR',
+              headSha: current.head,
+              reviewedHeadSha: sha,
+              repliesSinceReview: 1,
+            },
+          ],
+        },
+      };
+      const reopened = ConductorStore.open(store.dir);
+      const append = reopened.append.bind(reopened);
+      vi.spyOn(reopened, 'append').mockImplementation((event) => {
+        if (
+          event.type === 'gate-delivery' &&
+          event.gateId === gate.id &&
+          event.outcome === 'superseded'
+        )
+          throw new Error('새 게이트 생성 직후 기록 중단');
+        return append(event);
+      });
+      const result = await tick(reopened, deps, { force: true });
+      expect(result.created).toHaveLength(0);
+      const [replacement] = reopened.openGates().filter((g) => g.type === 'review-manual-switch');
+      expect(replacement).toMatchObject({
+        reason: expect.stringContaining(current.base),
+        payload: { prRef: pr, approvalBase: current.base, reapprovalOf: gate.id },
+      });
+      expect(replacement?.reason).toContain(current.head);
+      const retry = ConductorStore.open(store.dir);
+      expect((await tick(retry, deps, { force: true })).created).toHaveLength(0);
+      expect(retry.snapshot.gates[gate.id]).toMatchObject({
+        deliveryOutcome: 'superseded',
+        deliveryDetail: expect.stringContaining(reason),
+      });
+      expect(
+        retry
+          .openGates()
+          .filter((g) => g.type === 'review-manual-switch')
+          .map((g) => g.id),
+      ).toEqual([replacement!.id]);
+      fakePr(current.head, current.base);
+      await conductorBotGateCommand(replacement!.id, opts);
+      const newSignature = sign(null, Buffer.from(last().messages.approved), privateKey).toString(
+        'base64',
+      );
+      await conductorBotDecideCommand(replacement!.id, { ...opts, signature: newSignature });
+      expect(last()).toMatchObject({ target: { base: current.base, head: current.head } });
+      expect((await tick(retry, deps, { force: true })).created).toHaveLength(1);
+    },
+  );
 
   it.each([
     [{ ...prEvidence, head: 'b'.repeat(40) }, 'HEAD'],
