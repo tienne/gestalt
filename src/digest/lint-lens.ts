@@ -418,13 +418,14 @@ function checkAsides(report: Report, p: string, issues: DigestIssue[]): void {
           );
         }
       }
-      const asides = sub.bullets.filter((b) => b.aside).length;
-      if (asides * 2 > sub.bullets.length) {
+      const all = [...walk(sub.bullets, prefix)].map((w) => w.bullet);
+      const asides = all.filter((b) => b.aside).length;
+      if (asides * 2 > all.length) {
         issues.push({
           path: prefix,
           severity: 'warning',
           code: 'ASIDE_TOO_MANY',
-          message: `불릿 ${sub.bullets.length}개 가운데 설명 장치가 ${asides}개다. 원문 주장이 절반을 넘게 남긴다`,
+          message: `불릿 ${all.length}개 가운데 설명 장치가 ${asides}개다. 원문 주장을 옮긴 불릿이 절반을 넘게 남도록 설명 장치를 줄인다`,
         });
       }
     });

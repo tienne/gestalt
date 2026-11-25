@@ -413,7 +413,7 @@ B는 원문과 무관한 장난감 예시라 지금 규칙(`B_BORROWS_NAME`, `B_
 - `cite`는 이 장치가 설명하는 원문 자리다. 출처 칩도 그 자리를 연다.
 - `example`의 숫자는 원문 대조에서 뺀다. 대신 지표 말(점수, 정확도, `%` 등)은 못 쓴다(`ASIDE_METRIC_LABEL`). 지어낸 결과처럼 읽히는 걸 막는다.
 - `analogy`는 숫자를 못 쓴다(`ASIDE_HAS_NUMBER`).
-- `aside` 불릿에는 `doubt`를 못 단다(`ASIDE_HAS_DOUBT`). 1단 불릿 가운데 `aside`가 절반을 넘으면 경고한다(`ASIDE_TOO_MANY`). 설명 장치가 주장을 밀어내지 않게 한다.
+- `aside` 불릿에는 `doubt`를 못 단다(`ASIDE_HAS_DOUBT`). 하위 불릿까지 센 불릿 가운데 `aside`가 절반을 넘으면 경고한다(`ASIDE_TOO_MANY`). 막지는 않는다. 설명 장치가 주장을 밀어내지 않게 한다.
 - 한눈에 보기, 도입 세 문장, 한계 단락, 의심 표시에는 설명 장치를 못 쓴다. 그 칸에는 `aside`가 없어서 스키마에서 막힌다.
 
 ### 먼저 보기(`primer`)

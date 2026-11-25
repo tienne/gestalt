@@ -82,7 +82,18 @@ describe('설명 장치 lint', () => {
     expect(codes(r)).toContain('ASIDE_HAS_DOUBT');
   });
 
-  it('소섹션 1단 불릿의 절반을 넘으면 경고한다', () => {
+  it('하위 불릿에 든 설명 장치도 센다', () => {
+    const r = easyReport();
+    const bullets = r.sections[1]!.subsections[0]!.bullets;
+    bullets[0]!.children = [
+      { text: '궁합표를 냉장고 지도라고 생각해도 좋아요.', cite: { key: 3, from: 3, to: 3 }, aside: 'analogy' },
+      { text: '서랍마다 칸이 나뉜 것과 비슷해요.', cite: { key: 3, from: 3, to: 3 }, aside: 'analogy' },
+      { text: '자주 쓰는 칸이 앞에 오는 셈이에요.', cite: { key: 3, from: 3, to: 3 }, aside: 'analogy' },
+    ];
+    expect(issues(r).some((i) => i.code === 'ASIDE_TOO_MANY')).toBe(true);
+  });
+
+  it('소섹션 불릿의 절반을 넘으면 경고한다', () => {
     const r = easyReport();
     expect(issues(r).some((i) => i.code === 'ASIDE_TOO_MANY')).toBe(false);
     r.sections[1]!.subsections[0]!.bullets.push({
