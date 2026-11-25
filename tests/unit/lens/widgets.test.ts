@@ -428,6 +428,20 @@ describe('인터랙티브 그림 렌더', () => {
     expect(md).toContain('- 노드를 다섯 개로 줄였다.');
   });
 
+  it('전후 비교 목록 줄의 제목과 라벨은 줄바꿈과 마크다운 문법 글자를 막는다', () => {
+    const md = (w: Widget) =>
+      renderDigestMarkdown(lensDigest(withWidgets(w)), lensTranscript(), { source: lensSource() });
+    const plain = md(pair('B')).split('\n').length;
+    const w = pair('B');
+    if (w.kind !== 'beforeAfter') throw new Error('beforeAfter 픽스처가 아니다');
+    w.before.title = '# 배포\n- 끼어든 줄';
+    w.after.items[0]!.label = '# 배포\n- 끼어든 줄';
+    const out = md(w);
+    expect(out.split('\n').length).toBe(plain);
+    expect(out).toContain('- \\# 배포 - 끼어든 줄: 노드 50개');
+    expect(out).toContain(': \\# 배포 - 끼어든 줄');
+  });
+
   it('그림 글자는 윤문에서 라벨로 묶이고 다른 점은 본문으로 나온다', () => {
     const items = extractProse(lensDigest(withWidgets(toggle(), recon())));
     const label = items.find((i) => i.path.endsWith('widgets.0.toggle.on'));

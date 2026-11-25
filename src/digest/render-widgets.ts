@@ -241,7 +241,7 @@ export function widgetMarkdown(w: Widget, ctx: { cell: (v: WidgetValue) => strin
   } else {
     for (const side of [w.before, w.after]) {
       out.push(
-        `- ${side.title}: ${side.items.map((it) => (it.value ? `${ill(it.label, it.illustrative)} ${ctx.cell(it.value)}` : ill(it.label, it.illustrative))).join(', ')}`,
+        `- ${mdInline(side.title)}: ${side.items.map((it) => (it.value ? `${ill(mdInline(it.label), it.illustrative)} ${ctx.cell(it.value)}` : ill(mdInline(it.label), it.illustrative))).join(', ')}`,
       );
     }
   }
