@@ -241,6 +241,16 @@ openssl pkeyutl -sign -rawin -inkey approver.key -in decision.txt | openssl base
 
 `itemReport`는 판단, 접수 시각, 전달 상태와 다음 조치를 사람이 읽을 수 있게 적은 글이다.
 
+##### 승인자가 등록되지 않았을 때
+
+`bot gate`는 응답에 `approverReady`를 싣는다. 상태 저장소에 `bot-policy.json`이 없거나, 레포가 `mergeApprovers`와 `gateApprovers` 어디에도 없거나, 다른 유형 칸에만 있으면 `false`다. 이때는 서명 문자열(`messages`)과 `orcaItem`을 싣지 않고 이유(`approverGap`: `no-policy`, `no-repo`, `no-type-approvers`)와 안내 문장(`guidance`), 운영자 터미널에서 닫을 명령(`terminal.approved`, `terminal.rejected`)을 준다. 봇은 서명을 요청하지 않고 `guidance`를 그대로 전한다.
+
+```text
+acme/app 레포는 파일 겹침 승인자가 등록되지 않았어요. 터미널에서 `gestalt conductor gate resolve <게이트-ID> --approve`(거절은 --reject)로 닫아 주세요
+```
+
+`bot decide`와 `bot item-decide`도 GitHub를 읽거나 서명을 확인하기 전에 같은 문장으로 멈추고 게이트를 열어 둔다. 등록된 승인자가 있는데 다른 ID로 서명했으면 이전처럼 권한이 없는 서명자로 거절한다. `conductor status`는 레포마다 머지와 게이트 승인자가 몇 명인지 보여 준다. `--json`이면 `approvers.policy`(`present`, `missing`, `unreadable`)와 `approvers.repos`에 싣는다.
+
 #### Orca 항목 답으로 게이트 승인
 
 운영 봇은 게이트를 Orca 항목 질문으로 올릴 수 있다. 질문 본문에 `bot gate`가 준 사유와 근거, 서명할 문자열, `orcaItem.binding` 한 줄을 그대로 싣는다. `orcaItem.buttonApproval.enabled`가 켜졌을 때만 `orcaItem.options`의 선택지를 단다. 운영자는 항목에 두 줄로 서명 답을 달 수 있다.
