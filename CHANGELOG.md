@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.161.0] - 2026-11-25
+
+### Added
+
+- **봇 게이트 승인자가 등록되지 않았으면 원인과 터미널 명령을 안내해요(#181).** 전에는 `ENOENT`나 "권한이 없는 서명자" 에러만 나와서 무엇을 해야 할지 알 수 없었어요.
+  - `bot gate` 응답에 `approverReady`를 싣고 준비가 안 됐으면 `approverGap`과 `gate resolve` 명령을 함께 줘요. 이때는 Orca 항목 메시지를 만들지 않아요.
+  - `conductor status`에 레포별 승인자 등록 현황을 보여 줘요.
+- **Mac Touch ID로 게이트를 승인하고 승인자를 등록할 수 있어요(#181).** `conductor approval serve`가 `localhost:47219`에 승인 페이지를 띄우고 `conductor approver enroll`이 패스키를 `bot-policy.json`에 넣어요. 개인키는 기기 밖으로 안 나가고 Gestalt는 공개키만 보관해요.
+  - 승인 요청 nonce는 메모리에만 두고 2분 안에 한 번만 받아요. 등록은 터미널에만 찍히는 8자리 코드를 넣어야 하고 한 번만 시도할 수 있어요.
+- **Orca 항목에서 답한 승인을 게이트에 반영하는 경로를 열었어요(#172, #179, #180).** 답 본문에 등록된 승인자 서명이 있을 때만 받고 결정 ID로 중복 접수를 막아요. 전달 직전에 PR의 HEAD와 base를 다시 읽고 범위가 바뀌면 새 결정을 요청해요.
+- **인터뷰와 스펙, 실행 스킬에서 `--conductor`로 계획을 컨덕터 주문으로 넘길 수 있어요(#175).**
+- **운영권과 Orca 정기 자동화 대상을 한 번의 승인으로 함께 옮겨요(#174).** `bot handoff` 미리보기에서 두 채팅과 자동화 주기를 확인하고 부분 실패하면 재개 단계를 알려 줘요.
+- **tick이 승인된 태그 배포와 워커 정리의 완료 증빙을 대조해 기록해요(#177).**
+- **오르카 컨덕터 터미널을 손봤어요(#173, #176, #178).** 주문을 승인 필요, 진행 중, 대기, 끝남으로 나눴고 PR과 Jira 티켓 링크 메뉴를 붙였어요. 사이드바에 운영 채팅과 마지막 tick, 다음 정기 점검, 최근 게시 결과를 보여 줘요.
+
+### Changed
+
+- **0.160.1에서 device-skill-release 브랜치로만 나간 device 스킬 수정을 main에 합쳤어요.** 이번 버전부터 main 배포판에도 실려요.
+
+### 남긴 것
+
+- `readMergeEvidence`가 남기는 gh 실패 로그가 Touch ID 경로가 아닌 tick에서도 찍혀요. 동작은 그대로예요.
+
 ## [0.160.1] - 2026-11-24
 
 ### Fixed
