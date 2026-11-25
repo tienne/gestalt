@@ -205,15 +205,17 @@ jq -jr .messages.approved gate.json > decision.txt
 openssl pkeyutl -sign -rawin -inkey approver.key -in decision.txt | openssl base64 -A
 ```
 
-거절할 때는 `messages.rejected`와 `--decision rejected`를 사용한다. 머지 문자열은 이전과 같은 `gestalt/merge-approval/v1`이다. 다른 게이트 문자열은 `gestalt/gate-approval/v1`에 게이트 유형과 레포를 넣어서 한 게이트에 한 서명을 다른 게이트에 옮겨 쓸 수 없다. 게이트 내용이나 PR HEAD가 바뀌면 새 문자열에 서명한다. 머지는 잠금을 잡은 뒤 GitHub HEAD를 한 번 더 읽어 서명한 HEAD와 다르면 닫지 않는다. 승인된 HEAD는 워커에게 전달된다. 패널에서 먼저 처리했거나 답을 다시 보냈으면 이미 기록된 결정을 보여 준다. 접수 응답과 이후 `bot gate` 조회에는 결정 ID(`decisionId`), 접수 시각(`receivedAt`), 게이트 반영(`gateApplication`, `appliedAt`), 전달 ID(`deliveryId`)와 다음 조치가 표시된다. 접수와 게이트 반영은 한 기록으로 남는다. 기존 머지 게이트의 서명 문자열은 그대로 둔다. 서명을 접수할 때 확인한 HEAD와 base 브랜치를 전달 전까지 다시 대조한다.
+거절할 때는 `messages.rejected`와 `--decision rejected`를 사용한다. 머지 문자열은 이전과 같은 `gestalt/merge-approval/v1`이다. 다른 게이트 문자열은 `gestalt/gate-approval/v1`에 게이트 유형과 레포를 넣어서 한 게이트에 한 서명을 다른 게이트에 옮겨 쓸 수 없다. 게이트 내용이나 PR HEAD가 바뀌면 새 문자열에 서명한다. 머지는 잠금을 잡은 뒤 GitHub HEAD를 한 번 더 읽어 서명한 HEAD와 다르면 닫지 않는다. 승인된 HEAD는 워커에게 전달된다. 패널에서 먼저 처리했거나 답을 다시 보냈으면 이미 기록된 결정을 보여 준다. 접수 응답과 이후 `bot gate` 조회에는 결정 ID(`decisionId`), 접수 시각(`receivedAt`), 게이트 반영(`gateApplication`, `appliedAt`), 전달 ID(`deliveryId`)와 다음 조치가 표시된다. 접수와 게이트 반영은 한 기록으로 남는다. 기존 머지 게이트의 서명 문자열은 그대로 둔다. 머지와 재리뷰는 서명을 접수할 때 확인한 HEAD와 base 브랜치를 전달 전에 다시 대조한다. 파일 중첩은 두 워크트리에서 전체 겹침을 다시 읽고 달라졌으면 현재 범위로 다시 묻는다.
 
-| 전달 상태                | 다음 조치                                                                                                                        |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `pending`, `failed`      | 다음 tick이 같은 결정으로 대상 확인과 전달을 다시 시도한다                                                                       |
-| `unknown`                | Orca 응답을 잃었으면 다음 tick이 같은 전달 ID로 결과를 확인한다. 워커가 종료됐으면 워커 보고와 대조한다                          |
-| `host-action`            | git-worktree와 서브에이전트 워커가 `worker decision`으로 받아 본다. 같은 전달 ID는 `alreadyReceived`와 함께 기존 결과를 돌려준다 |
-| `superseded`             | 달라진 범위를 확인하고 새 결정을 접수한다                                                                                        |
-| `delivered`, `no-worker` | 전달이 끝났거나 받을 워커가 없다                                                                                                 |
+| 전달 상태                | 다음 조치                                                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `pending`, `failed`      | 다음 tick이 같은 결정으로 대상 확인과 전달을 다시 시도한다                                                              |
+| `unknown`                | Orca 응답을 잃었으면 다음 tick이 같은 전달 ID로 결과를 확인한다. 워커가 종료됐으면 워커 보고와 대조한다                 |
+| `host-action`            | 호스트 워커는 `worker decision`으로 결정과 처리 기록을 조회한다. 처리 결과를 확인했으면 `--report <결과-참조>`를 붙인다 |
+| `superseded`             | 달라진 범위를 확인하고 새 결정을 접수한다                                                                               |
+| `delivered`, `no-worker` | 전달이 끝났거나 받을 워커가 없다. 전달 성공만으로 워커 작업을 확인할 수는 없다                                          |
+
+호스트 워커가 조회한 시각은 `hostOfferedAt`에 남는다. 응답을 잃으면 같은 전달 ID로 다시 조회한다. 이미 실행한 작업이 있는지 결과를 대조한 뒤 이어서 처리한다. `processing: reported`는 워커가 결과 참조를 남겼다는 뜻이다. Orca의 전달 응답만 있으면 작업 결과는 `unknown`이다. 전달 결과 확인을 기다리는 동안 워커 정리를 보류한다.
 
 `itemReport`는 판단, 접수 시각, 전달 상태와 다음 조치를 사람이 읽을 수 있게 적은 글이다.
 
