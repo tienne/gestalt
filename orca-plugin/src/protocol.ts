@@ -17,6 +17,14 @@ export const ORDER_STATUSES = [
 /** tick이 더 손대지 않는 주문. 상태 표시줄의 주문 수에서 뺀다 */
 export const TERMINAL_ORDER_STATUSES: readonly string[] = ['done', 'failed', 'cancelled', 'parked']
 
+/** `src/conductor/work-class.ts`의 WORK_CLASSES와 같은 순서. 동시 실행 슬롯을 이 유형마다 따로 센다 */
+export const WORK_CLASSES = ['lookup', 'review', 'work'] as const
+export type WorkClass = (typeof WORK_CLASSES)[number]
+export const WORK_CLASS_LABEL: Record<WorkClass, string> = { lookup: '조회', review: '리뷰', work: '작업' }
+export const isWorkClass = (v: unknown): v is WorkClass => typeof v === 'string' && (WORK_CLASSES as readonly string[]).includes(v)
+/** 유형 하나의 슬롯 사용량 */
+export type WorkerSlot = { active: number; limit: number }
+
 export type Bypass = { need: string; action: string; at: string }
 
 /** 주문의 마지막 체크포인트. 워커가 어느 스킬의 어느 단계에 있는지 */
@@ -71,8 +79,11 @@ export type MonitorView = {
 /** 컨덕터 칸에 쓰는 값. 컨덕터가 안 주는 칸은 비어 있고 화면도 그 칸을 뺀다 */
 export type ConductorInfo = {
   pollIntervalSec?: number
+  /** 전체 한도. 유형별 한도를 아는 CLI면 그 합이다 */
   maxWorkers?: number
   activeWorkers?: number
+  /** 유형별 사용량. 옛 CLI에는 없고 없으면 전체 슬롯 한 줄만 그린다 */
+  workerSlots?: Partial<Record<WorkClass, WorkerSlot>>
   queuedOrders?: number
   prWatchRepos?: string[]
   disconnectedWorkers?: number
@@ -95,6 +106,8 @@ export type OrderView = {
   worker?: string
   workerKind?: string
   workerStatus?: string
+  /** 동시 실행 슬롯 유형. 워커 종류(workerKind)와 다른 칸이다. 옛 CLI에는 없다 */
+  workClass?: WorkClass
   pr?: string
   issue?: string
   /** merged인데 지라 QA 대상이라 배포 신호를 기다리는 주문. 옛 CLI에는 없고 없으면 머지됨으로 그린다 */

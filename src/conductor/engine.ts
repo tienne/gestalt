@@ -80,6 +80,7 @@ import {
 } from './resume.js';
 import type { ConductorConfig } from './scheduler.js';
 import { planSlots } from './scheduler.js';
+import { mapClasses, orderWorkClass, WORK_CLASSES, type WorkClass } from './work-class.js';
 import { publishApprovedSlack, type SlackClient } from './slack.js';
 import { orderHasPendingSlack, orderSlackBlocker } from './slack-state.js';
 import { newId, type ConductorStore } from './store.js';
@@ -156,7 +157,13 @@ export interface TickReport {
   /** 감시 주기 안에 다시 불려 건너뛰었으면 true */
   skipped?: boolean;
   created: string[];
-  launched: { orderId: string; workerId: string; kind: WorkerKind; resumed: boolean }[];
+  launched: {
+    orderId: string;
+    workerId: string;
+    kind: WorkerKind;
+    workClass: WorkClass;
+    resumed: boolean;
+  }[];
   escalated: string[];
   hostActions: HostAction[];
   slackPosted: string[];
@@ -1332,12 +1339,15 @@ async function launchQueued(
     }
   }
 
-  const plan = planSlots(store, deps.config.maxConcurrentWorkers);
-  let remaining = plan.free;
+  // 재시작과 재개도 이 자리를 지나므로 유형별 한도를 똑같이 검사한다.
+  const plan = planSlots(store, deps.config.workerLimits);
+  const remaining = mapClasses((c) => plan.byClass[c].free);
   for (const order of [...plan.toStart, ...plan.waiting]) {
-    if (remaining === 0) break;
+    if (WORK_CLASSES.every((c) => remaining[c] === 0)) break;
+    const workClass = orderWorkClass(order);
+    if (remaining[workClass] === 0) continue;
     if (retried.get(order.id) === 'deferred') continue;
-    remaining--;
+    remaining[workClass]--;
     const account = await ensureAccount(store, order, deps.config.accounts, deps.accounts);
     if (!account.ok) continue;
 
@@ -1356,7 +1366,7 @@ async function launchQueued(
     const resume = resumeLaunchFor(store, order, deps.readShip);
     if (resume && !retried.has(order.id)) {
       const retirement = await retirePrevious(store, deps, report, order, resume.previous);
-      if (retirement === 'deferred') remaining++;
+      if (retirement === 'deferred') remaining[workClass]++;
       if (retirement !== 'released') continue;
     }
     const worker: Worker = {
@@ -1366,6 +1376,7 @@ async function launchQueued(
       ...(kind === 'orca-worktree'
         ? { agent: resolveWorkerAgent(order, store.workersOf(order.id), deps.config) }
         : {}),
+      workClass,
       spawnedBy: 'conductor',
       attempt: store.workersOf(order.id).length + 1,
       status: 'starting',
@@ -1409,6 +1420,7 @@ async function launchQueued(
         orderId: order.id,
         workerId: worker.id,
         kind,
+        workClass,
         resumed: resume !== undefined,
       });
       await moveJira(store, deps, report, order.id, 'started');

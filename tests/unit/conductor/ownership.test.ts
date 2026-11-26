@@ -31,7 +31,7 @@ const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
 
 const config: ConductorConfig = {
-  maxConcurrentWorkers: 2,
+  workerLimits: { lookup: 2, review: 2, work: 2 },
   pollIntervalSec: 60,
   maxResumeAttempts: 3,
   staleAfterSec: 900,

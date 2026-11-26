@@ -4,7 +4,7 @@
 import { esc } from './html'
 import { displayStatus, isClosed, ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
 import type { AgentState, ConductorView, EventView, OrderView, WorkerLive, WorkView } from './protocol'
-import { canReachWorker, clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, terminalModel, waitText, workerEnded, type ApprovalEntry, type Card, type GateItem, type TerminalModel } from './terminal-model'
+import { canReachWorker, clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, slotText, terminalModel, waitText, workerEnded, type ApprovalEntry, type Card, type GateItem, type TerminalModel } from './terminal-model'
 
 export type TerminalMarkupOptions = {
   now: number
@@ -48,6 +48,7 @@ function conductorBox(v: ConductorView, m: TerminalModel, now: number, interacti
     SEP,
     kv('마지막 tick', tickAt === null ? '없음' : `${duration(tickAt, now)} 전`),
     kv('슬롯', m.maxWorkers !== undefined ? `${m.activeWorkers} / ${m.maxWorkers}` : String(m.activeWorkers)),
+    ...(m.slots ?? []).map((u) => div('kv slot', span('muted', `· ${u.label}`), span('', `${u.active} / ${u.limit}`))),
     kv('대기 주문', String(m.queued)),
     repos && SEP,
     repos && div('muted', 'PR 감시'),
@@ -258,7 +259,7 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions, gates?: re
   const pct = c.progress === null ? null : Math.round(c.progress * 100)
   const attrs = interactive ? openAttrs(o, `card:${o.id}`, canOpen) : ''
   const body = join(
-    div('t', div('tid-row', span('tid', o.id), interactive && copyOrderButton(o.id), canOpen && goButton(o.id)), span('ttl', o.title)),
+    div('t', div('tid-row', span('tid', o.id), c.workLabel && span('wc', c.workLabel), interactive && copyOrderButton(o.id), canOpen && goButton(o.id)), span('ttl', o.title)),
     gates && gateLines(gates, opts.private),
     c.meta.some((r) => r.label !== '레포') &&
       div('meta', ...c.meta.filter((r) => r.label !== '레포').map((r) =>
@@ -297,7 +298,7 @@ function row(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
   const attrs = opts.interactive ? openAttrs(o, `row:${o.id}`, canOpen) : ''
   const repo = o.repo ? (v.projects?.[o.repo] ?? splitRepo(o.repo).name) : ''
   return `<div class="w row ${c.kind}${canOpen ? ' openable' : ''}"${attrs}>${join(
-    div('rt', span('tid', o.id), span('ttl ell', o.title), repo && span('muted', repo)),
+    div('rt', span('tid', o.id), c.workLabel && span('wc', c.workLabel), span('ttl ell', o.title), repo && span('muted', repo)),
     div('state', span(`st ${c.state.tone}`, c.state.text), span('muted', c.state.aside)),
     detail(c, v, opts)
   )}</div>`
@@ -434,6 +435,7 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
       '<span class="cmd">$ gestalt conductor watch <span class="cursor"></span></span>',
       '<span class="grow"></span>',
       `<span>workers <b class="b-green">[${m.activeWorkers}${m.maxWorkers !== undefined ? `/${m.maxWorkers}` : ''}]</b></span>`,
+      m.slots && `<span class="slots">${esc(slotText(m.slots))}</span>`,
       `<span>gates <b class="b-yellow">[${m.gates.length}]</b></span>`,
       `<span>${BYPASS_LABEL} <b class="b-purple">[${m.bypasses}]</b></span>`
     )
@@ -442,7 +444,10 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
 
 /** 터미널 화면의 CSS. 480px 이하면 사이드바 레이아웃(세로로 쌓기, 최근 이벤트 8줄)으로 바뀐다 */
 export const TERMINAL_STYLE = `
-:root { color-scheme: dark; --t-bg:#14161c; --t-line:#2a2f3a; --t-fg:#c9ced8; --t-dim:#8b93a1; --t-orange:#f0915a; --t-blue:#7aa7ff; --t-green:#5fd38d; --t-purple:#a78bfa; --t-yellow:#f2c94c; --t-red:#f26d6d; }
+/* 중립색은 오르카 테마의 --orca-* 변수를 따르고 변수가 없는 웹 페이지에서는 원래 다크 색으로 그린다.
+   강조색은 그대로 두되 라이트 테마에서는 본문 글자색을 섞어 흰 바탕에서도 읽히게 한다 */
+:root { color-scheme: dark; --t-bg: var(--orca-background, #14161c); --t-card: var(--orca-card, var(--t-bg)); --t-line: var(--orca-border, #2a2f3a); --t-fg: var(--orca-foreground, #c9ced8); --t-dim: var(--orca-muted-foreground, #8b93a1); --t-fill: var(--orca-muted, #232833); --t-hover: var(--orca-accent, #232833); --t-hover-fg: var(--orca-accent-foreground, var(--t-fg)); --t-ring: var(--orca-ring, var(--t-fg)); --t-stripe: var(--orca-border, #2f3542); --t-pop: var(--orca-popover, #2b2b2b); --t-pop-fg: var(--orca-popover-foreground, #e6e6e6); --t-pop-line: var(--orca-border, #454545); --t-orange:#f0915a; --t-blue:#7aa7ff; --t-green:#5fd38d; --t-purple:#a78bfa; --t-yellow:#f2c94c; --t-red:#f26d6d; --t-done-line: #2f5b43; --t-badge-yellow: var(--t-yellow); --t-badge-orange: var(--t-orange); }
+html.light { color-scheme: light; --t-orange: color-mix(in srgb, #f0915a 62%, var(--t-fg)); --t-blue: color-mix(in srgb, #7aa7ff 62%, var(--t-fg)); --t-green: color-mix(in srgb, #5fd38d 58%, var(--t-fg)); --t-purple: color-mix(in srgb, #a78bfa 68%, var(--t-fg)); --t-yellow: color-mix(in srgb, #f2c94c 55%, var(--t-fg)); --t-red: color-mix(in srgb, #f26d6d 70%, var(--t-fg)); --t-done-line: color-mix(in srgb, var(--t-green) 45%, var(--t-bg)); --t-badge-yellow: color-mix(in srgb, #f2c94c 40%, var(--t-fg)); --t-badge-orange: color-mix(in srgb, #f0915a 50%, var(--t-fg)); }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--t-fg); }
 .term { font: 12px/1.5 ui-monospace, "SF Mono", Menlo, "D2Coding", monospace; min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
@@ -458,7 +463,7 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .legend i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; vertical-align: middle; }
 .alert { margin: 0 14px 10px; border: 1px solid var(--t-red); color: var(--t-red); padding: 6px 10px; }
 .grid { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 14px; padding: 0 14px 12px; align-items: start; }
-.box { border: 1px solid var(--t-line); padding: 8px 10px; }
+.box { border: 1px solid var(--t-line); padding: 8px 10px; background: var(--t-card); }
 .conductor { border-color: var(--t-purple); }
 .conductor h3 { margin: 0; color: var(--t-purple); font-size: 12px; }
 .muted { color: var(--t-dim); }
@@ -471,9 +476,9 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .rg-name { color: var(--t-fg); font-weight: 700; }
 .rg-count { padding: 0 6px; border: 1px solid var(--t-line); border-radius: 8px; }
 .workers { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; align-items: start; }
-.w { border: 1px solid var(--t-line); padding: 8px 9px; min-width: 0; outline: none; }
+.w { border: 1px solid var(--t-line); padding: 8px 9px; min-width: 0; outline: none; background: var(--t-card); }
 .w.openable { cursor: pointer; }
-.w:focus-visible { box-shadow: 0 0 0 1px var(--t-fg); }
+.w:focus-visible { box-shadow: 0 0 0 1px var(--t-ring); }
 .w.orca { border-color: var(--t-orange); } .w.git { border-color: var(--t-blue); } .w.sub { border-color: var(--t-green); }
 .w .t { font-weight: 700; display: grid; }
 .w .meta { display: grid; gap: 1px; margin-top: 2px; }
@@ -486,12 +491,12 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .w.orca .t .tid { background: var(--t-orange); } .w.git .t .tid { background: var(--t-blue); } .w.sub .t .tid { background: var(--t-green); }
 .chain { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0; }
 .chip { padding: 0 5px; border: 1px solid var(--t-line); color: var(--t-dim); }
-.chip.done { color: var(--t-green); border-color: #2f5b43; }
-.chip.cur { color: #14161c; background: var(--t-yellow); border-color: var(--t-yellow); font-weight: 700; }
-.prog { height: 7px; background: #232833; margin: 4px 0; }
+.chip.done { color: var(--t-green); border-color: var(--t-done-line); }
+.chip.cur { color: var(--t-bg); background: var(--t-badge-yellow); border-color: var(--t-badge-yellow); font-weight: 700; }
+.prog { height: 7px; background: var(--t-fill); margin: 4px 0; }
 .prog b { display: block; height: 100%; background: var(--t-blue); }
 .prog.gate b { background: var(--t-yellow); } .prog.limit b { background: var(--t-red); }
-.prog.unknown { background: repeating-linear-gradient(135deg, #232833 0 4px, #2f3542 4px 8px); }
+.prog.unknown { background: repeating-linear-gradient(135deg, var(--t-fill) 0 4px, var(--t-stripe) 4px 8px); }
 .todo { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
 .todo .prog { margin: 4px 0; }
 .work { margin-top: 4px; display: grid; gap: 1px; }
@@ -522,18 +527,18 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .d-ev { margin-top: 4px; }
 .d-ev .r { display: grid; grid-template-columns: 40px 76px 1fr; gap: 6px; }
 .live { margin-top: 6px; border-top: 1px dashed var(--t-line); padding-top: 4px; display: grid; gap: 2px; }
-.tail { margin: 4px 0 0; padding: 6px 8px; background: #0e1015; border: 1px solid var(--t-line); max-height: 200px; overflow: auto; white-space: pre; font: inherit; font-size: 11px; color: var(--t-fg); }
-.go { justify-self: start; margin-top: 6px; font: inherit; font-weight: 700; color: var(--t-bg); background: var(--t-orange); border: 0; padding: 2px 10px; cursor: pointer; }
+.tail { margin: 4px 0 0; padding: 6px 8px; background: var(--t-fill); border: 1px solid var(--t-line); max-height: 200px; overflow: auto; white-space: pre; font: inherit; font-size: 11px; color: var(--t-fg); }
+.go { justify-self: start; margin-top: 6px; font: inherit; font-weight: 700; color: var(--t-bg); background: var(--t-badge-orange); border: 0; padding: 2px 10px; cursor: pointer; }
 .copy { font: inherit; font-size: 11px; font-weight: 400; color: var(--t-dim); background: transparent; border: 1px solid var(--t-line); padding: 0 6px; flex: none; cursor: pointer; }
-.toast { position: fixed; left: 50%; bottom: 44px; transform: translate(-50%, 6px); padding: 9px 18px; font-size: 14px; font-weight: 600; white-space: nowrap; max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis; color: #e6e6e6; background: #2b2b2b; border: 1px solid #454545; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; z-index: 10; }
+.toast { position: fixed; left: 50%; bottom: 44px; transform: translate(-50%, 6px); padding: 9px 18px; font-size: 14px; font-weight: 600; white-space: nowrap; max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis; color: var(--t-pop-fg); background: var(--t-pop); border: 1px solid var(--t-pop-line); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; z-index: 10; }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
-.copy:hover { color: var(--t-fg); border-color: var(--t-dim); }
+.copy:hover { color: var(--t-hover-fg); background: var(--t-hover); border-color: var(--t-dim); }
 .meta-link { justify-self: start; max-width: 100%; padding: 0; border: 0; background: none; color: var(--t-blue); text-decoration: underline; text-underline-offset: 2px; font: inherit; cursor: pointer; }
-.link-actions { position: fixed; inset: auto; position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; margin: 4px 0; padding: 4px; border: 1px solid var(--orca-border, var(--t-line)); border-radius: 6px; background: var(--orca-popover, var(--t-bg)); color: var(--orca-popover-foreground, var(--t-fg)); box-shadow: 0 4px 12px #0005; }
+.link-actions { position: fixed; inset: auto; position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; margin: 4px 0; padding: 4px; border: 1px solid var(--t-pop-line); border-radius: 6px; background: var(--t-pop); color: var(--t-pop-fg); box-shadow: 0 4px 12px rgba(0,0,0,.33); }
 .link-actions button { display: block; width: 100%; border: 0; border-radius: 3px; padding: 4px 8px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.link-actions button:hover, .link-actions button:focus-visible { background: var(--orca-accent, var(--t-line)); }
-.copy:focus-visible, .go:focus-visible, .more > summary:focus-visible { outline: 1px solid var(--t-fg); outline-offset: 2px; }
+.link-actions button:hover, .link-actions button:focus-visible { background: var(--t-hover); color: var(--t-hover-fg); }
+.copy:focus-visible, .go:focus-visible, .more > summary:focus-visible { outline: 1px solid var(--t-ring); outline-offset: 2px; }
 .lane + .lane { margin-top: 16px; }
 .lane-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-weight: 700; }
 .lane-head::after { content: ''; flex: 1; border-top: 1px solid var(--t-line); }
@@ -543,7 +548,7 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .lane.fold > summary { cursor: pointer; list-style: none; }
 .lane.fold > summary::-webkit-details-marker { display: none; }
 .lane.fold > summary .lane-name::before { content: '▸ '; } .lane.fold[open] > summary .lane-name::before { content: '▾ '; }
-.lane.fold > summary:focus-visible { outline: 1px solid var(--t-fg); outline-offset: 2px; }
+.lane.fold > summary:focus-visible { outline: 1px solid var(--t-ring); outline-offset: 2px; }
 .lane.approval .w { border-color: var(--t-yellow); }
 .gate-info { display: grid; gap: 1px; margin: 2px 0 4px; }
 .gi { display: flex; flex-wrap: wrap; gap: 0 10px; }
@@ -559,7 +564,7 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .w.row .state { margin-top: 0; min-width: 0; }
 .w.row > .more { grid-column: 1 / -1; margin-top: 0; }
 .lane.ended .w.row { border-style: dashed; color: var(--t-dim); }
-.log { margin: 0 14px 10px; border: 1px solid var(--t-line); padding: 6px 10px; }
+.log { margin: 0 14px 10px; border: 1px solid var(--t-line); padding: 6px 10px; background: var(--t-card); }
 .log-rows { max-height: 220px; overflow-y: auto; }
 .log .r { display: grid; grid-template-columns: 70px 96px 1fr; gap: 8px; white-space: nowrap; }
 .log .r:last-child { animation: fadein .8s; }
@@ -567,9 +572,12 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .c-ck { color: var(--t-blue); } .c-rp { color: var(--t-green); } .c-wt { color: var(--t-yellow); } .c-gt { color: var(--t-yellow); } .c-bp { color: var(--t-purple); }
 .status { display: flex; align-items: center; gap: 18px; padding: 8px 14px 10px; border-top: 1px solid var(--t-line); font-size: 11px; margin-top: auto; }
 .status .grow { flex: 1; }
+.status .slots { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status b { font-weight: 700; } .b-green { color: var(--t-green); } .b-yellow { color: var(--t-yellow); } .b-purple { color: var(--t-purple); }
 .cursor { display: inline-block; width: 7px; height: 12px; background: var(--t-green); animation: blink 1s infinite; }
 .empty { color: var(--t-dim); padding: 24px; text-align: center; }
+.wc { flex: none; padding: 0 7px; border-radius: 8px; background: transparent; border: 1px solid var(--t-dim); color: var(--t-dim); font-size: 11px; font-weight: 400; }
+.kv.slot { padding-left: 6px; }
 @media (max-width: 720px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 /* 사이드바 폭. 머리글 한 줄, 컨덕터 요약, 네 칸, 최근 이벤트 8줄, 상태줄 순으로 쌓는다 */
 @media (max-width: 480px) {
@@ -588,5 +596,6 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
   .log .r:nth-last-child(n + 9) { display: none; }
   .status { gap: 10px; padding: 6px 8px 8px; justify-content: flex-end; }
   .status .grow { display: none; }
+  .status .slots { display: none; }
 }
 `

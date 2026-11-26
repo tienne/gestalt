@@ -329,6 +329,48 @@ test('카드는 주문 id를 워커 종류 색 배지로, 제목은 다음 줄�
   has(TERMINAL_STYLE, '.w.orca .t .tid { background: var(--t-orange); }')
 })
 
+test('중립색은 오르카 테마 변수를 따르고 변수가 없는 웹 페이지에서는 원래 다크 색으로 그린다', () => {
+  has(TERMINAL_STYLE, '--t-bg: var(--orca-background, #14161c);')
+  has(TERMINAL_STYLE, '--t-fg: var(--orca-foreground, #c9ced8);')
+  has(TERMINAL_STYLE, '--t-dim: var(--orca-muted-foreground, #8b93a1);')
+  has(TERMINAL_STYLE, '--t-line: var(--orca-border, #2a2f3a);')
+  has(TERMINAL_STYLE, '--t-ring: var(--orca-ring, var(--t-fg));')
+  has(TERMINAL_STYLE, '--t-card: var(--orca-card, var(--t-bg));')
+  has(TERMINAL_STYLE, '--t-fill: var(--orca-muted, #232833);')
+  has(TERMINAL_STYLE, '--t-hover: var(--orca-accent, #232833);')
+  has(TERMINAL_STYLE, '--t-hover-fg: var(--orca-accent-foreground, var(--t-fg));')
+  has(TERMINAL_STYLE, '--t-stripe: var(--orca-border, #2f3542);')
+  has(TERMINAL_STYLE, '--t-pop: var(--orca-popover, #2b2b2b);')
+  has(TERMINAL_STYLE, '--t-pop-fg: var(--orca-popover-foreground, #e6e6e6);')
+  has(TERMINAL_STYLE, '--t-pop-line: var(--orca-border, #454545);')
+  has(TERMINAL_STYLE, '--t-done-line: #2f5b43;')
+  has(TERMINAL_STYLE, 'html.light { color-scheme: light;')
+  // 강조색 자체는 그대로 두고 라이트에서만 글자색을 섞는다
+  for (const [name, hex, pct] of [
+    ['orange', '#f0915a', 62],
+    ['blue', '#7aa7ff', 62],
+    ['green', '#5fd38d', 58],
+    ['purple', '#a78bfa', 68],
+    ['yellow', '#f2c94c', 55],
+    ['red', '#f26d6d', 70],
+  ] as const) {
+    has(TERMINAL_STYLE, `--t-${name}:${hex};`)
+    has(TERMINAL_STYLE, `--t-${name}: color-mix(in srgb, ${hex} ${pct}%, var(--t-fg));`)
+  }
+  // 흰 글자를 얹는 배지는 라이트에서 바탕을 더 어둡게 섞어야 4.5:1을 넘는다
+  has(TERMINAL_STYLE, '--t-badge-yellow: color-mix(in srgb, #f2c94c 40%, var(--t-fg));')
+  has(TERMINAL_STYLE, '--t-badge-orange: color-mix(in srgb, #f0915a 50%, var(--t-fg));')
+  has(TERMINAL_STYLE, '--t-badge-yellow: var(--t-yellow);')
+  has(TERMINAL_STYLE, '--t-badge-orange: var(--t-orange);')
+  has(TERMINAL_STYLE, '--t-done-line: color-mix(in srgb, var(--t-green) 45%, var(--t-bg));')
+  // 색 값은 :root와 html.light에만 둔다. 테마와 무관한 검은 그림자만 빼고 나머지 규칙에 색이 다시 들어오면 테마를 안 따른다
+  const rules = TERMINAL_STYLE.split('\n')
+    .filter((line) => !line.startsWith(':root {') && !line.startsWith('html.light {'))
+    .join('\n')
+    .replace(/box-shadow: 0 4px 12px rgba\(0,0,0,\.\d+\);/g, '')
+  assert.equal(rules.match(/#[0-9a-fA-F]{3,8}\b|\brgba?\(/g), null, '테마 변수 밖에 박아 둔 색이 있어요')
+})
+
 test('컨덕터 칸은 세션을 알면 데스크톱에만 세션으로 이동 버튼을 그린다', () => {
   const v = view([order('ord-a')], { conductor: { session: { id: 'sess-1', cwd: '/w' } } })
   has(terminalMarkup(v, { now: NOW, interactive: true, private: true }), 'data-go-conductor')
@@ -378,4 +420,23 @@ test('머리에 승인, 진행, 대기 수를 싣고 대기와 끝남 칸은 접
   const opened = terminalMarkup(v, { now: NOW, interactive: true, private: true, lanes: new Set(['waiting']) })
   has(opened, 'data-key="lane:waiting" open>')
   has(opened, 'data-key="lane:ended">')
+})
+
+test('컨덕터 칸과 상태 줄에 유형별 사용량을, 카드에 유형 이름표를 그린다', () => {
+  const v = view([order('ord-a', { workClass: 'work' }), order('ord-b', { workClass: 'review' })], {
+    conductor: { maxWorkers: 20, workerSlots: { lookup: { active: 0, limit: 5 }, review: { active: 1, limit: 5 }, work: { active: 1, limit: 10 } } }
+  })
+  const html = terminalMarkup(v, { now: NOW, interactive: true, private: true })
+  has(html, '· 조회')
+  has(html, '1 / 10')
+  has(html, '<span class="slots">조회 0/5 · 리뷰 1/5 · 작업 1/10</span>')
+  has(html, '<span class="wc">작업</span>')
+  has(html, '<span class="wc">리뷰</span>')
+})
+
+test('옛 CLI면 유형별 줄과 이름표 없이 전체 슬롯만 그린다', () => {
+  const html = terminalMarkup(view([order('ord-a')], { conductor: { maxWorkers: 4 } }), { now: NOW, interactive: true, private: true })
+  lacks(html, 'class="slots"')
+  lacks(html, 'class="wc"')
+  lacks(html, 'kv slot')
 })

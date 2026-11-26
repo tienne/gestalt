@@ -235,10 +235,11 @@ describe('loadConfig — conductor', () => {
   });
   const opts = { skipDotEnv: true, skipGestaltJson: true };
 
-  it('기본은 동시 워커 10개, approval 범위다', () => {
+  it('기본은 조회 5, 리뷰 5, 작업 10 워커이고 approval 범위다', () => {
     delete process.env['GESTALT_CONDUCTOR_MAX_WORKERS'];
     const { conductor } = loadConfig({}, opts);
-    expect(conductor.maxConcurrentWorkers).toBe(10);
+    expect(conductor.workerLimits).toEqual({ lookup: 5, review: 5, work: 10 });
+    expect(conductor.maxConcurrentWorkers).toBeUndefined();
     expect(conductor.defaultScope).toBe('approval');
     expect(conductor.maxResumeAttempts).toBe(3);
     expect(conductor.accounts).toEqual({});
@@ -246,9 +247,16 @@ describe('loadConfig — conductor', () => {
     expect(conductor.prWatchRepos).toEqual([]);
   });
 
-  it('env로 동시 워커 상한을 바꾼다', () => {
+  it('옛 env 상한은 읽기만 하고 유형별 한도는 그대로 둔다', () => {
     process.env['GESTALT_CONDUCTOR_MAX_WORKERS'] = '4';
-    expect(loadConfig({}, opts).conductor.maxConcurrentWorkers).toBe(4);
+    const { conductor } = loadConfig({}, opts);
+    expect(conductor.maxConcurrentWorkers).toBe(4);
+    expect(conductor.workerLimits).toEqual({ lookup: 5, review: 5, work: 10 });
+  });
+
+  it('유형별 한도 일부만 적으면 나머지는 기본값이다', () => {
+    const { conductor } = loadConfig({ conductor: { workerLimits: { review: 2 } } }, opts);
+    expect(conductor.workerLimits).toEqual({ lookup: 5, review: 2, work: 10 });
   });
 
   it('overrides의 범위와 계정 맵을 받는다', () => {
@@ -258,7 +266,7 @@ describe('loadConfig — conductor', () => {
     );
     expect(conductor.defaultScope).toBe('merge-through');
     expect(conductor.accounts).toEqual({ 'acme/app': 'work' });
-    expect(conductor.maxConcurrentWorkers).toBe(10);
+    expect(conductor.workerLimits.work).toBe(10);
   });
 
   it('워커가 멈췄다고 보는 기본 시간은 30분이다', () => {
@@ -299,6 +307,7 @@ describe('loadConfig — conductor', () => {
             repoPaths: { 'acme/app': '/elsewhere/app' },
             prWatchRepos: ['acme/app'],
             maxConcurrentWorkers: 3,
+            workerLimits: { work: 3 },
           },
         }),
       );
@@ -309,6 +318,7 @@ describe('loadConfig — conductor', () => {
       expect(conductor.repoPaths).toEqual({});
       expect(conductor.prWatchRepos).toEqual([]);
       expect(conductor.maxConcurrentWorkers).toBe(3);
+      expect(conductor.workerLimits).toEqual({ lookup: 5, review: 5, work: 3 });
     });
     for (const key of ['defaultScope', 'stateDir', 'accounts', 'repoPaths', 'prWatchRepos']) {
       expect(warned).toContain(`conductor.${key}`);

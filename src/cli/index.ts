@@ -1248,6 +1248,10 @@ export function createCli(): Command {
       '스킬 체인. 게슈탈트 스킬 이름이나 대상 레포의 프로젝트 스킬(repo:<이름>)을 받는다. 없으면 solve,ship',
     )
     .option('--worker-kind <kind>', 'subagent, orca-worktree, git-worktree 중 하나로 고정')
+    .option(
+      '--work-class <class>',
+      'lookup(조회), review(리뷰), work(작업) 중 하나. 스킬 체인이 고른 유형보다 클 때만 쓴다(구현 체인은 늘 작업)',
+    )
     .option('--agent <id>', '이 주문의 오르카 워커 에이전트')
     .option(
       '--parent-worktree <path|selector>',
