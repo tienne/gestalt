@@ -1,8 +1,8 @@
 # 화면 변경 판정
 
-이 문서는 변경이 화면을 바꾸는지 정하는 기준이다. 세 자리가 같은 기준을 쓴다.
+이 문서는 변경이 화면을 바꾸는지 정하는 기준이다. 아래 자리가 모두 이 기준을 쓴다.
 
-- 수정 전 캡처: `execute`가 첫 태스크 직전에, 컨덕터 워커가 코드를 고치기 직전에 [`before-screenshot.md`](./before-screenshot.md)를 돈다
+- 수정 전 캡처: `execute`가 첫 태스크 직전에, 컨덕터 워커와 `handoff`로 받은 워커가 코드를 고치기 직전에 [`before-screenshot.md`](./before-screenshot.md)를 돈다
 - `pr` 직접 호출: 1단계 4번 질문을 붙일지 정하고 5.5단계에서 전후 이미지를 붙인다
 - `ship`의 PR 작성: Phase 1과 Phase 3에서 `pr` 1단계 4번 답을 고른다
 
@@ -10,7 +10,7 @@
 
 ## 언제 판정하나
 
-판정은 두 번 한다.
+코드를 고치기 전에 한 번 보고 GitHub 초안 PR 직전에 최종 diff로 다시 본다.
 
 | 차례 | 언제 | 무엇으로 | 결과를 어디에 |
 | --- | --- | --- | --- |
@@ -83,7 +83,7 @@
 - 실행 환경이나 주소, 로그인, 전후 이미지가 모자라서 못 본 화면은 `unverified`다. `unchanged`로 적지 않는다. 못 본 것과 봤는데 같은 것은 다르다
 - `unchanged`는 실제로 전후를 비교한 화면과 상태에만 쓴다. 비교하지 않은 다른 화면까지 넓혀 말하지 않는다
 - `changed`면 차이가 드러나는 상태의 캡처를 붙인다. 빈 화면 캡처로는 붙이지 않는다
-- 사용자가 명시적으로 붙여 달라거나 빼 달라고 했으면 판정보다 그 요청이 먼저다. 붙여 달라면 `none`이어도 붙인다. 빼 달라면 `changed`여도 이미지는 빼되 판정 줄은 본문에 남긴다
+- 사용자가 붙여 달라거나 빼 달라고 했으면 판정보다 그 요청이 먼저다. 붙여 달라면 `none`이어도 붙인다. 빼 달라면 `changed`여도 이미지는 빼되 판정 줄은 본문에 남긴다
 
 여러 후보의 판정이 섞이면 PR 전체 판정은 `changed` > `unverified` > `unchanged` 순으로 앞선 것을 쓴다. 후보별 판정은 본문 표에 그대로 둔다.
 
@@ -93,7 +93,7 @@
 
 ```json
 {
-  "check": "before-edit",
+  "check": "before-pr",
   "baseRef": "<baseRef>",
   "headSha": "<HEAD>",
   "verdict": "changed",
@@ -115,6 +115,15 @@
       "viewport": "1280x800",
       "theme": "dark",
       "before": "<절대 경로>/패널-중간-before.png"
+    },
+    {
+      "label": "마크업-완료",
+      "url": "file://<절대 경로>/마크업-완료.html",
+      "render": "<HTML을 만든 명령>",
+      "state": "완료 100%",
+      "viewport": "1280x800",
+      "theme": "dark",
+      "before": "<절대 경로>/마크업-완료-before.png"
     }
   ],
   "unverified": [
@@ -123,6 +132,8 @@
 }
 ```
 
+- 위 예시는 두 번째 확인을 마친 꼴이다. 첫 확인(`before-edit`)은 아직 수정 후가 없으므로 전체와 후보별 `verdict`, `note`를 비워 둔다.
+- `file://` 쌍은 `render`에 HTML을 만든 명령을 적는다. 수정 후 화면은 그 명령을 고친 코드로 다시 돌려 만든다.
 - `candidates`가 비었으면 `"verdict": "none"`과 `reason` 한 줄만 둔다.
 - 첫 확인에서 못 찍은 이유는 예전처럼 `skipped`에도 적는다. `pr` 1단계가 이 값을 읽어 한 줄 보인다.
 - 두 번째 확인은 `check`를 `before-pr`로 바꾸고 `candidates`와 `verdict`를 최종 diff 기준으로 다시 쓴다. `pairs`의 `before`는 지우지 않는다.
