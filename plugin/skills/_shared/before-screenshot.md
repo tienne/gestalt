@@ -77,6 +77,15 @@ mkdir -p "$shotTmp"
       "viewport": "1280x800",
       "theme": "light",
       "before": "<절대 경로>/목록-중간-before.png"
+    },
+    {
+      "label": "목록-완료",
+      "url": "file://<절대 경로>/목록-완료.html",
+      "render": "<HTML을 만든 명령>",
+      "state": "완료",
+      "viewport": "1280x800",
+      "theme": "light",
+      "before": "<절대 경로>/목록-완료-before.png"
     }
   ]
 }
