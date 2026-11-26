@@ -128,7 +128,7 @@ interface ItemDecision {
 
 /**
  * 답이 운영 봇의 항목에서 이 게이트를 묻는 마지막 질문에 사람이 단 것인지 본다.
- * 호출한 쪽에서 승인자 서명이나 공식 Orca 증빙을 확인한다.
+ * 호출한 쪽에서 승인자 서명이나 공식 Orca 증빙을 확인한다. button 결과만으로는 승인 근거가 안 된다(owner 행은 같은 OS 사용자가 쓸 수 있다).
  */
 export function readItemDecision(input: {
   show: OrcaItemShow;

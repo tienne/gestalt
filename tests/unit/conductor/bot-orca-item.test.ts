@@ -706,6 +706,10 @@ describe('Orca 항목 답 판독', () => {
     const loose = show(st, gate, '승인');
     loose.events[2]!.data = { text: '승인' };
     expect(() => read(loose, gate, st)).toThrow('이 질문의 답으로 기록하지 않았어요');
+    for (const answers of ['e10', ['e11'], 11, null]) {
+      loose.events[2]!.data = { text: '승인', answers };
+      expect(() => read(loose, gate, st)).toThrow(/질문이 달라요|이 질문의 답으로/);
+    }
     expect(() => read(show(st, gate, '> 승인\n승인'), gate, st)).toThrow('승인이나 거절로');
     expect(() => read(show(st, gate, '> 진행할까요?\n> 승인\n승인'), gate, st)).toThrow(
       '승인이나 거절로',
