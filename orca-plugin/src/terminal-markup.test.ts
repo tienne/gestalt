@@ -329,6 +329,19 @@ test('카드는 주문 id를 워커 종류 색 배지로, 제목은 다음 줄�
   has(TERMINAL_STYLE, '.w.orca .t .tid { background: var(--t-orange); }')
 })
 
+test('중립색은 오르카 테마 변수를 따르고 변수가 없는 웹 페이지에서는 원래 다크 색으로 그린다', () => {
+  has(TERMINAL_STYLE, '--t-bg: var(--orca-background, #14161c);')
+  has(TERMINAL_STYLE, '--t-fg: var(--orca-foreground, #c9ced8);')
+  has(TERMINAL_STYLE, '--t-dim: var(--orca-muted-foreground, #8b93a1);')
+  has(TERMINAL_STYLE, '--t-line: var(--orca-border, #2a2f3a);')
+  has(TERMINAL_STYLE, '--t-ring: var(--orca-ring, var(--t-fg));')
+  has(TERMINAL_STYLE, 'html.light { color-scheme: light;')
+  // 강조색 자체는 그대로 두고 라이트에서만 글자색을 섞는다
+  has(TERMINAL_STYLE, '--t-yellow:#f2c94c;')
+  has(TERMINAL_STYLE, '--t-yellow: color-mix(in srgb, #f2c94c 55%, var(--t-fg));')
+  for (const fixed of ['background: #232833', '#0e1015', '#2f5b43', '.chip.cur { color: #14161c']) lacks(TERMINAL_STYLE, fixed)
+})
+
 test('컨덕터 칸은 세션을 알면 데스크톱에만 세션으로 이동 버튼을 그린다', () => {
   const v = view([order('ord-a')], { conductor: { session: { id: 'sess-1', cwd: '/w' } } })
   has(terminalMarkup(v, { now: NOW, interactive: true, private: true }), 'data-go-conductor')
