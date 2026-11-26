@@ -15,7 +15,7 @@ const VERDICTS = ['changed', 'unchanged', 'unverified', 'none'] as const;
 function section(doc: string, heading: string): string {
   const start = doc.indexOf(heading);
   expect(start, heading).toBeGreaterThanOrEqual(0);
-  const next = doc.indexOf('\n#', start + heading.length);
+  const next = doc.indexOf('\n## ', start + heading.length);
   return doc.slice(start, next === -1 ? undefined : next);
 }
 
@@ -38,18 +38,21 @@ describe('화면 변경 판정 공용 기준', () => {
     }
   });
 
-  it('판정 값 넷을 정의하고 pr 본문 지시가 같은 값을 쓴다', () => {
+  it('후보별 판정 셋과 none을 정의하고 pr 본문 지시가 같은 값을 쓴다', () => {
     for (const v of VERDICTS) {
+      // changed는 unchanged의 부분 문자열이라 백틱 토큰으로 본다
       expect(judge).toContain(`\`${v}\``);
-      expect(pr).toContain(v);
+      expect(pr, v).toContain(`\`${v}\``);
     }
   });
 
   it('확장자는 단서로만 쓰고 .ts가 HTML을 만드는 사례를 후보로 든다', () => {
     const find = section(judge, '## 후보 찾기');
     expect(find).toContain('단서');
-    expect(find).toContain('orca-plugin/src/terminal-markup.ts');
-    expect(existsSync(resolve('orca-plugin/src/terminal-markup.ts'))).toBe(true);
+    // 예로 든 파일 경로가 실제로 있어야 예시가 낡지 않는다
+    const paths = [...find.matchAll(/`([^`\s]*\/[^`\s]*\.ts)`/g)].map((m) => m[1]!);
+    expect(paths.length).toBeGreaterThan(0);
+    for (const p of paths) expect(existsSync(resolve(p)), p).toBe(true);
     expect(find).toContain('화면 문구와 표시 조건');
     expect(find).toContain('테스트와 스토리 파일');
   });
@@ -84,7 +87,9 @@ describe('화면 변경 판정 공용 기준', () => {
     const answers = [...table.slice(0, table.indexOf('\n\n')).matchAll(/\| `([^`:]+)[:`]/g)]
       .map((m) => m[1]!.trim())
       .filter((a) => !a.startsWith('manifest.json') && !a.startsWith('$shotTmp'));
-    expect(answers.length).toBeGreaterThan(0);
+    expect(answers).toEqual(
+      expect.arrayContaining(['캡처할 주소', '수정 후만', '확인 필요', '없음']),
+    );
     for (const a of answers) expect(prefixes, a).toContain(a);
   });
 

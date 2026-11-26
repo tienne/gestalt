@@ -302,6 +302,16 @@ export const BEFORE_SCREENSHOT_DOC = resolve(
 
 export const SCREEN_CHANGE_DOC = join(dirname(BEFORE_SCREENSHOT_DOC), 'screen-change.md');
 
+// 워커 지시서가 절대 경로로 싣는 문서. verify-plugin-assets가 빌드본에서 이 목록을 돌며 경로가 풀리는지 본다
+export const WORKER_DOCS = [
+  { path: BEFORE_SCREENSHOT_DOC, label: '수정 전 캡처' },
+  { path: SCREEN_CHANGE_DOC, label: '화면 변경 판정' },
+] as const;
+
+function workerDocRef(path: string): string {
+  return existsSync(path) ? path : `gestalt 플러그인의 plugin/skills/_shared/${basename(path)}`;
+}
+
 export interface ResumeContext {
   checkpoint: Checkpoint;
   reason: string;
@@ -401,12 +411,8 @@ export function buildWorkerPrompt(
   );
   if (order.skillChain.some((s) => PR_SKILLS.has(s))) {
     // 주문 설명이 단계를 직접 적으면 워커가 execute를 안 거쳐 수정 전 캡처 자리가 사라진다
-    const doc = existsSync(BEFORE_SCREENSHOT_DOC)
-      ? BEFORE_SCREENSHOT_DOC
-      : 'gestalt 플러그인의 plugin/skills/_shared/before-screenshot.md';
-    const judge = existsSync(SCREEN_CHANGE_DOC)
-      ? SCREEN_CHANGE_DOC
-      : 'gestalt 플러그인의 plugin/skills/_shared/screen-change.md';
+    const doc = workerDocRef(BEFORE_SCREENSHOT_DOC);
+    const judge = workerDocRef(SCREEN_CHANGE_DOC);
     lines.push(
       `- 화면을 바꿀 수 있는 주문이면(\`${judge}\`의 후보 기준. 확장자는 단서이고 HTML 문자열을 만드는 \`.ts\`나 화면 문구, 표시 조건도 근거가 있으면 후보다) 주문 설명이 단계를 직접 적었어도 코드를 고치기 전에 \`${doc}\`대로 수정 전 화면을 찍는다. 후보가 없으면 manifest에 판정만 남긴다.`,
     );

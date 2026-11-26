@@ -265,7 +265,10 @@ describe('워커 지시서', () => {
     expect(doc).toBeDefined();
     expect(isAbsolute(doc!)).toBe(true);
     expect(existsSync(doc!)).toBe(true);
-    expect(prompt).toContain('확장자는 단서');
+    // 확장자만 보지 않는다는 근거가 문서를 가리키는 줄에 함께 실려야 한다
+    const line = prompt.split('\n').find((l) => l.includes(doc!));
+    expect(line).toContain('`.ts`');
+    expect(line).toContain('표시 조건');
   });
 
   it('shotTmp 경로 줄은 pr 스킬과 수정 전 캡처 문서의 줄과 같다', () => {
