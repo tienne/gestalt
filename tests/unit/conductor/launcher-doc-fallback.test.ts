@@ -1,5 +1,13 @@
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { order, worker } from './fixtures.js';
+
+// mock factory 안에서 launcher를 import하면 순환이라 같은 절대 경로를 여기서 따로 만든다
+const SHARED = resolve(import.meta.dirname, '../../../plugin/skills/_shared');
+const DOCS = new Set([
+  resolve(SHARED, 'before-screenshot.md'),
+  resolve(SHARED, 'screen-change.md'),
+]);
 
 describe('워커 지시서 문서 경로 폴백', () => {
   afterEach(() => {
@@ -14,7 +22,7 @@ describe('워커 지시서 문서 경로 폴백', () => {
       return {
         ...actual,
         existsSync: (p: Parameters<typeof actual.existsSync>[0]) =>
-          String(p).endsWith('.md') ? false : actual.existsSync(p),
+          DOCS.has(String(p)) ? false : actual.existsSync(p),
       };
     });
     const { buildWorkerPrompt } = await import('../../../src/conductor/launcher.js');
