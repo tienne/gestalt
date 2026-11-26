@@ -360,11 +360,15 @@ test('중립색은 오르카 테마 변수를 따르고 변수가 없는 웹 페
   // 흰 글자를 얹는 배지는 라이트에서 바탕을 더 어둡게 섞어야 4.5:1을 넘는다
   has(TERMINAL_STYLE, '--t-badge-yellow: color-mix(in srgb, #f2c94c 40%, var(--t-fg));')
   has(TERMINAL_STYLE, '--t-badge-orange: color-mix(in srgb, #f0915a 50%, var(--t-fg));')
-  // 색 값은 :root와 html.light에만 둔다. 나머지 규칙에 hex가 다시 들어오면 테마를 안 따른다
+  has(TERMINAL_STYLE, '--t-badge-yellow: var(--t-yellow);')
+  has(TERMINAL_STYLE, '--t-badge-orange: var(--t-orange);')
+  has(TERMINAL_STYLE, '--t-done-line: color-mix(in srgb, var(--t-green) 45%, var(--t-bg));')
+  // 색 값은 :root와 html.light에만 둔다. 테마와 무관한 검은 그림자만 빼고 나머지 규칙에 색이 다시 들어오면 테마를 안 따른다
   const rules = TERMINAL_STYLE.split('\n')
     .filter((line) => !line.startsWith(':root {') && !line.startsWith('html.light {'))
     .join('\n')
-  assert.equal(rules.match(/#[0-9a-fA-F]{3,8}\b/g), null, '테마 변수 밖에 박아 둔 색이 있어요')
+    .replace(/box-shadow: 0 4px 12px rgba\(0,0,0,\.\d+\);/g, '')
+  assert.equal(rules.match(/#[0-9a-fA-F]{3,8}\b|\brgba?\(/g), null, '테마 변수 밖에 박아 둔 색이 있어요')
 })
 
 test('컨덕터 칸은 세션을 알면 데스크톱에만 세션으로 이동 버튼을 그린다', () => {
