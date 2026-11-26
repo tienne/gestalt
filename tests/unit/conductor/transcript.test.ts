@@ -396,6 +396,12 @@ describe('리뷰 라운드 집계', () => {
       '환경변수와 경로를 붙인 실행',
       'GESTALT_ACTOR=x /opt/bin/gestalt ship checkpoint save --phase 2',
     ],
+    ['괄호 안', '(gestalt ship checkpoint save --phase 2)'],
+    ['$() 값을 넣은 환경변수 뒤', 'FOO=$(pwd) gestalt ship checkpoint save --phase 2'],
+    [
+      '플러그인 런처로 부른 실행',
+      'node "/a b/plugin/scripts/gestalt-cli.mjs" ship checkpoint save --phase 2',
+    ],
   ])('ship 체크포인트가 %s에서 실행되면 라운드를 끝낸다', (_, command) => {
     const f = transcriptFile(tempStateDir());
     writeRows(f, [...wave('m1', 1, [['r1', REVIEWERS[0]!]]), checkpoint('b1', 3, command)]);
@@ -409,6 +415,17 @@ describe('리뷰 라운드 집계', () => {
     const f = transcriptFile(tempStateDir());
     writeRows(f, [...wave('m1', 1, [['r1', REVIEWERS[0]!]]), checkpoint('b1', 3, command)]);
     expect(count(f)).toMatchObject({ total: 1, running: 1 });
+  });
+
+  it.each([
+    ['구분자가 이어진 명령', 'a|'.repeat(50000)],
+    ['세미콜론만 이어진 명령', ';'.repeat(100000)],
+  ])('%s도 입력 길이에 비례해서만 읽는다', (_, command) => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [...wave('m1', 1, [['r1', REVIEWERS[0]!]]), checkpoint('b1', 3, command)]);
+    const started = performance.now();
+    expect(count(f)).toMatchObject({ total: 1, running: 1 });
+    expect(performance.now() - started).toBeLessThan(200);
   });
 
   it('결과 본문 앞부분에 teammate가 있어도 결과로 보고 실행 응답 글은 실행 중으로 둔다', () => {

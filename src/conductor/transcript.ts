@@ -411,10 +411,13 @@ const GATE_COMMAND = /\bgate\b/;
 const REVIEWER_TYPE = /^gestalt:[a-z0-9-]+-reviewer$/;
 /**
  * ship이 라운드를 마치고 남기는 체크포인트. 명령이 실행되는 자리(줄 처음, `;` `&&` `||` `|` `(` 뒤)에 올 때만 본다.
- * 커밋 메시지나 echo 인자 안에 같은 글이 있어도 라운드를 끝내지 않는다
+ * 커밋 메시지나 echo 인자 안에 같은 글이 있어도 라운드를 끝내지 않는다.
+ * 명령은 워커가 쓴 글이라 길이 상한이 없다. 경로와 환경 변수 값이 구분자를 못 넘게 막아 입력 길이에 비례해서만 돈다
  */
 const SHIP_CHECKPOINT =
-  /(?:^|[;&|(])\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:\S*\/)?gestalt\s+ship\s+checkpoint\s+save\b/m;
+  /(?:^|[;&|(])[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=(?:\$\([^()\n]*\)|[^\s;&|()])*[ \t]+)*(?:[^\s;&|()/]*\/)*gestalt\s+ship\s+checkpoint\s+save\b/m;
+/** 스킬은 플러그인 런처(`node ".../gestalt-cli.mjs" ship ...`)로 CLI를 부른다. 경로에 공백이 있어 위 꼴로는 못 잡는다 */
+const SHIP_CHECKPOINT_LAUNCHER = /gestalt-cli\.mjs["']?[ \t]+ship[ \t]+checkpoint[ \t]+save\b/;
 
 function parse(line: string): Row | undefined {
   try {
@@ -551,11 +554,11 @@ function startCall(block: Row, at: string, ctx: RowContext, messageId: string | 
       startReviewer(ctx.digest, id, type, at, messageId ?? id);
   }
   if (
+    ctx.digest.review &&
+    !ctx.digest.review.closedAt &&
     SHELL_TOOLS.has(rawName) &&
     typeof input['command'] === 'string' &&
-    SHIP_CHECKPOINT.test(input['command']) &&
-    ctx.digest.review &&
-    !ctx.digest.review.closedAt
+    (SHIP_CHECKPOINT.test(input['command']) || SHIP_CHECKPOINT_LAUNCHER.test(input['command']))
   )
     ctx.digest.review.closedAt = at;
   if (
