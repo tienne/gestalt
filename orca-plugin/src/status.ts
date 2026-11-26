@@ -284,7 +284,8 @@ function reviewOf(v: unknown): WorkReview | null {
   const startedAt = str(v['startedAt'])
   if (total === undefined || done === undefined || running === undefined || failed === undefined || !startedAt) return null
   if (total === 0 || done + running + failed !== total) return null
-  return { startedAt, total, done, running, failed }
+  const round = count(v['round'])
+  return { startedAt, ...(round !== undefined && round > 0 ? { round } : {}), total, done, running, failed }
 }
 
 function bypasses(v: unknown): Bypass[] {

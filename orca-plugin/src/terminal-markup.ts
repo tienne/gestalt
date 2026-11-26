@@ -213,7 +213,7 @@ function todoBar(t: NonNullable<Card['todo']>, tone: string): string {
 /** ship 리뷰 라운드 막대. 색은 상태줄 색을 그대로 따르고 실패는 글로만 알린다 */
 function reviewBar(r: NonNullable<Card['review']>, tone: string): string {
   const pct = Math.round((r.done / r.total) * 100)
-  return div('todo review', `<div class="prog ${tone}"><b style="width:${pct}%"></b></div>`, span('muted', reviewText(r)))
+  return div('todo review', `<div class="prog ${tone}" aria-hidden="true"><b style="width:${pct}%"></b></div>`, span('muted', reviewText(r)))
 }
 
 /** 레포별 묶음. 묶음 머리에 레포가 나오니 카드에서는 레포 줄을 뺀다 */
@@ -507,6 +507,8 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .prog.unknown { background: repeating-linear-gradient(135deg, var(--t-fill) 0 4px, var(--t-stripe) 4px 8px); }
 .todo { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
 .todo .prog { margin: 4px 0; }
+.todo.review { grid-template-columns: minmax(48px, 1fr) auto; }
+.todo.review > span { overflow-wrap: anywhere; }
 .work { margin-top: 4px; display: grid; gap: 1px; }
 .work .f { overflow-wrap: anywhere; }
 .work .f.ov { color: var(--t-yellow); }
