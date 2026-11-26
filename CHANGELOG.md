@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.162.1] - 2026-11-26
+
+### Fixed
+
+- **컨덕터가 Orca 항목 답을 그 질문의 답으로 기록된 것만 받아요(#183).** 버튼이나 `승인`, `거절` 한 줄 답은 Orca가 `answers`에 그 Needs you 질문을 채운 경우에만 읽어요. 서명 두 줄 답도 `answers`가 다른 질문을 가리키면 받지 않아요.
+  - 버튼 답과 한 줄 답으로 게이트를 닫는 기능은 아직 켜지 않았어요. Orca 1.4.269의 답 기록에는 위조를 막을 증빙이 없어서 지금처럼 게이트를 열어 둔 채 실패를 알려요. 운영자 터미널, Touch ID 링크, 서명 두 줄 답은 그대로예요.
+
+### Docs
+
+- **`docs/conductor.md`에 확인한 Orca 답 계약과 버튼 승인을 켜는 데 필요한 Orca 변경을 적었어요(#183).** 메인 프로세스의 증빙 서명과 키 보관, 선택지 ID와 결정 기록, 읽기 전용 증빙 조회와 공개키 고정, 응답자 신원 조건이에요.
+
 ## [0.162.0] - 2026-11-26
 
 ### Added
