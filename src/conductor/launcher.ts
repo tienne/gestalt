@@ -300,6 +300,8 @@ export const BEFORE_SCREENSHOT_DOC = resolve(
   'before-screenshot.md',
 );
 
+export const SCREEN_CHANGE_DOC = join(dirname(BEFORE_SCREENSHOT_DOC), 'screen-change.md');
+
 export interface ResumeContext {
   checkpoint: Checkpoint;
   reason: string;
@@ -402,8 +404,11 @@ export function buildWorkerPrompt(
     const doc = existsSync(BEFORE_SCREENSHOT_DOC)
       ? BEFORE_SCREENSHOT_DOC
       : 'gestalt 플러그인의 plugin/skills/_shared/before-screenshot.md';
+    const judge = existsSync(SCREEN_CHANGE_DOC)
+      ? SCREEN_CHANGE_DOC
+      : 'gestalt 플러그인의 plugin/skills/_shared/screen-change.md';
     lines.push(
-      `- 화면 파일(\`pr\` 스킬 5.5단계의 화면 변경 판정)을 고칠 주문이면 주문 설명이 단계를 직접 적었어도 코드를 고치기 전에 \`${doc}\`대로 수정 전 화면을 찍는다.`,
+      `- 화면을 바꿀 수 있는 주문이면(\`${judge}\`의 후보 기준. 확장자는 단서이고 HTML 문자열을 만드는 \`.ts\`나 화면 문구, 표시 조건도 근거가 있으면 후보다) 주문 설명이 단계를 직접 적었어도 코드를 고치기 전에 \`${doc}\`대로 수정 전 화면을 찍는다. 후보가 없으면 manifest에 판정만 남긴다.`,
     );
     lines.push(
       '- 수정 전 화면은 `shotTmp="$(cd "$(git rev-parse --git-common-dir)" && pwd)/gestalt-pr/shots/$(git rev-parse --abbrev-ref HEAD | tr \'/\' \'_\')"` 아래에 저장하고 `$shotTmp/manifest.json`을 남긴다. 레포 작업 트리나 다른 임시 경로에 두지 않는다.',

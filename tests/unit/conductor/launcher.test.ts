@@ -256,6 +256,18 @@ describe('워커 지시서', () => {
     expect(existsSync(doc!)).toBe(true);
   });
 
+  it('화면 변경 판정 문서도 남의 레포에서 열리는 절대 경로로 가리킨다', () => {
+    const prompt = buildWorkerPrompt(
+      order({ id: 'ord-1', skillChain: ['ship'] }),
+      worker('ord-1', { id: 'wrk-1' }),
+    );
+    const doc = /`([^`]*screen-change\.md)`의 후보 기준/.exec(prompt)?.[1];
+    expect(doc).toBeDefined();
+    expect(isAbsolute(doc!)).toBe(true);
+    expect(existsSync(doc!)).toBe(true);
+    expect(prompt).toContain('확장자는 단서');
+  });
+
   it('shotTmp 경로 줄은 pr 스킬과 수정 전 캡처 문서의 줄과 같다', () => {
     const prompt = buildWorkerPrompt(
       order({ id: 'ord-1', skillChain: ['ship'] }),
