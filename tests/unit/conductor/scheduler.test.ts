@@ -97,6 +97,15 @@ describe('planSlots', () => {
     expect(plan.waiting.map((o) => o.id)).toEqual(['new-0']);
   });
 
+  it('유형 한도가 0이면 그 유형 주문은 띄우지 않고 큐에 남긴다', () => {
+    const s = seed(2);
+    add(s, 1, { skillChain: ['review-loop'] }, 'rev', 10);
+    const plan = planSlots(s, limits(0, 1));
+    expect(plan.toStart.map((o) => o.id)).toEqual(['rev-0']);
+    expect(plan.waiting.map((o) => o.id)).toEqual(['ord-0', 'ord-1']);
+    expect(plan.byClass.work).toEqual({ limit: 0, active: 0, free: 0 });
+  });
+
   it('워커가 띄울 때 남긴 유형이 주문 칸보다 먼저다', () => {
     const s = seed(1, { workClass: 'review' });
     s.updateOrder('ord-0', { status: 'running' });

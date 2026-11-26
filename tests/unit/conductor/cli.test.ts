@@ -467,12 +467,39 @@ describe('gestalt conductor', () => {
     expect(last()['conductor']).not.toHaveProperty('warnings');
 
     vi.stubEnv('GESTALT_CONDUCTOR_MAX_WORKERS', '3');
-    conductorStatusCommand({ stateDir, json: true });
-    const conductor = last()['conductor'] as Record<string, unknown>;
-    expect(conductor['maxWorkers']).toBe(before);
-    expect(conductor['warnings']).toEqual([
-      expect.stringMatching(/maxConcurrentWorkers\(3\).*workerLimits/),
-    ]);
+    try {
+      conductorStatusCommand({ stateDir, json: true });
+      const conductor = last()['conductor'] as Record<string, unknown>;
+      expect(conductor['maxWorkers']).toBe(before);
+      expect(conductor['warnings']).toEqual([
+        expect.stringMatching(/maxConcurrentWorkers\(3\).*workerLimits/),
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('옛 전체 상한이 남아 있으면 tick 출력에도 경고를 싣는다', async () => {
+    const stateDir = tempStateDir();
+    const legacy = /maxConcurrentWorkers\(3\).*workerLimits/;
+    await conductorTickCommand({ stateDir, json: true, force: true, queue: false, prWatch: false });
+    expect((last()['warnings'] as string[] | undefined) ?? []).not.toContainEqual(
+      expect.stringMatching(legacy),
+    );
+
+    vi.stubEnv('GESTALT_CONDUCTOR_MAX_WORKERS', '3');
+    try {
+      await conductorTickCommand({
+        stateDir,
+        json: true,
+        force: true,
+        queue: false,
+        prWatch: false,
+      });
+      expect(last()['warnings']).toContainEqual(expect.stringMatching(legacy));
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('모르는 작업 유형은 거절하고 직접 정한 유형은 체인 유형보다 클 때만 쓴다', () => {
