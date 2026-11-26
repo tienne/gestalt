@@ -483,7 +483,7 @@ describe('취소된 주문의 보고', () => {
 });
 
 const config: ConductorConfig = {
-  maxConcurrentWorkers: 2,
+  workerLimits: { lookup: 2, review: 2, work: 2 },
   pollIntervalSec: 60,
   maxResumeAttempts: 3,
   staleAfterSec: 900,

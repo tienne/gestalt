@@ -26,7 +26,7 @@ import { cleanupStateDirs, clockedStore, order } from './fixtures.js';
 afterEach(cleanupStateDirs);
 
 const base: ConductorConfig = {
-  maxConcurrentWorkers: 10,
+  workerLimits: { lookup: 10, review: 10, work: 10 },
   pollIntervalSec: 60,
   maxResumeAttempts: 3,
   staleAfterSec: 900,

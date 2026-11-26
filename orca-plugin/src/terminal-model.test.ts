@@ -1,6 +1,6 @@
 import { assert, test } from 'orca/testing'
 import type { ConductorView, OrderView } from './protocol'
-import { canReachWorker, chainChips, clock, duration, eventText, groupByRepo, laneOf, metaOf, progressOf, STALL_MS, stateLine, terminalModel, workerEnded } from './terminal-model'
+import { canReachWorker, chainChips, clock, duration, eventText, groupByRepo, laneOf, metaOf, progressOf, slotText, STALL_MS, stateLine, terminalModel, workerEnded } from './terminal-model'
 
 const base: OrderView = { id: 'o1', status: 'running', scope: 'pr', repo: 'acme/web', title: 't', bypasses: [] }
 const cp = (over: Partial<NonNullable<OrderView['checkpoint']>> = {}) => ({
@@ -347,4 +347,45 @@ test('폰 화면은 칸과 숫자는 그대로 두고 워커가 쓴 글과 계�
   assert.equal(phone.waiting[0]!.state.text, '대기')
   assert.equal(desk.running[0]!.next, 'cat ~/.npmrc')
   assert.equal(desk.waiting[0]!.state.text, 'ghp_TOKEN 만료')
+})
+
+test('terminalModel은 유형별 사용량을 조회, 리뷰, 작업 순으로 싣고 카드에 유형 이름표를 단다', () => {
+  const view: ConductorView = {
+    state: 'ok',
+    stateDir: null,
+    lastTickAt: null,
+    orders: [
+      { ...base, id: 'a', worker: 'w1', workerKind: 'orca-worktree', workClass: 'work' },
+      { ...base, id: 'b', worker: 'w2', workerKind: 'subagent', workClass: 'review' }
+    ],
+    gates: [],
+    unassignedBypasses: [],
+    refreshedAt: 0,
+    conductor: { maxWorkers: 20, workerSlots: { work: { active: 1, limit: 10 }, lookup: { active: 0, limit: 5 }, review: { active: 1, limit: 5 } } }
+  }
+  const m = terminalModel(view, 0)
+  assert.deepEqual(m.slots, [
+    { label: '조회', active: 0, limit: 5 },
+    { label: '리뷰', active: 1, limit: 5 },
+    { label: '작업', active: 1, limit: 10 }
+  ])
+  assert.equal(slotText(m.slots!), '조회 0/5 · 리뷰 1/5 · 작업 1/10')
+  assert.deepEqual(m.cards.map((c) => c.workLabel), ['작업', '리뷰'])
+})
+
+test('유형을 안 주는 옛 CLI면 유형별 사용량과 이름표가 없고 전체 슬롯만 남는다', () => {
+  const view: ConductorView = {
+    state: 'ok',
+    stateDir: null,
+    lastTickAt: null,
+    orders: [{ ...base, id: 'a', worker: 'w1', workerKind: 'orca-worktree' }],
+    gates: [],
+    unassignedBypasses: [],
+    refreshedAt: 0,
+    conductor: { maxWorkers: 4 }
+  }
+  const m = terminalModel(view, 0)
+  assert.equal(m.slots, undefined)
+  assert.equal(m.maxWorkers, 4)
+  assert.equal(m.cards[0]!.workLabel, undefined)
 })

@@ -291,3 +291,27 @@ test('parseStatus는 changedFiles 키가 있을 때만 작업 내용을 읽고 �
     history: null
   })
 })
+
+test('parseStatus는 주문 유형과 유형별 슬롯을 싣고 모르는 유형이나 숫자가 아닌 값은 버린다', () => {
+  const raw = parseStatus({
+    lastTickAt: null,
+    orders: [
+      { id: 'o1', status: 'running', workClass: 'review' },
+      { id: 'o2', status: 'queued', workClass: 'deploy' }
+    ],
+    gates: [],
+    conductor: {
+      maxWorkers: 20,
+      workerSlots: { lookup: { active: 0, limit: 5 }, review: { active: '1', limit: 5 }, work: { active: 2, limit: 10 }, other: { active: 1, limit: 1 } }
+    }
+  })
+  const view = toView(raw, null, [], 0)
+  assert.equal(view.orders[0]!.workClass, 'review')
+  assert.equal('workClass' in view.orders[1]!, false)
+  assert.deepEqual(view.conductor?.workerSlots, { lookup: { active: 0, limit: 5 }, work: { active: 2, limit: 10 } })
+})
+
+test('유형별 슬롯이 전부 꼴이 틀리면 workerSlots 칸을 싣지 않는다', () => {
+  const raw = parseStatus({ lastTickAt: null, orders: [], gates: [], conductor: { maxWorkers: 4, workerSlots: { work: 'x' } } })
+  assert.deepEqual(toView(raw, null, [], 0).conductor, { maxWorkers: 4 })
+})

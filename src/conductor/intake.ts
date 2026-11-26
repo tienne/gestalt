@@ -19,6 +19,7 @@ import {
   type OrderScope,
   type WorkerKind,
 } from './types.js';
+import { resolveWorkClass, type WorkClass } from './work-class.js';
 
 /**
  * 주문 접수.
@@ -125,6 +126,8 @@ export interface IntakeInput {
   skillChain?: string[];
   workerKind?: WorkerKind;
   agent?: string;
+  /** 작업 유형을 직접 정할 때. 비우면 스킬 체인으로 고른다 */
+  workClass?: WorkClass;
   /** 접수 전에 resolveParentWorktree로 레포와 맞는지 확인한 절대 경로 */
   parentWorktree?: string;
   baseBranch?: string;
@@ -172,8 +175,8 @@ function capDescription(text: string): string {
 }
 
 /**
- * 주문을 받는다. 범위와 스킬 체인을 그대로 믿는 건 컨덕터 세션이 CLI로 넣을 때(`trusted`)와
- * 말로 던진 주문뿐이다. 지라, 큐, PR 감시에서 온 값은 externalScope와 KNOWN_SKILLS로 거른다.
+ * 주문을 받는다. 범위와 스킬 체인, 작업 유형을 그대로 믿는 건 컨덕터 세션이 CLI로 넣을 때(`trusted`)와
+ * 말로 던진 주문뿐이다. 지라, 큐, PR 감시에서 온 값은 externalScope와 KNOWN_SKILLS로 거르고 유형은 체인으로 정한다.
  * 레포 스킬은 KNOWN_SKILLS에 없어 바깥 출처에서는 빠진다
  */
 export function intakeOrder(
@@ -230,6 +233,11 @@ export function intakeOrder(
   // 같은 주문을 다시 넣은 경우는 위에서 돌려준다. 그사이 파일이 지워졌어도 이미 만든 주문은 그대로다
   if (trusted && skills?.some(isRepoSkill)) checkRepoSkills(skills, input, config.repoPaths ?? {});
 
+  const skillChain = prepared
+    ? ['execute', 'ship']
+    : skills?.length
+      ? skills
+      : [...DEFAULT_SKILL_CHAIN];
   const at = store.timestamp();
   const order: Order = {
     id,
@@ -243,7 +251,11 @@ export function intakeOrder(
       : trusted
         ? (input.scope ?? config.defaultScope)
         : externalScope(input.scope, config.defaultScope),
-    skillChain: prepared ? ['execute', 'ship'] : skills?.length ? skills : [...DEFAULT_SKILL_CHAIN],
+    skillChain,
+    // 바깥 출처가 정한 유형은 안 믿는다. 작업 한도를 건너뛰는 길이 된다
+    workClass: prepared
+      ? 'work'
+      : resolveWorkClass(skillChain, trusted ? input.workClass : undefined),
     status: 'queued',
     createdAt: at,
     updatedAt: at,

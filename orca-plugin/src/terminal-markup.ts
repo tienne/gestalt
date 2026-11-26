@@ -4,7 +4,7 @@
 import { esc } from './html'
 import { displayStatus, isClosed, ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
 import type { AgentState, ConductorView, EventView, OrderView, WorkerLive, WorkView } from './protocol'
-import { canReachWorker, clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, terminalModel, waitText, workerEnded, type ApprovalEntry, type Card, type GateItem, type TerminalModel } from './terminal-model'
+import { canReachWorker, clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, slotText, terminalModel, waitText, workerEnded, type ApprovalEntry, type Card, type GateItem, type TerminalModel } from './terminal-model'
 
 export type TerminalMarkupOptions = {
   now: number
@@ -48,6 +48,7 @@ function conductorBox(v: ConductorView, m: TerminalModel, now: number, interacti
     SEP,
     kv('마지막 tick', tickAt === null ? '없음' : `${duration(tickAt, now)} 전`),
     kv('슬롯', m.maxWorkers !== undefined ? `${m.activeWorkers} / ${m.maxWorkers}` : String(m.activeWorkers)),
+    ...(m.slots ?? []).map((u) => div('kv slot', span('muted', `· ${u.label}`), span('', `${u.active} / ${u.limit}`))),
     kv('대기 주문', String(m.queued)),
     repos && SEP,
     repos && div('muted', 'PR 감시'),
@@ -258,7 +259,7 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions, gates?: re
   const pct = c.progress === null ? null : Math.round(c.progress * 100)
   const attrs = interactive ? openAttrs(o, `card:${o.id}`, canOpen) : ''
   const body = join(
-    div('t', div('tid-row', span('tid', o.id), interactive && copyOrderButton(o.id), canOpen && goButton(o.id)), span('ttl', o.title)),
+    div('t', div('tid-row', span('tid', o.id), c.workLabel && span('wc', c.workLabel), interactive && copyOrderButton(o.id), canOpen && goButton(o.id)), span('ttl', o.title)),
     gates && gateLines(gates, opts.private),
     c.meta.some((r) => r.label !== '레포') &&
       div('meta', ...c.meta.filter((r) => r.label !== '레포').map((r) =>
@@ -297,7 +298,7 @@ function row(c: Card, v: ConductorView, opts: TerminalMarkupOptions): string {
   const attrs = opts.interactive ? openAttrs(o, `row:${o.id}`, canOpen) : ''
   const repo = o.repo ? (v.projects?.[o.repo] ?? splitRepo(o.repo).name) : ''
   return `<div class="w row ${c.kind}${canOpen ? ' openable' : ''}"${attrs}>${join(
-    div('rt', span('tid', o.id), span('ttl ell', o.title), repo && span('muted', repo)),
+    div('rt', span('tid', o.id), c.workLabel && span('wc', c.workLabel), span('ttl ell', o.title), repo && span('muted', repo)),
     div('state', span(`st ${c.state.tone}`, c.state.text), span('muted', c.state.aside)),
     detail(c, v, opts)
   )}</div>`
@@ -434,6 +435,7 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
       '<span class="cmd">$ gestalt conductor watch <span class="cursor"></span></span>',
       '<span class="grow"></span>',
       `<span>workers <b class="b-green">[${m.activeWorkers}${m.maxWorkers !== undefined ? `/${m.maxWorkers}` : ''}]</b></span>`,
+      m.slots && `<span class="slots">${esc(slotText(m.slots))}</span>`,
       `<span>gates <b class="b-yellow">[${m.gates.length}]</b></span>`,
       `<span>${BYPASS_LABEL} <b class="b-purple">[${m.bypasses}]</b></span>`
     )
@@ -570,9 +572,12 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .c-ck { color: var(--t-blue); } .c-rp { color: var(--t-green); } .c-wt { color: var(--t-yellow); } .c-gt { color: var(--t-yellow); } .c-bp { color: var(--t-purple); }
 .status { display: flex; align-items: center; gap: 18px; padding: 8px 14px 10px; border-top: 1px solid var(--t-line); font-size: 11px; margin-top: auto; }
 .status .grow { flex: 1; }
+.status .slots { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status b { font-weight: 700; } .b-green { color: var(--t-green); } .b-yellow { color: var(--t-yellow); } .b-purple { color: var(--t-purple); }
 .cursor { display: inline-block; width: 7px; height: 12px; background: var(--t-green); animation: blink 1s infinite; }
 .empty { color: var(--t-dim); padding: 24px; text-align: center; }
+.wc { flex: none; padding: 0 7px; border-radius: 8px; background: transparent; border: 1px solid var(--t-dim); color: var(--t-dim); font-size: 11px; font-weight: 400; }
+.kv.slot { padding-left: 6px; }
 @media (max-width: 720px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 /* 사이드바 폭. 머리글 한 줄, 컨덕터 요약, 네 칸, 최근 이벤트 8줄, 상태줄 순으로 쌓는다 */
 @media (max-width: 480px) {
@@ -591,5 +596,6 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
   .log .r:nth-last-child(n + 9) { display: none; }
   .status { gap: 10px; padding: 6px 8px 8px; justify-content: flex-end; }
   .status .grow { display: none; }
+  .status .slots { display: none; }
 }
 `

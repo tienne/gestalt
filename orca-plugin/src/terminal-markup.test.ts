@@ -421,3 +421,22 @@ test('머리에 승인, 진행, 대기 수를 싣고 대기와 끝남 칸은 접
   has(opened, 'data-key="lane:waiting" open>')
   has(opened, 'data-key="lane:ended">')
 })
+
+test('컨덕터 칸과 상태 줄에 유형별 사용량을, 카드에 유형 이름표를 그린다', () => {
+  const v = view([order('ord-a', { workClass: 'work' }), order('ord-b', { workClass: 'review' })], {
+    conductor: { maxWorkers: 20, workerSlots: { lookup: { active: 0, limit: 5 }, review: { active: 1, limit: 5 }, work: { active: 1, limit: 10 } } }
+  })
+  const html = terminalMarkup(v, { now: NOW, interactive: true, private: true })
+  has(html, '· 조회')
+  has(html, '1 / 10')
+  has(html, '<span class="slots">조회 0/5 · 리뷰 1/5 · 작업 1/10</span>')
+  has(html, '<span class="wc">작업</span>')
+  has(html, '<span class="wc">리뷰</span>')
+})
+
+test('옛 CLI면 유형별 줄과 이름표 없이 전체 슬롯만 그린다', () => {
+  const html = terminalMarkup(view([order('ord-a')], { conductor: { maxWorkers: 4 } }), { now: NOW, interactive: true, private: true })
+  lacks(html, 'class="slots"')
+  lacks(html, 'class="wc"')
+  lacks(html, 'kv slot')
+})

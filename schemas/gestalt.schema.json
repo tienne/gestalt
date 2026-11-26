@@ -203,12 +203,22 @@
       "type": "object",
       "description": "Conductor orchestrator (/conductor skill): takes orders, hands them to workers and drives each to its scope's end point",
       "properties": {
+        "workerLimits": {
+          "type": "object",
+          "description": "Concurrent worker limit per work class. Each class is counted separately and the overall limit is their sum (default 5 + 5 + 10 = 20). When one class is full, queued orders of another class with free slots still start",
+          "additionalProperties": false,
+          "properties": {
+            "lookup": { "type": "integer", "minimum": 0, "maximum": 100, "default": 5, "description": "Lookup and status check orders (blast-radius, diff-radius, explain)" },
+            "review": { "type": "integer", "minimum": 0, "maximum": 100, "default": 5, "description": "Standalone review and re-review orders (review, review-loop, doubt)" },
+            "work": { "type": "integer", "minimum": 0, "maximum": 100, "default": 10, "description": "Implementation, fixes and multi-step orders. Unknown chains land here too" }
+          }
+        },
         "maxConcurrentWorkers": {
           "type": "integer",
           "minimum": 1,
           "maximum": 100,
-          "description": "Upper bound on workers running at once. Orders beyond it wait in the queue (env: GESTALT_CONDUCTOR_MAX_WORKERS)",
-          "default": 10
+          "deprecated": true,
+          "description": "Deprecated. Accepted so older config files still load, but the scheduler ignores it. The overall limit is the sum of workerLimits (env: GESTALT_CONDUCTOR_MAX_WORKERS)"
         },
         "pollIntervalSec": {
           "type": "integer",

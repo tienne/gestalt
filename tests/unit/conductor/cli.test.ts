@@ -429,6 +429,96 @@ describe('gestalt conductor', () => {
     expect(status['recentEvents']).toEqual([]);
   });
 
+  it('status는 유형별 슬롯과 주문 유형을 싣고 전체 한도는 유형 한도의 합이다', () => {
+    const stateDir = tempStateDir();
+    const store = ConductorStore.open(stateDir);
+    const o = order({ status: 'running', skillChain: ['review'] });
+    store.addOrder(o);
+    const w = worker(o.id, { workClass: 'review' });
+    store.startWorker(w);
+    store.updateOrder(o.id, { workerId: w.id });
+    store.addOrder(order({ id: 'ord-q', skillChain: ['blast-radius'] }));
+
+    conductorStatusCommand({ stateDir, json: true });
+    const status = last();
+    const conductor = status['conductor'] as Record<string, unknown>;
+    const slots = conductor['workerSlots'] as Record<string, { active: number; limit: number }>;
+    expect(Object.keys(slots)).toEqual(['lookup', 'review', 'work']);
+    expect(slots['review']!.active).toBe(1);
+    expect(slots['lookup']!.active).toBe(0);
+    expect(conductor['maxWorkers']).toBe(
+      slots['lookup']!.limit + slots['review']!.limit + slots['work']!.limit,
+    );
+    expect(status['orders']).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: o.id, workClass: 'review' }),
+        expect.objectContaining({ id: 'ord-q', workClass: 'lookup' }),
+      ]),
+    );
+
+    conductorStatusCommand({ stateDir });
+    expect(out.some((l) => /^슬롯: 조회 0\/\d+ · 리뷰 1\/\d+ · 작업 0\/\d+$/.test(l))).toBe(true);
+  });
+
+  it('옛 전체 상한이 남아 있으면 한도는 그대로 두고 status에 경고를 싣는다', () => {
+    const stateDir = tempStateDir();
+    conductorStatusCommand({ stateDir, json: true });
+    const before = (last()['conductor'] as Record<string, unknown>)['maxWorkers'];
+    expect(last()['conductor']).not.toHaveProperty('warnings');
+
+    vi.stubEnv('GESTALT_CONDUCTOR_MAX_WORKERS', '3');
+    try {
+      conductorStatusCommand({ stateDir, json: true });
+      const conductor = last()['conductor'] as Record<string, unknown>;
+      expect(conductor['maxWorkers']).toBe(before);
+      expect(conductor['warnings']).toEqual([
+        expect.stringMatching(/maxConcurrentWorkers\(3\).*workerLimits/),
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('옛 전체 상한이 남아 있으면 tick 출력에도 경고를 싣는다', async () => {
+    const stateDir = tempStateDir();
+    const legacy = /maxConcurrentWorkers\(3\).*workerLimits/;
+    await conductorTickCommand({ stateDir, json: true, force: true, queue: false, prWatch: false });
+    expect((last()['warnings'] as string[] | undefined) ?? []).not.toContainEqual(
+      expect.stringMatching(legacy),
+    );
+
+    vi.stubEnv('GESTALT_CONDUCTOR_MAX_WORKERS', '3');
+    try {
+      await conductorTickCommand({
+        stateDir,
+        json: true,
+        force: true,
+        queue: false,
+        prWatch: false,
+      });
+      expect(last()['warnings']).toContainEqual(expect.stringMatching(legacy));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('모르는 작업 유형은 거절하고 직접 정한 유형은 체인 유형보다 클 때만 쓴다', () => {
+    const stateDir = tempStateDir();
+    expect(() =>
+      conductorOrderAddCommand({ stateDir, repo: 'acme/app', title: 'x', workClass: 'huge' }),
+    ).toThrow('exit 1');
+    expect(err.at(-1)).toContain('--work-class');
+    conductorOrderAddCommand({
+      stateDir,
+      json: true,
+      repo: 'acme/app',
+      title: '리뷰',
+      skills: 'review',
+      workClass: 'work',
+    });
+    expect((last()['order'] as Record<string, unknown>)['workClass']).toBe('work');
+  });
+
   it('잘못된 값은 stderr와 exit 1로 끝낸다', () => {
     const stateDir = tempStateDir();
     expect(() =>
