@@ -131,12 +131,14 @@ if (missing.length > 0 || stale.length > 0 || differing.length > 0) {
 // 빌드본의 launcher는 자기 위치에서 두 단계 위 plugin/을 찾는다. 깊이가 바뀌면 파일은 있어도 경로가 안 풀려 워커 지시서가 조용히 예전 문구로 떨어진다
 const launcherPath = resolve(ROOT, 'dist', 'src', 'conductor', 'launcher.js');
 if (existsSync(launcherPath)) {
-  const { BEFORE_SCREENSHOT_DOC } = (await import(pathToFileURL(launcherPath).href)) as {
-    BEFORE_SCREENSHOT_DOC: string;
+  const { WORKER_DOCS } = (await import(pathToFileURL(launcherPath).href)) as {
+    WORKER_DOCS: readonly { path: string; label: string }[];
   };
-  if (!existsSync(BEFORE_SCREENSHOT_DOC)) {
-    console.error(`빌드본의 수정 전 캡처 문서 경로가 안 풀립니다: ${BEFORE_SCREENSHOT_DOC}`);
-    process.exit(1);
+  for (const { path: doc, label } of WORKER_DOCS) {
+    if (!existsSync(doc)) {
+      console.error(`빌드본의 ${label} 문서 경로가 안 풀립니다: ${doc}`);
+      process.exit(1);
+    }
   }
 }
 
