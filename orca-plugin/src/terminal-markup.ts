@@ -4,7 +4,7 @@
 import { esc } from './html'
 import { displayStatus, isClosed, ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
 import type { AgentState, ConductorView, EventView, OrderView, WorkerLive, WorkView } from './protocol'
-import { canReachWorker, clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, slotText, terminalModel, waitText, workerEnded, type ApprovalEntry, type Card, type GateItem, type TerminalModel } from './terminal-model'
+import { canReachWorker, clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, reviewText, slotText, terminalModel, waitText, workerEnded, type ApprovalEntry, type Card, type GateItem, type TerminalModel } from './terminal-model'
 
 export type TerminalMarkupOptions = {
   now: number
@@ -210,6 +210,12 @@ function todoBar(t: NonNullable<Card['todo']>, tone: string): string {
   return div('todo', `<div class="prog ${tone}"><b style="width:${pct}%"></b></div>`, span('muted', `todo ${t.done}/${t.total}`))
 }
 
+/** ship 리뷰 라운드 막대. 색은 상태줄 색을 그대로 따르고 실패는 글로만 알린다 */
+function reviewBar(r: NonNullable<Card['review']>, tone: string): string {
+  const pct = Math.round((r.done / r.total) * 100)
+  return div('todo review', `<div class="prog ${tone}"><b style="width:${pct}%"></b></div>`, span('muted', reviewText(r)))
+}
+
 /** 레포별 묶음. 묶음 머리에 레포가 나오니 카드에서는 레포 줄을 뺀다 */
 function repoGroups(cards: readonly Card[], v: ConductorView, opts: TerminalMarkupOptions): string {
   return join(
@@ -266,9 +272,11 @@ function card(c: Card, v: ConductorView, opts: TerminalMarkupOptions, gates?: re
         div('mrow', span('muted', r.label), interactive ? metaValue(r.label, r.value, o.id, v.jiraSiteUrl) : span('ell', r.value))
       )),
     c.chips.length > 0 && div('chain', ...c.chips.map((ch) => span(`chip ${ch.state}`, ch.text))),
-    c.todo === undefined
-      ? pct !== null && `<div class="prog ${c.state.tone}"><b style="width:${pct}%"></b></div>`
-      : todoBar(c.todo, c.state.tone),
+    c.review
+      ? reviewBar(c.review, c.state.tone)
+      : c.todo === undefined
+        ? pct !== null && `<div class="prog ${c.state.tone}"><b style="width:${pct}%"></b></div>`
+        : todoBar(c.todo, c.state.tone),
     c.now && div('muted ell now', esc(c.now)),
     div(
       'state',
