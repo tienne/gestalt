@@ -569,10 +569,11 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .c-ck { color: var(--t-blue); } .c-rp { color: var(--t-green); } .c-wt { color: var(--t-yellow); } .c-gt { color: var(--t-yellow); } .c-bp { color: var(--t-purple); }
 .status { display: flex; align-items: center; gap: 18px; padding: 8px 14px 10px; border-top: 1px solid var(--t-line); font-size: 11px; margin-top: auto; }
 .status .grow { flex: 1; }
+.status .slots { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status b { font-weight: 700; } .b-green { color: var(--t-green); } .b-yellow { color: var(--t-yellow); } .b-purple { color: var(--t-purple); }
 .cursor { display: inline-block; width: 7px; height: 12px; background: var(--t-green); animation: blink 1s infinite; }
 .empty { color: var(--t-dim); padding: 24px; text-align: center; }
-.wc { flex: none; padding: 0 7px; border-radius: 8px; background: var(--t-line); color: var(--t-fg); font-size: 11px; font-weight: 400; }
+.wc { flex: none; padding: 0 7px; border-radius: 8px; background: transparent; border: 1px solid var(--t-dim); color: var(--t-dim); font-size: 11px; font-weight: 400; }
 .kv.slot { padding-left: 6px; }
 @media (max-width: 720px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 /* 사이드바 폭. 머리글 한 줄, 컨덕터 요약, 네 칸, 최근 이벤트 8줄, 상태줄 순으로 쌓는다 */
