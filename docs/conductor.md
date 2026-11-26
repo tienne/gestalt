@@ -514,7 +514,7 @@ gestalt conductor order show <id> --json
 
 `review`는 `subagent_type`이 `gestalt:<이름>-reviewer`인 서브에이전트만 센다. 같은 assistant 메시지로 띄운 리뷰어를 한 라운드로 묶고 continuity-judge나 suggestion-verifier 같은 합의, 검증 에이전트는 세지 않는다. 결과를 받아야 `done`이고 백그라운드로 띄웠다는 응답은 완료가 아니다. 오류로 끝났거나 실패, 중단 알림을 받으면 `failed`다. 실패하거나 아직 도는 리뷰어와 같은 유형을 다시 띄우면 재시도로 보고 그 유형의 마지막 시도만 센다. 리뷰어가 다 끝난 뒤 다른 메시지로 다시 띄우면 새 라운드로 바꾼다. 완료 알림이 끝내 안 온 리뷰어는 ship 체크포인트가 남을 때까지 실행 중으로 센다. 리뷰어를 띄우지 않고 `Explore`로 대신 띄운 라운드는 유형을 못 가려서 세지 않는다.
 
-ship이 `gestalt ship checkpoint save`로 라운드를 마치면 `review`는 `null`로 돌아간다. 명령이 실행되는 자리에 올 때만 보고 커밋 메시지나 `echo` 인자에 같은 글이 들어 있는 건 안 센다. 플러그인 런처로 부른 `node ".../gestalt-cli.mjs" ship checkpoint save`도 같이 본다. `round`는 몇 번째 라운드인지다. 체크포인트로 끝난 뒤 새로 연 라운드만 1을 더하고 체크포인트 없이 다시 띄운 묶음은 번호를 그대로 둔다.
+ship이 `gestalt ship checkpoint save`로 라운드를 마치면 `review`는 `null`로 돌아간다. 명령이 실행되는 자리에 올 때만 보고 커밋 메시지나 `echo` 인자에 같은 글이 들어 있는 건 안 센다. 플러그인 런처로 부른 `node ".../gestalt-cli.mjs" ship checkpoint save`도 node가 실행 자리에 올 때만 본다. 따옴표 안이라도 `;` 뒤에 오는 글은 실행 자리로 보고 `xargs node`나 `env FOO=x node`처럼 node가 실행 자리에 없는 꼴은 못 잡는다. `round`는 몇 번째 라운드인지다. 체크포인트로 끝난 뒤 새로 연 라운드만 1을 더하고 체크포인트 없이 다시 띄운 묶음은 번호를 그대로 둔다.
 
 `round`는 이번에 읽은 트랜스크립트 안에서만 센다. 트랜스크립트가 읽기 한도를 넘어 앞부분을 못 읽었거나 워커가 새 세션으로 이어졌으면 1부터 다시 세서 ship 체크포인트의 라운드와 어긋날 수 있다. 리뷰어가 다 끝난 뒤 같은 라운드에서 리뷰어 하나를 따로 다시 띄우면 새 묶음으로 보고 분모가 그 리뷰어만으로 다시 시작한다.
 
