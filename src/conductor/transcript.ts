@@ -410,14 +410,27 @@ const GATE_COMMAND = /\bgate\b/;
 /** review 스킬이 띄우는 리뷰어 유형. continuity-judge, suggestion-verifier 같은 합의, 검증 에이전트는 안 걸린다 */
 const REVIEWER_TYPE = /^gestalt:[a-z0-9-]+-reviewer$/;
 /**
- * ship이 라운드를 마치고 남기는 체크포인트. 명령이 실행되는 자리(줄 처음, `;` `&&` `||` `|` `(` 뒤)에 올 때만 본다.
- * 커밋 메시지나 echo 인자 안에 같은 글이 있어도 라운드를 끝내지 않는다.
- * 명령은 워커가 쓴 글이라 길이 상한이 없다. 경로와 환경 변수 값이 구분자를 못 넘게 막아 입력 길이에 비례해서만 돈다
+ * 명령이 실행되는 자리. 줄 처음이나 `;` `&&` `||` `|` `(` 뒤에 환경 변수 할당이 붙을 수 있다.
+ * 명령은 워커가 쓴 글이라 길이 상한이 없다. 환경 변수 값과 경로가 구분자를 못 넘고 대안끼리 첫 글자가 안 겹치게 막아 입력 길이에 비례해서만 돈다
  */
-const SHIP_CHECKPOINT =
-  /(?:^|[;&|(])[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=(?:\$\([^()\n]*\)|[^\s;&|()])*[ \t]+)*(?:[^\s;&|()/]*\/)*gestalt\s+ship\s+checkpoint\s+save\b/m;
-/** 스킬은 플러그인 런처(`node ".../gestalt-cli.mjs" ship ...`)로 CLI를 부른다. 경로에 공백이 있어 위 꼴로는 못 잡는다 */
-const SHIP_CHECKPOINT_LAUNCHER = /gestalt-cli\.mjs["']?[ \t]+ship[ \t]+checkpoint[ \t]+save\b/;
+const COMMAND_HEAD = String.raw`(?:^|[;&|(])[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=(?:\$\([^()\n]*\)|"[^"\n]*"|'[^'\n]*'|[^\s;&|()'"])*[ \t]+)*(?:[^\s;&|()/]*\/)*`;
+/**
+ * ship이 라운드를 마치고 남기는 체크포인트. 명령이 실행되는 자리에 올 때만 본다.
+ * 커밋 메시지나 echo 인자 안에 같은 글이 있어도 라운드를 끝내지 않는다. 따옴표 안이라도 `;` 뒤에 오면 실행 자리로 본다
+ */
+const SHIP_CHECKPOINT = new RegExp(
+  COMMAND_HEAD + String.raw`gestalt\s+ship\s+checkpoint\s+save\b`,
+  'm',
+);
+/**
+ * 스킬은 플러그인 런처(`node ".../gestalt-cli.mjs" ship ...`)로 CLI를 부른다. 명령 자리에 node가 오고 실행 파일 이름이 gestalt-cli.mjs라 위 꼴로는 못 잡는다.
+ * 경로는 따옴표 한 쌍이나 공백 없는 낱말 하나로만 받는다. 줄 끝까지 넓게 받으면 앵커마다 되짚어 입력 길이의 제곱으로 돈다
+ */
+const SHIP_CHECKPOINT_LAUNCHER = new RegExp(
+  COMMAND_HEAD +
+    String.raw`node[ \t]+(?:"[^"\n]*\/gestalt-cli\.mjs"|'[^'\n]*\/gestalt-cli\.mjs'|(?:[^\s;&|()'"/]*\/)*gestalt-cli\.mjs)[ \t]+ship[ \t]+checkpoint[ \t]+save\b`,
+  'm',
+);
 
 function parse(line: string): Row | undefined {
   try {
