@@ -335,11 +335,36 @@ test('중립색은 오르카 테마 변수를 따르고 변수가 없는 웹 페
   has(TERMINAL_STYLE, '--t-dim: var(--orca-muted-foreground, #8b93a1);')
   has(TERMINAL_STYLE, '--t-line: var(--orca-border, #2a2f3a);')
   has(TERMINAL_STYLE, '--t-ring: var(--orca-ring, var(--t-fg));')
+  has(TERMINAL_STYLE, '--t-card: var(--orca-card, var(--t-bg));')
+  has(TERMINAL_STYLE, '--t-fill: var(--orca-muted, #232833);')
+  has(TERMINAL_STYLE, '--t-hover: var(--orca-accent, #232833);')
+  has(TERMINAL_STYLE, '--t-hover-fg: var(--orca-accent-foreground, var(--t-fg));')
+  has(TERMINAL_STYLE, '--t-stripe: var(--orca-border, #2f3542);')
+  has(TERMINAL_STYLE, '--t-pop: var(--orca-popover, #2b2b2b);')
+  has(TERMINAL_STYLE, '--t-pop-fg: var(--orca-popover-foreground, #e6e6e6);')
+  has(TERMINAL_STYLE, '--t-pop-line: var(--orca-border, #454545);')
+  has(TERMINAL_STYLE, '--t-done-line: #2f5b43;')
   has(TERMINAL_STYLE, 'html.light { color-scheme: light;')
   // 강조색 자체는 그대로 두고 라이트에서만 글자색을 섞는다
-  has(TERMINAL_STYLE, '--t-yellow:#f2c94c;')
-  has(TERMINAL_STYLE, '--t-yellow: color-mix(in srgb, #f2c94c 55%, var(--t-fg));')
-  for (const fixed of ['background: #232833', '#0e1015', '#2f5b43', '.chip.cur { color: #14161c']) lacks(TERMINAL_STYLE, fixed)
+  for (const [name, hex, pct] of [
+    ['orange', '#f0915a', 62],
+    ['blue', '#7aa7ff', 62],
+    ['green', '#5fd38d', 58],
+    ['purple', '#a78bfa', 68],
+    ['yellow', '#f2c94c', 55],
+    ['red', '#f26d6d', 70],
+  ] as const) {
+    has(TERMINAL_STYLE, `--t-${name}:${hex};`)
+    has(TERMINAL_STYLE, `--t-${name}: color-mix(in srgb, ${hex} ${pct}%, var(--t-fg));`)
+  }
+  // 흰 글자를 얹는 배지는 라이트에서 바탕을 더 어둡게 섞어야 4.5:1을 넘는다
+  has(TERMINAL_STYLE, '--t-badge-yellow: color-mix(in srgb, #f2c94c 40%, var(--t-fg));')
+  has(TERMINAL_STYLE, '--t-badge-orange: color-mix(in srgb, #f0915a 50%, var(--t-fg));')
+  // 색 값은 :root와 html.light에만 둔다. 나머지 규칙에 hex가 다시 들어오면 테마를 안 따른다
+  const rules = TERMINAL_STYLE.split('\n')
+    .filter((line) => !line.startsWith(':root {') && !line.startsWith('html.light {'))
+    .join('\n')
+  assert.equal(rules.match(/#[0-9a-fA-F]{3,8}\b/g), null, '테마 변수 밖에 박아 둔 색이 있어요')
 })
 
 test('컨덕터 칸은 세션을 알면 데스크톱에만 세션으로 이동 버튼을 그린다', () => {

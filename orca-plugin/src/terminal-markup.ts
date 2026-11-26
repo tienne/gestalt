@@ -444,8 +444,8 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
 export const TERMINAL_STYLE = `
 /* 중립색은 오르카 테마의 --orca-* 변수를 따르고 변수가 없는 웹 페이지에서는 원래 다크 색으로 그린다.
    강조색은 그대로 두되 라이트 테마에서는 본문 글자색을 섞어 흰 바탕에서도 읽히게 한다 */
-:root { color-scheme: dark; --t-bg: var(--orca-background, #14161c); --t-card: var(--orca-card, var(--t-bg)); --t-line: var(--orca-border, #2a2f3a); --t-fg: var(--orca-foreground, #c9ced8); --t-dim: var(--orca-muted-foreground, #8b93a1); --t-fill: var(--orca-muted, #232833); --t-hover: var(--orca-accent, #232833); --t-hover-fg: var(--orca-accent-foreground, var(--t-fg)); --t-ring: var(--orca-ring, var(--t-fg)); --t-orange:#f0915a; --t-blue:#7aa7ff; --t-green:#5fd38d; --t-purple:#a78bfa; --t-yellow:#f2c94c; --t-red:#f26d6d; }
-html.light { color-scheme: light; --t-orange: color-mix(in srgb, #f0915a 62%, var(--t-fg)); --t-blue: color-mix(in srgb, #7aa7ff 62%, var(--t-fg)); --t-green: color-mix(in srgb, #5fd38d 58%, var(--t-fg)); --t-purple: color-mix(in srgb, #a78bfa 68%, var(--t-fg)); --t-yellow: color-mix(in srgb, #f2c94c 55%, var(--t-fg)); --t-red: color-mix(in srgb, #f26d6d 70%, var(--t-fg)); }
+:root { color-scheme: dark; --t-bg: var(--orca-background, #14161c); --t-card: var(--orca-card, var(--t-bg)); --t-line: var(--orca-border, #2a2f3a); --t-fg: var(--orca-foreground, #c9ced8); --t-dim: var(--orca-muted-foreground, #8b93a1); --t-fill: var(--orca-muted, #232833); --t-hover: var(--orca-accent, #232833); --t-hover-fg: var(--orca-accent-foreground, var(--t-fg)); --t-ring: var(--orca-ring, var(--t-fg)); --t-stripe: var(--orca-border, #2f3542); --t-pop: var(--orca-popover, #2b2b2b); --t-pop-fg: var(--orca-popover-foreground, #e6e6e6); --t-pop-line: var(--orca-border, #454545); --t-orange:#f0915a; --t-blue:#7aa7ff; --t-green:#5fd38d; --t-purple:#a78bfa; --t-yellow:#f2c94c; --t-red:#f26d6d; --t-done-line: #2f5b43; --t-badge-yellow: var(--t-yellow); --t-badge-orange: var(--t-orange); }
+html.light { color-scheme: light; --t-orange: color-mix(in srgb, #f0915a 62%, var(--t-fg)); --t-blue: color-mix(in srgb, #7aa7ff 62%, var(--t-fg)); --t-green: color-mix(in srgb, #5fd38d 58%, var(--t-fg)); --t-purple: color-mix(in srgb, #a78bfa 68%, var(--t-fg)); --t-yellow: color-mix(in srgb, #f2c94c 55%, var(--t-fg)); --t-red: color-mix(in srgb, #f26d6d 70%, var(--t-fg)); --t-done-line: color-mix(in srgb, var(--t-green) 45%, var(--t-bg)); --t-badge-yellow: color-mix(in srgb, #f2c94c 40%, var(--t-fg)); --t-badge-orange: color-mix(in srgb, #f0915a 50%, var(--t-fg)); }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--t-fg); }
 .term { font: 12px/1.5 ui-monospace, "SF Mono", Menlo, "D2Coding", monospace; min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
@@ -489,12 +489,12 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .w.orca .t .tid { background: var(--t-orange); } .w.git .t .tid { background: var(--t-blue); } .w.sub .t .tid { background: var(--t-green); }
 .chain { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0; }
 .chip { padding: 0 5px; border: 1px solid var(--t-line); color: var(--t-dim); }
-.chip.done { color: var(--t-green); border-color: color-mix(in srgb, var(--t-green) 45%, var(--t-bg)); }
-.chip.cur { color: var(--t-bg); background: var(--t-yellow); border-color: var(--t-yellow); font-weight: 700; }
+.chip.done { color: var(--t-green); border-color: var(--t-done-line); }
+.chip.cur { color: var(--t-bg); background: var(--t-badge-yellow); border-color: var(--t-badge-yellow); font-weight: 700; }
 .prog { height: 7px; background: var(--t-fill); margin: 4px 0; }
 .prog b { display: block; height: 100%; background: var(--t-blue); }
 .prog.gate b { background: var(--t-yellow); } .prog.limit b { background: var(--t-red); }
-.prog.unknown { background: repeating-linear-gradient(135deg, var(--t-fill) 0 4px, var(--t-line) 4px 8px); }
+.prog.unknown { background: repeating-linear-gradient(135deg, var(--t-fill) 0 4px, var(--t-stripe) 4px 8px); }
 .todo { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
 .todo .prog { margin: 4px 0; }
 .work { margin-top: 4px; display: grid; gap: 1px; }
@@ -526,16 +526,16 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .d-ev .r { display: grid; grid-template-columns: 40px 76px 1fr; gap: 6px; }
 .live { margin-top: 6px; border-top: 1px dashed var(--t-line); padding-top: 4px; display: grid; gap: 2px; }
 .tail { margin: 4px 0 0; padding: 6px 8px; background: var(--t-fill); border: 1px solid var(--t-line); max-height: 200px; overflow: auto; white-space: pre; font: inherit; font-size: 11px; color: var(--t-fg); }
-.go { justify-self: start; margin-top: 6px; font: inherit; font-weight: 700; color: var(--t-bg); background: var(--t-orange); border: 0; padding: 2px 10px; cursor: pointer; }
+.go { justify-self: start; margin-top: 6px; font: inherit; font-weight: 700; color: var(--t-bg); background: var(--t-badge-orange); border: 0; padding: 2px 10px; cursor: pointer; }
 .copy { font: inherit; font-size: 11px; font-weight: 400; color: var(--t-dim); background: transparent; border: 1px solid var(--t-line); padding: 0 6px; flex: none; cursor: pointer; }
-.toast { position: fixed; left: 50%; bottom: 44px; transform: translate(-50%, 6px); padding: 9px 18px; font-size: 14px; font-weight: 600; white-space: nowrap; max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis; color: var(--orca-popover-foreground, #e6e6e6); background: var(--orca-popover, #2b2b2b); border: 1px solid var(--orca-border, #454545); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; z-index: 10; }
+.toast { position: fixed; left: 50%; bottom: 44px; transform: translate(-50%, 6px); padding: 9px 18px; font-size: 14px; font-weight: 600; white-space: nowrap; max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis; color: var(--t-pop-fg); background: var(--t-pop); border: 1px solid var(--t-pop-line); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .15s, transform .15s; z-index: 10; }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
 .copy:hover { color: var(--t-hover-fg); background: var(--t-hover); border-color: var(--t-dim); }
 .meta-link { justify-self: start; max-width: 100%; padding: 0; border: 0; background: none; color: var(--t-blue); text-decoration: underline; text-underline-offset: 2px; font: inherit; cursor: pointer; }
-.link-actions { position: fixed; inset: auto; position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; margin: 4px 0; padding: 4px; border: 1px solid var(--orca-border, var(--t-line)); border-radius: 6px; background: var(--orca-popover, var(--t-bg)); color: var(--orca-popover-foreground, var(--t-fg)); box-shadow: 0 4px 12px #0005; }
+.link-actions { position: fixed; inset: auto; position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; margin: 4px 0; padding: 4px; border: 1px solid var(--t-pop-line); border-radius: 6px; background: var(--t-pop); color: var(--t-pop-fg); box-shadow: 0 4px 12px rgba(0,0,0,.33); }
 .link-actions button { display: block; width: 100%; border: 0; border-radius: 3px; padding: 4px 8px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.link-actions button:hover, .link-actions button:focus-visible { background: var(--orca-accent, var(--t-line)); color: var(--orca-accent-foreground, inherit); }
+.link-actions button:hover, .link-actions button:focus-visible { background: var(--t-hover); color: var(--t-hover-fg); }
 .copy:focus-visible, .go:focus-visible, .more > summary:focus-visible { outline: 1px solid var(--t-ring); outline-offset: 2px; }
 .lane + .lane { margin-top: 16px; }
 .lane-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-weight: 700; }
