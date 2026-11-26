@@ -2,6 +2,7 @@ import type { GestaltConfig } from '../core/config.js';
 import type { ConductorStore } from './store.js';
 import type { Order } from './types.js';
 import {
+  mapClasses,
   orderWorkClass,
   totalLimit,
   WORK_CLASSES,
@@ -41,23 +42,19 @@ export interface SlotPlan {
 
 /** 유형별로 도는 워커 수. 옛 워커는 주문의 스킬 체인으로 유형을 고른다 */
 export function activeByClass(store: ConductorStore): Record<WorkClass, number> {
-  const counts: Record<WorkClass, number> = { lookup: 0, review: 0, work: 0 };
+  const counts = mapClasses(() => 0);
   for (const w of store.activeWorkers()) counts[workerWorkClass(w, store.order(w.orderId))]++;
   return counts;
 }
 
 export function planSlots(store: ConductorStore, limits: Readonly<WorkerLimits>): SlotPlan {
   const counts = activeByClass(store);
-  const byClass = Object.fromEntries(
-    WORK_CLASSES.map((c) => {
-      const limit = limits[c];
-      return [c, { limit, active: counts[c], free: Math.max(0, limit - counts[c]) }];
-    }),
-  ) as Record<WorkClass, ClassSlot>;
-  const left = Object.fromEntries(WORK_CLASSES.map((c) => [c, byClass[c].free])) as Record<
-    WorkClass,
-    number
-  >;
+  const byClass = mapClasses<ClassSlot>((c) => ({
+    limit: limits[c],
+    active: counts[c],
+    free: Math.max(0, limits[c] - counts[c]),
+  }));
+  const left = mapClasses((c) => byClass[c].free);
   const toStart: Order[] = [];
   const waiting: Order[] = [];
   for (const order of store.queuedOrders()) {

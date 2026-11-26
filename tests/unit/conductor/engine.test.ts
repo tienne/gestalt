@@ -2138,6 +2138,34 @@ describe('컨덕터 tick', () => {
     expect(store.order('ord-1')?.status).toBe('queued');
   });
 
+  it('release 대기로 돌려준 자리는 그 주문 유형에만 돌아가고 다른 유형 자리를 늘리지 않는다', async () => {
+    const { store } = clockedStore();
+    const at = (i: number) => `2026-11-01T00:00:0${i}.000Z`;
+    store.addOrder(order({ id: 'ord-1', status: 'queued', workerId: 'wrk-1' }));
+    store.addOrder(order({ id: 'ord-2', createdAt: at(1) }));
+    store.addOrder(
+      order({ id: 'ord-3', createdAt: at(2), skillChain: ['review'], workerKind: 'orca-worktree' }),
+    );
+    store.addOrder(
+      order({ id: 'ord-4', createdAt: at(3), skillChain: ['review'], workerKind: 'orca-worktree' }),
+    );
+    store.startWorker(worker('ord-1', { id: 'wrk-1', kind: 'orca-worktree', status: 'stopped' }));
+    const orca = fakeLauncher('orca-worktree');
+    orca.launcher.release = async () => {
+      throw new OrcaReleaseLiveError('liveness live');
+    };
+    const { deps: d } = deps({
+      config: { ...config, workerLimits: { lookup: 0, review: 1, work: 1 } },
+      launchers: { 'orca-worktree': orca.launcher },
+      orcaAvailable: true,
+    });
+
+    const r = await tick(store, d, { force: true });
+    expect(r.launched.map((l) => l.orderId).sort()).toEqual(['ord-2', 'ord-3']);
+    expect(store.order('ord-1')?.status).toBe('queued');
+    expect(store.order('ord-4')?.status).toBe('queued');
+  });
+
   it('워커 정리가 실패하면 주문에 안 묶인 게이트를 열고 주문은 그대로 정산한다', async () => {
     const { store } = clockedStore();
     store.addOrder(order({ id: 'ord-1', status: 'merged', mergedAt: '2026-01-01T00:00:00.000Z' }));

@@ -7,6 +7,8 @@ import {
   DEFAULT_WORKER_LIMITS,
   orderWorkClass,
   totalLimit,
+  workerWorkClass,
+  type WorkClass,
 } from '../../../src/conductor/work-class.js';
 import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
 
@@ -130,5 +132,18 @@ describe('classifyWork', () => {
   it('주문에 남긴 유형이 스킬 체인보다 먼저다', () => {
     expect(orderWorkClass({ workClass: 'lookup', skillChain: ['solve'] })).toBe('lookup');
     expect(orderWorkClass({ skillChain: ['review'] })).toBe('review');
+  });
+
+  it('저장소에 남은 유형이 목록 밖이면 스킬 체인으로 다시 고른다', () => {
+    const odd = 'huge' as unknown as WorkClass;
+    expect(orderWorkClass({ workClass: odd, skillChain: ['review'] })).toBe('review');
+    expect(workerWorkClass({ workClass: odd }, { skillChain: ['solve'] })).toBe('work');
+    const s = seed(1, { workClass: odd, skillChain: ['review'] });
+    add(s, 1, { skillChain: ['review'] }, 'next', 5);
+    s.updateOrder('ord-0', { status: 'running' });
+    s.startWorker(worker('ord-0', { id: 'wrk-0', workClass: odd }));
+    const plan = planSlots(s, limits(10, 1));
+    expect(plan.byClass.review.active).toBe(1);
+    expect(plan.toStart).toEqual([]);
   });
 });

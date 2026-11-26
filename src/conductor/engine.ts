@@ -80,7 +80,7 @@ import {
 } from './resume.js';
 import type { ConductorConfig } from './scheduler.js';
 import { planSlots } from './scheduler.js';
-import { orderWorkClass, WORK_CLASSES, type WorkClass } from './work-class.js';
+import { mapClasses, orderWorkClass, WORK_CLASSES, type WorkClass } from './work-class.js';
 import { publishApprovedSlack, type SlackClient } from './slack.js';
 import { orderHasPendingSlack, orderSlackBlocker } from './slack-state.js';
 import { newId, type ConductorStore } from './store.js';
@@ -1341,9 +1341,7 @@ async function launchQueued(
 
   // 재시작과 재개도 이 자리를 지나므로 유형별 한도를 똑같이 검사한다.
   const plan = planSlots(store, deps.config.workerLimits);
-  const remaining = Object.fromEntries(
-    WORK_CLASSES.map((c) => [c, plan.byClass[c].free]),
-  ) as Record<WorkClass, number>;
+  const remaining = mapClasses((c) => plan.byClass[c].free);
   for (const order of [...plan.toStart, ...plan.waiting]) {
     if (WORK_CLASSES.every((c) => remaining[c] === 0)) break;
     const workClass = orderWorkClass(order);
