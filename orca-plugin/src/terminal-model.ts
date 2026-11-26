@@ -1,6 +1,6 @@
 // 컨덕터 터미널 화면의 계산. DOM과 오르카 런타임을 모르는 순수 함수만 둔다.
 import { AWAITING_DEPLOY, canOpenWorktree, displayStatus, GROUP_ORDER, isTerminal, ms, splitRepo, STATUS_LABEL } from './model'
-import { type ConductorView, type EventView, type GateView, type OrderView, type WaitingView } from './protocol'
+import { type ConductorView, type EventView, type GateView, type OrderView, type WaitingView, WORK_CLASSES, WORK_CLASS_LABEL } from './protocol'
 
 export type KindKey = 'orca' | 'git' | 'sub' | 'none'
 
@@ -188,6 +188,8 @@ export type Card = {
   order: OrderView
   /** 워커가 끝났으면 워커 id가 남아 있어도 none이다 */
   kind: KindKey
+  /** 조회, 리뷰, 작업 중 어느 슬롯 주문인지. 유형을 안 주는 옛 CLI면 없다 */
+  workLabel?: string
   meta: MetaRow[]
   chips: Chip[]
   progress: number | null
@@ -233,10 +235,27 @@ export type TerminalModel = {
   workers: number
   activeWorkers: number
   maxWorkers?: number
+  /** 유형별 사용량. 유형별 한도를 안 주는 옛 CLI면 없고 전체 슬롯만 그린다 */
+  slots?: SlotUsage[]
   queued: number
   gates: GateView[]
   bypasses: number
   events: EventView[]
+}
+
+export type SlotUsage = { label: string; active: number; limit: number }
+
+/** `조회 2/5 · 리뷰 3/5 · 작업 4/10` */
+export const slotText = (slots: readonly SlotUsage[]) => slots.map((u) => `${u.label} ${u.active}/${u.limit}`).join(' · ')
+
+function slotsOf(v: ConductorView): SlotUsage[] | undefined {
+  const by = v.conductor?.workerSlots
+  if (!by) return undefined
+  const slots = WORK_CLASSES.flatMap((c) => {
+    const u = by[c]
+    return u ? [{ label: WORK_CLASS_LABEL[c], active: u.active, limit: u.limit }] : []
+  })
+  return slots.length ? slots : undefined
 }
 
 const STATUS_RANK = new Map<string, number>(GROUP_ORDER.map((s, i) => [s, i]))
@@ -299,6 +318,7 @@ export function terminalModel(v: ConductorView, now: number, showPrivate = true)
     return {
       order: o,
       kind: o.worker && !workerEnded(o) ? kindKey(o.workerKind) : 'none',
+      ...(o.workClass ? { workLabel: WORK_CLASS_LABEL[o.workClass] } : {}),
       meta: metaOf(o, showPrivate),
       chips: chainChips(o),
       progress: progressOf(o),
@@ -364,6 +384,7 @@ export function terminalModel(v: ConductorView, now: number, showPrivate = true)
   for (const c of cards) if (c.kind !== 'none' && !nested(c.order)) kinds[c.kind]++
   const workers = kinds.orca + kinds.git + kinds.sub
   const info = v.conductor
+  const slots = slotsOf(v)
   return {
     cards,
     approval,
@@ -374,6 +395,7 @@ export function terminalModel(v: ConductorView, now: number, showPrivate = true)
     workers,
     activeWorkers: info?.activeWorkers ?? workers,
     ...(info?.maxWorkers !== undefined ? { maxWorkers: info.maxWorkers } : {}),
+    ...(slots ? { slots } : {}),
     queued: info?.queuedOrders ?? live.filter((o) => o.status === 'queued').length,
     gates: v.gates,
     bypasses: live.reduce((n, o) => n + o.bypasses.length, 0),

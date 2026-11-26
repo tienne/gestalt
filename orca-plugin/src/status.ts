@@ -2,6 +2,8 @@
 import {
   TERMINAL_ORDER_STATUSES,
   MONITOR_RUN_STATES,
+  WORK_CLASSES,
+  isWorkClass,
   type BotOwnerView,
   type Bypass,
   type CheckpointView,
@@ -13,6 +15,7 @@ import {
   type MonitorView,
   type OrderView,
   type WaitingView,
+  type WorkClass,
   type WorkSubagent,
   type WorkTask,
   type WorkTool,
@@ -30,6 +33,7 @@ export type RawOrder = {
   worker?: string
   workerKind?: string
   workerStatus?: string
+  workClass?: WorkClass
   workerHandle?: string
   worktreeName?: string
   pr?: string
@@ -125,6 +129,8 @@ function conductorInfo(v: unknown): ConductorInfo | undefined {
     const n = num(v[key])
     if (n !== undefined) out[key] = n
   }
+  const slots = workerSlots(v['workerSlots'])
+  if (slots) out.workerSlots = slots
   const repos = strings(v['prWatchRepos'])
   if (repos) out.prWatchRepos = repos
   const session = v['session']
@@ -136,6 +142,19 @@ function conductorInfo(v: unknown): ConductorInfo | undefined {
   const owner = botOwner(v['botOwner'])
   if (owner) out.botOwner = owner
   return out
+}
+
+function workerSlots(v: unknown): ConductorInfo['workerSlots'] {
+  if (!isRecord(v)) return undefined
+  const out: NonNullable<ConductorInfo['workerSlots']> = {}
+  for (const c of WORK_CLASSES) {
+    const slot = v[c]
+    if (!isRecord(slot)) continue
+    const active = num(slot['active'])
+    const limit = num(slot['limit'])
+    if (active !== undefined && limit !== undefined) out[c] = { active, limit }
+  }
+  return Object.keys(out).length ? out : undefined
 }
 
 const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
@@ -296,6 +315,7 @@ export function parseStatus(value: unknown): RawStatus {
       const v = str(o[key])
       if (v !== undefined) order[key] = v
     }
+    if (isWorkClass(o['workClass'])) order.workClass = o['workClass']
     if (o['awaitingDeploy'] === true) order.awaitingDeploy = true
     const chain = strings(o['skillChain'])
     if (chain) order.skillChain = chain
@@ -417,6 +437,7 @@ export function toView(
         ...(o.worker ? { worker: o.worker } : {}),
         ...(o.workerKind ? { workerKind: o.workerKind } : {}),
         ...(o.workerStatus ? { workerStatus: o.workerStatus } : {}),
+        ...(o.workClass ? { workClass: o.workClass } : {}),
         ...(o.pr ? { pr: o.pr } : {}),
         ...(o.issue ? { issue: o.issue } : {}),
         ...(o.awaitingDeploy ? { awaitingDeploy: true } : {}),
