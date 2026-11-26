@@ -173,11 +173,13 @@ export interface OrderActivityFields {
   } | null;
   subagents: { name: string; startedAt: string; state: SubagentEntry['state'] }[] | null;
   /**
-   * 지금 도는 리뷰 라운드의 리뷰어 집계. 라운드가 ship 체크포인트로 닫혔거나 리뷰어를 띄운 적이 없으면 null이다.
-   * total은 그 라운드에 띄운 리뷰어 유형 수, done은 결과를 받은 수다. 재시도는 유형마다 마지막 시도만 센다
+   * 지금 도는 리뷰 라운드의 리뷰어 집계. 라운드가 ship 체크포인트로 끝났거나 리뷰어를 띄운 적이 없으면 null이다.
+   * total은 그 라운드에 띄운 리뷰어 유형 수, done은 결과를 받은 수다. 재시도는 유형마다 마지막 시도만 센다.
+   * round는 몇 번째 라운드인지다
    */
   review: {
     startedAt: string;
+    round: number;
     total: number;
     done: number;
     running: number;
@@ -244,6 +246,7 @@ export function reviewCount(r: ReviewRound | undefined): OrderActivityFields['re
     r.agents.filter((a) => a.state === state).length;
   return {
     startedAt: r.startedAt,
+    round: r.round,
     total: r.agents.length,
     done: count('done'),
     running: count('running'),

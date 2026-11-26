@@ -109,7 +109,7 @@ interface TaskInput {
 
 /** 리뷰어 한 명의 마지막 시도. 같은 유형을 다시 띄우면 이 칸을 새 시도로 덮어 한 번만 센다 */
 export interface ReviewAgent {
-  /** 띄운 tool 호출 id */
+  /** 띄운 tool_use id. 완료 알림의 <tool-use-id>와 맞춰 본다. 백그라운드 응답의 agentId가 아니다 */
   id: string;
   /** `gestalt:security-reviewer` 같은 subagent_type */
   type: string;
@@ -125,6 +125,11 @@ export interface ReviewAgent {
  */
 export interface ReviewRound {
   startedAt: string;
+  /**
+   * 몇 번째 리뷰 라운드인지. 앞 라운드가 ship 체크포인트로 끝난 뒤 새로 연 라운드만 1을 더한다.
+   * 체크포인트 없이 다시 띄운 묶음은 같은 ship 라운드를 다시 돈 것이라 번호를 그대로 둔다
+   */
+  round: number;
   /** 라운드를 연 assistant 메시지 id. 같은 메시지로 띄운 리뷰어는 같은 라운드다 */
   wave: string;
   agents: ReviewAgent[];
@@ -399,12 +404,17 @@ const NOT_A_TURN = /^<(local-command-[a-z]+|command-name|command-message)>/;
 const NOTIFICATION = '<task-notification>';
 const FINISHED = /<status>(completed|failed|killed)<\/status>/;
 const NOTIFIED_CALL = /<tool-use-id>([^<]+)<\/tool-use-id>/;
-const LAUNCH_TEXT = /async agent launched|teammate|^\s*spawned/i;
+/** 백그라운드 실행 응답의 첫머리. 결과 본문 중간에 같은 낱말이 나와도 실행 응답으로 안 읽게 앞에 붙인다 */
+const LAUNCH_TEXT = /^\s*(?:async agent launched|spawned|teammate)/i;
 const GATE_COMMAND = /\bgate\b/;
 /** review 스킬이 띄우는 리뷰어 유형. continuity-judge, suggestion-verifier 같은 합의, 검증 에이전트는 안 걸린다 */
 const REVIEWER_TYPE = /^gestalt:[a-z0-9-]+-reviewer$/;
-/** ship이 라운드를 마치고 남기는 체크포인트 */
-const SHIP_CHECKPOINT = /\bgestalt\s+ship\s+checkpoint\s+save\b/;
+/**
+ * ship이 라운드를 마치고 남기는 체크포인트. 명령이 실행되는 자리(줄 처음, `;` `&&` `||` `|` `(` 뒤)에 올 때만 본다.
+ * 커밋 메시지나 echo 인자 안에 같은 글이 있어도 라운드를 끝내지 않는다
+ */
+const SHIP_CHECKPOINT =
+  /(?:^|[;&|(])\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:\S*\/)?gestalt\s+ship\s+checkpoint\s+save\b/m;
 
 function parse(line: string): Row | undefined {
   try {
@@ -652,6 +662,8 @@ function startReviewer(
   wave: string,
 ): void {
   const r = digest.review;
+  // 같은 tool_use를 두 번 읽어도(중복 줄, 이어 읽기) 한 번만 센다
+  if (r?.agents.some((a) => a.id === id)) return;
   const prev = r?.agents.find((a) => a.type === type);
   const fresh =
     !r ||
@@ -662,6 +674,7 @@ function startReviewer(
     const carried = (r?.agents ?? []).filter((a) => a.wave === wave);
     digest.review = {
       startedAt: at,
+      round: !r ? 1 : r.closedAt !== undefined ? r.round + 1 : r.round,
       wave,
       agents: [...carried, { id, type, wave, state: 'running' }],
     };
