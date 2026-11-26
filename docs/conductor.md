@@ -864,7 +864,7 @@ ship에는 밖으로 나가는 자리마다 사람 승인을 받는 단계가 �
 
 ### 화면 변경 PR의 스크린샷
 
-체인에 ship이나 pr이 있는 주문이면 워커 지시서의 규칙 절에 수정 전 캡처 줄이 붙는다. 화면 파일을 고칠 주문이면 코드를 고치기 전에 [`before-screenshot.md`](../plugin/skills/_shared/before-screenshot.md)대로 수정 전 화면을 찍어 git 공용 디렉토리 아래 `gestalt-pr/shots/<브랜치>/manifest.json`에 남긴다. 주문 설명이 "원인 파악 → 수정 → 검증" 같은 단계를 직접 적어 `execute`를 안 거치는 워커도 이 줄을 따른다. ship은 `pr` 1단계 4번 답에 그 기록을 넘기고 PR을 만든 뒤 5.5단계로 이미지를 붙인다. 기록이 없으면 수정 전은 배포된 주소(stage, 운영)로 찍고 그것도 없으면 수정 후 화면만 붙인다.
+체인에 ship이나 pr이 있는 주문이면 워커 지시서의 규칙 절에 수정 전 캡처 줄이 붙는다. 화면을 바꿀 수 있는 주문이면 코드를 고치기 전에 [`screen-change.md`](../plugin/skills/_shared/screen-change.md) 기준으로 후보를 고르고 [`before-screenshot.md`](../plugin/skills/_shared/before-screenshot.md)대로 수정 전 화면을 찍어 git 공용 디렉토리 아래 `gestalt-pr/shots/<브랜치>/manifest.json`에 남긴다. 확장자는 단서일 뿐이라 HTML 문자열을 만드는 `.ts`나 화면 문구, 표시 조건도 근거가 있으면 후보다. ship과 `pr` 직접 호출은 PR을 만들기 직전에 최종 diff로 같은 판정을 한 번 더 하고 결과를 화면 변경 있음, 확인한 화면에서 변화 없음, 확인 필요로 PR 본문에 싣는다. 주문 설명이 "원인 파악 → 수정 → 검증" 같은 단계를 직접 적어 `execute`를 안 거치는 워커도 이 줄을 따른다. ship은 `pr` 1단계 4번 답에 그 기록을 넘기고 PR을 만든 뒤 5.5단계로 이미지를 붙인다. 기록이 없으면 수정 전은 배포된 주소(stage, 운영)로 찍고 그것도 없으면 수정 후 화면만 붙인다.
 
 ### 머지까지
 
