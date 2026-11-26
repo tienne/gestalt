@@ -7,6 +7,7 @@ import {
   readTranscript,
   type AgentTask,
   type ReadOptions,
+  type ReviewRound,
   type SubagentEntry,
   type ToolEvent,
   type TranscriptState,
@@ -171,6 +172,17 @@ export interface OrderActivityFields {
     total: number;
   } | null;
   subagents: { name: string; startedAt: string; state: SubagentEntry['state'] }[] | null;
+  /**
+   * 지금 도는 리뷰 라운드의 리뷰어 집계. 라운드가 ship 체크포인트로 닫혔거나 리뷰어를 띄운 적이 없으면 null이다.
+   * total은 그 라운드에 띄운 리뷰어 유형 수, done은 결과를 받은 수다. 재시도는 유형마다 마지막 시도만 센다
+   */
+  review: {
+    startedAt: string;
+    total: number;
+    done: number;
+    running: number;
+    failed: number;
+  } | null;
   /** 최근 tool 호출 몇 개. 데스크톱 상세에서만 그린다 */
   recentTools: { at: string; tool: string; detail: string; ok?: boolean }[] | null;
   /** 트랜스크립트 앞부분을 건너뛰고 읽었으면 partial */
@@ -186,6 +198,7 @@ export const EMPTY_ACTIVITY: OrderActivityFields = {
   changedFiles: null,
   tasks: null,
   subagents: null,
+  review: null,
   recentTools: null,
   history: null,
 };
@@ -219,8 +232,22 @@ export function orderActivity(
         }
       : null,
     subagents: d.subagents.map((s) => ({ name: s.name, startedAt: s.startedAt, state: s.state })),
+    review: reviewCount(d.review),
     recentTools: d.timeline.slice(-RECENT_TOOLS).map(toolLine),
     history: state.cursor.partial ? 'partial' : 'full',
+  };
+}
+
+export function reviewCount(r: ReviewRound | undefined): OrderActivityFields['review'] {
+  if (!r || r.closedAt !== undefined || r.agents.length === 0) return null;
+  const count = (state: ReviewRound['agents'][number]['state']) =>
+    r.agents.filter((a) => a.state === state).length;
+  return {
+    startedAt: r.startedAt,
+    total: r.agents.length,
+    done: count('done'),
+    running: count('running'),
+    failed: count('failed'),
   };
 }
 

@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   orderActivity,
   refreshTranscript,
+  reviewCount,
   updateWorkerInfo,
 } from '../../../src/conductor/activity.js';
 import { changedFilesOf, refreshWorkerActivity } from '../../../src/conductor/activity-tick.js';
@@ -209,6 +210,153 @@ describe('readTranscript', () => {
     appendFileSync(f, JSON.stringify(userText('계속', 10)) + '\n');
     s = readTranscript(f, s);
     expect(s.digest.backgroundGate).toBeUndefined();
+  });
+});
+
+describe('리뷰 라운드 집계', () => {
+  /** 한 assistant 메시지에 tool_use를 여럿 담는다. Claude Code는 같은 message.id로 줄을 나눠 쓴다 */
+  function wave(msg: string, sec: number, calls: [id: string, type: string, bg?: boolean][]) {
+    return calls.map(([id, type, bg]) =>
+      toolUse(
+        id,
+        'Agent',
+        { description: type, subagent_type: type, ...(bg ? { run_in_background: true } : {}) },
+        sec,
+        { id: msg },
+      ),
+    );
+  }
+  const notify = (id: string, status: string, sec: number) =>
+    userText(
+      `<task-notification><tool-use-id>${id}</tool-use-id><status>${status}</status></task-notification>`,
+      sec,
+    );
+  const count = (f: string) =>
+    reviewCount(readTranscript(f, undefined, { cwd: CWD }).digest.review);
+  const REVIEWERS = ['security', 'performance', 'quality'].map((n) => `gestalt:${n}-reviewer`);
+
+  it('리뷰어만 세고 합의, 검증, 맥락 에이전트는 분모에 안 넣는다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [
+        ['r1', REVIEWERS[0]!],
+        ['r2', REVIEWERS[1]!],
+        ['r3', REVIEWERS[2]!],
+        ['c1', 'gestalt:continuity-judge'],
+        ['c2', 'gestalt:change-context-writer'],
+      ]),
+      toolResult('r1', 5, '결과'),
+      toolResult('c1', 6, '결과'),
+    ]);
+    expect(count(f)).toEqual({
+      startedAt: at(1),
+      total: 3,
+      done: 1,
+      running: 2,
+      failed: 0,
+    });
+    appendFileSync(
+      f,
+      [
+        toolResult('r2', 7, '결과'),
+        toolResult('r3', 8, '결과'),
+        ...wave('m2', 9, [['v1', 'gestalt:suggestion-verifier']]),
+      ]
+        .map((r) => JSON.stringify(r))
+        .join('\n') + '\n',
+    );
+    expect(count(f)).toMatchObject({ total: 3, done: 3, running: 0 });
+  });
+
+  it('백그라운드 리뷰어는 띄운 것만으로 완료가 아니고 실패, 중단 알림은 실패로 센다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [
+        ['r1', REVIEWERS[0]!, true],
+        ['r2', REVIEWERS[1]!, true],
+        ['r3', REVIEWERS[2]!],
+      ]),
+      toolResult('r1', 2, 'Async agent launched', { status: 'async_launched' }),
+      toolResult('r2', 2, 'Async agent launched', { status: 'async_launched' }),
+      toolResult('r3', 3, '에이전트 오류', undefined, true),
+    ]);
+    expect(count(f)).toMatchObject({ total: 3, done: 0, running: 2, failed: 1 });
+    appendFileSync(
+      f,
+      [notify('r1', 'completed', 10), notify('r2', 'killed', 11), notify('r2', 'completed', 12)]
+        .map((r) => JSON.stringify(r))
+        .join('\n') + '\n',
+    );
+    // 같은 알림이 두 번 와도 한 번만 센다. 먼저 받은 실패를 뒤집지 않는다
+    expect(count(f)).toMatchObject({ total: 3, done: 1, running: 0, failed: 2 });
+  });
+
+  it('실패한 리뷰어를 다시 띄우면 같은 라운드에서 한 번만 세고 다 끝난 뒤 다시 띄우면 새 라운드다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [
+        ['r1', REVIEWERS[0]!],
+        ['r2', REVIEWERS[1]!],
+      ]),
+      toolResult('r1', 4, '결과'),
+      toolResult('r2', 5, '오류', undefined, true),
+      ...wave('m2', 6, [['r2b', REVIEWERS[1]!]]),
+    ]);
+    expect(count(f)).toMatchObject({ startedAt: at(1), total: 2, done: 1, running: 1, failed: 0 });
+    appendFileSync(
+      f,
+      [
+        toolResult('r2b', 8, '결과'),
+        ...wave('m3', 20, [
+          ['s1', REVIEWERS[0]!],
+          ['s2', REVIEWERS[1]!],
+          ['s3', REVIEWERS[2]!],
+        ]),
+        toolResult('s1', 25, '결과'),
+      ]
+        .map((r) => JSON.stringify(r))
+        .join('\n') + '\n',
+    );
+    expect(count(f)).toEqual({ startedAt: at(20), total: 3, done: 1, running: 2, failed: 0 });
+  });
+
+  it('실패가 남은 라운드 뒤 새 메시지의 첫 리뷰어가 실패 유형이어도 같은 메시지 리뷰어를 한 라운드로 묶는다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [
+        ['r1', REVIEWERS[0]!],
+        ['r2', REVIEWERS[1]!],
+      ]),
+      toolResult('r1', 4, '결과'),
+      toolResult('r2', 5, '오류', undefined, true),
+      ...wave('m2', 10, [
+        ['s2', REVIEWERS[1]!],
+        ['s1', REVIEWERS[0]!],
+        ['s3', REVIEWERS[2]!],
+      ]),
+    ]);
+    expect(count(f)).toEqual({ startedAt: at(10), total: 3, done: 0, running: 3, failed: 0 });
+  });
+
+  it('ship 체크포인트를 남긴 뒤에는 리뷰 집계가 null이다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [['r1', REVIEWERS[0]!]]),
+      toolResult('r1', 4, '결과'),
+      toolUse(
+        'b1',
+        'Bash',
+        { command: 'gestalt ship checkpoint save --dir "$shipTmp" --phase 2 --round 1 --issues 0' },
+        6,
+      ),
+    ]);
+    expect(count(f)).toBeNull();
+  });
+
+  it('리뷰어를 띄운 적이 없으면 null이다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [toolUse('a1', 'Agent', { description: '조사', subagent_type: 'Explore' }, 1)]);
+    expect(count(f)).toBeNull();
   });
 });
 
