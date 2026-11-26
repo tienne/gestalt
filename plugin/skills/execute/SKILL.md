@@ -273,7 +273,7 @@ ges_status()  →  { reasoningModel: "fable", reasoningModelFallback: "opus", ..
 
 `plan_complete` 이후 호출. 태스크 목록을 받아 실행 준비.
 
-**첫 태스크를 실행하기 전에 수정 전 화면을 찍어 둔다.** 계획의 태스크가 화면 파일을 건드리면 [`../_shared/before-screenshot.md`](../_shared/before-screenshot.md)대로 찍는다. 코드를 고친 뒤에는 수정 전 화면을 다시 띄우기 어려워서 PR의 전/후 스크린샷을 이 자리에서 미리 마련한다. 화면 파일이 없는 계획이면 건너뛴다.
+**첫 태스크를 실행하기 전에 수정 전 화면을 찍어 둔다.** 계획의 태스크가 건드릴 파일로 [화면 변경 판정](../_shared/screen-change.md)의 첫 확인을 하고 후보가 있으면 [`../_shared/before-screenshot.md`](../_shared/before-screenshot.md)대로 찍는다. 확장자만 보지 않는다. HTML 문자열을 만드는 `.ts`나 화면 문구, 표시 조건도 근거가 있으면 후보다. 코드를 고친 뒤에는 수정 전 화면을 다시 띄우기 어려워서 PR의 전/후 스크린샷을 이 자리에서 미리 마련한다. 후보가 없으면 `manifest.json`에 `none`만 남기고 건너뛴다.
 
 ```json
 { "action": "execute_start", "sessionId": "...", "cwd": "/path/to/project" }
