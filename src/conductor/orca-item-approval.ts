@@ -128,7 +128,7 @@ interface ItemDecision {
 
 /**
  * 답이 운영 봇의 항목에서 이 게이트를 묻는 마지막 질문에 사람이 단 것인지 본다.
- * 호출한 쪽에서 승인자 서명이나 공식 Orca 증빙을 확인한다.
+ * 호출한 쪽에서 승인자 서명이나 공식 Orca 증빙을 확인한다. button 결과만으로는 승인 근거가 안 된다(owner 행은 같은 OS 사용자가 쓸 수 있다).
  */
 export function readItemDecision(input: {
   show: OrcaItemShow;
@@ -184,9 +184,13 @@ export function readItemDecision(input: {
       answer: answer.id,
     },
   };
+  // answers는 Orca가 답을 저장할 때 Needs you 질문으로 채운다. 버튼과 직접 답이 같은 모양으로 저장된다
+  const answers = answer.data['answers'];
+  if (answers !== undefined && answers !== question.id)
+    throw new Error('Orca에 기록된 답의 질문이 달라요');
   if (lines.length === 1) {
-    if (answer.data['answers'] !== undefined && answer.data['answers'] !== question.id)
-      throw new Error('Orca에 기록된 답의 질문이 달라요');
+    if (answers !== question.id)
+      throw new Error('Orca가 이 질문의 답으로 기록하지 않았어요. Needs you 질문에 답해 주세요');
     return { ...reply, kind: 'button' };
   }
   const signed = /^(?:서명\s+)?(\S+)\s+([A-Za-z0-9+/]{86}==)$/.exec(lines[1]!);

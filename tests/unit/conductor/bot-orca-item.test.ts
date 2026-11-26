@@ -683,4 +683,39 @@ describe('Orca 항목 답 판독', () => {
       signer: 'approver-9',
     });
   });
+
+  // Orca 1.4.269는 선택지 버튼과 직접 쓴 답을 같은 owner 댓글로 저장한다. 버튼은 선택지 이름이 text에 들어간다
+  it.each([
+    ['버튼', '승인', 'approved', { requestId: 'req-1' }],
+    ['버튼', '거절', 'rejected', { requestId: 'req-2' }],
+    ['직접 답', '승인', 'approved', {}],
+    ['직접 답', '거절', 'rejected', {}],
+  ] as const)('%s %s을 Orca가 기록한 모양 그대로 읽는다', (_via, text, decision, extra) => {
+    const { store: st, gate } = store();
+    const reply = show(st, gate, text, { answerActor: { kind: 'owner', device: 'phone-1' } });
+    reply.events[2]!.data = { text, answers: 'e11', ...extra };
+    expect(read(reply, gate, st)).toMatchObject({
+      decision,
+      kind: 'button',
+      source: { item: 7, itemUid: 'uid-7', question: 'e11', answer: 'e12' },
+    });
+  });
+
+  it('Needs you 질문의 답으로 기록되지 않은 댓글과 인용은 받지 않는다', () => {
+    const { store: st, gate } = store();
+    const loose = show(st, gate, '승인');
+    loose.events[2]!.data = { text: '승인' };
+    expect(() => read(loose, gate, st)).toThrow('이 질문의 답으로 기록하지 않았어요');
+    for (const answers of ['e10', ['e11'], 11, null]) {
+      loose.events[2]!.data = { text: '승인', answers };
+      expect(() => read(loose, gate, st)).toThrow(/질문이 달라요|이 질문의 답으로/);
+    }
+    expect(() => read(show(st, gate, '> 승인\n승인'), gate, st)).toThrow('승인이나 거절로');
+    expect(() => read(show(st, gate, '> 진행할까요?\n> 승인\n승인'), gate, st)).toThrow(
+      '승인이나 거절로',
+    );
+    const elsewhere = show(st, gate, `승인\n서명 x ${sig}`);
+    elsewhere.events[2]!.data = { text: `승인\n서명 x ${sig}`, answers: 'e10' };
+    expect(() => read(elsewhere, gate, st)).toThrow('답의 질문이 달라요');
+  });
 });

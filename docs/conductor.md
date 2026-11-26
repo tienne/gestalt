@@ -317,6 +317,21 @@ Gestalt는 봇이 옮겨 적은 말 대신 `orca bot item show`로 Orca가 저�
 
 Orca 1.4.269의 공식 CLI에서 `bot item show`로 항목과 이벤트를 읽을 수 있다. 답 이벤트에는 `actor.kind: owner`와 질문을 가리키는 `data.answers`가 있다. 이 필드로는 승인자의 신원을 확인할 수 없다. 해당 버전의 항목 CLI와 응답 구현, 플러그인 호스트 API에서 승인 증빙 발행, 조회, 발행 키 확인 기능을 찾지 못했다. `bot gate`는 버튼 승인을 비활성으로 표시하고 그 이유를 `orcaItem.buttonApproval.diagnostic`에 싣는다. 클릭만 한 답을 받으면 게이트를 열어 둔다. [Orca 1.4.269 항목 CLI](https://github.com/stablyai/orca/blob/v1.4.269/src/cli/specs/bot-items.ts), [Orca 1.4.269 항목 답 기록](https://github.com/stablyai/orca/blob/v1.4.269/src/main/bots/bot-items-owner.ts)
 
+설치된 Orca 1.4.269의 소스와 실제 항목 기록을 대조한 결과는 아래와 같다(2026-11-26 확인).
+
+- Needs you 선택지 버튼과 직접 쓴 답은 둘 다 `bots.items.owner.comment` 하나로 저장된다. 버튼은 선택지 이름을 `text`에 넣을 뿐이고 어느 선택지를 눌렀는지 따로 남지 않는다. 데스크톱 답에는 `requestId`가, 페어링한 폰 답에는 `actor.device`가 붙는다. 그래서 Gestalt는 버튼과 직접 답을 같은 규칙으로 읽는다. 한 줄 답은 `승인`, `거절`, `approved`, `rejected` 중 하나와 정확히 같아야 한다.
+- `data.answers`는 클라이언트가 보낸 값이 아니다. 항목이 Needs you이고 마지막 질문을 봇이 썼을 때 Orca가 저장하면서 채운다. 한 줄 답은 `answers`가 그 질문 이벤트를 가리킬 때만 받는다. 항목 아무 데나 단 댓글이나 다른 질문에 단 답, 인용을 붙인 답은 받지 않는다. 서명 두 줄 답도 `answers`가 있으면 같은 질문일 때만 받는다. 이 검사는 다른 질문에 단 답을 거르는 확인일 뿐 승인 근거가 아니다.
+- owner 이벤트를 쓰는 RPC는 에이전트 CLI 호출을 전송 계층의 호출자 구분으로 거절한다. 하지만 이벤트는 서명 없이 `~/Library/Application Support/orca/bot-items.sqlite`의 행으로 남는다. 같은 OS 사용자로 도는 워커가 이 파일에 owner 답을 직접 쓸 수 있다. 페어링 연결의 에이전트 표시는 클라이언트가 스스로 밝히는 값이다. 그래서 `actor.kind: owner`만으로는 승인 근거로 쓰지 않는다. [Orca 1.4.269 호출자 구분](https://github.com/stablyai/orca/blob/v1.4.269/src/main/runtime/rpc/callers/rpc-caller-identity.ts), [owner 전용 RPC](https://github.com/stablyai/orca/blob/v1.4.269/src/main/runtime/rpc/methods/bots-items-owner-methods.ts)
+
+버튼 한 번이나 `승인` 한 줄로 게이트를 닫으려면 Orca에 아래 변경이 있어야 한다.
+
+1. 사람이 owner 패널(데스크톱 창, 페어링한 폰)에서 봇 질문에 답하면 Orca 메인 프로세스가 아래 계약대로 증빙에 서명한다. 서명 키는 워커가 읽을 수 없는 곳(로그인 키체인 접근 제어나 Secure Enclave)에 둔다. sqlite나 설정 파일에 두지 않는다.
+2. 답 이벤트에 버튼으로 골랐는지와 고른 선택지 ID를 남긴다. 봇이 질문할 때 선택지마다 `approved`와 `rejected` 결정, `targetHash`를 등록받아 증빙의 `decision`과 `targetHash`를 그 등록값에서 채운다. 직접 쓴 답은 Orca가 같은 규칙(정확히 `승인`이나 `거절`)으로 결정에 매핑한 경우에만 발행한다.
+3. 에이전트 CLI가 부를 수 있는 읽기 전용 증빙 조회(예: `orca bot item proof <항목> --answer <이벤트>`)와 발행자 ID, Ed25519 공개키 조회를 연다. 공개키는 운영자가 터미널에서 한 번 확인해 `bot-policy.json`에 고정한다. 조회 결과의 키를 매번 믿지 않는다.
+4. 증빙의 `approver`는 답을 쓴 사람의 Orca 신원(데스크톱 owner나 페어링 기기 ID)으로 채운다. 에이전트로 표시된 연결이나 에이전트 CLI에서 온 답에는 발행하지 않는다.
+
+이 변경이 들어오면 `officialOrcaApprovalIssuer`에 어댑터를 등록해 버튼을 켠다. 그전까지 Needs you 버튼과 한 줄 답은 게이트를 열어 둔 채 실패를 알린다. 운영자 터미널 명령, Touch ID 링크, 서명 두 줄 답은 지금처럼 동작한다. Orca를 올리면 위 확인을 새 버전 소스로 다시 한다.
+
 ##### Orca 증빙 생산자 연동 계약
 
 - Orca 코어가 로그인한 사람이 누른 버튼을 직접 확인해야 한다. Gestalt 정책의 승인자 ID를 찾아 해당 레포와 게이트 유형에서 그 사람이 결정할 권한이 있는지 검사한다. 발행 권한은 Orca 코어에 둔다.
