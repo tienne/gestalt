@@ -38,7 +38,7 @@ describe('intake', () => {
     );
   });
 
-  it('접수 때 작업 유형을 남긴다. 직접 정한 값이 스킬 체인보다 먼저다', () => {
+  it('접수 때 작업 유형을 남긴다. 직접 정한 값은 체인 유형보다 클 때만 쓴다', () => {
     const s = ConductorStore.open(tempStateDir());
     const add = (title: string, extra: object) =>
       intakeOrder(s, { source: 'spoken', repo: 'acme/app', title, ...extra }, config).order
@@ -46,16 +46,36 @@ describe('intake', () => {
     expect(add('리뷰', { skillChain: ['review-loop'] })).toBe('review');
     expect(add('영향', { skillChain: ['blast-radius'] })).toBe('lookup');
     expect(add('반영', { skillChain: ['review-reply'] })).toBe('work');
-    expect(add('직접', { skillChain: ['solve', 'ship'], workClass: 'review' })).toBe('review');
+    expect(add('올림', { skillChain: ['review'], workClass: 'work' })).toBe('work');
+    expect(add('내림', { skillChain: ['solve', 'ship'], workClass: 'review' })).toBe('work');
+    expect(add('조회로', { skillChain: ['review'], workClass: 'lookup' })).toBe('review');
   });
 
-  it('큐 메시지의 작업 유형은 아는 값만 받는다', () => {
-    expect(parseQueueBody({ repo: 'acme/app', title: 't', workClass: 'lookup' })).toMatchObject({
-      workClass: 'lookup',
-    });
-    expect(parseQueueBody({ repo: 'acme/app', title: 't', workClass: 'huge' })).toMatch(
-      /workClass/,
-    );
+  it('바깥 출처가 정한 작업 유형은 무시하고 스킬 체인으로 정한다', async () => {
+    const s = ConductorStore.open(tempStateDir());
+    const direct = intakeOrder(
+      s,
+      {
+        source: 'external-queue',
+        repo: 'acme/app',
+        title: '직접',
+        skillChain: ['solve', 'ship'],
+        workClass: 'lookup',
+      },
+      config,
+    ).order;
+    expect(direct.workClass).toBe('work');
+    expect(
+      parseQueueBody({ repo: 'acme/app', title: 't', workClass: 'lookup' }),
+    ).not.toHaveProperty('workClass');
+    const queue: ExternalQueue = {
+      receive: async () => [
+        { id: 'm1', body: { repo: 'acme/app', title: '큐', workClass: 'lookup' } },
+      ],
+      ack: async () => {},
+    };
+    const { created } = await pollQueue(s, queue, config);
+    expect(created[0]?.workClass).toBe('work');
   });
 
   it('지라 티켓은 한 번만 주문이 되고 레포를 모르면 한 번만 묻는다', async () => {

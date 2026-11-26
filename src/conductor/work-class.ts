@@ -46,11 +46,27 @@ export function classifyWork(skillChain: readonly string[]): WorkClass {
 }
 
 /**
+ * 접수 때 남길 유형. 직접 정한 값은 스킬 체인이 고른 유형보다 크거나 같을 때만 쓴다.
+ * 구현 체인을 조회나 리뷰로 내리면 복합 작업이 작은 슬롯에 들어가 작업 한도를 건너뛴다
+ */
+export function resolveWorkClass(
+  skillChain: readonly string[],
+  requested: WorkClass | undefined,
+): WorkClass {
+  const classified = classifyWork(skillChain);
+  if (!requested) return classified;
+  return WORK_CLASSES.indexOf(requested) > WORK_CLASSES.indexOf(classified)
+    ? requested
+    : classified;
+}
+
+/**
  * 주문의 유형. 접수 때 남긴 값이 먼저다. 이 칸이 생기기 전에 들어온 주문은 스킬 체인으로 다시 고른다.
  * 같은 체인이면 언제 읽어도 같은 유형이 나와 재시작과 재개에서도 슬롯이 바뀌지 않는다
  */
 export function orderWorkClass(order: Pick<Order, 'workClass' | 'skillChain'>): WorkClass {
-  return order.workClass ?? classifyWork(order.skillChain ?? []);
+  // 저장소 파일을 손으로 고쳤거나 다른 버전이 쓴 값이 목록 밖이면 한도 검사에서 빠지므로 체인으로 다시 고른다
+  return isWorkClass(order.workClass) ? order.workClass : classifyWork(order.skillChain ?? []);
 }
 
 /** 워커가 차지한 슬롯. 띄울 때 남긴 값이 먼저고 없으면(옛 워커) 주문으로 고른다 */
@@ -58,7 +74,13 @@ export function workerWorkClass(
   worker: Pick<Worker, 'workClass'>,
   order: Pick<Order, 'workClass' | 'skillChain'> | undefined,
 ): WorkClass {
-  return worker.workClass ?? (order ? orderWorkClass(order) : 'work');
+  if (isWorkClass(worker.workClass)) return worker.workClass;
+  return order ? orderWorkClass(order) : 'work';
+}
+
+/** 유형마다 값을 하나씩 만든다. 유형이 늘면 여기 한 곳에서 키가 따라 늘어난다 */
+export function mapClasses<T>(fn: (c: WorkClass) => T): Record<WorkClass, T> {
+  return Object.fromEntries(WORK_CLASSES.map((c) => [c, fn(c)])) as Record<WorkClass, T>;
 }
 
 export function totalLimit(limits: Readonly<WorkerLimits>): number {

@@ -19,7 +19,7 @@ import {
   type OrderScope,
   type WorkerKind,
 } from './types.js';
-import { classifyWork, isWorkClass, type WorkClass } from './work-class.js';
+import { resolveWorkClass, type WorkClass } from './work-class.js';
 
 /**
  * 주문 접수.
@@ -175,8 +175,8 @@ function capDescription(text: string): string {
 }
 
 /**
- * 주문을 받는다. 범위와 스킬 체인을 그대로 믿는 건 컨덕터 세션이 CLI로 넣을 때(`trusted`)와
- * 말로 던진 주문뿐이다. 지라, 큐, PR 감시에서 온 값은 externalScope와 KNOWN_SKILLS로 거른다.
+ * 주문을 받는다. 범위와 스킬 체인, 작업 유형을 그대로 믿는 건 컨덕터 세션이 CLI로 넣을 때(`trusted`)와
+ * 말로 던진 주문뿐이다. 지라, 큐, PR 감시에서 온 값은 externalScope와 KNOWN_SKILLS로 거르고 유형은 체인으로 정한다.
  * 레포 스킬은 KNOWN_SKILLS에 없어 바깥 출처에서는 빠진다
  */
 export function intakeOrder(
@@ -252,7 +252,10 @@ export function intakeOrder(
         ? (input.scope ?? config.defaultScope)
         : externalScope(input.scope, config.defaultScope),
     skillChain,
-    workClass: prepared ? 'work' : (input.workClass ?? classifyWork(skillChain)),
+    // 바깥 출처가 정한 유형은 안 믿는다. 작업 한도를 건너뛰는 길이 된다
+    workClass: prepared
+      ? 'work'
+      : resolveWorkClass(skillChain, trusted ? input.workClass : undefined),
     status: 'queued',
     createdAt: at,
     updatedAt: at,
@@ -501,11 +504,6 @@ export function parseQueueBody(body: unknown): Omit<IntakeInput, 'source' | 'sou
     if (typeof b['workerKind'] !== 'string' || !isWorkerKind(b['workerKind']))
       return `workerKind를 모르겠어요: ${oneLine(String(b['workerKind']))}`;
     out.workerKind = b['workerKind'];
-  }
-  if (b['workClass'] !== undefined) {
-    if (!isWorkClass(b['workClass']))
-      return `workClass를 모르겠어요: ${oneLine(String(b['workClass']))}`;
-    out.workClass = b['workClass'];
   }
   // 부모 워크트리는 이 머신의 경로라 바깥에서 정하게 두지 않는다. 컨덕터 세션이 order add로 넣는다
   if (b['parentWorktree'] !== undefined)

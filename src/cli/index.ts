@@ -1250,7 +1250,7 @@ export function createCli(): Command {
     .option('--worker-kind <kind>', 'subagent, orca-worktree, git-worktree 중 하나로 고정')
     .option(
       '--work-class <class>',
-      'lookup(조회), review(리뷰), work(작업) 중 하나. 동시 실행 슬롯을 이 유형으로 센다. 없으면 스킬 체인으로 고른다',
+      'lookup(조회), review(리뷰), work(작업) 중 하나. 스킬 체인이 고른 유형보다 클 때만 쓴다(구현 체인은 늘 작업)',
     )
     .option('--agent <id>', '이 주문의 오르카 워커 에이전트')
     .option(
