@@ -74,7 +74,7 @@ interface GestaltConfig {
   webFetchCache: { enabled: boolean }; // WebFetch 디스크 캐시 훅, 기본 false
   conductor: {
     workerLimits: { lookup: number; review: number; work: number }; // 유형별 동시 워커 상한, 기본 5, 5, 10. 전체 한도는 합계
-    maxConcurrentWorkers?: number; // 옛 칸. 읽기만 하고 쓰지 않는다
+    maxConcurrentWorkers?: number; // 옛 칸. 받아 두기만 하고 스케줄러는 안 본다
     pollIntervalSec: number; // 진행 감시 주기, 기본 60
     waitMaxSec: number; // conductor wait가 할 일 없이 기다리는 상한(초), 기본이자 최대 1500. 마지막 tick까지 스킬이 백그라운드로 띄울 때 주는 30분 제한(timeout: 1800000) 안에 끝나게 막았다
     maxResumeAttempts: number; // 체크포인트 재개 횟수 상한, 기본 3
@@ -132,7 +132,7 @@ interface GestaltConfig {
 | `GESTALT_NOTIFICATIONS`                   | boolean                                              | `false`                     | 완료/실패 시 OS 알림 전송 여부 (`"true"` 문자열로 설정)                                                                                                                                                                                       |
 | `GESTALT_CODE_GRAPH_HOOKS`                | `"1"` \| `"true"` \| `"0"` \| `"false"`              | —                           | Claude Code 플러그인 훅의 코드 그래프 자동 주입을 켜고 끈다. `0`/`false`는 `gestalt.json` 설정보다 우선해서 끈다. 동작은 [Claude Code 훅 (자동 주입)](./code-graph.md#claude-code-훅-자동-주입)                                               |
 | `GESTALT_WEBFETCH_CACHE`                  | `"1"` \| `"true"` \| `"0"` \| `"false"`              | —                           | WebFetch 디스크 캐시 훅을 켜고 끈다. `0`/`false`는 `gestalt.json` 설정보다 우선해서 끈다. 동작은 [WebFetch 디스크 캐시](./webfetch-cache.md)                                                                                                  |
-| `GESTALT_CONDUCTOR_MAX_WORKERS`           | number                                               | —                           | 옛 동시 워커 상한. 읽기만 하고 쓰지 않는다. 유형별 상한은 `conductor.workerLimits`로 정한다                                                                                                                                                   |
+| `GESTALT_CONDUCTOR_MAX_WORKERS`           | number                                               | —                           | 옛 동시 워커 상한. 받아 두기만 하고 스케줄러는 안 본다. 유형별 상한은 `conductor.workerLimits`로 정한다                                                                                                                                       |
 | `GESTALT_DB_PATH`                         | string                                               | `"~/.gestalt/events.db"`    | SQLite 이벤트 스토어 파일 경로                                                                                                                                                                                                                |
 | `GESTALT_SKILLS_DIR`                      | string                                               | `"skills"`                  | 스킬 SKILL.md 파일들이 위치한 디렉터리                                                                                                                                                                                                        |
 | `GESTALT_AGENTS_DIR`                      | string                                               | `"agents"`                  | 커스텀 에이전트 정의 디렉터리                                                                                                                                                                                                                 |
@@ -321,8 +321,8 @@ Desktop/IDE의 이름은 캡처하지 않았다.
 
 레포 `gestalt.json`에 이 칸들을 적으면 버리고 버린 칸 이름을 경고로 알린다. 남이 만든 레포 안에서 컨덕터 세션을 열었다고 머지 승인이 꺼지거나 워커가 남이 정한 경로와 계정으로 뜨면 안 되기 때문이다.
 
-- `workerLimits`는 조회, 리뷰, 작업 유형마다 동시 워커 상한을 정하고 전체 한도는 그 합이다. 적지 않은 유형은 기본값(5, 5, 10)을 쓴다. 자기 유형 상한을 넘는 주문은 큐에 쌓였다가 자리가 나면 뜬다. 컨덕터가 진행을 볼 때마다 다시 읽으므로 돌고 있는 중에 바꿔도 다음 감시부터 적용된다. 유형을 고르는 규칙은 [컨덕터](./conductor.md#동시-상한과-큐)에 있다
-- 옛 `maxConcurrentWorkers`는 읽기만 하고 스케줄러는 쓰지 않는다. 남아 있으면 `conductor status`가 경고를 띄운다
+- `workerLimits`는 조회, 리뷰, 작업 유형마다 동시 워커 상한을 정하고 전체 한도는 그 합이다. 적지 않은 유형은 기본값(5, 5, 10)을 쓴다. 자기 유형 상한을 넘는 주문은 큐에 쌓였다가 자리가 나면 뜬다. 0으로 두면 그 유형 주문은 계속 큐에 남는다. 컨덕터가 진행을 볼 때마다 다시 읽으므로 돌고 있는 중에 바꿔도 다음 감시부터 적용된다. 유형을 고르는 규칙은 [컨덕터](./conductor.md#동시-상한과-큐)에 있다
+- 옛 `maxConcurrentWorkers`는 받아 두기만 하고 스케줄러는 보지 않는다. 남아 있으면 `conductor status`와 `conductor tick`이 경고를 띄운다
 - `defaultScope`는 주문에 범위를 안 적었을 때 쓴다. `merge-through`는 머지까지 승인 없이 가고 `approval`은 머지 전에 사람 승인을 받는다. `interview-first`는 인터뷰 답을 사람이 직접 한다
 - `defaultAgent`(기본 `claude`)와 `repoAgents`는 오르카 워커의 에이전트를 고른다. 주문의 `--agent`가 있으면 가장 먼저 쓰고 재개는 앞 워커의 에이전트를 유지한다. ID는 영문자나 숫자로 시작하고 영문자, 숫자, `.`, `_`, `:`, `-`만 쓴 64자 이하여야 한다. subagent와 git-worktree에서는 무시한다
 - `accounts`에 적힌 레포는 워커를 띄우기 전에 그 계정으로 맞춘다. 맞추는 절차가 없으면 사람에게 올린다
