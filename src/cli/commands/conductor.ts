@@ -168,6 +168,7 @@ import {
 } from '../../conductor/handoff-close.js';
 import { planSlots, type ConductorConfig } from '../../conductor/scheduler.js';
 import {
+  mapClasses,
   orderWorkClass,
   totalLimit,
   WORK_CLASS_LABEL,
@@ -851,7 +852,7 @@ function statusApprovers(
 /** 예전 전체 상한이 설정에 남아 있으면 안 쓴다고 알린다. 두 번째 상한으로 쓰지 않는다 */
 function legacyLimitWarning(config: Ctx['config']): string | undefined {
   if (config.maxConcurrentWorkers === undefined) return undefined;
-  return `conductor.maxConcurrentWorkers(${config.maxConcurrentWorkers})는 더 안 써요. 전체 한도는 workerLimits의 합(${totalLimit(config.workerLimits)})이에요. 설정에서 workerLimits로 옮겨 주세요`;
+  return `conductor.maxConcurrentWorkers(${config.maxConcurrentWorkers})는 이제 안 써요. 전체 한도는 workerLimits의 합(${totalLimit(config.workerLimits)})이에요. 설정에서 workerLimits로 옮겨 주세요`;
 }
 
 /** `조회 2/5 · 리뷰 3/5 · 작업 4/10` */
@@ -892,12 +893,10 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
     pollIntervalSec: config.pollIntervalSec,
     // 이전 CLI를 읽는 화면을 위해 이름은 그대로 두고 값은 유형별 한도의 합을 싣는다
     maxWorkers: slots.limit,
-    workerSlots: Object.fromEntries(
-      WORK_CLASSES.map((c) => [
-        c,
-        { active: slots.byClass[c].active, limit: slots.byClass[c].limit },
-      ]),
-    ),
+    workerSlots: mapClasses((c) => ({
+      active: slots.byClass[c].active,
+      limit: slots.byClass[c].limit,
+    })),
     ...(legacy ? { warnings: [legacy] } : {}),
     activeWorkers: store.activeWorkers().length,
     queuedOrders: store.queuedOrders().length,
@@ -1119,6 +1118,9 @@ async function runConductorTick(
     ],
   });
   report.hostActions.push(...deferred);
+  // status를 안 보는 동안에도 옛 상한이 무시되고 있다는 걸 tick 출력으로 알린다
+  const legacy = legacyLimitWarning(ctx.config);
+  if (legacy) report.warnings.push(legacy);
   const handoff = sessionId ? sessionHandoff(ctx, sessionId) : undefined;
   return { report, ...(handoff ? { handoff } : {}), handoffClose };
 }

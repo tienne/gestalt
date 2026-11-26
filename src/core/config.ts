@@ -382,7 +382,7 @@ const webFetchCacheConfigSchema = z.object({
 const conductorConfigSchema = z.object({
   /**
    * 작업 유형별 동시 워커 상한. 유형마다 따로 세고 전체 한도는 셋을 더한 값이다(기본 5 + 5 + 10 = 20).
-   * 한 유형이 꽉 차도 다른 유형에 자리가 있으면 그 유형의 대기 주문은 뜬다
+   * 한 유형이 꽉 차도 다른 유형에 자리가 있으면 그 유형의 대기 주문은 뜬다. 0이면 그 유형 주문은 큐에 계속 남는다
    */
   workerLimits: z
     .object({
@@ -393,7 +393,7 @@ const conductorConfigSchema = z.object({
     .default({}),
   /**
    * 예전 전체 상한. 구버전 설정 파일이 깨지지 않게 받기만 하고 스케줄러는 안 본다.
-   * 전체 한도는 workerLimits의 합이다. 값이 있으면 status가 workerLimits로 옮기라고 경고한다
+   * 전체 한도는 workerLimits의 합이다. 값이 있으면 status와 tick이 workerLimits로 옮기라고 경고한다
    */
   maxConcurrentWorkers: z.number().int().min(1).max(100).optional(),
   /** 진행 감시 주기(초). 컨덕터가 tick을 이 간격보다 자주 돌리지 않는다 */
