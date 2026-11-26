@@ -6,6 +6,7 @@
  */
 
 import type { PreparedPlan } from './prepared-plan.js';
+import type { WorkClass } from './work-class.js';
 import { AGENT_ID_RE, ORDER_SCOPES } from '../core/constants.js';
 
 export { AGENT_ID_RE, ORDER_SCOPES };
@@ -73,6 +74,11 @@ export interface Order {
   /** 사용자가 워커 종류를 직접 정했을 때. 비우면 런처가 handoff 표로 고른다 */
   workerKind?: WorkerKind;
   agent?: string;
+  /**
+   * 동시 실행 슬롯을 셀 작업 유형. 접수 때 남긴다. 이 칸이 생기기 전 주문은 비어 있고
+   * `orderWorkClass`가 스킬 체인으로 다시 고른다
+   */
+  workClass?: WorkClass;
   /**
    * 오르카 워커를 이 워크트리 아래 하위 워크트리로 띄운다. 접수 때 레포와 맞는지 확인하고 절대 경로로 풀어 둔다.
    * git 워크트리 워커는 이 값을 무시하고 경고만 남긴다
@@ -144,6 +150,8 @@ export interface Worker {
   orderId: string;
   kind: WorkerKind;
   agent?: string;
+  /** 이 워커가 차지한 슬롯 유형. 띄울 때 주문 유형을 그대로 남긴다. 옛 워커는 비어 있다 */
+  workClass?: WorkClass;
   /** 워커는 하위 워커를 못 띄운다. 이 값이 conductor가 아니면 저장소가 거절한다 */
   spawnedBy: 'conductor';
   /** 같은 주문에서 몇 번째로 띄운 워커인지. 1부터 센다 */

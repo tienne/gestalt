@@ -19,6 +19,7 @@ import {
   type OrderScope,
   type WorkerKind,
 } from './types.js';
+import { classifyWork, isWorkClass, type WorkClass } from './work-class.js';
 
 /**
  * 주문 접수.
@@ -125,6 +126,8 @@ export interface IntakeInput {
   skillChain?: string[];
   workerKind?: WorkerKind;
   agent?: string;
+  /** 작업 유형을 직접 정할 때. 비우면 스킬 체인으로 고른다 */
+  workClass?: WorkClass;
   /** 접수 전에 resolveParentWorktree로 레포와 맞는지 확인한 절대 경로 */
   parentWorktree?: string;
   baseBranch?: string;
@@ -230,6 +233,11 @@ export function intakeOrder(
   // 같은 주문을 다시 넣은 경우는 위에서 돌려준다. 그사이 파일이 지워졌어도 이미 만든 주문은 그대로다
   if (trusted && skills?.some(isRepoSkill)) checkRepoSkills(skills, input, config.repoPaths ?? {});
 
+  const skillChain = prepared
+    ? ['execute', 'ship']
+    : skills?.length
+      ? skills
+      : [...DEFAULT_SKILL_CHAIN];
   const at = store.timestamp();
   const order: Order = {
     id,
@@ -243,7 +251,8 @@ export function intakeOrder(
       : trusted
         ? (input.scope ?? config.defaultScope)
         : externalScope(input.scope, config.defaultScope),
-    skillChain: prepared ? ['execute', 'ship'] : skills?.length ? skills : [...DEFAULT_SKILL_CHAIN],
+    skillChain,
+    workClass: prepared ? 'work' : (input.workClass ?? classifyWork(skillChain)),
     status: 'queued',
     createdAt: at,
     updatedAt: at,
@@ -492,6 +501,11 @@ export function parseQueueBody(body: unknown): Omit<IntakeInput, 'source' | 'sou
     if (typeof b['workerKind'] !== 'string' || !isWorkerKind(b['workerKind']))
       return `workerKind를 모르겠어요: ${oneLine(String(b['workerKind']))}`;
     out.workerKind = b['workerKind'];
+  }
+  if (b['workClass'] !== undefined) {
+    if (!isWorkClass(b['workClass']))
+      return `workClass를 모르겠어요: ${oneLine(String(b['workClass']))}`;
+    out.workClass = b['workClass'];
   }
   // 부모 워크트리는 이 머신의 경로라 바깥에서 정하게 두지 않는다. 컨덕터 세션이 order add로 넣는다
   if (b['parentWorktree'] !== undefined)

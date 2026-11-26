@@ -166,7 +166,15 @@ import {
   handoffCloseLine,
   type HandoffCloseResult,
 } from '../../conductor/handoff-close.js';
-import type { ConductorConfig } from '../../conductor/scheduler.js';
+import { planSlots, type ConductorConfig } from '../../conductor/scheduler.js';
+import {
+  orderWorkClass,
+  totalLimit,
+  WORK_CLASS_LABEL,
+  WORK_CLASSES,
+  workerWorkClass,
+  type WorkClass,
+} from '../../conductor/work-class.js';
 import { confirmSlackDelivery, draftSlack, pendingSlackDelivery } from '../../conductor/slack.js';
 import { isSlackChannelId } from '../../conductor/slack-state.js';
 import {
@@ -299,6 +307,7 @@ export interface ConductorOrderAddOptions extends ConductorCommonOptions {
   scope?: string;
   skills?: string;
   workerKind?: string;
+  workClass?: string;
   agent?: string;
   parentWorktree?: string;
   baseBranch?: string;
@@ -348,6 +357,9 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
         ...(opts.workerKind
           ? { workerKind: oneOf<WorkerKind>(opts.workerKind, WORKER_KINDS, '--worker-kind') }
           : {}),
+        ...(opts.workClass
+          ? { workClass: oneOf<WorkClass>(opts.workClass, WORK_CLASSES, '--work-class') }
+          : {}),
         ...(parentWorktree ? { parentWorktree } : {}),
         ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
         ...(opts.issueKey ? { issueKey: issueKey(opts.issueKey) } : {}),
@@ -388,7 +400,7 @@ export function conductorOrderAddCommand(opts: ConductorOrderAddOptions): void {
     }
     if (opts.json) return print({ created: out.created, order: out.order });
     console.log(
-      `${out.created ? '주문을 받았어요' : '이미 받은 주문이에요'}: ${out.order.id} (${out.order.scope})`,
+      `${out.created ? '주문을 받았어요' : '이미 받은 주문이에요'}: ${out.order.id} (${out.order.scope}, ${WORK_CLASS_LABEL[orderWorkClass(out.order)]})`,
     );
   });
 }
@@ -722,6 +734,8 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
             ...(o.workerId ? { worker: o.workerId } : {}),
             // 오르카 플러그인 같은 바깥 도구가 워커 워크트리를 찾아 열 때 쓴다
             ...(w ? { workerKind: w.kind, workerStatus: w.status } : {}),
+            // 동시 실행 슬롯 유형. 워커 종류와는 다른 칸이다
+            workClass: w ? workerWorkClass(w, o) : orderWorkClass(o),
             ...(w?.handle ? { workerHandle: w.handle } : {}),
             ...(w?.kind === 'orca-worktree' ? { worktreeName: orcaWorktreeName(w) } : {}),
             // 바깥 도구가 주문 위계를 그릴 때 쓴다. 하위 주문과 부모 워크트리 둘 다 비면 뿌리 주문이다
@@ -765,6 +779,9 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
       });
     }
     console.log(`마지막 tick: ${store.snapshot.lastTickAt ?? '없음'}`);
+    console.log(`슬롯: ${slotLine(store, config)}`);
+    const legacy = legacyLimitWarning(config);
+    if (legacy) console.log(`경고: ${legacy}`);
     const staleWarning = staleTickWarning(
       store.snapshot.lastTickAt,
       new Date().toISOString(),
@@ -777,7 +794,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
           ? store.snapshot.reports[o.id]?.at(-1)?.summary
           : undefined;
       console.log(
-        `${o.id}  ${o.status}  ${o.scope}  ${o.repo}  ${o.title}${summary ? `  ${oneLine(summary, 100)}` : ''}`,
+        `${o.id}  ${o.status}  ${o.scope}  ${o.repo}  ${o.title}  [${WORK_CLASS_LABEL[orderWorkClass(o)]}]${summary ? `  ${oneLine(summary, 100)}` : ''}`,
       );
       const limit = limited.get(o.id);
       if (limit) console.log(`  ${rateLimitLine(limit)}`);
@@ -831,6 +848,20 @@ function statusApprovers(
   ]);
 }
 
+/** 예전 전체 상한이 설정에 남아 있으면 안 쓴다고 알린다. 두 번째 상한으로 쓰지 않는다 */
+function legacyLimitWarning(config: Ctx['config']): string | undefined {
+  if (config.maxConcurrentWorkers === undefined) return undefined;
+  return `conductor.maxConcurrentWorkers(${config.maxConcurrentWorkers})는 더 안 써요. 전체 한도는 workerLimits의 합(${totalLimit(config.workerLimits)})이에요. 설정에서 workerLimits로 옮겨 주세요`;
+}
+
+/** `조회 2/5 · 리뷰 3/5 · 작업 4/10` */
+function slotLine(store: Ctx['store'], config: Ctx['config']): string {
+  const plan = planSlots(store, config.workerLimits);
+  return WORK_CLASSES.map(
+    (c) => `${WORK_CLASS_LABEL[c]} ${plan.byClass[c].active}/${plan.byClass[c].limit}`,
+  ).join(' · ');
+}
+
 /**
  * 컨덕터 자체의 값. 저장소와 설정에서 이미 아는 것만 싣는다.
  * 컴팩트 횟수와 세션 id, 작업 디렉토리는 살아 있는 컨덕터 세션을 찾았을 때만 싣는다.
@@ -855,9 +886,19 @@ function conductorSummary(ctx: Ctx): Record<string, unknown> {
   const session = botOwner
     ? undefined
     : findActiveConductor(store.dir, '', Date.now(), activeConductorWindowMs(config));
+  const slots = planSlots(store, config.workerLimits);
+  const legacy = legacyLimitWarning(config);
   return {
     pollIntervalSec: config.pollIntervalSec,
-    maxWorkers: config.maxConcurrentWorkers,
+    // 이전 CLI를 읽는 화면을 위해 이름은 그대로 두고 값은 유형별 한도의 합을 싣는다
+    maxWorkers: slots.limit,
+    workerSlots: Object.fromEntries(
+      WORK_CLASSES.map((c) => [
+        c,
+        { active: slots.byClass[c].active, limit: slots.byClass[c].limit },
+      ]),
+    ),
+    ...(legacy ? { warnings: [legacy] } : {}),
     activeWorkers: store.activeWorkers().length,
     queuedOrders: store.queuedOrders().length,
     prWatchRepos: config.prWatchRepos,

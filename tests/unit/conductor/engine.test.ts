@@ -80,7 +80,7 @@ import {
 afterEach(cleanupStateDirs);
 
 const config: ConductorConfig = {
-  maxConcurrentWorkers: 2,
+  workerLimits: { lookup: 2, review: 2, work: 2 },
   pollIntervalSec: 60,
   maxResumeAttempts: 3,
   staleAfterSec: 900,
@@ -1026,6 +1026,85 @@ describe('컨덕터 tick', () => {
     expect(store.worker(store.order('ord-0')!.workerId!)!.status).toBe('released');
   });
 
+  it('작업 슬롯이 꽉 차도 리뷰와 조회 주문은 같은 tick에 빈 자리로 뜨고 워커에 유형을 남긴다', async () => {
+    const { store } = clockedStore();
+    for (let i = 0; i < 3; i++)
+      store.addOrder(order({ id: `ord-${i}`, createdAt: `2026-11-01T00:00:0${i}.000Z` }));
+    store.addOrder(
+      order({
+        id: 'ord-rev',
+        skillChain: ['review'],
+        workerKind: 'git-worktree',
+        createdAt: '2026-11-01T00:00:05.000Z',
+      }),
+    );
+    store.addOrder(
+      order({
+        id: 'ord-look',
+        skillChain: ['blast-radius'],
+        workerKind: 'git-worktree',
+        createdAt: '2026-11-01T00:00:06.000Z',
+      }),
+    );
+    const { deps: d } = deps({
+      config: { ...config, workerLimits: { lookup: 1, review: 1, work: 2 } },
+    });
+
+    const first = await tick(store, d, { force: true });
+    expect(first.launched.map((l) => [l.orderId, l.workClass])).toEqual([
+      ['ord-0', 'work'],
+      ['ord-1', 'work'],
+      ['ord-rev', 'review'],
+      ['ord-look', 'lookup'],
+    ]);
+    expect(store.order('ord-2')!.status).toBe('queued');
+    expect(store.worker(store.order('ord-rev')!.workerId!)!.workClass).toBe('review');
+  });
+
+  it('재개도 유형 한도를 검사해 자리가 없으면 큐에 남긴다', async () => {
+    const { store, advance } = clockedStore();
+    store.addOrder(order({ id: 'ord-1', createdAt: '2026-11-01T00:00:00.000Z' }));
+    const { deps: d } = deps({
+      config: { ...config, workerLimits: { lookup: 1, review: 1, work: 1 } },
+    });
+    await tick(store, d, { force: true });
+    const first = store.order('ord-1')!.workerId!;
+
+    // 끊긴 워커가 재개를 기다리는 사이 같은 유형 주문이 자리를 차지한다
+    advance(16 * 60 * 1000);
+    store.addOrder(
+      order({ id: 'ord-2', createdAt: '2026-11-01T00:00:01.000Z', status: 'running' }),
+    );
+    store.startWorker(
+      worker('ord-2', {
+        id: 'wrk-busy',
+        workClass: 'work',
+        lastSeenAt: '2026-11-01T00:16:00.000Z',
+      }),
+    );
+    store.updateOrder('ord-2', { workerId: 'wrk-busy' });
+    const second = await tick(store, d, { force: true });
+    expect(second.launched).toEqual([]);
+    expect(store.order('ord-1')!.status).toBe('queued');
+    expect(store.order('ord-1')!.workerId).toBe(first);
+
+    store.updateWorker('wrk-busy', { status: 'finished' });
+    const third = await tick(store, d, { force: true });
+    expect(third.launched).toMatchObject([{ orderId: 'ord-1', resumed: true, workClass: 'work' }]);
+  });
+
+  it('유형 칸이 없는 옛 주문은 스킬 체인으로 슬롯을 골라 뜬다', async () => {
+    const { store } = clockedStore();
+    const legacy = order({ id: 'ord-old', skillChain: ['review-loop'] });
+    delete legacy.workClass;
+    store.addOrder(legacy);
+    const { deps: d } = deps({
+      config: { ...config, workerLimits: { lookup: 0, review: 1, work: 0 } },
+    });
+    const out = await tick(store, d, { force: true });
+    expect(out.launched).toMatchObject([{ orderId: 'ord-old', workClass: 'review' }]);
+  });
+
   it('상태가 안 바뀐 tick을 idleTicks로 이어 세고 변화가 생기면 0으로 돌린다', async () => {
     const { store, dir } = clockedStore();
     store.addOrder(order({ id: 'ord-0' }));
@@ -1417,7 +1496,9 @@ describe('컨덕터 tick', () => {
   it('지운 하위 주문도 상한에 세고 같은 요청으로 다시 만들지 않는다', async () => {
     const { store } = clockedStore();
     store.addOrder(order({ id: 'ord-1' }));
-    const { deps: d } = deps({ config: { ...config, maxConcurrentWorkers: 1 } });
+    const { deps: d } = deps({
+      config: { ...config, workerLimits: { lookup: 1, review: 1, work: 1 } },
+    });
     await tick(store, d, { force: true });
     const wid = store.order('ord-1')!.workerId!;
     const ask = (title: string) =>
@@ -1452,7 +1533,9 @@ describe('컨덕터 tick', () => {
   it('merge-through 주문의 하위 주문은 approval로 낮추고 주문당 상한을 넘으면 워커에 거절을 알린다', async () => {
     const { store } = clockedStore();
     store.addOrder(order({ id: 'ord-1', scope: 'merge-through' }));
-    const { deps: d, git } = deps({ config: { ...config, maxConcurrentWorkers: 1 } });
+    const { deps: d, git } = deps({
+      config: { ...config, workerLimits: { lookup: 1, review: 1, work: 1 } },
+    });
     await tick(store, d, { force: true });
     const wid = store.order('ord-1')!.workerId!;
     for (let i = 0; i <= MAX_SPAWN_PER_ORDER; i++) {
@@ -2012,7 +2095,11 @@ describe('컨덕터 tick', () => {
       throw new OrcaReleaseLiveError('liveness live');
     };
     const { deps: d } = deps({
-      config: { ...config, maxConcurrentWorkers: 1, orcaReleaseRetryMaxSec: 2 },
+      config: {
+        ...config,
+        workerLimits: { lookup: 1, review: 1, work: 1 },
+        orcaReleaseRetryMaxSec: 2,
+      },
       launchers: { 'orca-worktree': orca.launcher },
       orcaAvailable: true,
     });
@@ -2040,7 +2127,7 @@ describe('컨덕터 tick', () => {
       throw new OrcaReleaseLiveError('liveness live');
     };
     const { deps: d } = deps({
-      config: { ...config, maxConcurrentWorkers: 1 },
+      config: { ...config, workerLimits: { lookup: 1, review: 1, work: 1 } },
       launchers: { 'orca-worktree': orca.launcher },
       orcaAvailable: true,
     });
@@ -3316,7 +3403,7 @@ describe('배포 주문의 대상 주문 배포 기록', () => {
     const jira = fakeJira();
     const mem = memoryDeploy();
     const { deps: d } = deps({
-      config: { ...config, maxConcurrentWorkers: 5 },
+      config: { ...config, workerLimits: { lookup: 5, review: 5, work: 5 } },
       jira: jira.client,
       deploy: mem.source,
     });
@@ -3384,7 +3471,7 @@ describe('배포 주문의 대상 주문 배포 기록', () => {
     seed(store);
     const mem = memoryDeploy();
     const { deps: d } = deps({
-      config: { ...config, maxConcurrentWorkers: 5 },
+      config: { ...config, workerLimits: { lookup: 5, review: 5, work: 5 } },
       deploy: mem.source,
     });
     const wid = await launchDeploy(store, d);
@@ -3401,7 +3488,7 @@ describe('배포 주문의 대상 주문 배포 기록', () => {
     seed(store);
     const mem = memoryDeploy();
     const { deps: d } = deps({
-      config: { ...config, maxConcurrentWorkers: 5 },
+      config: { ...config, workerLimits: { lookup: 5, review: 5, work: 5 } },
       deploy: mem.source,
     });
     const wid = await launchDeploy(store, d);

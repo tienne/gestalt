@@ -380,8 +380,22 @@ const webFetchCacheConfigSchema = z.object({
 });
 
 const conductorConfigSchema = z.object({
-  /** 동시에 도는 워커 수 상한. 넘치는 주문은 큐에 쌓였다가 자리가 나면 뜬다 */
-  maxConcurrentWorkers: z.number().int().min(1).max(100).default(10),
+  /**
+   * 작업 유형별 동시 워커 상한. 유형마다 따로 세고 전체 한도는 셋을 더한 값이다(기본 5 + 5 + 10 = 20).
+   * 한 유형이 꽉 차도 다른 유형에 자리가 있으면 그 유형의 대기 주문은 뜬다
+   */
+  workerLimits: z
+    .object({
+      lookup: z.number().int().min(0).max(100).default(5),
+      review: z.number().int().min(0).max(100).default(5),
+      work: z.number().int().min(0).max(100).default(10),
+    })
+    .default({}),
+  /**
+   * 예전 전체 상한. 구버전 설정 파일이 깨지지 않게 받기만 하고 스케줄러는 안 본다.
+   * 전체 한도는 workerLimits의 합이다. 값이 있으면 status가 workerLimits로 옮기라고 경고한다
+   */
+  maxConcurrentWorkers: z.number().int().min(1).max(100).optional(),
   /** 진행 감시 주기(초). 컨덕터가 tick을 이 간격보다 자주 돌리지 않는다 */
   pollIntervalSec: z.number().int().min(10).max(3600).default(60),
   /**
@@ -487,6 +501,7 @@ const conductorConfigSchema = z.object({
  * 버린 칸은 사용자 전역 `~/.gestalt/conductor.json`이나 환경 변수에서만 정한다.
  */
 const REPO_CONDUCTOR_KEYS: ReadonlySet<string> = new Set([
+  'workerLimits',
   'maxConcurrentWorkers',
   'pollIntervalSec',
   'waitMaxSec',

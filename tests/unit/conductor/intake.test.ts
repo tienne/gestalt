@@ -5,6 +5,7 @@ import {
   EXTERNAL_DESCRIPTION_MAX,
   intakeOrder,
   normalizeIssueType,
+  parseQueueBody,
   pollJira,
   pollQueue,
   type ExternalQueue,
@@ -29,10 +30,31 @@ describe('intake', () => {
     expect(order).toMatchObject({
       scope: 'approval',
       skillChain: ['solve', 'ship'],
+      workClass: 'work',
       status: 'queued',
     });
     expect(() => intakeOrder(s, { source: 'spoken', repo: 'app', title: 'x' }, config)).toThrow(
       /owner\/name/,
+    );
+  });
+
+  it('접수 때 작업 유형을 남긴다. 직접 정한 값이 스킬 체인보다 먼저다', () => {
+    const s = ConductorStore.open(tempStateDir());
+    const add = (title: string, extra: object) =>
+      intakeOrder(s, { source: 'spoken', repo: 'acme/app', title, ...extra }, config).order
+        .workClass;
+    expect(add('리뷰', { skillChain: ['review-loop'] })).toBe('review');
+    expect(add('영향', { skillChain: ['blast-radius'] })).toBe('lookup');
+    expect(add('반영', { skillChain: ['review-reply'] })).toBe('work');
+    expect(add('직접', { skillChain: ['solve', 'ship'], workClass: 'review' })).toBe('review');
+  });
+
+  it('큐 메시지의 작업 유형은 아는 값만 받는다', () => {
+    expect(parseQueueBody({ repo: 'acme/app', title: 't', workClass: 'lookup' })).toMatchObject({
+      workClass: 'lookup',
+    });
+    expect(parseQueueBody({ repo: 'acme/app', title: 't', workClass: 'huge' })).toMatch(
+      /workClass/,
     );
   });
 
