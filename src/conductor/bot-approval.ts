@@ -1,5 +1,6 @@
 import { createHash, createPublicKey, randomUUID, verify, type KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { mergeApprovalPolicy } from './trusted-chat-approval.js';
 import { join } from 'node:path';
 import { isPlainObject } from '../core/json-file.js';
 import { GhAccounts } from './adapters.js';
@@ -512,7 +513,7 @@ export function verifyEd25519(key: KeyObject, message: string, signature: string
 
 export interface ApproverRegistry {
   policy: 'present' | 'missing' | 'unreadable';
-  repos: { repo: string; merge: number; gate: number }[];
+  repos: { repo: string; merge: number; gate: number; mergeApprovalPolicy?: 'trusted-chat' }[];
 }
 
 /** status 화면용. 레포마다 머지와 나머지 게이트 승인자가 몇 명 등록됐는지 센다. 정책이 깨져도 status는 멈추지 않는다 */
@@ -520,19 +521,25 @@ export function approverRegistry(dir: string, repos: Iterable<string>): Approver
   let policy: Record<string, unknown> | undefined;
   try {
     policy = loadBotPolicy(dir);
+    mergeApprovalPolicy(policy, '');
   } catch {
     return { policy: 'unreadable', repos: [] };
   }
   const names = new Set([...repos].map((r) => r.toLowerCase()));
-  for (const field of ['mergeApprovers', 'gateApprovers'] as const) {
+  for (const field of ['mergeApprovers', 'gateApprovers', 'mergeApprovalPolicy'] as const) {
     const table = policy?.[field];
     if (isPlainObject(table)) for (const repo of Object.keys(table)) names.add(repo);
   }
   const count = (type: GateType, repo: string) => approverStatus(policy, type, repo).count;
   return {
     policy: policy ? 'present' : 'missing',
-    repos: [...names]
-      .sort()
-      .map((repo) => ({ repo, merge: count('merge', repo), gate: count('file-overlap', repo) })),
+    repos: [...names].sort().map((repo) => ({
+      repo,
+      merge: count('merge', repo),
+      gate: count('file-overlap', repo),
+      ...(mergeApprovalPolicy(policy, repo) === 'trusted-chat'
+        ? { mergeApprovalPolicy: 'trusted-chat' as const }
+        : {}),
+    })),
   };
 }

@@ -30,6 +30,9 @@ import {
 } from './commands/ship.js';
 import {
   conductorBotBindCommand,
+  conductorBotMergePolicyCommand,
+  conductorBotChatOfferCommand,
+  conductorBotChatDecideCommand,
   conductorBotDecideCommand,
   conductorBotItemDecideCommand,
   conductorBotGateCommand,
@@ -1155,6 +1158,25 @@ export function createCli(): Command {
     .addOption(stateDir())
     .action(conductorBotDecideCommand);
 
+  bot
+    .command('merge-policy <repo>')
+    .description('레포의 머지 승인 정책을 설정한다')
+    .requiredOption('--mode <mode>', 'signed 또는 trusted-chat')
+    .addOption(stateDir())
+    .action(conductorBotMergePolicyCommand);
+  bot
+    .command('chat-offer <gateId>')
+    .description('운영 채팅에 안내할 머지 PR과 HEAD를 고정한다')
+    .option('--item <n>', '현재 운영 채팅의 Orca 항목 번호')
+    .option('--refresh', '변경된 PR과 HEAD를 새로 안내한다')
+    .addOption(stateDir())
+    .action(conductorBotChatOfferCommand);
+  bot
+    .command('chat-decide')
+    .description('신뢰하는 운영 채팅의 정확한 승인 문구로 머지 게이트를 닫는다')
+    .requiredOption('--message <text>', '<ID> 승인해줘 전체 메시지')
+    .addOption(stateDir())
+    .action(conductorBotChatDecideCommand);
   bot
     .command('item-decide <gateId>')
     .description('Orca 항목의 답을 읽고 승인자 서명이나 공식 증빙을 확인해 게이트를 종료한다')

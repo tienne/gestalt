@@ -1,4 +1,13 @@
 import { randomUUID } from 'node:crypto';
+import {
+  chatApprovalCandidates,
+  chatApprovalId,
+  chatDecisionId,
+  mergeApprovalPolicy,
+  requireTrustedChat,
+  verifyChatOffer,
+} from '../../conductor/trusted-chat-approval.js';
+import type { ChatApprovalOffer, DecisionVia } from '../../conductor/types.js';
 import { mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -13,6 +22,7 @@ import {
 import { readEditReceipt } from '../../conductor/bot-handoff-edit.js';
 import {
   decisionId,
+  BOT_POLICY_FILE,
   decisionReceipt,
   decisionTarget,
   gateApprovalMessage,
@@ -805,7 +815,7 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
     else
       for (const a of approvers.repos)
         console.log(
-          `승인자 ${a.repo}  머지 ${a.merge ? `${a.merge}명` : '미등록'}  게이트 ${a.gate ? `${a.gate}명` : '미등록'}`,
+          `승인자 ${a.repo}  머지 ${a.mergeApprovalPolicy === 'trusted-chat' ? '운영 채팅 신뢰' : a.merge ? `${a.merge}명` : '미등록'}  게이트 ${a.gate ? `${a.gate}명` : '미등록'}`,
         );
     for (const g of gates) console.log(`게이트 ${g.id}  ${g.type}  ${g.reason}`);
   });
@@ -2194,12 +2204,18 @@ function botDecisionStatus(gate: Gate) {
   const source = gate.decisionSource;
   const decided =
     gate.decision === 'approved' ? '승인' : gate.decision === 'rejected' ? '거절' : gate.decision;
-  const approvalLabel = source?.attestation ? 'Orca 증빙' : '서명';
+  const approvalLabel =
+    gate.decisionVia?.kind === 'trusted-chat'
+      ? '운영 채팅 신뢰'
+      : source?.attestation
+        ? 'Orca 증빙'
+        : '서명';
   return {
     gateId: gate.id,
     decision: gate.decision ?? 'open',
     ...(gate.decisionBy ? { signer: gate.decisionBy } : {}),
     ...(source ? { source } : {}),
+    ...(gate.decisionVia ? { via: gate.decisionVia } : {}),
     delivery,
     ...(receipt
       ? {
@@ -2314,6 +2330,14 @@ export async function conductorBotGateCommand(
     // 승인자가 없으면 서명을 요구할 이유가 없다. 봇이 터미널 안내로 바로 가게 서명 재료를 싣지 않는다
     const read = peekBotPolicy(ctx.store.dir);
     const policy = 'policy' in read ? read.policy : undefined;
+    if (gate.type === 'merge' && mergeApprovalPolicy(policy, target.repo) === 'trusted-chat')
+      return print({
+        ...base,
+        approverReady: true,
+        mergeApprovalPolicy: 'trusted-chat',
+        chatApproval: gate.chatApprovalOffer,
+        guidance: `chat-offer ${gate.id}로 PR과 HEAD를 안내하고 <ID> 승인해줘 요청을 chat-decide로 처리하세요`,
+      });
     const gap: ApproverGap | undefined =
       'unreadable' in read ? 'unreadable' : approverStatus(policy, gate.type, target.repo).gap;
     if (gap)
@@ -2357,6 +2381,7 @@ export async function conductorBotGateCommand(
 type BotDecision = { decision: 'approved' | 'rejected' } & (
   | { signer: string; signature: string; source?: Gate['decisionSource'] }
   | { issuer: OrcaApprovalIssuer; proof: unknown; source: NonNullable<Gate['decisionSource']> }
+  | { chatOffer: ChatApprovalOffer; owner: BotOwner; inputId: string }
 );
 
 type DecisionCall = { caller: BotOwner; request: BotDecision };
@@ -2365,14 +2390,33 @@ function verifyBotDecision(
   policy: Record<string, unknown>,
   target: BotGate,
   receiptTarget: string,
-  evidence: Awaited<ReturnType<typeof botGateEvidence>>,
+  evidence: { head: string; base?: string } | undefined,
   request: BotDecision,
 ): {
   id: string;
   signer: string;
   source?: Gate['decisionSource'];
+  via?: DecisionVia;
   expiresAt?: number;
 } {
+  if ('chatOffer' in request) {
+    requireTrustedChat(policy, target.repo);
+    if (target.gate.type !== 'merge' || request.decision !== 'approved')
+      throw new InputError('운영 채팅 신뢰 경로는 머지 승인만 처리해요');
+    const offer = verifyChatOffer(target.gate.chatApprovalOffer, request.owner, receiptTarget);
+    if (
+      offer.id !== request.chatOffer.id ||
+      offer.head !== evidence?.head ||
+      offer.base !== evidence?.base
+    )
+      throw new InputError('승인 안내가 바뀌었어요. 새 안내를 확인한 뒤 승인해 주세요');
+    return {
+      id: chatDecisionId(offer),
+      signer: `trusted-chat:${offer.botId}:${offer.chatId}`,
+      via: { kind: 'trusted-chat', offerId: offer.id, botId: offer.botId, chatId: offer.chatId },
+    };
+  }
+  assertApproverReady(policy, target.gate, target.repo);
   if ('issuer' in request) {
     const { issuer, proof, decision, source } = request;
     const targetHash = orcaApprovalTargetHash(receiptTarget, evidence);
@@ -2397,13 +2441,32 @@ async function applyBotDecision(
   { caller, request }: DecisionCall,
   gateId: string,
   beforeTarget: string | undefined,
-  evidence: Awaited<ReturnType<typeof botGateEvidence>>,
+  evidence: { head: string; base?: string } | undefined,
   sameSource?: (gate: Gate) => boolean,
 ) {
   const lock = await waitForDecisionLock(ctx);
   try {
     assertBotOwner(ctx.store.dir, caller);
     ctx.store.reload();
+    if ('chatOffer' in request) {
+      const matches = chatApprovalCandidates(
+        Object.values(ctx.store.snapshot.gates),
+        request.inputId,
+        caller,
+      );
+      if (matches.length !== 1 || matches[0]?.id !== gateId)
+        throw new InputError('승인 ID의 대상이 바뀌었어요. 어느 PR인지 다시 확인해 주세요');
+      if (request.chatOffer.item && request.inputId === String(request.chatOffer.item.number)) {
+        const show = await readOrcaItem(request.chatOffer.item.number);
+        if (
+          show.item.number !== request.chatOffer.item.number ||
+          show.item.uid !== request.chatOffer.item.uid ||
+          show.item.botId !== caller.botId ||
+          show.item.chatId !== caller.chatId
+        )
+          throw new InputError('안내한 Orca 항목이 바뀌었어요. 다시 확인해 주세요');
+      }
+    }
     const existing = ctx.store.snapshot.gates[gateId];
     if (existing?.status === 'resolved')
       return {
@@ -2425,7 +2488,7 @@ async function applyBotDecision(
     const head = evidence?.head;
     const { decision } = request;
     const approval = verifyBotDecision(
-      assertApproverReady(loadBotPolicy(ctx.store.dir), current.gate, current.repo),
+      loadBotPolicy(ctx.store.dir) ?? {},
       current,
       receiptTarget,
       evidence,
@@ -2457,10 +2520,177 @@ async function applyBotDecision(
       decisionBy: approval.signer,
       receipt: decisionReceipt(ctx.store, current, approval.id, checked),
       ...(approval.source ? { decisionSource: approval.source } : {}),
+      ...(approval.via ? { decisionVia: approval.via } : {}),
     });
     return { ...botDecisionStatus(closed), errors: [] };
   } finally {
     lock.release();
+  }
+}
+
+export async function conductorBotMergePolicyCommand(
+  repo: string,
+  opts: ConductorCommonOptions & { mode: string },
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    const caller = await requireBotOperator(ctx);
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new InputError('레포는 owner/name 형식이어야 해요');
+    repo = repo.toLowerCase();
+    const mode = oneOf<'signed' | 'trusted-chat'>(opts.mode, ['signed', 'trusted-chat'], '--mode');
+    const lock = await waitForDecisionLock(ctx);
+    try {
+      assertBotOwner(ctx.store.dir, caller);
+      const policy = loadBotPolicy(ctx.store.dir) ?? {};
+      mergeApprovalPolicy(policy, repo);
+      const table = policy['mergeApprovalPolicy'] as Record<string, unknown> | undefined;
+      writeJsonAtomic(
+        join(ctx.store.dir, BOT_POLICY_FILE),
+        {
+          ...policy,
+          mergeApprovalPolicy: { ...table, [repo]: mode },
+        },
+        { mode: 0o600 },
+      );
+      print({
+        repo,
+        mode,
+        trust: '운영 채팅 에이전트가 전달한 문구를 신뢰하며 인간 신원을 인증하지 않습니다',
+      });
+    } finally {
+      lock.release();
+    }
+  } catch (error) {
+    exitWithError(error);
+  }
+}
+
+function chatOfferView(gate: Gate, offer: ChatApprovalOffer) {
+  const ids = [
+    gate.id,
+    ...(gate.orderId ? [gate.orderId] : []),
+    ...(offer.item ? [String(offer.item.number)] : []),
+  ];
+  return {
+    gateId: gate.id,
+    orderId: gate.orderId,
+    ids,
+    pr: `https://github.com/${offer.prRef.replace('#', '/pull/')}`,
+    head: offer.head,
+    base: offer.base,
+    offerId: offer.id,
+    offeredAt: offer.offeredAt,
+    commands: ids.map((id) => `${id} 승인해줘`),
+  };
+}
+
+export async function conductorBotChatOfferCommand(
+  gateId: string,
+  opts: ConductorCommonOptions & { item?: string; refresh?: boolean },
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    const caller = await requireBotOperator(ctx);
+    const lock = await waitForDecisionLock(ctx);
+    try {
+      assertBotOwner(ctx.store.dir, caller);
+      ctx.store.reload();
+      const target = matchBotGate(ctx.store, gateId);
+      if (target.gate.type !== 'merge' || !target.ref || target.gate.status !== 'open')
+        throw new InputError('열린 머지 게이트의 PR만 안내할 수 있어요');
+      requireTrustedChat(loadBotPolicy(ctx.store.dir), target.repo);
+      const existing = target.gate.chatApprovalOffer;
+      if (existing && !opts.refresh) {
+        verifyChatOffer(existing, caller, decisionTarget(ctx.store, target));
+        if (opts.item !== undefined && String(existing.item?.number) !== opts.item)
+          throw new InputError('항목 연결을 바꾸려면 --refresh로 다시 안내해 주세요');
+        return print({ ...chatOfferView(target.gate, existing), reused: true });
+      }
+      let item: ChatApprovalOffer['item'];
+      const itemNumber = opts.item ?? (existing?.item ? String(existing.item.number) : undefined);
+      if (itemNumber !== undefined) {
+        const number = Number(itemNumber);
+        if (!Number.isSafeInteger(number) || number <= 0 || String(number) !== itemNumber)
+          throw new InputError('--item은 Orca 항목 번호예요');
+        const show = await readOrcaItem(number);
+        if (
+          show.item.number !== number ||
+          show.item.botId !== caller.botId ||
+          show.item.chatId !== caller.chatId
+        )
+          throw new InputError('현재 운영 봇 채팅의 Orca 항목이 아니에요');
+        if (existing?.item?.number === number && existing.item.uid !== show.item.uid)
+          throw new InputError(
+            '연결한 Orca 항목의 UID가 바뀌었어요. 다른 항목을 확인해 연결해 주세요',
+          );
+        item = { number, uid: show.item.uid };
+      }
+      const evidence = await botGateEvidence(ctx, target);
+      if (!evidence || evidence.state !== 'OPEN' || evidence.draft)
+        throw new InputError('리뷰 준비가 끝난 열린 PR만 머지 승인 안내를 할 수 있어요');
+      const offer: ChatApprovalOffer = {
+        id: randomUUID(),
+        botId: caller.botId,
+        chatId: caller.chatId,
+        target: decisionTarget(ctx.store, target),
+        prRef: target.ref,
+        head: evidence.head,
+        base: evidence.base,
+        offeredAt: ctx.store.timestamp(),
+        ...(item ? { item } : {}),
+      };
+      ctx.store.append({ type: 'gate-chat-offered', gateId, at: offer.offeredAt, offer });
+      print(chatOfferView(target.gate, offer));
+    } finally {
+      lock.release();
+    }
+  } catch (error) {
+    exitWithError(error);
+  }
+}
+
+export async function conductorBotChatDecideCommand(
+  opts: ConductorCommonOptions & { message: string },
+): Promise<void> {
+  try {
+    const ctx = open(opts);
+    const caller = await requireBotOperator(ctx);
+    const id = chatApprovalId(opts.message);
+    const candidates = chatApprovalCandidates(Object.values(ctx.store.snapshot.gates), id, caller);
+    if (candidates.length !== 1)
+      return print({
+        status: candidates.length ? 'ambiguous' : 'not-found',
+        guidance: candidates.length
+          ? '여러 머지 대상이 있어요. 어느 PR인지 확인하고 게이트 ID로 다시 요청해 주세요'
+          : '해당 ID의 머지 게이트가 없어요',
+        candidates: candidates.map((gate) => ({
+          gateId: gate.id,
+          orderId: gate.orderId,
+          status: gate.status,
+          ...(gate.chatApprovalOffer ? { pr: chatOfferView(gate, gate.chatApprovalOffer).pr } : {}),
+        })),
+      });
+    const gate = candidates[0]!;
+    if (gate.status === 'resolved')
+      return print({ ...botDecisionStatus(gate), alreadyResolved: true });
+    const target = matchBotGate(ctx.store, gate.id);
+    requireTrustedChat(loadBotPolicy(ctx.store.dir), target.repo);
+    const offer = verifyChatOffer(
+      gate.chatApprovalOffer,
+      caller,
+      decisionTarget(ctx.store, target),
+    );
+    print(
+      await applyBotDecision(
+        ctx,
+        { caller, request: { decision: 'approved', chatOffer: offer, owner: caller, inputId: id } },
+        gate.id,
+        offer.target,
+        { head: offer.head, base: offer.base },
+      ),
+    );
+  } catch (error) {
+    exitWithError(error);
   }
 }
 
