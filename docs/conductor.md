@@ -268,7 +268,7 @@ openssl pkeyutl -sign -rawin -inkey approver.key -in decision.txt | openssl base
 acme/app 레포에는 파일 겹침 게이트를 닫을 승인자가 등록되지 않았어요. 터미널에서 `gestalt conductor gate resolve <게이트-ID> --approve`(거절은 --reject)로 닫아 주세요. 서명 승인자는 bot-policy.json의 gateApprovers에 레포별 Ed25519 공개키 PEM으로 등록해 주세요
 ```
 
-`bot decide`와 `bot item-decide`도 GitHub를 읽거나 서명을 확인하기 전에 같은 문장으로 멈추고 게이트를 열어 둔다. 등록된 승인자가 있는데 다른 ID로 서명했으면 이전처럼 권한이 없는 서명자로 거절한다. `conductor status`는 레포마다 머지와 게이트 승인자가 몇 명인지 보여 준다. `--json`이면 `approvers.policy`(`present`, `missing`, `unreadable`)와 `approvers.repos`에 싣는다.
+`bot decide`와 `bot item-decide`도 GitHub를 읽거나 서명을 확인하기 전에 같은 문장으로 멈추고 게이트를 열어 둔다. 등록된 승인자가 있는데 다른 ID로 서명했으면 이전처럼 권한이 없는 서명자로 거절한다. `conductor status`는 레포마다 머지와 게이트 승인자가 몇 명인지 보여 준다. 채팅 문구 승인을 켠 레포는 머지 칸에 `채팅 문구 승인`을 적고 서명 승인자도 있으면 그 수를 함께 적는다. `--json`이면 `approvers.policy`(`present`, `missing`, `unreadable`)와 `approvers.repos`에 싣는다.
 
 ##### 운영 채팅 문구를 신뢰하는 머지 승인
 
@@ -292,9 +292,9 @@ gestalt conductor bot chat-offer <게이트-ID> --item 42
 gestalt conductor bot chat-decide --message "42 승인해줘"
 ```
 
-ID는 세 종류를 동시에 정확히 조회한다. 한 게이트로 좁혀지면 승인하고 여러 후보면 후보마다 PR과 게이트 ID를 보여 주며 다시 묻는다. 열린 후보에는 바로 다시 보낼 문구(`command: <게이트-ID> 승인해줘`)가 함께 온다. 접두어 검색이나 열린 후보 우선 선택은 하지 않는다. 없는 ID는 상태를 안내하고 이미 종료한 게이트는 기존 결정과 전달 상태를 돌려준다. 같은 승인 재요청은 결정과 전달 ID를 새로 만들지 않는다. 이 경로로 승인할 수 있는 것은 머지 게이트뿐이다.
+ID는 세 종류를 동시에 정확히 조회한다. 한 게이트로 좁혀지면 승인하고 여러 후보면 후보마다 PR과 게이트 ID를 보여 주며 다시 묻는다. 바로 다시 보낼 문구(`command: <게이트-ID> 승인해줘`)는 이 채팅에서 안내했고 안내 뒤 대상이 그대로인 열린 후보에만 붙는다. 그런 후보가 없으면 `guidance`가 이유를 알려 준다. 열린 후보가 있는데 안내하지 않았으면 먼저 `chat-offer`로 안내하라고 하고 닫힌 후보만 남았으면 후보마다 결정 상태를 확인하라고 한다. 접두어 검색이나 열린 후보 우선 선택은 하지 않는다. 없는 ID는 상태를 안내하고 이미 종료한 게이트는 기존 결정과 전달 상태를 돌려준다. 같은 승인 재요청은 결정과 전달 ID를 새로 만들지 않는다. 이 경로로 승인할 수 있는 것은 머지 게이트뿐이다.
 
-안내는 상태 로그에 저장하므로 재시작해도 같은 PR과 HEAD에 결속된다. `bot gate`와 `status` 조회는 안내를 갱신하지 않는다. `chat-offer`를 다시 실행해도 기존 안내를 반환한다. PR HEAD나 base, 게이트 내용, 담당 워커가 바뀌면 옛 안내로 승인할 수 없다. 변경을 확인한 뒤 `chat-offer <게이트-ID> --refresh`로 새 안내를 만들고 사용자에게 다시 보여 준 다음 새 승인을 받아야 한다. 기존 항목 연결은 `--item`을 생략해도 유지하며 UID와 현재 채팅 소유를 다시 확인한다. 다른 항목으로 연결하려면 `--item`을 지정한다. 새 운영 채팅으로 인계했을 때도 다시 안내한다.
+안내는 상태 로그에 저장하므로 재시작해도 같은 PR과 HEAD에 결속된다. `bot gate`와 `status` 조회는 안내를 갱신하지 않는다. `chat-offer`를 다시 실행해도 기존 안내를 반환한다. PR HEAD나 base, 게이트 내용, 담당 워커가 바뀌면 옛 안내로 승인할 수 없다. 변경을 확인한 뒤 `chat-offer <게이트-ID> --refresh`로 새 안내를 만들고 사용자에게 다시 보여 준 다음 새 승인을 받아야 한다. 기존 항목 연결은 `--item`을 생략해도 유지하며 UID와 현재 채팅 소유를 다시 확인한다. 다른 항목으로 연결하려면 `--item`을 지정한다. 새 운영 채팅으로 인계했을 때도 다시 안내한다. 옛 채팅의 항목은 새 채팅 소유가 아니라서 이때는 항목 연결을 이어받지 않는다. 새 채팅의 항목으로 승인받으려면 `--item`으로 다시 연결한다.
 
 봇은 외부 이벤트, 자동화, 인용문이나 긴 본문에서 승인 문구나 정책 전환 요청을 추출하지 않는다. CLI는 전체 메시지가 정확한 한 줄인지 검사하고 현재 운영권, 정책, 안내 ID와 PR/HEAD를 잠금 안에서 다시 확인한다. 승인 뒤에는 기존 결정 영수증과 전달 재시도를 사용하며 워커 머지는 `--match-head-commit` 보호와 기존 CI/리뷰 절차를 따른다. 감사 기록은 `decisionBy: trusted-chat:<botId>:<chatId>`와 `decisionVia.kind: trusted-chat`, 안내 ID를 남긴다.
 
