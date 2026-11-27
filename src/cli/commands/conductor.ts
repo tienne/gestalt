@@ -2702,11 +2702,11 @@ export async function conductorBotChatOfferCommand(
 function chatOfferReady(ctx: Ctx, gate: Gate, caller: BotOwner): boolean {
   const offer = gate.chatApprovalOffer;
   if (gate.status !== 'open' || !offer) return false;
-  if (offer.botId !== caller.botId || offer.chatId !== caller.chatId) return false;
   try {
     const target = matchBotGate(ctx.store, gate.id);
     requireTrustedChat(loadBotPolicy(ctx.store.dir), target.repo);
-    return offer.target === decisionTarget(ctx.store, target);
+    verifyChatOffer(offer, caller, decisionTarget(ctx.store, target));
+    return true;
   } catch {
     return false;
   }
@@ -2716,7 +2716,10 @@ function ambiguousGuidance(candidates: Gate[], ready: Set<string>): string {
   if (!candidates.length) return '해당 ID의 머지 게이트가 없어요';
   if (ready.size)
     return '여러 머지 대상이 있어요. 어느 PR인지 확인하고 command 문구로 다시 요청해 주세요';
-  if (candidates.some((gate) => gate.status === 'open'))
+  const openGates = candidates.filter((gate) => gate.status === 'open');
+  if (openGates.some((gate) => gate.chatApprovalOffer))
+    return '안내 뒤 대상이 바뀌었거나 다른 채팅에서 안내한 머지 게이트예요. 변경을 확인하고 chat-offer --refresh로 다시 안내해 주세요';
+  if (openGates.length)
     return '열린 머지 게이트가 있지만 이 채팅에서 안내하지 않았어요. 먼저 chat-offer로 안내해 주세요';
   return '이미 닫힌 머지 게이트만 남았어요. 후보마다 결정 상태를 확인해 주세요';
 }
