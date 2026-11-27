@@ -451,6 +451,27 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
     await conductorBotChatDecideCommand({ ...opts, message: `${gate.orderId} 승인해줘` });
     expect(last()).toMatchObject({ status: 'ambiguous' });
     expect(last().guidance).toContain('chat-offer');
+    expect(last().guidance).not.toContain('--refresh');
+    expect(last().candidates.some((c: { command?: string }) => c.command)).toBe(false);
+  });
+
+  it('열린 후보가 모두 낡은 안내만 가졌으면 --refresh로 다시 안내하라고 한다', async () => {
+    const { store, gate, opts } = fixture();
+    await enable(opts);
+    await conductorBotChatOfferCommand(gate.id, { ...opts, item: '42' });
+    const other = order({ repo, prRef: `${repo}#43`, status: 'running' });
+    store.addOrder(other);
+    const second = openOrReuse(store, {
+      type: 'merge',
+      orderId: other.id,
+      reason: '다른 머지',
+    }).gate;
+    await conductorBotChatOfferCommand(second.id, { ...opts, item: '42' });
+    store.updateOrder(gate.orderId!, { prRef: `${repo}#45` });
+    store.updateOrder(other.id, { prRef: `${repo}#44` });
+    await conductorBotChatDecideCommand({ ...opts, message: '42 승인해줘' });
+    expect(last()).toMatchObject({ status: 'ambiguous' });
+    expect(last().guidance).toContain('chat-offer --refresh');
     expect(last().candidates.some((c: { command?: string }) => c.command)).toBe(false);
   });
 
