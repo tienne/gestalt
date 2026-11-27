@@ -3,9 +3,12 @@ import {
   chatApprovalCandidates,
   chatApprovalId,
   chatDecisionId,
+  chatOfferProblem,
   mergeApprovalPolicy,
   requireTrustedChat,
+  TRUSTED_CHAT_OFF,
   verifyChatOffer,
+  type ChatOfferReason,
 } from '../../conductor/trusted-chat-approval.js';
 import type { ChatApprovalOffer, DecisionVia } from '../../conductor/types.js';
 import { mkdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
@@ -2698,30 +2701,69 @@ export async function conductorBotChatOfferCommand(
   }
 }
 
-/** 이 채팅에서 안내한 열린 게이트이고 안내 뒤 대상이 그대로일 때만 바로 승인할 수 있다 */
-function chatOfferReady(ctx: Ctx, gate: Gate, caller: BotOwner): boolean {
-  const offer = gate.chatApprovalOffer;
-  if (gate.status !== 'open' || !offer) return false;
+type ChatOfferStatus =
+  | { ready: true; offer: ChatApprovalOffer; target: BotGate }
+  | { ready: false; reason: ChatOfferReason; message: string; target?: BotGate };
+
+/**
+ * 이 채팅에서 안내한 열린 게이트이고 안내 뒤 대상이 그대로일 때만 바로 승인할 수 있다.
+ * PR 연결이 없는 게이트만 이유로 돌리고 정책 파일 오류는 단일 후보 경로처럼 그대로 던진다.
+ */
+function chatOfferStatus(ctx: Ctx, gate: Gate, caller: BotOwner): ChatOfferStatus {
+  if (gate.status !== 'open')
+    return { ready: false, reason: 'closed', message: '이미 결정한 머지 게이트예요' };
+  let target: BotGate;
   try {
-    const target = matchBotGate(ctx.store, gate.id);
-    requireTrustedChat(loadBotPolicy(ctx.store.dir), target.repo);
-    verifyChatOffer(offer, caller, decisionTarget(ctx.store, target));
-    return true;
-  } catch {
-    return false;
+    target = matchBotGate(ctx.store, gate.id);
+  } catch (error) {
+    if (error instanceof InputError)
+      return { ready: false, reason: 'unavailable', message: error.message };
+    throw error;
   }
+  if (mergeApprovalPolicy(loadBotPolicy(ctx.store.dir), target.repo) !== 'trusted-chat')
+    return { ready: false, reason: 'policy-off', message: TRUSTED_CHAT_OFF, target };
+  const offer = gate.chatApprovalOffer;
+  const problem = chatOfferProblem(offer, caller, decisionTarget(ctx.store, target));
+  if (problem) return { ready: false, ...problem, target };
+  return { ready: true, offer: offer!, target };
 }
 
-function ambiguousGuidance(candidates: Gate[], ready: Set<string>): string {
-  if (!candidates.length) return '해당 ID의 머지 게이트가 없어요';
-  if (ready.size)
+const REFRESH_GUIDANCE =
+  '안내 뒤 대상이 바뀌었거나 다른 채팅에서 안내한 머지 게이트예요. 변경을 확인하고 chat-offer --refresh로 다시 안내해 주세요';
+
+const AMBIGUOUS_GUIDANCE: Record<ChatOfferReason, string> = {
+  closed: '이미 닫힌 머지 게이트만 남았어요. 후보마다 결정 상태를 확인해 주세요',
+  unavailable: 'PR이 연결되지 않은 머지 게이트예요. 주문의 PR 연결을 확인해 주세요',
+  'policy-off': '이 레포는 채팅 문구 승인이 꺼져 있어요. bot gate로 서명 승인 경로를 안내해 주세요',
+  'no-offer':
+    '열린 머지 게이트가 있지만 이 채팅에서 안내하지 않았어요. 먼저 chat-offer로 안내해 주세요',
+  'other-chat': REFRESH_GUIDANCE,
+  stale: REFRESH_GUIDANCE,
+};
+
+function ambiguousGuidance(statuses: ChatOfferStatus[]): string {
+  if (!statuses.length) return '해당 ID의 머지 게이트가 없어요';
+  if (statuses.some((status) => status.ready))
     return '여러 머지 대상이 있어요. 어느 PR인지 확인하고 command 문구로 다시 요청해 주세요';
-  const openGates = candidates.filter((gate) => gate.status === 'open');
-  if (openGates.some((gate) => gate.chatApprovalOffer))
-    return '안내 뒤 대상이 바뀌었거나 다른 채팅에서 안내한 머지 게이트예요. 변경을 확인하고 chat-offer --refresh로 다시 안내해 주세요';
-  if (openGates.length)
-    return '열린 머지 게이트가 있지만 이 채팅에서 안내하지 않았어요. 먼저 chat-offer로 안내해 주세요';
-  return '이미 닫힌 머지 게이트만 남았어요. 후보마다 결정 상태를 확인해 주세요';
+  const reasons = new Set(statuses.flatMap((status) => (status.ready ? [] : [status.reason])));
+  const open = [...reasons].filter((reason) => reason !== 'closed');
+  if (!open.length) return AMBIGUOUS_GUIDANCE.closed;
+  const guidance = new Set(open.map((reason) => AMBIGUOUS_GUIDANCE[reason]));
+  if (guidance.size === 1) return [...guidance][0]!;
+  return '후보마다 막힌 이유가 달라요. 후보의 reason을 보고 확인할 게이트를 하나 골라 주세요';
+}
+
+function ambiguousCandidate(gate: Gate, status: ChatOfferStatus) {
+  const offeredPr = gate.chatApprovalOffer ? chatOfferPr(gate.chatApprovalOffer) : undefined;
+  const pr = status.target?.url ?? offeredPr;
+  return {
+    gateId: gate.id,
+    orderId: gate.orderId,
+    status: gate.status,
+    ...(pr ? { pr } : {}),
+    ...(offeredPr && offeredPr !== pr ? { offeredPr } : {}),
+    ...(status.ready ? { command: `${gate.id} 승인해줘` } : { reason: status.reason }),
+  };
 }
 
 export async function conductorBotChatDecideCommand(
@@ -2733,31 +2775,19 @@ export async function conductorBotChatDecideCommand(
     const id = chatApprovalId(opts.message);
     const candidates = chatApprovalCandidates(Object.values(ctx.store.snapshot.gates), id, caller);
     if (candidates.length !== 1) {
-      const ready = new Set(
-        candidates.filter((gate) => chatOfferReady(ctx, gate, caller)).map((gate) => gate.id),
-      );
+      const statuses = candidates.map((gate) => chatOfferStatus(ctx, gate, caller));
       return print({
         status: candidates.length ? 'ambiguous' : 'not-found',
-        guidance: ambiguousGuidance(candidates, ready),
-        candidates: candidates.map((gate) => ({
-          gateId: gate.id,
-          orderId: gate.orderId,
-          status: gate.status,
-          ...(gate.chatApprovalOffer ? { pr: chatOfferPr(gate.chatApprovalOffer) } : {}),
-          ...(ready.has(gate.id) ? { command: `${gate.id} 승인해줘` } : {}),
-        })),
+        guidance: ambiguousGuidance(statuses),
+        candidates: candidates.map((gate, i) => ambiguousCandidate(gate, statuses[i]!)),
       });
     }
     const gate = candidates[0]!;
     if (gate.status === 'resolved')
       return print({ ...botDecisionStatus(gate), alreadyResolved: true });
-    const target = matchBotGate(ctx.store, gate.id);
-    requireTrustedChat(loadBotPolicy(ctx.store.dir), target.repo);
-    const offer = verifyChatOffer(
-      gate.chatApprovalOffer,
-      caller,
-      decisionTarget(ctx.store, target),
-    );
+    const status = chatOfferStatus(ctx, gate, caller);
+    if (!status.ready) throw new InputError(status.message);
+    const { offer } = status;
     if (offer.item && id === String(offer.item.number)) {
       assertOrcaItemInChat(
         await readOrcaItem(offer.item.number),
