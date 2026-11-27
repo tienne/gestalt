@@ -327,7 +327,7 @@ export interface ChatApprovalOffer {
 }
 
 export type DecisionVia =
-  | { kind: 'webauthn'; credentialId: string; signCount: number }
+  | { kind: 'webauthn'; credentialId: string; signCount: number } // 이전 로그 재생 전용
   | { kind: 'trusted-chat'; offerId: string; botId: string; chatId: string };
 
 export interface OrcaItemSource {

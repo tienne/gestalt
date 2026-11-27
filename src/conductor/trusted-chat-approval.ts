@@ -32,18 +32,21 @@ export function mergeApprovalPolicy(
 
 export function requireTrustedChat(policy: Record<string, unknown> | undefined, repo: string) {
   if (mergeApprovalPolicy(policy, repo) !== 'trusted-chat')
-    throw new InputError('이 레포는 운영 채팅 신뢰 승인을 켜지 않았어요');
+    throw new InputError('이 레포는 운영 채팅 문구를 신뢰하는 승인을 켜지 않았어요');
 }
 
 /** 인용이나 본문에서 명령을 추출하지 않고 전체 메시지가 합의한 한 줄인지 확인한다. */
 export function chatApprovalId(message: string): string {
   const match = /^([A-Za-z0-9_-]+) 승인해줘$/.exec(message);
-  if (!match || match[0] !== message)
-    throw new InputError('승인 요청은 <ID> 승인해줘 한 줄이어야 해요');
+  if (!match) throw new InputError('승인 요청은 <ID> 승인해줘 한 줄이어야 해요');
   return match[1]!;
 }
 
-export function chatApprovalCandidates(gates: Iterable<Gate>, id: string, owner: BotOwner): Gate[] {
+export function chatApprovalCandidates(
+  gates: Iterable<Gate>,
+  id: string,
+  owner: Pick<BotOwner, 'botId' | 'chatId'>,
+): Gate[] {
   return [...gates].filter((gate) => {
     if (gate.type !== 'merge') return false;
     const offer = gate.chatApprovalOffer;

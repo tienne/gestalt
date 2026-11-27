@@ -51,7 +51,7 @@ export function readBotPolicy(dir: string): Record<string, unknown> {
   const policy = loadBotPolicy(dir);
   if (!policy)
     throw new Error(
-      `봇 정책 파일(${BOT_POLICY_FILE})이 상태 저장소에 없어요. docs/conductor.md의 bot-policy 예시로 만들어 주세요`,
+      `봇 정책 파일(${BOT_POLICY_FILE})이 상태 저장소에 없어요. 컨덕터 상태 디렉토리에 ${BOT_POLICY_FILE}을 만들어 주세요`,
     );
   return policy;
 }
@@ -137,7 +137,7 @@ export function approverGuidance(gate: Pick<Gate, 'id' | 'type'>, repo: string, 
           : `${repo} 레포에는 ${label} 게이트를 닫을 승인자가 등록되지 않았어요.`;
   const close = `터미널에서 \`${terminalResolveCommand(gate.id)}\`(거절은 --reject)로 닫아 주세요.`;
   if (gap === 'unreadable') return `${why} ${close}`;
-  return `${why} ${close} 서명 승인자 설정은 docs/conductor.md의 bot-policy 예시를 참고해 주세요`;
+  return `${why} ${close} 서명 승인자는 ${BOT_POLICY_FILE}의 ${approverField(gate.type)}에 레포별 Ed25519 공개키 PEM으로 등록해 주세요`;
 }
 
 /** 승인자가 없으면 서명 검사 전에 할 일을 알려주는 에러로 멈춘다 */
