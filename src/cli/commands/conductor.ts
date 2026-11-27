@@ -2707,7 +2707,8 @@ type ChatOfferStatus =
 
 /**
  * 이 채팅에서 안내한 열린 게이트이고 안내 뒤 대상이 그대로일 때만 바로 승인할 수 있다.
- * PR 연결이 없는 게이트만 이유로 돌리고 정책 파일 오류는 단일 후보 경로처럼 그대로 던진다.
+ * matchBotGate의 InputError(대상 레포의 PR이 연결된 머지 게이트가 아님)는 unavailable로 돌리고
+ * 정책 파일 오류는 단일 후보 경로처럼 그대로 던진다.
  */
 function chatOfferStatus(ctx: Ctx, gate: Gate, caller: BotOwner): ChatOfferStatus {
   if (gate.status !== 'open')
@@ -2733,7 +2734,8 @@ const REFRESH_GUIDANCE =
 
 const AMBIGUOUS_GUIDANCE: Record<ChatOfferReason, string> = {
   closed: '이미 닫힌 머지 게이트만 남았어요. 후보마다 결정 상태를 확인해 주세요',
-  unavailable: 'PR이 연결되지 않은 머지 게이트예요. 주문의 PR 연결을 확인해 주세요',
+  unavailable:
+    '주문이 없거나 PR이 연결되지 않았거나 PR이 주문 레포와 다른 머지 게이트예요. 주문의 레포와 PR 연결을 확인해 주세요',
   'policy-off': '이 레포는 채팅 문구 승인이 꺼져 있어요. bot gate로 서명 승인 경로를 안내해 주세요',
   'no-offer':
     '열린 머지 게이트가 있지만 이 채팅에서 안내하지 않았어요. 먼저 chat-offer로 안내해 주세요',
@@ -2753,8 +2755,10 @@ function ambiguousGuidance(statuses: ChatOfferStatus[]): string {
   return '후보마다 막힌 이유가 달라요. 후보의 reason을 보고 확인할 게이트를 하나 골라 주세요';
 }
 
-function ambiguousCandidate(gate: Gate, status: ChatOfferStatus) {
-  const offeredPr = gate.chatApprovalOffer ? chatOfferPr(gate.chatApprovalOffer) : undefined;
+function ambiguousCandidate(gate: Gate, status: ChatOfferStatus, caller: BotOwner) {
+  const offer = gate.chatApprovalOffer;
+  const ownOffer = offer?.botId === caller.botId && offer.chatId === caller.chatId;
+  const offeredPr = offer && ownOffer ? chatOfferPr(offer) : undefined;
   const pr = status.target?.url ?? offeredPr;
   return {
     gateId: gate.id,
@@ -2779,7 +2783,7 @@ export async function conductorBotChatDecideCommand(
       return print({
         status: candidates.length ? 'ambiguous' : 'not-found',
         guidance: ambiguousGuidance(statuses),
-        candidates: candidates.map((gate, i) => ambiguousCandidate(gate, statuses[i]!)),
+        candidates: candidates.map((gate, i) => ambiguousCandidate(gate, statuses[i]!, caller)),
       });
     }
     const gate = candidates[0]!;

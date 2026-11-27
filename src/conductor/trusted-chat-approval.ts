@@ -91,7 +91,8 @@ export function chatOfferProblem(
   if (offer.target !== target)
     return {
       reason: 'stale',
-      message: '안내한 게이트나 PR, 워커가 바뀌었어요. 다시 안내한 뒤 승인받아 주세요',
+      message:
+        '안내한 게이트나 PR, 워커가 바뀌었어요. 변경을 확인하고 chat-offer --refresh로 다시 안내해 주세요',
     };
   return undefined;
 }
