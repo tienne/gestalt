@@ -309,15 +309,26 @@ export interface Gate {
   receipt?: DecisionReceipt;
   /** Orca 항목의 사람 답으로 닫았을 때 그 답의 위치. 같은 답이 다시 와도 결정을 새로 쓰지 않는 근거다 */
   decisionSource?: OrcaItemSource;
-  /** 이전 승인 기록 재생용. 새 결정에는 기록하지 않는다 */
+  /** 승인 경로 감사 기록. webauthn은 이전 결정 재생에만 쓴다 */
   decisionVia?: DecisionVia;
+  chatApprovalOffer?: ChatApprovalOffer;
 }
 
-export interface DecisionVia {
-  kind: 'webauthn';
-  credentialId: string;
-  signCount: number;
+export interface ChatApprovalOffer {
+  id: string;
+  botId: string;
+  chatId: string;
+  target: string;
+  prRef: string;
+  head: string;
+  base: string;
+  offeredAt: string;
+  item?: { number: number; uid: string };
 }
+
+export type DecisionVia =
+  | { kind: 'webauthn'; credentialId: string; signCount: number }
+  | { kind: 'trusted-chat'; offerId: string; botId: string; chatId: string };
 
 export interface OrcaItemSource {
   kind: 'orca-item';
@@ -438,6 +449,7 @@ export type ConductorEvent =
     }
   | { type: 'checkpoint-saved'; at: string; checkpoint: Checkpoint }
   | { type: 'gate-opened'; at: string; gate: Gate }
+  | { type: 'gate-chat-offered'; at: string; gateId: string; offer: ChatApprovalOffer }
   | {
       type: 'gate-updated';
       at: string;
