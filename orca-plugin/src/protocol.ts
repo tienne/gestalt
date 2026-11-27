@@ -43,6 +43,12 @@ export type WorkTask = { title: string; status: 'pending' | 'in_progress' | 'com
 /** 서브에이전트 한 줄. detached는 백그라운드로 띄우고 완료 알림을 아직 못 받은 것이다 */
 export type WorkSubagent = { name: string; startedAt: string; state: 'running' | 'detached' | 'done' }
 
+/**
+ * 리뷰 라운드 집계. done은 결과를 받은 리뷰어, running은 아직 도는 리뷰어, failed는 실패하고 다시 안 띄운 리뷰어다.
+ * round는 몇 번째 라운드인지인데 이 값을 안 싣는 CLI면 없다
+ */
+export type WorkReview = { startedAt: string; round?: number; total: number; done: number; running: number; failed: number }
+
 /** tool 호출 한 줄. detail은 명령이나 경로 앞부분이라 데스크톱에서만 그린다 */
 export type WorkTool = { at: string; tool: string; detail: string; ok?: boolean }
 
@@ -57,6 +63,11 @@ export type WorkView = {
   overlapFiles: string[]
   tasks: { items: WorkTask[]; done: number; total: number } | null
   subagents: WorkSubagent[] | null
+  /**
+   * 지금 도는 리뷰 라운드의 리뷰어 집계. 합의, 검증 에이전트와 이전 라운드는 안 섞인다.
+   * 라운드가 끝났거나 리뷰어를 띄운 적이 없으면 null이고 이 값을 모르는 옛 CLI면 없다
+   */
+  review?: WorkReview | null
   recentTools: WorkTool[] | null
   /** 트랜스크립트 앞부분을 건너뛰고 읽었으면 partial */
   history: 'full' | 'partial' | null

@@ -1,6 +1,6 @@
 import { assert, test } from 'orca/testing'
 import type { ConductorView, OrderView } from './protocol'
-import { canReachWorker, chainChips, clock, duration, eventText, groupByRepo, laneOf, metaOf, progressOf, slotText, STALL_MS, stateLine, terminalModel, workerEnded } from './terminal-model'
+import { canReachWorker, chainChips, clock, duration, eventText, groupByRepo, laneOf, metaOf, progressOf, reviewOf, reviewText, slotText, STALL_MS, stateLine, terminalModel, workerEnded } from './terminal-model'
 
 const base: OrderView = { id: 'o1', status: 'running', scope: 'pr', repo: 'acme/web', title: 't', bypasses: [] }
 const cp = (over: Partial<NonNullable<OrderView['checkpoint']>> = {}) => ({
@@ -388,4 +388,65 @@ test('유형을 안 주는 옛 CLI면 유형별 사용량과 이름표가 없고
   assert.equal(m.slots, undefined)
   assert.equal(m.maxWorkers, 4)
   assert.equal(m.cards[0]!.workLabel, undefined)
+})
+
+const review = (over: Partial<{ startedAt: string; round: number; total: number; done: number; running: number; failed: number }> = {}) => ({
+  startedAt: '2026-11-12T00:10:00.000Z',
+  round: 2,
+  total: 6,
+  done: 3,
+  running: 3,
+  failed: 0,
+  ...over
+})
+const workWith = (r: ReturnType<typeof review> | null) => ({
+  activity: null,
+  changedFiles: [],
+  overlapFiles: [],
+  tasks: { items: [], done: 0, total: 0 },
+  subagents: [],
+  recentTools: [],
+  history: 'full' as const,
+  review: r
+})
+
+test('ship 리뷰 라운드면 라운드 배지와 리뷰어 완료 막대를 만든다', () => {
+  // 2라운드 리뷰를 도는 중이고 워커 체크포인트에는 1라운드를 마친 ship 체크포인트의 단계와 라운드가 남아 있다
+  const o = { ...base, worker: 'w', workerStatus: 'running', skillChain: ['solve', 'ship'], checkpoint: cp({ completedSkills: ['solve'], phase: '2', round: 1 }), work: workWith(review()) }
+  assert.equal(chainChips(o)[1]!.text, 'ship r2')
+  const bar = reviewOf(o)!
+  assert.deepEqual(bar, { round: 2, done: 3, total: 6, running: 3, failed: 0 })
+  assert.equal(reviewText(bar), '리뷰 3/6 완료 (3개 실행 중)')
+  assert.equal(reviewText({ done: 0, total: 6, running: 6, failed: 0 }), '리뷰 0/6 완료 (6개 실행 중)')
+  assert.equal(reviewText({ done: 6, total: 6, running: 0, failed: 0 }), '리뷰 6/6 완료')
+  assert.equal(reviewText({ done: 4, total: 6, running: 1, failed: 1 }), '리뷰 4/6 완료 (1개 실행 중, 1개 실패)')
+  const card = terminalModel({ state: 'ok', stateDir: null, lastTickAt: null, orders: [o], gates: [], unassignedBypasses: [], refreshedAt: 0 }, Date.parse('2026-11-12T00:20:00.000Z')).cards[0]!
+  assert.deepEqual(card.review, bar)
+})
+
+test('리뷰 수가 없거나 ship이 아니거나 지난 라운드면 리뷰 막대를 그리지 않는다', () => {
+  const ship = { ...base, worker: 'w', workerStatus: 'running', skillChain: ['ship'], checkpoint: cp() }
+  // 리뷰 수를 안 싣는 옛 CLI, 라운드가 끝나 null인 CLI
+  assert.equal(reviewOf(ship), undefined)
+  assert.equal(reviewOf({ ...ship, work: workWith(null) }), undefined)
+  // solve 단계에서 띄운 리뷰어는 ship 진행이 아니다
+  assert.equal(reviewOf({ ...ship, checkpoint: cp({ skill: 'solve' }), work: workWith(review()) }), undefined)
+  // 워커가 끝났거나 주문이 머지됐다
+  assert.equal(reviewOf({ ...ship, workerStatus: 'finished', work: workWith(review()) }), undefined)
+  assert.equal(reviewOf({ ...ship, status: 'merged', work: workWith(review()) }), undefined)
+  // 워커 체크포인트가 리뷰 시작보다 늦어도 CLI가 라운드를 끝내기 전이면 그 라운드를 그린다
+  const after = cp({ savedAt: '2026-11-12T00:30:00.000Z' })
+  assert.deepEqual(reviewOf({ ...ship, checkpoint: after, work: workWith(review({ done: 6, running: 0 })) }), { round: 2, done: 6, total: 6, running: 0, failed: 0 })
+  // gestalt: 접두를 단 체크포인트도 ship이다
+  assert.notEqual(reviewOf({ ...ship, checkpoint: cp({ skill: 'gestalt:ship' }), work: workWith(review()) }), undefined)
+})
+
+test('리뷰 막대가 없으면 칩은 체크포인트의 단계와 라운드를 쓰고 라운드 번호가 없는 집계면 번호를 빼고 그린다', () => {
+  const ship = { ...base, worker: 'w', workerStatus: 'running', skillChain: ['ship'], checkpoint: cp({ phase: 'ci', round: 3 }) }
+  assert.equal(chainChips(ship)[0]!.text, 'ship · ci r3')
+  assert.equal(chainChips({ ...ship, work: workWith(null) })[0]!.text, 'ship · ci r3')
+  const { round: _, ...noRound } = review()
+  const o = { ...ship, work: { ...workWith(null), review: noRound } }
+  assert.deepEqual(reviewOf(o), { done: 3, total: 6, running: 3, failed: 0 })
+  assert.equal(chainChips(o)[0]!.text, 'ship · ci r3')
 })

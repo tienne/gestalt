@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   orderActivity,
   refreshTranscript,
+  reviewCount,
   updateWorkerInfo,
 } from '../../../src/conductor/activity.js';
 import { changedFilesOf, refreshWorkerActivity } from '../../../src/conductor/activity-tick.js';
@@ -209,6 +210,319 @@ describe('readTranscript', () => {
     appendFileSync(f, JSON.stringify(userText('계속', 10)) + '\n');
     s = readTranscript(f, s);
     expect(s.digest.backgroundGate).toBeUndefined();
+  });
+});
+
+describe('리뷰 라운드 집계', () => {
+  /** 한 assistant 메시지에 tool_use를 여럿 담는다. Claude Code는 같은 message.id로 줄을 나눠 쓴다 */
+  function wave(msg: string, sec: number, calls: [id: string, type: string, bg?: boolean][]) {
+    return calls.map(([id, type, bg]) =>
+      toolUse(
+        id,
+        'Agent',
+        { description: type, subagent_type: type, ...(bg ? { run_in_background: true } : {}) },
+        sec,
+        { id: msg },
+      ),
+    );
+  }
+  const notify = (id: string, status: string, sec: number) =>
+    userText(
+      `<task-notification><tool-use-id>${id}</tool-use-id><status>${status}</status></task-notification>`,
+      sec,
+    );
+  const count = (f: string) =>
+    reviewCount(readTranscript(f, undefined, { cwd: CWD }).digest.review);
+  const REVIEWERS = ['security', 'performance', 'quality'].map((n) => `gestalt:${n}-reviewer`);
+
+  it('리뷰어만 세고 합의, 검증, 맥락 에이전트는 분모에 안 넣는다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [
+        ['r1', REVIEWERS[0]!],
+        ['r2', REVIEWERS[1]!],
+        ['r3', REVIEWERS[2]!],
+        ['c1', 'gestalt:continuity-judge'],
+        ['c2', 'gestalt:change-context-writer'],
+      ]),
+      toolResult('r1', 5, '결과'),
+      toolResult('c1', 6, '결과'),
+    ]);
+    expect(count(f)).toEqual({
+      startedAt: at(1),
+      round: 1,
+      total: 3,
+      done: 1,
+      running: 2,
+      failed: 0,
+    });
+    appendFileSync(
+      f,
+      [
+        toolResult('r2', 7, '결과'),
+        toolResult('r3', 8, '결과'),
+        ...wave('m2', 9, [['v1', 'gestalt:suggestion-verifier']]),
+      ]
+        .map((r) => JSON.stringify(r))
+        .join('\n') + '\n',
+    );
+    expect(count(f)).toMatchObject({ total: 3, done: 3, running: 0 });
+  });
+
+  it('백그라운드 리뷰어는 띄운 것만으로 완료가 아니고 실패, 중단 알림은 실패로 센다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [
+        ['r1', REVIEWERS[0]!, true],
+        ['r2', REVIEWERS[1]!, true],
+        ['r3', REVIEWERS[2]!],
+      ]),
+      toolResult('r1', 2, 'Async agent launched', { status: 'async_launched' }),
+      toolResult('r2', 2, 'Async agent launched', { status: 'async_launched' }),
+      toolResult('r3', 3, '에이전트 오류', undefined, true),
+    ]);
+    expect(count(f)).toMatchObject({ total: 3, done: 0, running: 2, failed: 1 });
+    appendFileSync(
+      f,
+      [notify('r1', 'completed', 10), notify('r2', 'killed', 11), notify('r2', 'completed', 12)]
+        .map((r) => JSON.stringify(r))
+        .join('\n') + '\n',
+    );
+    // 같은 알림이 두 번 와도 한 번만 센다. 먼저 받은 실패를 뒤집지 않는다
+    expect(count(f)).toMatchObject({ total: 3, done: 1, running: 0, failed: 2 });
+  });
+
+  it('실패한 리뷰어를 다시 띄우면 같은 라운드에서 한 번만 세고 다 끝난 뒤 다시 띄우면 새 라운드다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [
+        ['r1', REVIEWERS[0]!],
+        ['r2', REVIEWERS[1]!],
+      ]),
+      toolResult('r1', 4, '결과'),
+      toolResult('r2', 5, '오류', undefined, true),
+      ...wave('m2', 6, [['r2b', REVIEWERS[1]!]]),
+    ]);
+    expect(count(f)).toMatchObject({ startedAt: at(1), total: 2, done: 1, running: 1, failed: 0 });
+    appendFileSync(
+      f,
+      [
+        toolResult('r2b', 8, '결과'),
+        ...wave('m3', 20, [
+          ['s1', REVIEWERS[0]!],
+          ['s2', REVIEWERS[1]!],
+          ['s3', REVIEWERS[2]!],
+        ]),
+        toolResult('s1', 25, '결과'),
+      ]
+        .map((r) => JSON.stringify(r))
+        .join('\n') + '\n',
+    );
+    // 체크포인트 없이 다시 띄운 묶음이라 라운드 번호는 그대로다
+    expect(count(f)).toEqual({
+      startedAt: at(20),
+      round: 1,
+      total: 3,
+      done: 1,
+      running: 2,
+      failed: 0,
+    });
+  });
+
+  it('실패가 남은 라운드 뒤 새 메시지의 첫 리뷰어가 실패 유형이어도 같은 메시지 리뷰어를 한 라운드로 묶는다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [
+        ['r1', REVIEWERS[0]!],
+        ['r2', REVIEWERS[1]!],
+      ]),
+      toolResult('r1', 4, '결과'),
+      toolResult('r2', 5, '오류', undefined, true),
+      ...wave('m2', 10, [
+        ['s2', REVIEWERS[1]!],
+        ['s1', REVIEWERS[0]!],
+        ['s3', REVIEWERS[2]!],
+      ]),
+    ]);
+    expect(count(f)).toEqual({
+      startedAt: at(10),
+      round: 1,
+      total: 3,
+      done: 0,
+      running: 3,
+      failed: 0,
+    });
+  });
+
+  it('ship 체크포인트를 남긴 뒤에는 리뷰 집계가 null이다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [['r1', REVIEWERS[0]!]]),
+      toolResult('r1', 4, '결과'),
+      toolUse(
+        'b1',
+        'Bash',
+        { command: 'gestalt ship checkpoint save --dir "$shipTmp" --phase 2 --round 1 --issues 0' },
+        6,
+      ),
+    ]);
+    expect(count(f)).toBeNull();
+  });
+
+  const rows = (list: object[]) => list.map((r) => JSON.stringify(r)).join('\n') + '\n';
+  const checkpoint = (id: string, sec: number, command: string) =>
+    toolUse(id, 'Bash', { command }, sec);
+
+  it('ship 체크포인트로 끝난 뒤 연 라운드만 번호를 올린다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [['r1', REVIEWERS[0]!]]),
+      toolResult('r1', 4, '결과'),
+      checkpoint('b1', 6, 'gestalt ship checkpoint save --dir "$shipTmp" --phase 2 --round 1'),
+      ...wave('m2', 10, [['s1', REVIEWERS[0]!]]),
+    ]);
+    expect(count(f)).toMatchObject({ startedAt: at(10), round: 2, total: 1, running: 1 });
+    appendFileSync(
+      f,
+      rows([toolResult('s1', 12, '결과'), ...wave('m3', 20, [['t1', REVIEWERS[1]!]])]),
+    );
+    expect(count(f)).toMatchObject({ startedAt: at(20), round: 2, total: 1 });
+  });
+
+  it.each([
+    ['여러 줄 명령의 둘째 줄', 'cd /work/repo\ngestalt ship checkpoint save --phase 2'],
+    ['&& 뒤', 'cd /work/repo && gestalt ship checkpoint save --phase 2'],
+    [
+      '환경변수와 경로를 붙인 실행',
+      'GESTALT_ACTOR=x /opt/bin/gestalt ship checkpoint save --phase 2',
+    ],
+    ['괄호 안', '(gestalt ship checkpoint save --phase 2)'],
+    ['$() 값을 넣은 환경변수 뒤', 'FOO=$(pwd) gestalt ship checkpoint save --phase 2'],
+    ['따옴표 값을 넣은 환경변수 뒤', 'FOO="a b" gestalt ship checkpoint save --phase 2'],
+    [
+      '플러그인 런처로 부른 실행',
+      'node "/a b/plugin/scripts/gestalt-cli.mjs" ship checkpoint save --phase 2',
+    ],
+    [
+      '&& 뒤 환경변수를 붙인 런처 실행',
+      'cd /w && GESTALT_ACTOR=x node "/a b/gestalt-cli.mjs" ship checkpoint save --phase 2',
+    ],
+    [
+      '경로를 붙인 node와 작은따옴표 런처',
+      "/usr/local/bin/node '/a b/gestalt-cli.mjs' ship checkpoint save --phase 2",
+    ],
+    ['따옴표 없는 런처', 'node /a/gestalt-cli.mjs ship checkpoint save --phase 2'],
+  ])('ship 체크포인트가 %s에서 실행되면 라운드를 끝낸다', (_, command) => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [...wave('m1', 1, [['r1', REVIEWERS[0]!]]), checkpoint('b1', 3, command)]);
+    expect(count(f)).toBeNull();
+  });
+
+  it.each([
+    ['커밋 메시지', 'git commit -m "docs: gestalt ship checkpoint save 설명 보강"'],
+    ['echo 인자', 'echo gestalt ship checkpoint save'],
+    ['echo 인자의 런처', 'echo node "/a/gestalt-cli.mjs" ship checkpoint save'],
+    ['커밋 메시지의 런처', 'git commit -m "node /a/gestalt-cli.mjs ship checkpoint save"'],
+    ['grep 인자의 런처', 'grep -n "gestalt-cli.mjs ship checkpoint save" README.md'],
+  ])('%s 안의 체크포인트 글은 라운드를 끝내지 않는다', (_, command) => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [...wave('m1', 1, [['r1', REVIEWERS[0]!]]), checkpoint('b1', 3, command)]);
+    expect(count(f)).toMatchObject({ total: 1, running: 1 });
+  });
+
+  it.each([
+    ['구분자가 이어진 명령', 'a|'.repeat(50000)],
+    ['세미콜론만 이어진 명령', ';'.repeat(100000)],
+    ['$() 값이 이어진 할당', '(A=$('.repeat(20000)],
+    ['값이 이어진 할당', '(A=x '.repeat(20000)],
+    ['닫히지 않은 따옴표 값', '(A="'.repeat(20000)],
+    ['이어진 node 실행', '(node '.repeat(20000)],
+    ['닫히지 않은 따옴표 경로', '(node "'.repeat(20000)],
+    ['따옴표가 엇갈린 런처 경로', `(node "x(node 'x`.repeat(10000)],
+  ])('%s도 입력 길이에 비례해서만 읽는다', (_, command) => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [...wave('m1', 1, [['r1', REVIEWERS[0]!]]), checkpoint('b1', 3, command)]);
+    const started = performance.now();
+    expect(count(f)).toMatchObject({ total: 1, running: 1 });
+    // 제곱으로 도는 정규식은 이 길이에서 수 초가 걸린다
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  it('결과 본문 앞부분에 teammate가 있어도 결과로 보고 실행 응답 글은 실행 중으로 둔다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [
+        ['r1', REVIEWERS[0]!, true],
+        ['r2', REVIEWERS[1]!, true],
+      ]),
+      toolResult('r1', 2, '리뷰 결과: teammate 설정을 읽는 자리에 문제가 없어요'),
+      toolResult('r2', 2, 'Async agent launched successfully.'),
+    ]);
+    expect(count(f)).toMatchObject({ total: 2, done: 1, running: 1 });
+  });
+
+  it('같은 tool_use 줄을 다시 읽어도 끝난 리뷰어를 실행 중으로 되돌리지 않는다', () => {
+    const f = transcriptFile(tempStateDir());
+    const launch = wave('m1', 1, [['r1', REVIEWERS[0]!]]);
+    writeRows(f, [...launch, toolResult('r1', 3, '결과'), ...launch]);
+    expect(count(f)).toMatchObject({ total: 1, done: 1, running: 0 });
+  });
+
+  it('이어 읽기로 나눠 받아도 같은 라운드로 센다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(
+      f,
+      wave('m1', 1, [
+        ['r1', REVIEWERS[0]!],
+        ['r2', REVIEWERS[1]!],
+      ]),
+    );
+    let s = readTranscript(f, undefined, { cwd: CWD });
+    expect(reviewCount(s.digest.review)).toMatchObject({ total: 2, running: 2 });
+    appendFileSync(f, rows([toolResult('r1', 4, '결과')]));
+    s = readTranscript(f, s, { cwd: CWD });
+    expect(reviewCount(s.digest.review)).toMatchObject({ round: 1, total: 2, done: 1, running: 1 });
+  });
+
+  it('완료 알림이 끝내 안 온 리뷰어는 ship 체크포인트 전까지 실행 중이다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [
+        ['r1', REVIEWERS[0]!, true],
+        ['r2', REVIEWERS[1]!, true],
+      ]),
+      toolResult('r1', 2, 'Async agent launched', { status: 'async_launched' }),
+      toolResult('r2', 2, 'Async agent launched', { status: 'async_launched' }),
+      notify('r1', 'completed', 10),
+    ]);
+    expect(count(f)).toMatchObject({ done: 1, running: 1 });
+    appendFileSync(f, rows([checkpoint('b1', 3600, 'gestalt ship checkpoint save --phase 2')]));
+    expect(count(f)).toBeNull();
+  });
+
+  it('앞 리뷰어가 도는 중에 다른 메시지로 띄운 리뷰어는 같은 라운드에 넣는다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [['r1', REVIEWERS[0]!]]),
+      ...wave('m2', 3, [['r2', REVIEWERS[1]!]]),
+    ]);
+    expect(count(f)).toMatchObject({ startedAt: at(1), total: 2, running: 2 });
+  });
+
+  it('앞 리뷰어가 다 끝난 뒤 다른 메시지로 띄운 리뷰어는 새 라운드다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [
+      ...wave('m1', 1, [['r1', REVIEWERS[0]!]]),
+      toolResult('r1', 2, '결과'),
+      ...wave('m2', 5, [['r2', REVIEWERS[1]!]]),
+    ]);
+    expect(count(f)).toMatchObject({ startedAt: at(5), round: 1, total: 1, running: 1 });
+  });
+
+  it('리뷰어를 띄운 적이 없으면 null이다', () => {
+    const f = transcriptFile(tempStateDir());
+    writeRows(f, [toolUse('a1', 'Agent', { description: '조사', subagent_type: 'Explore' }, 1)]);
+    expect(count(f)).toBeNull();
   });
 });
 

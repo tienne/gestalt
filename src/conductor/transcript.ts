@@ -107,6 +107,36 @@ interface TaskInput {
   todos?: AgentTask[];
 }
 
+/** 리뷰어 한 명의 마지막 시도. 같은 유형을 다시 띄우면 이 칸을 새 시도로 덮어 한 번만 센다 */
+export interface ReviewAgent {
+  /** 띄운 tool_use id. 완료 알림의 <tool-use-id>와 맞춰 본다. 백그라운드 응답의 agentId가 아니다 */
+  id: string;
+  /** `gestalt:security-reviewer` 같은 subagent_type */
+  type: string;
+  /** 이 시도를 띄운 assistant 메시지 id */
+  wave: string;
+  /** done은 결과를 받은 것, failed는 오류로 끝나거나 실패, 중단 알림을 받은 것이다 */
+  state: 'running' | 'done' | 'failed';
+}
+
+/**
+ * 가장 최근 리뷰 라운드. review 스킬이 리뷰어를 한 메시지에 몰아 띄우는 것을 한 라운드로 본다.
+ * 합의나 검증 같은 다른 에이전트는 리뷰어 유형이 아니라서 여기에 안 들어간다
+ */
+export interface ReviewRound {
+  startedAt: string;
+  /**
+   * 몇 번째 리뷰 라운드인지. 앞 라운드가 ship 체크포인트로 끝난 뒤 새로 연 라운드만 1을 더한다.
+   * 체크포인트 없이 다시 띄운 묶음은 같은 ship 라운드를 다시 돈 것이라 번호를 그대로 둔다
+   */
+  round: number;
+  /** 라운드를 연 assistant 메시지 id. 같은 메시지로 띄운 리뷰어는 같은 라운드다 */
+  wave: string;
+  agents: ReviewAgent[];
+  /** ship 체크포인트를 남겨 라운드가 끝난 시각. 그 뒤로는 리뷰 진행으로 그리지 않는다 */
+  closedAt?: string;
+}
+
 /** 백그라운드로 gate를 띄운 자리. turnEndedAt이 차면 그 뒤로 턴이 끝난 채 머문다는 뜻이다 */
 export interface BackgroundGate {
   at: string;
@@ -123,6 +153,7 @@ export interface TranscriptDigest {
   /** 마지막으로 읽은 줄의 시각. 생존 판단이 쓴다 */
   lastEventAt?: string;
   backgroundGate?: BackgroundGate;
+  review?: ReviewRound;
   /** keepText를 켰을 때만 찬다. 저장소에는 남기지 않는다 */
   texts?: TextEntry[];
 }
@@ -352,6 +383,9 @@ function cloneDigest(d: TranscriptDigest): TranscriptDigest {
     timeline: d.timeline.map((t) => ({ ...t })),
     ...(d.lastEventAt ? { lastEventAt: d.lastEventAt } : {}),
     ...(d.backgroundGate ? { backgroundGate: { ...d.backgroundGate } } : {}),
+    ...(d.review
+      ? { review: { ...d.review, agents: d.review.agents.map((a) => ({ ...a })) } }
+      : {}),
     ...(d.texts ? { texts: [...d.texts] } : {}),
   };
 }
@@ -368,10 +402,36 @@ interface RowContext {
 const INTERRUPTED = /^\[Request interrupted by user/;
 const NOT_A_TURN = /^<(local-command-[a-z]+|command-name|command-message)>/;
 const NOTIFICATION = '<task-notification>';
-const FINISHED = /<status>(?:completed|failed|killed)<\/status>/;
+const FINISHED = /<status>(completed|failed|killed)<\/status>/;
 const NOTIFIED_CALL = /<tool-use-id>([^<]+)<\/tool-use-id>/;
-const LAUNCH_TEXT = /async agent launched|teammate|^\s*spawned/i;
+/** 백그라운드 실행 응답의 첫머리. 결과 본문 중간에 같은 낱말이 나와도 실행 응답으로 안 읽게 앞에 붙인다 */
+const LAUNCH_TEXT = /^\s*(?:async agent launched|spawned|teammate)/i;
 const GATE_COMMAND = /\bgate\b/;
+/** review 스킬이 띄우는 리뷰어 유형. continuity-judge, suggestion-verifier 같은 합의, 검증 에이전트는 안 걸린다 */
+const REVIEWER_TYPE = /^gestalt:[a-z0-9-]+-reviewer$/;
+/**
+ * 명령이 실행되는 자리. 줄 처음이나 `;` `&&` `||` `|` `(` 뒤에 환경 변수 할당이 붙을 수 있다.
+ * 명령은 워커가 쓴 글이라 길이 상한이 없다. 환경 변수 값과 경로가 구분자를 못 넘고 값의 낱말 클래스가 `(`와 따옴표를 안 받아 같은 글을 읽는 방법이 하나뿐이라 입력 길이에 비례해서만 돈다.
+ * `$`는 `$(...)` 대안과 낱말 클래스가 둘 다 받지만 낱말 클래스 쪽은 바로 뒤 `(`에서 끊긴다
+ */
+const COMMAND_HEAD = String.raw`(?:^|[;&|(])[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=(?:\$\([^()\n]*\)|"[^"\n]*"|'[^'\n]*'|[^\s;&|()'"])*[ \t]+)*(?:[^\s;&|()/]*\/)*`;
+/**
+ * ship이 라운드를 마치고 남기는 체크포인트. 명령이 실행되는 자리에 올 때만 본다.
+ * 커밋 메시지나 echo 인자 안에 같은 글이 있어도 라운드를 끝내지 않는다. 따옴표 안이라도 `;` 뒤에 오면 실행 자리로 본다
+ */
+const SHIP_CHECKPOINT = new RegExp(
+  COMMAND_HEAD + String.raw`gestalt\s+ship\s+checkpoint\s+save\b`,
+  'm',
+);
+/**
+ * 스킬은 플러그인 런처(`node ".../gestalt-cli.mjs" ship ...`)로 CLI를 부른다. 명령 자리에 node가 오고 실행 파일 이름이 gestalt-cli.mjs라 위 꼴로는 못 잡는다.
+ * 경로는 따옴표 한 쌍이나 공백 없는 낱말 하나로만 받는다. 줄 끝까지 넓게 받으면 앵커마다 되짚어 입력 길이의 제곱으로 돈다
+ */
+const SHIP_CHECKPOINT_LAUNCHER = new RegExp(
+  COMMAND_HEAD +
+    String.raw`node[ \t]+(?:"[^"\n]*\/gestalt-cli\.mjs"|'[^'\n]*\/gestalt-cli\.mjs'|(?:[^\s;&|()'"/]*\/)*gestalt-cli\.mjs)[ \t]+ship[ \t]+checkpoint[ \t]+save\b`,
+  'm',
+);
 
 function parse(line: string): Row | undefined {
   try {
@@ -411,7 +471,8 @@ function applyRow(row: Row, ctx: RowContext): void {
     ctx.digest.lastEventAt = at;
     const blocks = Array.isArray(content) ? content.map(record).filter(Boolean) : [];
     for (const b of blocks as Row[]) {
-      if (b['type'] === 'tool_use' && typeof b['id'] === 'string') startCall(b, at, ctx);
+      if (b['type'] === 'tool_use' && typeof b['id'] === 'string')
+        startCall(b, at, ctx, typeof message?.['id'] === 'string' ? message['id'] : undefined);
       else if (ctx.keepText && b['type'] === 'text') pushText(ctx.digest, at, b['text']);
     }
     if (message?.['stop_reason'] === 'end_turn') endTurn(at, ctx);
@@ -435,9 +496,10 @@ function applyRow(row: Row, ctx: RowContext): void {
   if (INTERRUPTED.test(text)) return endTurn(at, ctx);
   if (NOT_A_TURN.test(text)) return;
   turnStart(ctx);
-  if (text.includes(NOTIFICATION) && FINISHED.test(text)) {
+  const finished = text.includes(NOTIFICATION) ? FINISHED.exec(text)?.[1] : undefined;
+  if (finished) {
     const id = NOTIFIED_CALL.exec(text)?.[1];
-    if (id) finishSubagent(ctx.digest, id, at);
+    if (id) finishSubagent(ctx.digest, id, at, finished === 'completed');
   }
 }
 
@@ -475,7 +537,7 @@ function shortPath(p: string, cwd: string | undefined): string {
   return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : p;
 }
 
-function startCall(block: Row, at: string, ctx: RowContext): void {
+function startCall(block: Row, at: string, ctx: RowContext, messageId: string | undefined): void {
   const id = block['id'] as string;
   if (ctx.cursor.pending[id] || ctx.digest.timeline.some((t) => t.id === id)) return;
   const input = record(block['input']) ?? {};
@@ -501,7 +563,18 @@ function startCall(block: Row, at: string, ctx: RowContext): void {
       },
       MAX_SUBAGENTS,
     );
+    const type = input['subagent_type'];
+    if (typeof type === 'string' && REVIEWER_TYPE.test(type))
+      startReviewer(ctx.digest, id, type, at, messageId ?? id);
   }
+  if (
+    ctx.digest.review &&
+    !ctx.digest.review.closedAt &&
+    SHELL_TOOLS.has(rawName) &&
+    typeof input['command'] === 'string' &&
+    (SHIP_CHECKPOINT.test(input['command']) || SHIP_CHECKPOINT_LAUNCHER.test(input['command']))
+  )
+    ctx.digest.review.closedAt = at;
   if (
     SHELL_TOOLS.has(rawName) &&
     input['run_in_background'] === true &&
@@ -560,13 +633,15 @@ function finishCall(block: Row, structured: Row | undefined, at: string, ctx: Ro
   }
   if (call.subagent) {
     const s = ctx.digest.subagents.find((x) => x.id === id);
+    const launched = !error && wasLaunched(structured, block);
     if (s && s.state === 'running') {
-      if (!error && wasLaunched(structured, block)) s.state = 'detached';
+      if (launched) s.state = 'detached';
       else {
         s.state = 'done';
         s.endedAt = at;
       }
     }
+    if (!launched) finishReviewer(ctx.digest, id, !error);
   }
   if (call.task && !error) {
     const effect = taskEffect(call.tool, call.task, structured ?? block['content']);
@@ -583,12 +658,55 @@ function wasLaunched(structured: Row | undefined, block: Row): boolean {
   return LAUNCH_TEXT.test(blockText(block['content']).slice(0, 200));
 }
 
-function finishSubagent(digest: TranscriptDigest, id: string, at: string): void {
+function finishSubagent(digest: TranscriptDigest, id: string, at: string, ok: boolean): void {
   const s = digest.subagents.find((x) => x.id === id);
   if (s && s.state !== 'done') {
     s.state = 'done';
     s.endedAt = at;
   }
+  finishReviewer(digest, id, ok);
+}
+
+/**
+ * 리뷰어를 라운드에 넣는다. 같은 메시지로 띄웠으면 같은 라운드다. 다른 메시지라도 같은 유형이 실패했거나
+ * 아직 도는 중이면 재시도로 보고 그 칸을 덮는다. 같은 유형이 이미 끝났거나 라운드의 리뷰어가 다 끝났으면 새 라운드다
+ */
+function startReviewer(
+  digest: TranscriptDigest,
+  id: string,
+  type: string,
+  at: string,
+  wave: string,
+): void {
+  const r = digest.review;
+  // 같은 tool_use를 두 번 읽어도(중복 줄, 이어 읽기) 한 번만 센다
+  if (r?.agents.some((a) => a.id === id)) return;
+  const prev = r?.agents.find((a) => a.type === type);
+  const fresh =
+    !r ||
+    r.closedAt !== undefined ||
+    (r.wave !== wave && (prev ? prev.state === 'done' : r.agents.every((a) => a.state === 'done')));
+  if (fresh) {
+    // 같은 메시지에서 앞서 재시도로 읽힌 리뷰어도 이 라운드의 몫이다
+    const carried = (r?.agents ?? []).filter((a) => a.wave === wave);
+    digest.review = {
+      startedAt: at,
+      round: !r ? 1 : r.closedAt !== undefined ? r.round + 1 : r.round,
+      wave,
+      agents: [...carried, { id, type, wave, state: 'running' }],
+    };
+    return;
+  }
+  if (prev) {
+    prev.id = id;
+    prev.wave = wave;
+    prev.state = 'running';
+  } else r.agents.push({ id, type, wave, state: 'running' });
+}
+
+function finishReviewer(digest: TranscriptDigest, id: string, ok: boolean): void {
+  const a = digest.review?.agents.find((x) => x.id === id);
+  if (a && a.state === 'running') a.state = ok ? 'done' : 'failed';
 }
 
 const CREATED = /^Task #(\d+) created successfully: ([^\r\n]+)$/;

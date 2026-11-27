@@ -16,6 +16,7 @@ import {
   type OrderView,
   type WaitingView,
   type WorkClass,
+  type WorkReview,
   type WorkSubagent,
   type WorkTask,
   type WorkTool,
@@ -260,6 +261,7 @@ function work(o: Record<string, unknown>): WorkView | undefined {
           ...(typeof x['ok'] === 'boolean' ? { ok: x['ok'] } : {})
         }))
     : null
+  const review = 'review' in o ? reviewOf(o['review']) : undefined
   const history = o['history'] === 'full' || o['history'] === 'partial' ? o['history'] : null
   return {
     activity,
@@ -268,8 +270,22 @@ function work(o: Record<string, unknown>): WorkView | undefined {
     tasks,
     subagents,
     recentTools,
-    history
+    history,
+    ...(review !== undefined ? { review } : {})
   }
+}
+
+const count = (v: unknown): number | undefined => (Number.isInteger(v) && (v as number) >= 0 ? (v as number) : undefined)
+
+/** 리뷰 집계. 수가 맞지 않으면 그리지 않으려고 null로 둔다 */
+function reviewOf(v: unknown): WorkReview | null {
+  if (!isRecord(v)) return null
+  const [total, done, running, failed] = [count(v['total']), count(v['done']), count(v['running']), count(v['failed'])]
+  const startedAt = str(v['startedAt'])
+  if (total === undefined || done === undefined || running === undefined || failed === undefined || !startedAt) return null
+  if (total === 0 || done + running + failed !== total) return null
+  const round = count(v['round'])
+  return { startedAt, ...(round !== undefined && round > 0 ? { round } : {}), total, done, running, failed }
 }
 
 function bypasses(v: unknown): Bypass[] {

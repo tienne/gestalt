@@ -29,8 +29,11 @@ export const workerEnded = (o: Pick<OrderView, 'workerStatus'>) =>
 export const canReachWorker = (o: Pick<OrderView, 'workspaceId' | 'workerStatus' | 'status'>) =>
   canOpenWorktree(o) && !workerEnded(o)
 
+/** 리뷰 막대를 그리는 동안은 지금 리뷰 라운드 번호를 붙여 `ship r2`로 쓴다. 그 밖에는 체크포인트의 단계와 라운드다 */
 const stepText = (o: OrderView) => {
   const c = o.checkpoint!
+  const round = reviewOf(o)?.round
+  if (round) return `${bareSkill(c.skill)} r${round}`
   return `${bareSkill(c.skill)}${c.phase ? ` · ${c.phase}` : ''}${c.round ? ` r${c.round}` : ''}`
 }
 
@@ -78,6 +81,27 @@ export function todoOf(o: OrderView): TodoLayer | undefined {
   if (!o.work) return undefined
   const t = o.work.tasks
   return t ? { done: t.done, total: t.total } : 'unknown'
+}
+
+export type ReviewBar = { round?: number; done: number; total: number; running: number; failed: number }
+
+/**
+ * ship 리뷰 라운드 막대. 리뷰어가 결과를 낸 수와 라운드에 띄운 수로 그린다. 시간이나 todo로 짐작하지 않는다.
+ * 지금 스킬이 ship이 아니거나 워커가 끝났으면 그리지 않는다. 라운드가 끝났는지는 CLI가 ship 체크포인트로 가려
+ * null로 보낸다. 리뷰 수를 안 싣는 옛 CLI면 undefined라 기존 막대를 그린다
+ */
+export function reviewOf(o: OrderView): ReviewBar | undefined {
+  const r = o.work?.review
+  const cp = o.checkpoint
+  if (!r || r.total === 0 || !cp || bareSkill(cp.skill) !== 'ship') return undefined
+  if (workerEnded(o) || chainFinished(o)) return undefined
+  return { ...(r.round ? { round: r.round } : {}), done: r.done, total: r.total, running: r.running, failed: r.failed }
+}
+
+/** 막대 옆 글. 예: 리뷰 3/6 완료 (3개 실행 중) */
+export function reviewText(r: ReviewBar): string {
+  const extra = [r.running > 0 ? `${r.running}개 실행 중` : '', r.failed > 0 ? `${r.failed}개 실패` : ''].filter(Boolean)
+  return `리뷰 ${r.done}/${r.total} 완료${extra.length > 0 ? ` (${extra.join(', ')})` : ''}`
 }
 
 /** 지금 고치는 파일과 경과. 파일이 없으면 tool 이름을 쓰는데 그건 데스크톱에서만 보여 준다 */
@@ -195,6 +219,8 @@ export type Card = {
   progress: number | null
   /** 작업 내용을 아는 CLI면 todo 막대가 스킬 체인 막대 자리에 들어간다 */
   todo?: TodoLayer
+  /** ship 리뷰 라운드 중이면 todo와 스킬 체인 막대 대신 리뷰어 완료 막대를 그린다 */
+  review?: ReviewBar
   now?: string
   subagents: number
   state: StateLine
@@ -312,6 +338,7 @@ export function terminalModel(v: ConductorView, now: number, showPrivate = true)
   const toCard = (o: OrderView, lane: Lane): Card => {
     const last = o.bypasses.at(-1)
     const todo = todoOf(o)
+    const review = reviewOf(o)
     const line = nowLine(o, now, showPrivate)
     const activity = lastActivity(o)
     const stalled = lane === 'running' && activity !== null && now - activity > STALL_MS
@@ -323,6 +350,7 @@ export function terminalModel(v: ConductorView, now: number, showPrivate = true)
       chips: chainChips(o),
       progress: progressOf(o),
       ...(todo ? { todo } : {}),
+      ...(review ? { review } : {}),
       ...(line ? { now: line } : {}),
       subagents: runningSubagents(o),
       state: lane === 'ended' ? endedLine(o, now) : stateLine(o, v.gates, now, showPrivate),

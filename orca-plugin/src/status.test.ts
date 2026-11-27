@@ -315,3 +315,27 @@ test('유형별 슬롯이 전부 꼴이 틀리면 workerSlots 칸을 싣지 않�
   const raw = parseStatus({ lastTickAt: null, orders: [], gates: [], conductor: { maxWorkers: 4, workerSlots: { work: 'x' } } })
   assert.deepEqual(toView(raw, null, [], 0).conductor, { maxWorkers: 4 })
 })
+
+test('parseStatus는 리뷰 집계를 수가 맞을 때만 싣고 키가 없는 옛 CLI면 비워 둔다', () => {
+  const base = { id: 'o1', status: 'running', scope: 'pr', repo: 'r', title: 't', bypasses: [], changedFiles: [] }
+  const review = { startedAt: 'x', round: 2, total: 6, done: 3, running: 2, failed: 1 }
+  const { round: _, ...noRound } = review
+  const raw = parseStatus({
+    lastTickAt: null,
+    orders: [
+      base,
+      { ...base, id: 'o2', review },
+      { ...base, id: 'o3', review: null },
+      { ...base, id: 'o4', review: { ...review, done: 4 } },
+      { ...base, id: 'o5', review: { ...review, total: 0, done: 0, running: 0, failed: 0 } },
+      { ...base, id: 'o6', review: { ...review, running: -1, done: 6 } },
+      { ...base, id: 'o7', review: noRound },
+      { ...base, id: 'o8', review: { ...review, round: 0 } }
+    ],
+    gates: []
+  })
+  const reviews = raw.orders.map((o) => o.work?.review)
+  // 라운드 번호가 없거나 0이면 번호만 빼고 싣는다
+  assert.deepEqual(reviews, [undefined, review, null, null, null, null, noRound, noRound])
+  assert.equal('review' in raw.orders[0]!.work!, false)
+})

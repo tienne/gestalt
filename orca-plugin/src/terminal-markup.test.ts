@@ -255,6 +255,24 @@ test('작업 내용이 있으면 todo 막대와 지금 파일, 실행 중인 서
   has(html, '끝부분만 읽었어요')
 })
 
+test('ship 리뷰 라운드면 todo 막대 대신 리뷰어 완료 막대를 그리고 리뷰가 끝나면 todo 막대로 돌아간다', () => {
+  const checkpoint = { skill: 'ship', phase: '2', round: 1, next: '', completedSkills: [], savedAt: '2026-11-12T01:00:00.000Z' }
+  const review = { startedAt: '2026-11-12T01:50:00.000Z', round: 2, total: 6, done: 3, running: 3, failed: 0 }
+  for (const opts of [{ interactive: true, private: true }, { interactive: false, private: false }]) {
+    const html = terminalMarkup(view([order('ord-a', { skillChain: ['ship'], checkpoint, work: { ...WORK, review } })]), { now: NOW, ...opts })
+    has(html, '>ship r2<')
+    has(html, '리뷰 3/6 완료 (3개 실행 중)')
+    has(html, 'width:50%')
+    // 막대는 꾸밈이고 진행은 옆 글이 읽어 준다
+    has(html, 'aria-hidden="true"><b style="width:50%">')
+    lacks(html, 'todo 1/2')
+  }
+  const done = terminalMarkup(view([order('ord-a', { skillChain: ['ship'], checkpoint, work: { ...WORK, review: null } })]), { now: NOW, interactive: true, private: true })
+  lacks(done, '리뷰 ')
+  has(done, 'todo 1/2')
+  has(done, '>ship · 2 r1<')
+})
+
 test('todo를 모르면 빗금 막대와 모름을 그린다', () => {
   const html = terminalMarkup(view([order('ord-a', { work: { ...WORK, tasks: null } })]), {
     now: NOW,
