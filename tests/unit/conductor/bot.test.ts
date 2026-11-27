@@ -3,6 +3,9 @@ import { chmodSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  conductorBotChatDecideCommand,
+  conductorBotChatOfferCommand,
+  conductorBotMergePolicyCommand,
   conductorBotDecideCommand,
   conductorBotGateCommand,
   conductorBotGithubCommand,
@@ -252,65 +255,74 @@ describe('Orca 채팅 머지 승인', () => {
     );
   });
 
-  it('전송 성공 직후 기록이 끊겨도 재시작한 tick은 같은 Orca 요청을 재사용한다', async () => {
-    fakeOrca(owner);
-    fakePr();
-    const { store, gate, opts } = gateFixture('orca-worktree');
-    await conductorBotDecideCommand(gate.id, opts);
-    const { deliveryId, decisionId } = last();
-    store.reload();
-    expect(
-      openOrReuse(store, { type: 'merge', orderId: gate.orderId!, reason: gate.reason }),
-    ).toMatchObject({ gate: { id: gate.id, status: 'resolved' }, reused: true });
-    const requests: string[] = [];
-    const accepted = new Set<string>();
-    const launcher = new OrcaLauncher({
-      orcaCommand: 'fixture-orca',
-      promptDir: tempStateDir(),
-      repoPaths: {},
-      runner: async (_command, args) => {
-        expect(args.slice(0, 4)).toEqual(['orchestration', 'send', '--to', 'dispatch:ctx_1']);
-        const request = args[args.indexOf('--retry-request') + 1]!;
-        expect(args[args.indexOf('--body') + 1]).toContain(`전달 ID: ${request}`);
-        requests.push(request);
-        accepted.add(request);
-        return { code: 0, stdout: 'Sent msg-fixture', stderr: '' };
-      },
-    });
-    const deps = { ...tickDeps(), launchers: { 'orca-worktree': launcher } };
-    const append = store.append.bind(store);
-    vi.spyOn(store, 'append').mockImplementation((event) => {
-      if (event.type === 'gate-delivery' && event.outcome === 'delivered')
-        throw new Error('전송 직후 기록 중단');
-      append(event);
-    });
-    await Promise.all([
-      tick(store, deps, { force: true }),
-      tick(ConductorStore.open(store.dir), deps, { force: true }),
-    ]);
-    await conductorBotGateCommand(gate.id, opts);
-    expect(last()).toMatchObject({
-      decisionId,
-      deliveryId,
-      delivery: 'unknown',
-      deliveryPending: true,
-    });
+  it.each(['signed', 'trusted-chat'] as const)(
+    '%s 승인 전송 직후 기록이 끊겨도 재시작한 tick은 같은 Orca 요청을 재사용한다',
+    async (mode) => {
+      fakeOrca(owner);
+      fakePr();
+      const { store, gate, opts } = gateFixture('orca-worktree');
+      if (mode === 'trusted-chat') {
+        await conductorBotMergePolicyCommand(repo, { ...opts, mode });
+        await conductorBotChatOfferCommand(gate.id, opts);
+        await conductorBotChatDecideCommand({ ...opts, message: `${gate.id} 승인해줘` });
+      } else {
+        await conductorBotDecideCommand(gate.id, opts);
+      }
+      const { deliveryId, decisionId } = last();
+      store.reload();
+      expect(
+        openOrReuse(store, { type: 'merge', orderId: gate.orderId!, reason: gate.reason }),
+      ).toMatchObject({ gate: { id: gate.id, status: 'resolved' }, reused: true });
+      const requests: string[] = [];
+      const accepted = new Set<string>();
+      const launcher = new OrcaLauncher({
+        orcaCommand: 'fixture-orca',
+        promptDir: tempStateDir(),
+        repoPaths: {},
+        runner: async (_command, args) => {
+          expect(args.slice(0, 4)).toEqual(['orchestration', 'send', '--to', 'dispatch:ctx_1']);
+          const request = args[args.indexOf('--retry-request') + 1]!;
+          expect(args[args.indexOf('--body') + 1]).toContain(`전달 ID: ${request}`);
+          requests.push(request);
+          accepted.add(request);
+          return { code: 0, stdout: 'Sent msg-fixture', stderr: '' };
+        },
+      });
+      const deps = { ...tickDeps(), launchers: { 'orca-worktree': launcher } };
+      const append = store.append.bind(store);
+      vi.spyOn(store, 'append').mockImplementation((event) => {
+        if (event.type === 'gate-delivery' && event.outcome === 'delivered')
+          throw new Error('전송 직후 기록 중단');
+        append(event);
+      });
+      await Promise.all([
+        tick(store, deps, { force: true }),
+        tick(ConductorStore.open(store.dir), deps, { force: true }),
+      ]);
+      await conductorBotGateCommand(gate.id, opts);
+      expect(last()).toMatchObject({
+        decisionId,
+        deliveryId,
+        delivery: 'unknown',
+        deliveryPending: true,
+      });
 
-    const reopened = ConductorStore.open(store.dir);
-    await tick(reopened, deps, { force: true });
-    await tick(ConductorStore.open(store.dir), deps, { force: true });
-    expect(requests).toEqual([deliveryId, deliveryId]);
-    expect(accepted.size).toBe(1);
-    await conductorBotGateCommand(gate.id, opts);
-    expect(last()).toMatchObject({
-      decisionId,
-      deliveryId,
-      delivery: 'delivered',
-      deliveryPending: false,
-      deliveryAttempts: 2,
-      processing: 'unknown',
-    });
-  });
+      const reopened = ConductorStore.open(store.dir);
+      await tick(reopened, deps, { force: true });
+      await tick(ConductorStore.open(store.dir), deps, { force: true });
+      expect(requests).toEqual([deliveryId, deliveryId]);
+      expect(accepted.size).toBe(1);
+      await conductorBotGateCommand(gate.id, opts);
+      expect(last()).toMatchObject({
+        decisionId,
+        deliveryId,
+        delivery: 'delivered',
+        deliveryPending: false,
+        deliveryAttempts: 2,
+        processing: 'unknown',
+      });
+    },
+  );
 
   it('전달이 대기 중이면 끝난 워커의 일반 정리도 보류한다', async () => {
     fakeOrca(owner);
