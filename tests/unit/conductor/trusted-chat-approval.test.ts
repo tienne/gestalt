@@ -220,6 +220,8 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
       await expect(
         conductorBotChatDecideCommand({ ...opts, message: `${gate.id} 승인해줘` }),
       ).rejects.toThrow('exit 1');
+      if (change === 'pr' || change === 'worker' || change === 'owner')
+        expect(lines.at(-1)).toContain('chat-offer --refresh');
       store.reload();
       expect(store.snapshot.gates[gate.id]?.status).toBe('open');
     });
@@ -549,6 +551,69 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
       expect.objectContaining({ gateId: next.id, reason: 'other-chat' }),
     );
     expect(last().candidates.some((c: { command?: string }) => c.command)).toBe(false);
+    store.reload();
+    expect(store.snapshot.gates[next.id]?.status).toBe('open');
+  });
+
+  it('다른 채팅에서 안내한 후보에는 그 안내의 PR을 싣지 않는다', async () => {
+    const { store, gate, opts } = fixture();
+    await enable(opts);
+    resolveGate(store, gate.id, 'rejected');
+    const next = openOrReuse(store, {
+      type: 'merge',
+      orderId: gate.orderId!,
+      reason: '다시 머지',
+    }).gate;
+    await conductorBotChatOfferCommand(next.id, opts);
+    store.updateOrder(gate.orderId!, { prRef: `${repo}#43` });
+    const moved = { ...owner, chatId: 'next-home' };
+    changeBotOwner(store.dir, owner.chatId, moved);
+    fakeOrca(moved);
+    await conductorBotChatDecideCommand({ ...opts, message: `${gate.orderId} 승인해줘` });
+    const candidate = last().candidates.find((c: { gateId: string }) => c.gateId === next.id);
+    expect(candidate).toMatchObject({ reason: 'other-chat' });
+    expect(candidate.pr).toContain('/pull/43');
+    expect(candidate).not.toHaveProperty('offeredPr');
+  });
+
+  it('PR이 주문 레포와 다른 후보는 unavailable로 돌리고 승인 문구를 붙이지 않는다', async () => {
+    const { store, gate, opts } = fixture();
+    await enable(opts);
+    resolveGate(store, gate.id, 'rejected');
+    const next = openOrReuse(store, {
+      type: 'merge',
+      orderId: gate.orderId!,
+      reason: '다시 머지',
+    }).gate;
+    await conductorBotChatOfferCommand(next.id, opts);
+    store.updateOrder(gate.orderId!, { prRef: 'acme/other#9' });
+    await conductorBotChatDecideCommand({ ...opts, message: `${gate.orderId} 승인해줘` });
+    expect(last()).toMatchObject({ status: 'ambiguous' });
+    expect(last().guidance).toContain('주문의 레포와 PR 연결');
+    const candidate = last().candidates.find((c: { gateId: string }) => c.gateId === next.id);
+    expect(candidate).toMatchObject({ reason: 'unavailable' });
+    expect(candidate).not.toHaveProperty('command');
+    store.reload();
+    expect(store.snapshot.gates[next.id]?.status).toBe('open');
+  });
+
+  it('후보가 여럿이어도 정책 파일 오류는 이유로 바꾸지 않고 그대로 던진다', async () => {
+    const { store, gate, opts } = fixture();
+    await enable(opts);
+    resolveGate(store, gate.id, 'rejected');
+    const next = openOrReuse(store, {
+      type: 'merge',
+      orderId: gate.orderId!,
+      reason: '다시 머지',
+    }).gate;
+    await conductorBotChatOfferCommand(next.id, opts);
+    writeFileSync(join(store.dir, BOT_POLICY_FILE), '{');
+    lines = [];
+    await expect(
+      conductorBotChatDecideCommand({ ...opts, message: `${gate.orderId} 승인해줘` }),
+    ).rejects.toThrow('exit 1');
+    expect(lines.join('\n')).toContain('봇 정책 파일');
+    expect(lines.some((line) => line.includes('"ambiguous"'))).toBe(false);
     store.reload();
     expect(store.snapshot.gates[next.id]?.status).toBe('open');
   });
