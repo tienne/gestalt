@@ -21,6 +21,16 @@ const owner = { botId: 'ops-bot', name: 'Conductor', chatId: 'ops-home' };
 const repo = 'acme/app';
 const pr = `${repo}#42`;
 const pem = generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' });
+const legacyApprover = {
+  webauthn: {
+    credentialId: 'legacy-key',
+    publicKey: generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).publicKey.export({
+      type: 'spki',
+      format: 'pem',
+    }),
+    origin: 'http://localhost:47219',
+  },
+};
 
 function executable(path: string, body: string) {
   writeFileSync(path, `#!/bin/sh\nset -eu\n${body}\n`);
@@ -89,6 +99,13 @@ function fixture(type: 'merge' | 'file-overlap', policy: Record<string, unknown>
 
 const cases = [
   {
+    name: '이전 WebAuthn 승인자만 있으면',
+    type: 'merge' as const,
+    policy: { mergeApprovers: { [repo]: { legacy: legacyApprover } } },
+    gap: 'no-repo',
+    says: 'acme/app 레포에는 게이트를 닫을 승인자가 등록되지 않았어요',
+  },
+  {
     name: '정책 파일이 없으면',
     type: 'file-overlap' as const,
     policy: undefined,
@@ -137,6 +154,8 @@ describe('승인자 미등록 안내', () => {
       expect(out.guidance).toContain(c.says);
       expect(out).not.toHaveProperty('messages');
       expect(out).not.toHaveProperty('orcaItem');
+      expect(out).not.toHaveProperty('touchId');
+      expect(out.guidance).not.toContain('approver enroll');
     });
 
     it(`${c.name} bot decide가 ENOENT나 권한 없는 서명자 대신 안내 에러로 멈추고 게이트를 열어 둔다`, async () => {
@@ -208,6 +227,20 @@ describe('승인자 미등록 안내', () => {
     });
     const mixed = { gateApprovers: { [repo]: { pem: 'not a key', ok: pem } } };
     expect(approverStatus(mixed, 'file-overlap', repo)).toEqual({ ready: true, count: 1 });
+  });
+
+  it('이전 WebAuthn이 섞여 있어도 다른 승인자와 게이트 정책은 유지한다', async () => {
+    fakeOrca();
+    const policy = {
+      mergeApprovers: { [repo]: { legacy: legacyApprover, current: pem } },
+      gateApprovers: { [repo]: { legacy: legacyApprover, current: pem } },
+    };
+    expect(approverStatus(policy, 'merge', repo)).toEqual({ ready: true, count: 1 });
+    const { store, gate } = fixture('file-overlap', policy);
+    await conductorBotGateCommand(gate.id, { stateDir: store.dir });
+    expect(last()).toMatchObject({ approverReady: true, messages: expect.any(Object) });
+    expect(last()).not.toHaveProperty('touchId');
+    expect(readBotPolicy(store.dir)).toEqual(policy);
   });
 
   it('정책 파일이 깨졌으면 bot gate가 unreadable 안내를 주고 gh를 부르지 않는다', async () => {

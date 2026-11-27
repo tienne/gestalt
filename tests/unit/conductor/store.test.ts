@@ -104,7 +104,7 @@ describe('ConductorStore', () => {
     ).toThrow(/이미 종료된/);
   });
 
-  it('결정 전달 대기는 종료한 게이트에 붙었다 걷히고 다시 열어도 같다', () => {
+  it('이전 WebAuthn 결정도 재생한 뒤 전달 대기를 처리할 수 있다', () => {
     const dir = tempStateDir();
     const a = ConductorStore.open(dir);
     expect(() =>
@@ -118,11 +118,30 @@ describe('ConductorStore', () => {
       refs: [],
       openedAt: a.timestamp(),
     });
-    a.append({ type: 'gate-resolved', at: a.timestamp(), gateId: 'gate-1', decision: 'approved' });
+    const decisionVia = {
+      kind: 'webauthn' as const,
+      credentialId: 'legacy-credential',
+      signCount: 3,
+    };
+    a.append({
+      type: 'gate-resolved',
+      at: a.timestamp(),
+      gateId: 'gate-1',
+      decision: 'approved',
+      decisionVia,
+    });
     a.append({ type: 'gate-delivery', at: a.timestamp(), gateId: 'gate-1', pending: true });
-    expect(ConductorStore.open(dir).snapshot.gates['gate-1']!.deliveryPending).toBe(true);
-    a.append({ type: 'gate-delivery', at: a.timestamp(), gateId: 'gate-1', pending: false });
-    expect(ConductorStore.open(dir).snapshot.gates['gate-1']).not.toHaveProperty('deliveryPending');
+    const reopened = ConductorStore.open(dir);
+    expect(reopened.snapshot.gates['gate-1']).toMatchObject({
+      status: 'resolved',
+      decision: 'approved',
+      decisionVia,
+      deliveryPending: true,
+    });
+    reopened.append({ type: 'gate-delivery', at: a.timestamp(), gateId: 'gate-1', pending: false });
+    const delivered = ConductorStore.open(dir).snapshot.gates['gate-1'];
+    expect(delivered).not.toHaveProperty('deliveryPending');
+    expect(delivered).toMatchObject({ decision: 'approved', decisionVia });
   });
 
   it.each([true, false])(
