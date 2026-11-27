@@ -309,7 +309,7 @@ export interface Gate {
   receipt?: DecisionReceipt;
   /** Orca 항목의 사람 답으로 닫았을 때 그 답의 위치. 같은 답이 다시 와도 결정을 새로 쓰지 않는 근거다 */
   decisionSource?: OrcaItemSource;
-  /** 승인자 서명이 어느 경로로 왔는지. 지금은 Touch ID(WebAuthn)만 남기고 Ed25519 직접 서명은 비워 둔다 */
+  /** 이전 승인 기록 재생용. 새 결정에는 기록하지 않는다 */
   decisionVia?: DecisionVia;
 }
 

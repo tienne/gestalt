@@ -195,19 +195,9 @@ import {
   type WaitTickOutcome,
 } from '../../conductor/wait.js';
 import { ConductorStore } from '../../conductor/store.js';
-import {
-  APPROVAL_PORT,
-  assertionSchema,
-  verifyWebAuthnAssertion,
-  webAuthnApprovers,
-  webAuthnChallenge,
-  type WebAuthnAssertion,
-} from '../../conductor/webauthn-approval.js';
 import { InputError } from '../../conductor/input-error.js';
-import type { GateOptions } from '../../conductor/approval-server.js';
 import { resolveStateDir } from '../../conductor/state-dir.js';
 import {
-  type DecisionVia,
   INTAKE_KINDS,
   ISSUE_TYPES,
   JIRA_STATUSES,
@@ -2288,14 +2278,6 @@ async function botGateEvidence(ctx: Ctx, target: BotGate) {
     : undefined;
 }
 
-/** 서명 문자열에 PR과 HEAD가 들어가는 게이트는 그 값을 못 읽으면 승인 페이지에 원인을 400으로 돌려준다 */
-async function touchIdGateEvidence(ctx: Ctx, target: BotGate) {
-  const evidence = await botGateEvidence(ctx, target);
-  if (!evidence && (target.gate.type === 'merge' || target.gate.type === 'review-manual-switch'))
-    throw new InputError('이 게이트는 PR과 HEAD를 읽어야 서명을 확인할 수 있어요');
-  return evidence;
-}
-
 export async function conductorBotGateCommand(
   gateId: string,
   opts: ConductorCommonOptions,
@@ -2347,11 +2329,9 @@ export async function conductorBotGateCommand(
       });
     const evidence = await botGateEvidence(ctx, target);
     const issuer = await officialOrcaApprovalIssuer(caller);
-    const touchId = touchIdLinks(ctx, gate.id, webAuthnApprovers(policy, gate.type, target.repo));
     print({
       ...base,
       approverReady: true,
-      ...touchId,
       ...(evidence ? { evidence } : {}),
       messages: {
         approved: gateApprovalMessage(target, evidence?.head, 'approved', evidence?.base),
@@ -2374,48 +2354,12 @@ export async function conductorBotGateCommand(
   }
 }
 
-/**
- * 승인자가 Touch ID 키를 등록할 때의 주소로 승인 페이지 링크를 만든다. --port로 등록했으면 그 포트로 띄워야
- * origin이 맞는다. 승인자마다 포트가 다르면 첫 승인자의 주소를 쓴다
- */
-function touchIdLinks(
-  ctx: Ctx,
-  gateId: string,
-  approvers: ReturnType<typeof webAuthnApprovers>,
-): { touchId?: { links: Record<'approved' | 'rejected', string>; start: string } } {
-  const first = approvers[0];
-  if (!first) return {};
-  const origin = first.credential.origin;
-  const port = Number(new URL(origin).port) || APPROVAL_PORT;
-  const link = (decision: string) =>
-    `${origin}/gate/${encodeURIComponent(gateId)}?decision=${decision}`;
-  return {
-    touchId: {
-      links: { approved: link('approved'), rejected: link('rejected') },
-      start: `gestalt conductor approval serve --detach --state-dir ${JSON.stringify(ctx.store.dir)}${port === APPROVAL_PORT ? '' : ` --port ${port}`}`,
-    },
-  };
-}
+type BotDecision = { decision: 'approved' | 'rejected' } & (
+  | { signer: string; signature: string; source?: Gate['decisionSource'] }
+  | { issuer: OrcaApprovalIssuer; proof: unknown; source: NonNullable<Gate['decisionSource']> }
+);
 
-type WebAuthnDecision = {
-  decision: 'approved' | 'rejected';
-  webauthn: WebAuthnAssertion;
-  /** 승인 서버가 발급한 nonce와 그 서버의 주소. challenge와 origin을 이 값으로 다시 만든다 */
-  nonce: string;
-  origin: string;
-};
-
-type BotDecision =
-  | ({ decision: 'approved' | 'rejected' } & (
-      | { signer: string; signature: string; source?: Gate['decisionSource'] }
-      | { issuer: OrcaApprovalIssuer; proof: unknown; source: NonNullable<Gate['decisionSource']> }
-    ))
-  | WebAuthnDecision;
-
-/** 운영 봇 결정은 caller가 반드시 있다. caller 없이 오는 건 승인자 본인이 연 Touch ID 페이지뿐이다 */
-type DecisionCall =
-  | { caller: BotOwner; request: BotDecision }
-  | { caller?: undefined; request: WebAuthnDecision };
+type DecisionCall = { caller: BotOwner; request: BotDecision };
 
 function verifyBotDecision(
   policy: Record<string, unknown>,
@@ -2427,35 +2371,8 @@ function verifyBotDecision(
   id: string;
   signer: string;
   source?: Gate['decisionSource'];
-  via?: DecisionVia;
   expiresAt?: number;
 } {
-  if ('webauthn' in request) {
-    const { webauthn, decision, nonce, origin } = request;
-    const approver = webAuthnApprovers(policy, target.gate.type, target.repo).find(
-      (a) => a.credential.credentialId === webauthn.credentialId,
-    );
-    if (!approver)
-      throw new InputError(
-        `이 레포의 ${target.gate.type === 'merge' ? '머지' : '게이트'} 승인자로 등록된 Touch ID 키가 아니에요`,
-      );
-    const { signCount } = verifyWebAuthnAssertion(
-      approver.credential,
-      {
-        challenge: webAuthnChallenge(
-          gateApprovalMessage(target, evidence?.head, decision, evidence?.base),
-          nonce,
-        ),
-        origin,
-      },
-      webauthn,
-    );
-    return {
-      id: decisionId(approver.id, Buffer.from(webauthn.signature, 'base64url').toString('base64')),
-      signer: approver.id,
-      via: { kind: 'webauthn', credentialId: webauthn.credentialId, signCount },
-    };
-  }
   if ('issuer' in request) {
     const { issuer, proof, decision, source } = request;
     const targetHash = orcaApprovalTargetHash(receiptTarget, evidence);
@@ -2485,8 +2402,7 @@ async function applyBotDecision(
 ) {
   const lock = await waitForDecisionLock(ctx);
   try {
-    // Touch ID 승인은 운영 봇이 아니라 승인자 본인이 연 페이지에서 온다. 승인 근거는 서명이라 봇 운영권을 묻지 않는다
-    if (caller || !('webauthn' in request)) assertBotOwner(ctx.store.dir, caller);
+    assertBotOwner(ctx.store.dir, caller);
     ctx.store.reload();
     const existing = ctx.store.snapshot.gates[gateId];
     if (existing?.status === 'resolved')
@@ -2541,87 +2457,11 @@ async function applyBotDecision(
       decisionBy: approval.signer,
       receipt: decisionReceipt(ctx.store, current, approval.id, checked),
       ...(approval.source ? { decisionSource: approval.source } : {}),
-      ...(approval.via ? { decisionVia: approval.via } : {}),
     });
     return { ...botDecisionStatus(closed), errors: [] };
   } finally {
     lock.release();
   }
-}
-
-/** 승인 페이지는 승인자가 보는 자리라 깨진 정책 파일도 경로 대신 안내 문구로 돌려준다 */
-function touchIdPolicy(dir: string, gate: Gate, repo: string): Record<string, unknown> {
-  const read = peekBotPolicy(dir);
-  if ('unreadable' in read) throw new InputError(approverGuidance(gate, repo, 'unreadable'));
-  return assertApproverReady(read.policy, gate, repo);
-}
-
-/**
- * Touch ID 승인 페이지가 서명 전에 보여 줄 게이트 내용과 challenge. 봇 운영권 없이 승인자 본인이 연다.
- * nonce는 승인 서버가 발급해 메모리에 둔 값이다
- */
-export async function touchIdGateOptions(
-  opts: ConductorCommonOptions,
-  gateId: string,
-  decision: 'approved' | 'rejected',
-  nonce: string,
-): Promise<GateOptions> {
-  const ctx = open(opts);
-  if (!ctx.store.snapshot.gates[gateId]) throw new InputError('게이트를 찾을 수 없어요');
-  const target = matchBotGate(ctx.store, gateId);
-  if (target.gate.status !== 'open') throw new InputError('이미 닫힌 게이트예요');
-  const policy = touchIdPolicy(ctx.store.dir, target.gate, target.repo);
-  const approvers = webAuthnApprovers(policy, target.gate.type, target.repo);
-  if (!approvers.length)
-    throw new InputError(
-      `${target.repo} 레포에는 이 게이트를 닫을 Touch ID 승인자가 없어요. gestalt conductor approver enroll로 먼저 등록해 주세요`,
-    );
-  const evidence = await touchIdGateEvidence(ctx, target);
-  return {
-    gate: {
-      id: target.gate.id,
-      type: target.gate.type,
-      repo: target.repo,
-      reason: target.gate.reason,
-      refs: target.gate.refs ?? [],
-      ...(target.url ? { pr: target.url } : {}),
-    },
-    ...(evidence ? { head: evidence.head } : {}),
-    decision,
-    challenge: webAuthnChallenge(
-      gateApprovalMessage(target, evidence?.head, decision, evidence?.base),
-      nonce,
-    ),
-    nonce,
-    credentialIds: approvers.map((a) => a.credential.credentialId),
-  };
-}
-
-/** Touch ID 서명으로 게이트를 닫는다. 서명 확인과 잠금, 기록은 봇 결정과 같은 경로를 탄다 */
-export async function touchIdGateDecide(
-  opts: ConductorCommonOptions,
-  gateId: string,
-  decision: 'approved' | 'rejected',
-  raw: unknown,
-  server: { nonce: string; origin: string },
-) {
-  const parsed = assertionSchema.safeParse(raw);
-  if (!parsed.success) throw new InputError('WebAuthn 응답 형식을 확인하지 못했어요');
-  const ctx = open(opts);
-  const target = ctx.store.snapshot.gates[gateId]?.receipt
-    ? undefined
-    : matchBotGate(ctx.store, gateId);
-  const beforeTarget = target ? decisionTarget(ctx.store, target) : undefined;
-  if (target?.gate.status === 'open') touchIdPolicy(ctx.store.dir, target.gate, target.repo);
-  const evidence =
-    target?.gate.status === 'open' ? await touchIdGateEvidence(ctx, target) : undefined;
-  return applyBotDecision(
-    ctx,
-    { request: { decision, webauthn: parsed.data, ...server } },
-    gateId,
-    beforeTarget,
-    evidence,
-  );
 }
 
 export async function conductorBotDecideCommand(

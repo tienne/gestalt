@@ -64,10 +64,6 @@ import {
   conductorWorkerDecisionCommand,
 } from './commands/conductor.js';
 import {
-  conductorApprovalServeCommand,
-  conductorApproverEnrollCommand,
-} from './commands/conductor-approval.js';
-import {
   conductorAcceptPreparedPlan,
   conductorPlanLoadCommand,
   conductorPlanSubmitCommand,
@@ -1099,7 +1095,6 @@ export function createCli(): Command {
     'queue add',
     'slack draft',
     'worker report',
-    'approver enroll',
   ]);
   conductor.hook('preAction', async (root, action) => {
     const name =
@@ -1112,30 +1107,6 @@ export function createCli(): Command {
       return;
     if (botRestrictedMutations.has(name)) await conductorCheckBotMutation(name, action.opts());
   });
-
-  conductor
-    .command('approval')
-    .description('Touch ID 게이트 승인 페이지')
-    .command('serve')
-    .description('고정 localhost 포트에 Touch ID 승인 페이지를 띄운다')
-    .addOption(stateDir())
-    .option('--port <port>', '승인 페이지 포트 (기본 47219, 등록한 포트와 같아야 한다)')
-    .option('--idle-sec <sec>', '요청이 없으면 이 시간 뒤 내려간다 (기본 900, 0이면 계속)')
-    .option('--detach', '서버를 뒤에서 띄우고 바로 돌아온다. 이미 떠 있으면 그대로 둔다')
-    .action((o) => conductorApprovalServeCommand(o));
-  conductor
-    .command('approver')
-    .description('게이트 승인자')
-    .command('enroll')
-    .description('기본 브라우저에서 Touch ID 패스키를 만들어 bot-policy.json에 승인자로 넣는다')
-    .addOption(stateDir())
-    .requiredOption('--repo <owner/name>', '승인할 레포')
-    .requiredOption('--type <merge|gate>', 'merge는 머지 승인, gate는 파일 겹침과 리뷰 수동 전환')
-    .requiredOption('--id <id>', '정책에 적을 승인자 ID')
-    .option('--port <port>', '승인 페이지 포트 (기본 47219)')
-    .option('--replace', '같은 ID가 있으면 바꾼다')
-    .option('--no-open', '브라우저를 열지 않고 주소만 알려준다')
-    .action((o) => conductorApproverEnrollCommand(o));
 
   const bot = conductor.command('bot').description('Orca 봇 컨덕터 운영권');
   bot

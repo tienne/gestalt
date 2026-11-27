@@ -105,27 +105,9 @@ export function approverStatus(
   return { ready: false, gap: other > 0 ? 'no-type-approvers' : 'no-repo', count: 0 };
 }
 
-/**
- * 서명 확인에 실제로 쓸 수 있는 승인자 값인가. Ed25519 PEM 문자열이나 P-256 공개키를 담은 Touch ID 항목만 센다.
- * webauthn-approval.ts의 credentialSchema와 같은 모양을 보지만 그 모듈이 이 모듈을 가져다 써서 여기서 따로 본다
- */
 function usableApprover(value: unknown): boolean {
   try {
-    if (typeof value === 'string') return createPublicKey(value).asymmetricKeyType === 'ed25519';
-    if (!isPlainObject(value) || !isPlainObject(value['webauthn'])) return false;
-    const credential = value['webauthn'];
-    const { credentialId, publicKey, origin } = credential;
-    if (
-      Object.keys(credential).length !== 3 ||
-      typeof credentialId !== 'string' ||
-      !/^[A-Za-z0-9_-]+$/.test(credentialId) ||
-      typeof publicKey !== 'string' ||
-      typeof origin !== 'string'
-    )
-      return false;
-    new URL(origin);
-    const key = createPublicKey(publicKey);
-    return key.asymmetricKeyType === 'ec' && key.asymmetricKeyDetails?.namedCurve === 'prime256v1';
+    return typeof value === 'string' && createPublicKey(value).asymmetricKeyType === 'ed25519';
   } catch {
     return false;
   }
@@ -154,8 +136,7 @@ export function approverGuidance(gate: Pick<Gate, 'id' | 'type'>, repo: string, 
           : `${repo} 레포에는 ${label} 게이트를 닫을 승인자가 등록되지 않았어요.`;
   const close = `터미널에서 \`${terminalResolveCommand(gate.id)}\`(거절은 --reject)로 닫아 주세요.`;
   if (gap === 'unreadable') return `${why} ${close}`;
-  const enroll = `gestalt conductor approver enroll --repo ${repo} --type ${gate.type === 'merge' ? 'merge' : 'gate'} --id <이름>`;
-  return `${why} ${close} Touch ID 승인자는 운영자 터미널에서 \`${enroll}\`로 등록할 수 있어요`;
+  return `${why} ${close} 서명 승인자 설정은 docs/conductor.md의 bot-policy 예시를 참고해 주세요`;
 }
 
 /** 승인자가 없으면 서명 검사 전에 할 일을 알려주는 에러로 멈춘다 */
