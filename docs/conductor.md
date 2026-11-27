@@ -262,41 +262,30 @@ openssl pkeyutl -sign -rawin -inkey approver.key -in decision.txt | openssl base
 
 ##### 승인자가 등록되지 않았을 때
 
-`bot gate`는 응답에 `approverReady`를 싣는다. 상태 저장소에 `bot-policy.json`이 없거나, 레포가 `mergeApprovers`와 `gateApprovers` 어디에도 없거나, 다른 유형 칸에만 있으면 `false`다. 정책 파일을 JSON으로 읽지 못해도 `false`다. 승인자는 쓸 수 있는 값만 센다. Ed25519 PEM으로 읽히는 문자열이나 형식이 맞는 `webauthn` 값이어야 하고 깨진 PEM만 있는 레포는 승인자가 없는 것으로 본다. 이때는 서명 문자열(`messages`)과 `orcaItem`을 싣지 않고 이유(`approverGap`: `no-policy`, `unreadable`, `no-repo`, `no-type-approvers`)와 안내 문장(`guidance`), 운영자 터미널에서 닫을 명령(`terminal.approved`, `terminal.rejected`)을 준다. 봇은 서명을 요청하지 않고 `guidance`를 그대로 전한다.
+`bot gate`는 응답에 `approverReady`를 싣는다. 상태 저장소에 `bot-policy.json`이 없거나, 레포가 `mergeApprovers`와 `gateApprovers` 어디에도 없거나, 다른 유형 칸에만 있으면 `false`다. 정책 파일을 JSON으로 읽지 못해도 `false`다. 승인자는 쓸 수 있는 값만 센다. Ed25519 공개키 PEM 문자열만 센다. 이전 설정의 `webauthn` 객체는 무시하고 함께 등록된 Ed25519 승인자와 다른 정책은 그대로 사용한다. 지원되는 공개키가 없는 레포는 승인자가 없는 것으로 본다. 이때는 서명 문자열(`messages`)과 `orcaItem`을 싣지 않고 이유(`approverGap`: `no-policy`, `unreadable`, `no-repo`, `no-type-approvers`)와 안내 문장(`guidance`), 운영자 터미널에서 닫을 명령(`terminal.approved`, `terminal.rejected`)을 준다. 봇은 서명을 요청하지 않고 `guidance`를 그대로 전한다.
 
 ```text
-acme/app 레포에는 파일 겹침 게이트를 닫을 승인자가 등록되지 않았어요. 터미널에서 `gestalt conductor gate resolve <게이트-ID> --approve`(거절은 --reject)로 닫아 주세요. Touch ID 승인자는 운영자 터미널에서 `gestalt conductor approver enroll --repo acme/app --type merge|gate --id <이름>`로 등록할 수 있어요
+acme/app 레포에는 파일 겹침 게이트를 닫을 승인자가 등록되지 않았어요. 터미널에서 `gestalt conductor gate resolve <게이트-ID> --approve`(거절은 --reject)로 닫아 주세요. 서명 승인자 설정은 docs/conductor.md의 bot-policy 예시를 참고해 주세요
 ```
 
 `bot decide`와 `bot item-decide`도 GitHub를 읽거나 서명을 확인하기 전에 같은 문장으로 멈추고 게이트를 열어 둔다. 등록된 승인자가 있는데 다른 ID로 서명했으면 이전처럼 권한이 없는 서명자로 거절한다. `conductor status`는 레포마다 머지와 게이트 승인자가 몇 명인지 보여 준다. `--json`이면 `approvers.policy`(`present`, `missing`, `unreadable`)와 `approvers.repos`에 싣는다.
 
-##### Touch ID로 게이트 승인
+##### 일반 채팅의 머지 요청과 호스트 지원 범위
 
-승인자는 Mac의 Touch ID로 게이트를 닫을 수 있다. 개인키는 기기의 Secure Enclave나 iCloud 키체인에 남고 Gestalt는 공개키만 받는다. Secure Enclave가 공식 지원하는 곡선이 NIST P-256 하나라 ES256(P-256)만 받는다. 기존 Ed25519 서명 경로는 그대로 둔다. 1차는 Mac Touch ID만 지원하고 휴대폰 패스키는 받지 않는다.
+운영자가 컨덕터 채팅에서 “이 PR 머지해줘”라고 요청하면 먼저 열린 머지 게이트와 대상 PR을 확인한다. 후보가 여럿이고 문장으로 대상을 구분할 수 없으면 PR 전체 URL로 어느 것을 머지할지 되묻는다. 대상이 하나로 좁혀져도 메시지 본문만으로 승인 게이트를 닫지는 않는다.
 
-처음 한 번 운영자 터미널에서 승인자를 등록한다. 봇 채팅에서는 실행할 수 없다.
+Orca 1.4.269에서는 일반 채팅 승인 연동을 지원하지 않는다. 2026-11-27 운영 봇에서 확인한 `orca agent read` 메시지는 `kind`, `role`, `text`만 제공했다. 최근 100개 항목의 사용자 메시지 11개 중 6개가 자동 정기 점검이었다. `role: user`는 운영자의 직접 입력을 보증하지 않는다. `bot chats`의 `lastAsked`에도 자동화와 외부 항목 알림이 들어간다. 플러그인 Host API 1.10의 `history:read`와 `agent.listSessions`도 세션 메타데이터만 제공하고 메시지 승인 증빙은 제공하지 않는다.
 
-```bash
-gestalt conductor approver enroll --repo acme/app --type gate --id tienne   # 머지 승인자는 --type merge
-```
+호스트 연동에는 다음 계약이 필요하다.
 
-기본 브라우저에 `http://localhost:47219/enroll`이 열리고 터미널에 `1234-5678` 꼴의 등록 코드가 찍힌다. 페이지에 그 코드를 넣고 Touch ID로 패스키를 만들면 공개키와 자격 ID, 등록한 주소가 `bot-policy.json`의 `gateApprovers`나 `mergeApprovers`에 `{ "webauthn": { ... } }` 꼴로 들어간다. 다른 칸은 그대로 남는다. 같은 ID를 바꾸려면 `--replace`를 붙인다.
+- 호스트가 발행한 불변 메시지 ID, 봇과 채팅 ID, 발신자 신원, 직접 입력과 자동화, 외부 이벤트를 구분하는 출처.
+- 운영자가 승인한 결정과 대상 PR, HEAD를 확인할 수 있는 요청 연결. 인용문이나 전달한 텍스트를 운영자의 결정으로 취급하지 않는다.
+- 발신자의 레포별 승인 권한을 확인할 공식 증빙과 신뢰키. 현재 운영권을 가진 채팅에만 연결하고 인계 전 채팅의 뒤늦은 요청은 거절한다.
+- 이벤트 중복 처리와 유효기간 계약. 게이트 ID와 유형, 열린 시각, PR과 HEAD를 결속하여 다른 대상에 재사용하거나 HEAD가 바뀐 뒤 승인할 수 없게 한다.
 
-- 등록 창이 열린 동안에는 같은 PC의 다른 프로세스도 이 주소에 요청할 수 있다. 그래서 터미널에만 찍힌 코드를 페이지에 옮겨 적어야 등록되고 등록 시도는 한 번만 받는다. 코드가 틀리거나 등록이 실패하면 등록을 중단하고 명령이 실패로 끝난다. 다시 하려면 명령을 새로 실행한다.
-- 정책 파일은 컨덕터가 상태 디렉토리에 거는 잠금 안에서 읽고 고쳐 쓴다. tick이 잠금을 오래 쥐고 있으면 20초 기다린 뒤 다시 등록하라고 안내한다. 정책 파일이 JSON으로 안 읽히면 파일을 건드리지 않고 멈춘다.
-- 같은 포트에 승인 서버가 떠 있으면 등록하지 않는다. 서버는 15분 동안 요청이 없으면 내려간다. 바로 끄려면 `lsof -nP -iTCP:47219 -sTCP:LISTEN`로 pid를 찾아 종료한다.
+이 계약이 생기면 기존 운영권 확인, 게이트 잠금, PR HEAD 재조회, 결정 영수증과 워커 전달 재시도를 재사용해 연결한다. 현재는 일반 채팅 요청만으로 승인 완료라고 답하거나 봇에서 수동 `gate resolve`를 대신 실행하지 않는다. 기존 Ed25519 서명 경로나 운영자 터미널의 수동 승인을 안내한다.
 
-Touch ID 승인자가 있으면 `bot gate`가 `touchId.links.approved`와 `touchId.links.rejected` 링크, 승인 서버를 띄우는 `touchId.start` 명령을 준다. 운영 봇은 `touchId.start`를 실행한 뒤 Orca 항목 질문에 두 링크와 "링크가 열리지 않으면 이 채팅에 승인 페이지를 다시 띄워 달라고 말해 주세요" 한 줄을 붙인다. 승인자가 링크를 기본 브라우저에서 열면 게이트 내용(유형, 레포, 사유, refs, PR과 HEAD)을 보여 주고 Touch ID로 서명해 게이트를 닫는다. 터미널을 열 필요가 없다. 게이트가 Touch ID로 닫혀도 Orca 항목 질문은 그대로 남는다. 운영 봇은 다음 tick 뒤 `bot gate`로 다시 읽어 닫힌 게이트면 결과를 알리고 항목 질문을 정리한다.
-
-승인 서버는 요청이 15분 동안 없으면 내려가므로 운영 봇은 열린 게이트를 `bot gate`로 다시 읽을 때마다 `touchId.start`를 다시 실행한다. 떠 있는 서버는 그대로 재사용하고 내려갔으면 새로 띄운다. 승인자가 링크가 안 열린다고 하면 `touchId.start`를 실행하고 같은 링크를 다시 올린다. 승인자에게 터미널 명령을 보내지 않는다.
-
-- 승인 페이지는 localhost에서만 뜨고 기본 주소는 `http://localhost:47219`다. RP ID는 `localhost`다. 브라우저가 localhost를 보안 컨텍스트로 보기 때문에 HTTPS 없이 WebAuthn이 돈다. 서버는 127.0.0.1과 ::1에만 붙고 Host 헤더와 POST의 Origin이 승인 서버 주소와 다르면 거절한다. ::1을 다른 프로그램이 쓰고 있으면 브라우저가 그쪽으로 갈 수 있어 서버를 띄우지 않는다. 요청이 15분 동안 없으면 스스로 내려간다. Orca 내장 브라우저는 쓰지 않는다.
-- `--detach`로 띄운 서버의 에러는 상태 저장소의 `approval-server.log`에 남는다. 승인 페이지는 내부 오류의 원문을 보여 주지 않고 잠시 뒤 다시 시도하거나 운영 봇 채팅에 알려 달라고만 안내한다. 승인자가 그렇게 알려 오면 운영자가 이 로그를 본다. GitHub에서 PR 검증 결과를 읽지 못한 경우나 게이트에 PR과 HEAD가 없는 경우처럼 승인자에게 원인을 알려도 되는 실패는 원문 그대로 400으로 돌려준다. 이때 gh가 남긴 출력은 승인 페이지에 싣지 않고 서버 stderr에만 남긴다. 이미 떠 있는 승인 서버가 다른 상태 저장소로 떠 있으면 재사용하지 않고 멈춘다.
-- challenge는 `bot decide`가 서명하는 문자열(`gestalt/merge-approval/v1`, `gestalt/gate-approval/v1`, `gestalt/review-approval/v1`)에 승인 서버가 발급한 nonce를 붙인 SHA-256이다. 게이트 ID와 유형, 연 시각, 레포, 결정, 머지면 PR과 HEAD가 묶여 있어 다른 게이트나 다른 결정에는 같은 서명을 쓸 수 없다. 서명 뒤 게이트 내용이나 PR HEAD가 바뀌면 거절하고 페이지를 새로 열게 한다.
-- nonce는 승인 서버 메모리에만 있고 2분 동안 한 번만 쓸 수 있다. 다른 프로세스가 포트를 먼저 잡고 받아 간 서명은 진짜 승인 서버에서 쓸 수 없다. 서명한 페이지의 origin도 지금 요청을 받은 승인 서버 주소와 같아야 한다. 2분이 지나면 페이지를 새로 연다.
-- 검증은 등록한 자격 ID와 origin, RP ID 해시, 사용자 확인(UP)과 본인 확인(UV) 플래그, P-256 서명을 본다. 잠금과 기록은 `bot decide`와 같은 경로를 탄다. 승인 근거가 승인자 본인의 서명이라 봇 운영권은 묻지 않는다.
-- 결정 기록에는 `decisionBy`에 승인자 ID가, `decisionVia`에 `{ "kind": "webauthn", "credentialId", "signCount" }`가 남는다.
-- 승인 포트를 바꾸려면 `approver enroll`과 `approval serve`에 `--port`를 준다. 등록할 때의 주소가 정책에 남아서 `bot gate`는 그 주소로 링크를 만들고 기본 포트가 아니면 `touchId.start`에 `--port`를 붙인다. 이미 등록한 승인자의 포트를 바꾸려면 다시 등록해야 한다.
+이전 WebAuthn 설정은 삭제하거나 변환하지 않는다. 지원되는 승인자로 세지 않으며 과거 결정의 `decisionVia`는 로그 재생을 위해 유지한다. 로컬 승인 서버와 등록 명령은 제공하지 않는다.
 
 #### Orca 항목 답으로 게이트 승인
 
@@ -330,7 +319,7 @@ Orca 1.4.269의 공식 CLI에서 `bot item show`로 항목과 이벤트를 읽�
 3. 에이전트 CLI가 부를 수 있는 읽기 전용 증빙 조회(예: `orca bot item proof <항목> --answer <이벤트>`)와 발행자 ID, Ed25519 공개키 조회를 연다. 공개키는 운영자가 터미널에서 한 번 확인해 `bot-policy.json`에 고정한다. 조회 결과의 키를 매번 믿지 않는다.
 4. 증빙의 `approver`는 답을 쓴 사람의 Orca 신원(데스크톱 owner나 페어링 기기 ID)으로 채운다. 에이전트로 표시된 연결이나 에이전트 CLI에서 온 답에는 발행하지 않는다.
 
-이 변경이 들어오면 `officialOrcaApprovalIssuer`에 어댑터를 등록해 버튼을 켠다. 그전까지 Needs you 버튼과 한 줄 답은 게이트를 열어 둔 채 실패를 알린다. 운영자 터미널 명령, Touch ID 링크, 서명 두 줄 답은 지금처럼 동작한다. Orca를 올리면 위 확인을 새 버전 소스로 다시 한다.
+이 변경이 들어오면 `officialOrcaApprovalIssuer`에 어댑터를 등록해 버튼을 켠다. 그전까지 Needs you 버튼과 한 줄 답은 게이트를 열어 둔 채 실패를 알린다. 운영자 터미널 명령과 서명 두 줄 답은 지금처럼 동작한다. Orca를 올리면 위 확인을 새 버전 소스로 다시 한다.
 
 ##### Orca 증빙 생산자 연동 계약
 
