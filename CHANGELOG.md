@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.163.0] - 2026-11-28
+
+### Added
+
+- **운영 채팅 문구로 머지 게이트를 승인하는 `trusted-chat` 정책을 레포별로 고를 수 있어요(#188).** 정책을 켠 레포는 운영 봇 채팅에서 `<ID> 승인해줘` 한 줄로 머지를 승인해요. 기본값은 지금처럼 `signed`예요.
+  - `bot merge-policy <repo> --mode trusted-chat|signed`로 켜고 끄고 `bot chat-offer`로 안내를 저장한 뒤 `bot chat-decide --message`로 승인해요. ID는 Orca 항목 번호와 주문 ID, 게이트 ID를 정확히 조회하고 접두어나 확인코드는 받지 않아요.
+  - 이 정책은 사람의 신원을 증명하지 않아요. 운영권을 가진 봇 채팅에서 전달한 문구를 믿기로 사용자가 고르는 정책이라 감사 기록에는 `decisionBy: trusted-chat:<botId>:<chatId>`로 남기고 사람 서명자로 적지 않아요.
+  - 승인 직전에 정책과 안내 ID, decisionTarget, PR HEAD와 base, 운영권을 잠금 안에서 다시 확인해요. 후보가 여럿인데 바로 승인할 수 없으면 후보마다 `reason`과 다음에 할 일(`guidance`)을 돌려줘요.
+- **컨덕터 워커 한도를 조회, 리뷰, 작업 세 유형으로 나눴어요(#185).** 짧게 끝나는 조회나 리뷰 주문이 오래 도는 구현 주문 뒤에 줄 서지 않게 하려고요. 기본 한도는 조회 5, 리뷰 5, 작업 10이고 `conductor status`와 컨덕터 터미널이 유형별 사용량을 보여줘요.
+  - 옛 `maxConcurrentWorkers`와 `GESTALT_CONDUCTOR_MAX_WORKERS`는 스케줄러가 더 쓰지 않아요. 값이 남아 있으면 `workerLimits`로 옮기라고 경고하고 옛 값 10을 쓰던 설정은 기본 합계 20으로 돌아요.
+- **컨덕터 터미널이 ship 리뷰 라운드의 리뷰어 완료 수를 막대로 그려요(#187).** `리뷰 3/6 완료 (3개 실행 중)`처럼 보이고 ship 배지에 라운드 번호가 붙어요(`ship r2`). `status --json --with-activity`에 `review` 칸이 생겼어요.
+- **화면 변경 판정 기준을 공용 문서 `screen-change.md` 하나로 모았어요(#186).** 확장자와 폴더명만 보던 탓에 HTML 문자열을 만드는 `.ts`를 놓쳤고 캡처를 못 한 화면을 변화 없음과 구분하지 못했어요. 이제 판정은 `changed`, `unchanged`, `unverified`, `none` 넷이고 코드를 고치기 전과 초안 PR 직전에 두 번 해요.
+
+### Changed
+
+- **컨덕터 터미널 중립색이 오르카 테마를 따라가요(#184).** 다크 색을 박아 두어서 오르카를 라이트로 바꿔도 이 탭만 검게 남았어요. 이제 `--orca-*` 변수를 먼저 읽고 없으면 원래 다크 색을 써요.
+
+### Removed
+
+- **Touch ID(WebAuthn) 승인 경로를 지웠어요(#188).** `approver enroll`과 `approval serve` 명령, 로컬 승인 서버, WebAuthn 검증이 빠졌어요. 예전 정책 파일의 `webauthn` 승인자는 지우지 않고 승인자로 세지만 않아요. 과거 결정 기록의 `decisionVia`는 그대로 읽어요.
+
+### 검증 범위
+
+- #188은 로컬 리뷰를 6라운드 돌려 approve로 끝냈어요. 후반 라운드는 채팅 승인 후보의 `reason`과 `offeredPr` 노출 범위, 정책 파일 오류 처리를 다듬은 내용이에요.
+- #187은 5라운드, #186은 2라운드로 approve가 났어요. `pnpm gate`는 10,072개 통과, 2개는 원래 건너뛰는 테스트예요.
+
+### 남긴 것
+
+- 호스트가 메시지 ID를 주지 않아서 재안내 뒤에 똑같은 승인 문구가 오면 오래된 메시지를 다시 넘긴 건지 CLI만으로는 가리지 못해요. 스킬은 새 안내 뒤 직접 받은 요청에만 `chat-decide`를 부르게 했어요.
+- 운영 봇에서 레포별로 `bot merge-policy`를 켜는 일은 이번 배포에 넣지 않았어요.
+
 ## [0.162.1] - 2026-11-26
 
 ### Fixed
