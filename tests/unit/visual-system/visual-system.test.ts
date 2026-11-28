@@ -161,4 +161,19 @@ describe('렌더러 링크 스킴', () => {
     expect(quote + cite).not.toMatch(/javascript:/i);
     expect(cite).toContain('href="https://example.com/x"');
   });
+
+  it('루트 상대 경로만 통과하고 다른 호스트로 나가는 경로는 #으로 바꾼다', async () => {
+    const { sourceCite } = await import('../../../src/visual-system/render.js');
+    const hrefOf = (href: string) =>
+      sourceCite({ text: 't', cites: [{ label: 'a', href }] }).match(/href="([^"]*)"/)![1];
+    for (const h of [
+      '//evil.example',
+      '/\\evil.example',
+      '/\t/evil.example',
+      '/\n\\evil.example',
+    ]) {
+      expect(hrefOf(h), JSON.stringify(h)).toBe('#');
+    }
+    expect(hrefOf('/docs/a')).toBe('/docs/a');
+  });
 });

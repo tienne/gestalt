@@ -17,8 +17,13 @@ export interface Source {
   href?: string;
 }
 
-// 출처 링크는 데이터에서 그대로 온다. javascript: 같은 스킴이 섞이면 클릭 한 번에 스크립트가 돌아서 허용한 형태만 남긴다
-const safeHref = (h: string): string => (/^(https?:\/\/|#|\/|mailto:)/i.test(h) ? h : '#');
+// 출처 링크는 데이터에서 그대로 온다. javascript: 같은 스킴이 섞이면 클릭 한 번에 스크립트가 돌아서 허용한 형태만 남긴다.
+// 상대 경로는 루트 상대 경로(/로 시작)만 통과한다. //host나 /\host는 외부 호스트로 나가서 막는다.
+// 브라우저는 URL을 해석할 때 탭과 줄바꿈을 지우므로 지운 값으로 판정한다
+const safeHref = (h: string): string => {
+  const v = h.replace(/[\t\n\r]/g, '');
+  return /^(https?:\/\/|#|\/(?![/\\])|mailto:)/i.test(v) ? v : '#';
+};
 
 const sourceHtml = (s?: Source): string =>
   s
