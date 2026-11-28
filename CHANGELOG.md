@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.164.0] - 2026-11-28
+
+### Changed
+
+- **봇이 닫는 게이트의 승인 기본값을 서명에서 운영 채팅 문구 승인(`trusted-chat`)으로 바꿨어요(#189).** 머지 승인뿐 아니라 파일 중첩, 리뷰 수동 전환 게이트도 운영 봇 채팅에서 `<ID> 승인해줘` 한 줄로 닫아요. 서명 승인은 레포나 기본값을 `signed`로 바꿨을 때만 써요.
+  - 정책은 레포별 `approvalPolicy`, 예전 칸 `mergeApprovalPolicy`, `defaultApprovalPolicy` 순서로 정하고 셋 다 없으면 `trusted-chat`이에요. 정책 파일이 없으면 채팅 승인이고 파일이 깨졌으면 채팅 승인을 열지 않고 터미널 안내로 보내요.
+  - `bot approval-policy [repo] --mode trusted-chat|signed [--default]` 명령이 생겼어요. `merge-policy`는 별칭으로 남겼고 레포 값을 새로 쓰면 예전 칸에 남은 같은 레포 값은 지워요.
+  - 파일 중첩 게이트는 PR이 없어서 `chat-offer`가 게이트 대상만 고정해요. PR이 걸린 게이트는 예전처럼 PR과 HEAD, base까지 고정해요. 안내와 승인 결과에 게이트 유형(`type`)이 붙어요.
+- **`conductor status --json`과 `bot gate` 응답의 정책 칸 이름이 `mergeApprovalPolicy`에서 `approvalPolicy`로 바뀌었어요(#189).** `status --json`은 예전에 채팅 승인일 때만 칸을 붙였는데 이제 레포마다 `signed`나 `trusted-chat`을 늘 붙여요. 이 칸을 읽던 스크립트는 고쳐야 해요. 정책 파일의 `mergeApprovalPolicy` 칸은 예전처럼 읽어요.
+
+### 업그레이드 안내
+
+- 봇 오너가 등록된 곳은 이 버전으로 올리는 순간 채팅 문구 승인이 기본으로 켜져요. 서명 승인을 계속 쓰려면 업그레이드 전에 `gestalt conductor bot approval-policy --default --mode signed`를 실행해 두세요.
+
+### 검증 범위
+
+- #189는 로컬 리뷰를 3라운드 돌려 approve로 끝냈어요. 2라운드에서 남은 의견은 스킬 문서의 서명 유지 안내가 봇이 스스로 정책을 바꾸라는 뜻으로 읽힐 수 있다는 것이었고 운영자가 직접 요청했을 때만 바꾼다고 고쳤어요.
+- `pnpm gate`는 10,080개 통과, 3개는 원래 건너뛰는 테스트예요.
+
+### 남긴 것
+
+- 신뢰하는 봇 게이트 응답에 `terminal.rejected` 안내가 없고 채팅 안내의 `reason`과 후보 목록의 `reason`이 가리키는 뜻이 조금 달라요. 동작에는 영향이 없어서 다음 정리 때 맞추기로 했어요.
+
 ## [0.163.0] - 2026-11-28
 
 ### Added
