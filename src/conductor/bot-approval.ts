@@ -1,5 +1,6 @@
 import { createHash, createPublicKey, randomUUID, verify, type KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { mergeApprovalPolicy } from './trusted-chat-approval.js';
 import { join } from 'node:path';
 import { isPlainObject } from '../core/json-file.js';
 import { GhAccounts } from './adapters.js';
@@ -50,7 +51,7 @@ export function readBotPolicy(dir: string): Record<string, unknown> {
   const policy = loadBotPolicy(dir);
   if (!policy)
     throw new Error(
-      `봇 정책 파일(${BOT_POLICY_FILE})이 상태 저장소에 없어요. docs/conductor.md의 bot-policy 예시로 만들어 주세요`,
+      `봇 정책 파일(${BOT_POLICY_FILE})이 상태 저장소에 없어요. 컨덕터 상태 디렉토리에 ${BOT_POLICY_FILE}을 만들어 주세요`,
     );
   return policy;
 }
@@ -105,27 +106,9 @@ export function approverStatus(
   return { ready: false, gap: other > 0 ? 'no-type-approvers' : 'no-repo', count: 0 };
 }
 
-/**
- * 서명 확인에 실제로 쓸 수 있는 승인자 값인가. Ed25519 PEM 문자열이나 P-256 공개키를 담은 Touch ID 항목만 센다.
- * webauthn-approval.ts의 credentialSchema와 같은 모양을 보지만 그 모듈이 이 모듈을 가져다 써서 여기서 따로 본다
- */
 function usableApprover(value: unknown): boolean {
   try {
-    if (typeof value === 'string') return createPublicKey(value).asymmetricKeyType === 'ed25519';
-    if (!isPlainObject(value) || !isPlainObject(value['webauthn'])) return false;
-    const credential = value['webauthn'];
-    const { credentialId, publicKey, origin } = credential;
-    if (
-      Object.keys(credential).length !== 3 ||
-      typeof credentialId !== 'string' ||
-      !/^[A-Za-z0-9_-]+$/.test(credentialId) ||
-      typeof publicKey !== 'string' ||
-      typeof origin !== 'string'
-    )
-      return false;
-    new URL(origin);
-    const key = createPublicKey(publicKey);
-    return key.asymmetricKeyType === 'ec' && key.asymmetricKeyDetails?.namedCurve === 'prime256v1';
+    return typeof value === 'string' && createPublicKey(value).asymmetricKeyType === 'ed25519';
   } catch {
     return false;
   }
@@ -154,8 +137,7 @@ export function approverGuidance(gate: Pick<Gate, 'id' | 'type'>, repo: string, 
           : `${repo} 레포에는 ${label} 게이트를 닫을 승인자가 등록되지 않았어요.`;
   const close = `터미널에서 \`${terminalResolveCommand(gate.id)}\`(거절은 --reject)로 닫아 주세요.`;
   if (gap === 'unreadable') return `${why} ${close}`;
-  const enroll = `gestalt conductor approver enroll --repo ${repo} --type ${gate.type === 'merge' ? 'merge' : 'gate'} --id <이름>`;
-  return `${why} ${close} Touch ID 승인자는 운영자 터미널에서 \`${enroll}\`로 등록할 수 있어요`;
+  return `${why} ${close} 서명 승인자는 ${BOT_POLICY_FILE}의 ${approverField(gate.type)}에 레포별 Ed25519 공개키 PEM으로 등록해 주세요`;
 }
 
 /** 승인자가 없으면 서명 검사 전에 할 일을 알려주는 에러로 멈춘다 */
@@ -531,7 +513,7 @@ export function verifyEd25519(key: KeyObject, message: string, signature: string
 
 export interface ApproverRegistry {
   policy: 'present' | 'missing' | 'unreadable';
-  repos: { repo: string; merge: number; gate: number }[];
+  repos: { repo: string; merge: number; gate: number; mergeApprovalPolicy?: 'trusted-chat' }[];
 }
 
 /** status 화면용. 레포마다 머지와 나머지 게이트 승인자가 몇 명 등록됐는지 센다. 정책이 깨져도 status는 멈추지 않는다 */
@@ -539,19 +521,25 @@ export function approverRegistry(dir: string, repos: Iterable<string>): Approver
   let policy: Record<string, unknown> | undefined;
   try {
     policy = loadBotPolicy(dir);
+    mergeApprovalPolicy(policy, '');
   } catch {
     return { policy: 'unreadable', repos: [] };
   }
   const names = new Set([...repos].map((r) => r.toLowerCase()));
-  for (const field of ['mergeApprovers', 'gateApprovers'] as const) {
+  for (const field of ['mergeApprovers', 'gateApprovers', 'mergeApprovalPolicy'] as const) {
     const table = policy?.[field];
     if (isPlainObject(table)) for (const repo of Object.keys(table)) names.add(repo);
   }
   const count = (type: GateType, repo: string) => approverStatus(policy, type, repo).count;
   return {
     policy: policy ? 'present' : 'missing',
-    repos: [...names]
-      .sort()
-      .map((repo) => ({ repo, merge: count('merge', repo), gate: count('file-overlap', repo) })),
+    repos: [...names].sort().map((repo) => ({
+      repo,
+      merge: count('merge', repo),
+      gate: count('file-overlap', repo),
+      ...(mergeApprovalPolicy(policy, repo) === 'trusted-chat'
+        ? { mergeApprovalPolicy: 'trusted-chat' as const }
+        : {}),
+    })),
   };
 }

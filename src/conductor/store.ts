@@ -151,6 +151,11 @@ export function applyEvent(s: ConductorSnapshot, e: ConductorEvent): void {
       Reflect.deleteProperty(s.gates[e.gate.id]!, 'slackReplacement');
       invalidateReplacedReview(s, e.gate);
       return;
+    case 'gate-chat-offered': {
+      const gate = s.gates[e.gateId];
+      if (gate?.status === 'open' && gate.type === 'merge') gate.chatApprovalOffer = e.offer;
+      return;
+    }
     case 'gate-updated': {
       const g = s.gates[e.gateId];
       if (!g) return;
@@ -485,6 +490,7 @@ export function orderOfEvent(e: ConductorEvent, s: ConductorSnapshot): string | 
     case 'gate-opened':
       return e.gate.orderId;
     case 'gate-updated':
+    case 'gate-chat-offered':
     case 'gate-resolved':
     case 'gate-delivery':
     case 'slack-posted':
@@ -793,10 +799,12 @@ function validate(event: ConductorEvent, s: ConductorSnapshot): void {
   if ((event.type === 'gate-updated' || event.type === 'gate-delivery') && !s.gates[event.gateId]) {
     throw new Error(`모르는 게이트예요: ${event.gateId}`);
   }
-  if (event.type === 'gate-resolved') {
+  if (event.type === 'gate-resolved' || event.type === 'gate-chat-offered') {
     const g = s.gates[event.gateId];
     if (!g) throw new Error(`모르는 게이트예요: ${event.gateId}`);
     if (g.status !== 'open') throw new Error(`이미 종료된 게이트예요: ${event.gateId}`);
+    if (event.type === 'gate-chat-offered' && g.type !== 'merge')
+      throw new Error('머지 게이트만 채팅 승인을 안내할 수 있어요');
   }
   if (event.type === 'gate-completed') {
     const g = s.gates[event.gateId];
