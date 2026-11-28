@@ -222,11 +222,11 @@ describe('lifecycle 렌더', () => {
     expect(html.private).not.toContain('--lc-fail');
   });
 
-  it('끝 상태 배지 글자는 테마 토큰을 쓰고 실패 색은 다크에서 밝게 바꾼다', async () => {
+  it('끝 상태 배지는 상태 글자색에 테두리를 두르고 실패 색은 위험 역할을 읽는다', async () => {
     const html = await renderBoth(lifecycleIr());
     expect(html.private).toContain(
-      '.lc-state .lc-out { background: var(--kind); color: var(--on-accent); }',
+      '.lc-state .lc-out { background: var(--card); color: var(--kind); box-shadow: inset 0 0 0 1px currentColor; }',
     );
-    expect(html.private).toContain(':root[data-theme="dark"] { --lc-fail: #f87171; }');
+    expect(html.private).toContain(':root { --lc-fail: var(--gestalt-color-danger-text); }');
   });
 });

@@ -26,13 +26,13 @@ const WAIT_LIMIT_MS = 10 * 60_000;
  * 좁은 화면에서 개요 시트가 열리면 단추와 폼을 함께 시트 위로 올린다. 기준은 client가 body에 다는 overview-open이다.
  * :has를 못 읽는 브라우저에서도 같이 올라가야 해서 클래스로 고른다
  */
-export const LIVE_FORM_CSS = `.live-ask-toggle { position: fixed; right: 16px; bottom: 16px; z-index: 40; padding: 8px 14px; font: inherit; font-weight: 650; color: var(--on-accent); background: var(--accent); border: 0; border-radius: 999px; box-shadow: var(--shadow-pop); cursor: pointer; }
+export const LIVE_FORM_CSS = `.live-ask-toggle { position: fixed; right: 16px; bottom: 16px; z-index: 40; padding: 8px 14px; font: inherit; font-weight: 650; color: var(--on-accent); background: var(--accent-fill); border: 0; border-radius: 999px; box-shadow: var(--shadow-pop); cursor: pointer; }
 .live-ask-toggle:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .live-ask { position: fixed; right: 16px; bottom: 64px; z-index: 40; width: min(360px, calc(100vw - 32px)); display: grid; gap: 6px; padding: 10px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow-pop); font: inherit; }
 .live-ask label { font-weight: 650; font-size: 13px; }
 .live-ask textarea { width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; padding: 6px 8px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
 .live-ask .live-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.live-ask button { padding: 4px 12px; font: inherit; color: var(--on-accent); background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
+.live-ask button { padding: 4px 12px; font: inherit; color: var(--on-accent); background: var(--accent-fill); border: 0; border-radius: 6px; cursor: pointer; }
 .live-ask button[disabled] { opacity: 0.5; cursor: default; }
 .live-ask[hidden] { display: none; }
 .live-ask .live-msg { margin: 0; font-size: 12px; color: var(--text-3); }

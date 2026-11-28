@@ -1,3 +1,4 @@
+import { digestThemeCss } from '../digest/theme-color.js';
 import { LEGACY_PACK_IDS, vocabularyOf, type Vocabulary } from './packs/index.js';
 import type { NodeKind } from './types.js';
 import {
@@ -199,39 +200,50 @@ function brandRules(theme: 'light' | 'dark'): string {
     .join('');
 }
 
-const LIGHT_TOKENS = `
-  color-scheme: light;
-  --bg: #f3f3f1;
-  --surface: #ffffff;
-  --surface-2: #ebebe8;
-  --border: #e2e2de;
-  --border-strong: #cbcbc6;
-  --text: #161616;
-  --accent: #161616;
-  --accent-soft: rgba(22, 22, 22, 0.08);
-  --on-accent: #ffffff;
-  --edge: #8a8a8a;
+const role = (name: string) => `var(--gestalt-color-${name})`;
+const tint = (name: string, pct: number) => `color-mix(in srgb,${role(name)} ${pct}%,transparent)`;
+const toward = (name: string, target: string, pct: number) =>
+  `color-mix(in srgb,${role(name)} ${100 - pct}%,${role(target)})`;
+
+// 구조도가 원래 쓰던 변수 이름을 Gestalt 색 역할에 잇는다. 테마마다 값이 바뀌는 건 역할이 맡고 여기 남는 건 그림자처럼 밝기에만 따르는 값이다.
+// 글자로 쓰는 --text-2, --text-3은 대비가 보장되는 본문과 보조 글자 역할에서 고른다. --text-4는 비활성 표시에만 쓴다
+const ROLE_TOKENS = `
+  --bg: ${role('background')};
+  --surface: ${role('surface')};
+  --surface-2: ${toward('surface', 'border', 50)};
+  --border: ${role('border')};
+  --border-strong: ${toward('border', 'text-muted', 35)};
+  --text: ${role('text')};
+  --accent: ${role('accent-text')};
+  --accent-soft: ${tint('accent-fill', 12)};
+  --accent-fill: ${role('accent-fill')};
+  --on-accent: ${role('on-accent')};
+  --focus: ${role('focus')};
+  --edge: ${toward('text-muted', 'background', 25)};
   --edge-alpha: 0.5;
-  --edge-strong: #2a2a2a;
-  --lane: rgba(0, 0, 0, 0.025);
-  --lane-line: rgba(0, 0, 0, 0.07);
-  --warn: #b45309;
-  --warn-soft: #fef3c7;
-  --ok: #15803d;
-  --ok-soft: #dcfce7;
-  --live: #0369a1;
-  --live-soft: #e0f2fe;
-  --x-account: #c026d3;
-  --frame: rgba(0, 0, 0, 0.02);
-  --frame-line: #595959;
-  --loads: #0369a1;
-  --hit: #f59e0b;
-  --text-2: #3f3f3f;
-  --text-3: #595959;
-  --text-4: #8c8c8c;
-  --grid-dot: #dadad5;
-  --card: #ffffff;
-  --card-edge: rgba(0, 0, 0, 0.1);
+  --edge-strong: ${role('text')};
+  --lane: ${tint('text', 3)};
+  --lane-line: ${tint('text', 8)};
+  --warn: ${role('warning-text')};
+  --warn-soft: ${tint('warning-fill', 14)};
+  --ok: ${role('success-text')};
+  --ok-soft: ${tint('success-fill', 12)};
+  --live: ${role('info-text')};
+  --live-soft: ${tint('info-fill', 12)};
+  --x-account: ${role('series-4')};
+  --frame: ${tint('text', 2)};
+  --frame-line: ${role('text-muted')};
+  --loads: ${role('info-text')};
+  --hit: ${role('warning-text')};
+  --text-2: ${toward('text', 'text-muted', 50)};
+  --text-3: ${role('text-muted')};
+  --text-4: ${toward('text-muted', 'background', 40)};
+  --grid-dot: ${role('border')};
+  --card: ${role('surface')};
+  --card-edge: ${role('border')};
+`;
+
+const LIGHT_TOKENS = `
   --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.04);
   --shadow-hover: 0 6px 16px rgba(0, 0, 0, 0.1);
@@ -239,38 +251,6 @@ const LIGHT_TOKENS = `
 `;
 
 const DARK_TOKENS = `
-  color-scheme: dark;
-  --bg: #0f0f0f;
-  --surface: #191919;
-  --surface-2: #222222;
-  --border: #2a2a2a;
-  --border-strong: #3d3d3d;
-  --text: #ececec;
-  --accent: #ececec;
-  --accent-soft: rgba(236, 236, 236, 0.1);
-  --on-accent: #0f0f0f;
-  --edge: #808080;
-  --edge-alpha: 0.5;
-  --edge-strong: #e0e0e0;
-  --lane: rgba(255, 255, 255, 0.02);
-  --lane-line: rgba(255, 255, 255, 0.06);
-  --warn: #fbbf24;
-  --warn-soft: rgba(251, 191, 36, 0.14);
-  --ok: #4ade80;
-  --ok-soft: rgba(74, 222, 128, 0.12);
-  --live: #38bdf8;
-  --live-soft: rgba(56, 189, 248, 0.14);
-  --x-account: #e879f9;
-  --frame: rgba(255, 255, 255, 0.02);
-  --frame-line: #999999;
-  --loads: #7dd3fc;
-  --hit: #fbbf24;
-  --text-2: #b4b4b4;
-  --text-3: #999999;
-  --text-4: #5c5c5c;
-  --grid-dot: #262626;
-  --card: #1c1c1c;
-  --card-edge: rgba(255, 255, 255, 0.08);
   --card-shadow: 0 0 0 transparent;
   --shadow: none;
   --shadow-hover: 0 6px 18px rgba(0, 0, 0, 0.4);
@@ -298,12 +278,12 @@ button { font: inherit; color: inherit; }
 .crumbs[hidden] { display: none; }
 .crumbs button { border: 0; background: none; padding: 4px 6px; border-radius: 6px; cursor: pointer; color: var(--text-3); white-space: nowrap; }
 .crumbs button:hover { background: var(--surface-2); color: var(--text); }
-.crumbs .sep { opacity: 0.6; padding: 0 1px; }
+.crumbs .sep { padding: 0 1px; }
 .crumbs .here { color: var(--text); font-weight: 600; padding: 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spacer { flex: 1; }
 .focus-chip {
   display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 10px; margin-left: 6px; flex: none; max-width: 320px;
-  border-radius: 14px; font-size: 12px; color: var(--accent); background: var(--accent-soft); white-space: nowrap;
+  border-radius: 14px; font-size: 12px; color: var(--accent); background: transparent; box-shadow: inset 0 0 0 1px currentColor; white-space: nowrap;
 }
 .focus-chip[hidden] { display: none; }
 .focus-chip svg { width: 14px; height: 14px; flex: none; }
@@ -342,18 +322,23 @@ button { font: inherit; color: inherit; }
   min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; background: var(--surface-2); color: var(--text-3);
 }
-.btn .n.warn { background: var(--warn-soft); color: var(--warn); }
+.btn .n.warn { background: transparent; color: var(--warn); box-shadow: inset 0 0 0 1px currentColor; }
 .seg { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); flex: none; }
 .seg .btn { border: 0; height: 30px; }
 .env-picker .btn { padding: 0 9px; color: var(--text-3); font-variant-numeric: tabular-nums; }
-.env-picker .btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.env-picker .btn[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: inset 0 0 0 1px currentColor; font-weight: 650; }
 .env-off { display: none !important; }
 .zoom-level { min-width: 44px; text-align: center; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
-#theme-btn .sun { display: none; }
-#theme-btn[data-mode="dark"] .sun { display: block; }
-#theme-btn[data-mode="dark"] .moon { display: none; }
-#theme-btn[data-mode="light"] .moon { display: block; }
-#theme-btn[data-mode="light"] .sun { display: none; }
+/* 테마 선택기는 툴바 버튼 모양의 팝업이다. 스크립트가 없으면 고를 수 없으니 숨긴다 */
+.theme-pop { position: relative; flex: none; }
+.theme-pop > summary { list-style: none; }
+.theme-pop > summary::-webkit-details-marker { display: none; }
+.theme-pop[open] > summary { background: var(--surface-2); border-color: var(--border-strong); }
+.theme-pop .theme-switch { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; display: grid; gap: 8px; width: 220px; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-pop); }
+.theme-pop .theme-switch label { display: grid; gap: 4px; font-size: 12px; color: var(--text-3); }
+.theme-pop .theme-switch select, .theme-pop .theme-switch button { font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+.theme-pop .theme-switch button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+html:not([data-gestalt-background]):not([data-gestalt-accent]) .theme-pop { display: none; }
 .meta { display: flex; gap: 10px; padding-left: 4px; font-size: 11px; color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .main { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .stage { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -440,7 +425,7 @@ button { font: inherit; color: inherit; }
 .kc {
   grid-row: 1; display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 6px 0 4px; border-radius: 5px; align-self: center;
   font-size: 10.5px; font-weight: 650; line-height: 1; white-space: nowrap;
-  color: color-mix(in srgb, var(--kind) 64%, var(--text)); background: color-mix(in srgb, var(--kind) 13%, transparent);
+  color: var(--text); background: color-mix(in srgb, var(--kind) 13%, transparent);
 }
 .kc svg { width: 12px; height: 12px; flex: none; color: var(--kind); }
 .kc svg.brand, .pf svg.brand { color: var(--brand); }
@@ -457,12 +442,12 @@ button { font: inherit; color: inherit; }
 }
 .guess {
   flex: none; margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px;
-  color: var(--warn); background: var(--warn-soft);
+  color: var(--warn); background: transparent; box-shadow: inset 0 0 0 1px currentColor;
 }
 .flow-badge {
   flex: none; display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 0 6px; border-radius: 8px;
   font-size: 10.5px; font-weight: 700; line-height: 16px; color: var(--on-accent);
-  background: var(--accent);
+  background: var(--accent-fill);
 }
 .flow-badge svg { width: 12px; height: 12px; flex: none; }
 .flow-badge:hover { background: color-mix(in srgb, var(--accent) 80%, var(--bg)); }
@@ -627,21 +612,21 @@ button { font: inherit; color: inherit; }
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
 .chip {
   display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 11px;
-  font-size: 12px; font-weight: 600; color: var(--kind); background: color-mix(in srgb, var(--kind) 13%, transparent);
+  font-size: 12px; font-weight: 600; color: var(--text); background: color-mix(in srgb, var(--kind) 13%, transparent);
 }
-.chip svg { width: 12px; height: 12px; }
+.chip svg { width: 12px; height: 12px; color: var(--kind); }
 .chip.flow { --kind: var(--accent); }
 .chip.flow.side { --kind: var(--warn); }
 .repo { font: 11px var(--mono); color: var(--text-3); word-break: break-all; }
 .dr-head h2 { margin: 0; font-size: 17px; line-height: 1.4; word-break: break-word; outline: none; }
 .dr-head h2 .guess { vertical-align: 2px; }
 .tech { margin-top: 2px; font: 12px/1.5 var(--mono); color: var(--text-3); word-break: break-all; }
-.guess-note { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.5; color: var(--warn); background: var(--warn-soft); }
+.guess-note { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.5; color: var(--text); background: var(--warn-soft); box-shadow: inset 3px 0 0 var(--warn); }
 .dr-body { flex: 1; overflow-y: auto; padding: 16px 20px 28px; }
 .actions { display: flex; gap: 8px; margin-bottom: 16px; }
 .actions button { flex: 1; height: 36px; border-radius: 8px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .actions svg { width: 15px; height: 15px; }
-.enter { border: 0; background: var(--accent); color: var(--on-accent); }
+.enter { border: 0; background: var(--accent-fill); color: var(--on-accent); }
 .enter:hover { filter: brightness(1.06); }
 .actions .focus { border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); }
 .actions .focus:hover { background: var(--surface-2); }
@@ -650,9 +635,9 @@ button { font: inherit; color: inherit; }
 .evidence { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .evidence li { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
 .badge { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; margin: 0 6px 4px 0; border-radius: 10px; font-size: 11px; font-weight: 600; vertical-align: middle; }
-.badge.t-code, .badge.t-spec { color: var(--ok); background: var(--ok-soft); }
-.badge.t-doc, .badge.t-user, .badge.guess { color: var(--warn); background: var(--warn-soft); }
-.badge.t-live { color: var(--live); background: var(--live-soft); }
+.badge.t-code, .badge.t-spec { color: var(--ok); background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+.badge.t-doc, .badge.t-user, .badge.guess { color: var(--warn); background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+.badge.t-live { color: var(--live); background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
 .cmd { display: block; margin-top: 4px; font: 12px/1.5 var(--mono); word-break: break-all; color: var(--text); }
 .facts { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .facts li { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; }
@@ -771,7 +756,7 @@ export const DRILL_CSS = `.node.lg { align-content: start; padding: ${CARD_PAD_Y
 .ch-head .ord {
   flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
   line-height: 1;
-  font-size: 12px; font-weight: 700; color: var(--on-accent); background: var(--accent); font-variant-numeric: tabular-nums;
+  font-size: 12px; font-weight: 700; color: var(--on-accent); background: var(--accent-fill); font-variant-numeric: tabular-nums;
 }
 @supports (text-box: trim-both cap alphabetic) {
   .ch-head .ord { display: inline-block; padding: calc((22px - 1cap) / 2) 6px; text-align: center; line-height: 1cap; text-box: trim-both cap alphabetic; }
@@ -839,13 +824,8 @@ export const FLOW_BRANCH_CSS = `.node.flow-step.decision {
 /**
  * 상태 흐름 그림이 있을 때만 붙이는 스타일. 띠 이름과 끝 상태 배지 글자가 뜻을 싣고 색은 거든다.
  * 끝 상태는 이중 테두리로 그려 색을 못 봐도 끝난 자리가 보인다.
- * 실패 색은 공용 토큰에 넣으면 상태 흐름이 없는 그림의 바이트까지 바뀌어 여기서 라이트와 다크를 따로 준다
  */
-export const LIFECYCLE_CSS = `:root { --lc-fail: #dc2626; }
-@media (prefers-color-scheme: dark) {
-:root:not([data-theme="light"]) { --lc-fail: #f87171; }
-}
-:root[data-theme="dark"] { --lc-fail: #f87171; }
+export const LIFECYCLE_CSS = `:root { --lc-fail: var(--gestalt-color-danger-text); }
 .lc-band rect { fill: var(--lane); stroke: var(--lane-line); stroke-width: 1; }
 .lc-band.lc-recovery rect { stroke: var(--warn); stroke-opacity: 0.35; stroke-dasharray: 6 4; }
 .lc-band.lc-terminal rect { stroke: var(--border-strong); }
@@ -856,7 +836,7 @@ export const LIFECYCLE_CSS = `:root { --lc-fail: #dc2626; }
 .node.lc-state.o-cancel { --kind: var(--text-3); }
 .node.lc-state.o-fail { --kind: var(--lc-fail); }
 .lc-state .lc-steps { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; color: var(--text-3); }
-.lc-state .lc-out { background: var(--kind); color: var(--on-accent); }
+.lc-state .lc-out { background: var(--card); color: var(--kind); box-shadow: inset 0 0 0 1px currentColor; }
 .lc-state.o-end .lc-out { background: var(--text); color: var(--surface); }
 .link.flow-t .t-label.at-start { text-anchor: start; }
 .link.flow-t .t-label.lc-borrowed { font-weight: 400; font-style: italic; }
@@ -1008,7 +988,7 @@ export const INFRA_CSS = `.group { position: absolute; box-sizing: border-box; b
   font: 10.5px var(--mono); letter-spacing: 0.04em; fill: var(--text-3); pointer-events: none;
   paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round;
 }
-.infra-credit { position: absolute; margin: 0; font: 10px/1.4 var(--mono); color: var(--text-4); }
+.infra-credit { position: absolute; margin: 0; font: 10px/1.4 var(--mono); color: var(--text-3); }
 @media (prefers-color-scheme: dark) {
 :root:not([data-theme="light"]) .g-label img { background: #fff; border-radius: 3px; }
 }
@@ -1071,16 +1051,16 @@ export const SEQ_VIEW_CSS = `#seq-bar:not([hidden]) ~ .overview { display: none;
 .seq-modes { display: inline-flex; flex: none; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .seq-modes .btn { height: 30px; border: 0; border-radius: 0; color: var(--text-3); }
 .seq-modes .btn + .btn { border-left: 1px solid var(--border); }
-.seq-modes .btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.seq-modes .btn[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: inset 0 0 0 1px currentColor; font-weight: 650; }
 .seq-cap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
 .sw-say { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .sw-n { color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sw-p { color: var(--text-3); white-space: nowrap; }
 .sw-t { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; color: var(--text); }
-.sw-b { padding: 1px 8px; border-radius: 10px; font-size: 12px; white-space: nowrap; color: var(--warn); background: var(--warn-soft); }
+.sw-b { padding: 1px 8px; border-radius: 10px; font-size: 12px; white-space: nowrap; color: var(--warn); background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
 .sw-ctl { display: inline-flex; gap: 4px; flex: none; }
 .sw-ctl .btn { font-size: 12px; }
-.sw-play[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.sw-play[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: inset 0 0 0 1px currentColor; }
 .seq-steps {
   position: absolute; top: 72px; right: 16px; bottom: 16px; width: 300px; z-index: 11; overflow: auto; box-sizing: border-box;
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); font-size: 13px;
@@ -1113,7 +1093,7 @@ export const SEQ_VIEW_CSS = `#seq-bar:not([hidden]) ~ .overview { display: none;
 .sp-head text { font-size: 11.5px; font-weight: 600; fill: var(--text); }
 .seq-phase .seq-block .b-kind, .seq-phase .seq-block .b-label { font-size: 10px; }
 .seq-phase .link.seq-m .m-label { font-size: 11px; font-weight: 500; }
-.sp-arrow { position: absolute; width: 36px; text-align: center; font-size: 22px; line-height: 28px; color: var(--text-4); }
+.sp-arrow { position: absolute; width: 36px; text-align: center; font-size: 22px; line-height: 28px; color: var(--text-3); }
 @media (max-width: 860px) {
   .seq-steps { top: auto; left: 16px; width: auto; height: 30vh; }
   .sw-t { max-width: 200px; }
@@ -1136,13 +1116,13 @@ export const DOC_CSS = `.doc-badge {
   color: var(--bg); background: var(--warn);
 }
 .doc-badge.broken { background: var(--text); }
-.doc-badge.cover { color: var(--accent); background: var(--accent-soft); }
+.doc-badge.cover { color: var(--accent); background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
 .doc-badge.none { color: var(--text-3); background: var(--lane); }
 .doc-badge.stale { background: var(--warn); }
-.badge.doc-gap, .badge.doc-unverified { color: var(--warn); background: var(--warn-soft); }
+.badge.doc-gap, .badge.doc-unverified { color: var(--warn); background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
 .doc-mix { display: flex; height: 10px; margin: 4px 0 8px; border-radius: 5px; overflow: hidden; background: var(--lane); }
 .doc-mix span { display: block; height: 100%; }
-.doc-mix .mix-0 { background: var(--accent); }
+.doc-mix .mix-0 { background: var(--accent-fill); }
 .doc-mix .mix-1 { background: var(--ok); }
 .doc-mix .mix-2 { background: var(--warn); }
 .doc-mix .mix-3 { background: var(--live); }
@@ -1151,7 +1131,10 @@ export const DOC_CSS = `.doc-badge {
 .doc-thumb { display: block; max-width: 100%; margin: 8px 0; border: 1px solid var(--border); border-radius: 6px; }
 .doc-routes .loc { font-size: 12px; color: var(--text-3); }`;
 
-const ROOT_TOKENS = `:root {${LIGHT_TOKENS}  --font: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;\n  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;\n}`;
+// 테마를 바꾸면 선과 바탕 색 전환이 그림 전체에서 한꺼번에 돈다. 모션 줄이기에서는 초점 이동과 서랍까지 즉시 바꾼다
+const REDUCED_MOTION_CSS = `@media (prefers-reduced-motion: reduce) {\n  *, *::before, *::after { transition: none !important; }\n}`;
+
+const ROOT_TOKENS = `${digestThemeCss()}\n:root {${ROLE_TOKENS}${LIGHT_TOKENS}  --font: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;\n  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;\n}\n${REDUCED_MOTION_CSS}`;
 
 /** 색과 글꼴 토큰만. 구조도 레이아웃 CSS 없이 테마만 빌려 쓰는 정적 페이지(구조 변경 그림)용이다 */
 export function renderTokenCss(): string {

@@ -44,6 +44,7 @@ import { cspMeta } from './csp.js';
 import { CHUNK_DESC_MAX_UNITS } from './layout-tuning.js';
 import { LIVE_FORM_CSS, renderLiveScript } from './live-client.js';
 import { computeFlowLayout, type FlowLevel } from './flow-layout.js';
+import { themeSwitchHtml } from '../digest/theme-color.js';
 import { markBidi, renderClientScript, THEME_BOOT_SCRIPT } from './html-client.js';
 import {
   datastoreEngine,
@@ -2693,7 +2694,7 @@ function renderBar(
     `<button type="button" class="btn" id="zoom-fit" title="화면에 맞추기 (0)">${iconUse('u-fit')}<span class="label">맞춤</span></button>` +
     `<button type="button" class="btn" id="legend-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="legend">${iconUse('u-legend')}<span class="label">범례</span></button>` +
     `<button type="button" class="btn" id="q-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="questions">${iconUse('u-question')}<span class="label">확인할 질문</span><span class="${qClass}">${questionCount}</span></button>` +
-    `<button type="button" class="btn icon" id="theme-btn" aria-label="테마 바꾸기">${iconUse('u-moon', 'moon')}${iconUse('u-sun', 'sun')}</button>` +
+    `<details class="theme-pop"><summary class="btn">테마</summary>${themeSwitchHtml()}</details>` +
     `<span class="meta" title="만든 시각 ${escapeHtml(generatedAt)}"><span>항목 ${nodeCount}</span><span>연결 ${edgeCount}</span>` +
     (docCoverage !== undefined
       ? `<span title="문서가 붙은 서비스, 앱, 모듈, 기능, 화면">문서 있음 ${docCoverage.covered}/${docCoverage.total}</span>`
