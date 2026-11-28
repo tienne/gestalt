@@ -456,8 +456,8 @@ export const THEME_BLOCK_START = '<!-- gestalt-theme:start -->';
 export const THEME_BLOCK_END = '<!-- gestalt-theme:end -->';
 
 /**
- * 템플릿 10종이 같은 스크립트를 한 벌씩 들고 있어서 주석 줄과 들여쓰기만 걷는다.
- * 스크립트는 ES5라 템플릿 리터럴이 없고 줄 단위로 걷어도 문자열이 안 바뀐다.
+ * 템플릿 10종이 같은 스크립트를 한 벌씩 들고 있어서 줄 앞뒤 공백과 //로 시작하는 줄만 걷는다.
+ * 줄 이어 쓰기나 템플릿 리터럴처럼 여러 줄에 걸친 문자열은 지원하지 않는다. 걷으면 그 문자열이 바뀐다.
  */
 function compactJs(js: string): string {
   return js
