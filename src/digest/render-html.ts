@@ -29,9 +29,10 @@ import {
 import { renderDigestMarkdown, renderExtensionMarkdown } from './render-md.js';
 import { WIDGET_CSS, widgetHtml } from './render-widgets.js';
 import { initialReportIndex, isPreset, pairIndex, reportKey, reportLabel } from './reports.js';
-import { STEP_SEC } from './svg.js';
 import { DIARY_CSS, DIARY_FONT_LINK } from './theme-diary.js';
-import { THEME_BOOT_JS, VIEWER_JS } from './viewer-js.js';
+import { diagramCss, diagramMotionCss } from './diagram-css.js';
+import { THEME_BOOT_JS, digestThemeCss, themeSwitchHtml } from './theme-color.js';
+import { VIEWER_JS } from './viewer-js.js';
 import {
   boldPattern,
   FOLLOWUP_LABEL,
@@ -574,7 +575,7 @@ ${hasTabs ? '<noscript><style>.ext{display:block!important}.tabs,.more-btn,.quiz
 <aside class="side" id="side">${side}</aside>
 ${textKind ? '<button type="button" id="doc-open" class="doc-open" aria-controls="side" aria-expanded="false">원문 보기</button>' : ''}
 <main class="main">
-<header class="head"><h1>${e(meta.title)}</h1><p class="facts">${facts}</p>${opts.slidesFailed ? `<p class="note">${SLIDES_FAILED_NOTICE}</p>` : ''}<div class="head-row">${hasTabs ? '' : reportBar}<div class="tools"><button type="button" id="copy-md">마크다운 복사</button><label>글자 크기 <input id="font-range" type="range" min="85" max="145" step="5" value="100"> <output id="font-value">100%</output></label><span class="theme-switch" role="group" aria-label="테마"><button type="button" data-theme-set="auto" aria-pressed="true">자동</button><button type="button" data-theme-set="light" aria-pressed="false">라이트</button><button type="button" data-theme-set="dark" aria-pressed="false">다크</button></span><p id="copy-status" class="sr-only" role="status" aria-live="polite"></p></div></div>
+<header class="head"><h1>${e(meta.title)}</h1><p class="facts">${facts}</p>${opts.slidesFailed ? `<p class="note">${SLIDES_FAILED_NOTICE}</p>` : ''}<div class="head-row">${hasTabs ? '' : reportBar}<div class="tools"><button type="button" id="copy-md">마크다운 복사</button><label>글자 크기 <input id="font-range" type="range" min="85" max="145" step="5" value="100"> <output id="font-value">100%</output></label>${themeSwitchHtml()}<p id="copy-status" class="sr-only" role="status" aria-live="polite"></p></div></div>
 <noscript><p class="note">자바스크립트가 꺼져 있어 출처 툴팁과 키워드 팝업, 재생 따라가기, 리포트 전환이 동작하지 않아요.${isYoutube ? ' 시각 링크는 유튜브 새 탭으로 열려요.' : ''}</p></noscript></header>
 ${tabRow}
 ${summaryPanel}
@@ -599,9 +600,8 @@ ${opts.slides?.size ? `<script>${SLIDE_VIEWER_JS}</script>` : ''}
 // max(300px, ...)의 300px는 낮은 창에서 영상 폭이 줄어드는 바닥이다.
 // 영상이 없는 문서형(is-doc)과 팟캐스트(is-audio)는 render-lens.ts에서 데스크톱 폭을 420px로 덮는다.
 const CSS = `
-:root{color-scheme:light;--bg:#fafaf9;--fg:#1c1917;--muted:#78716c;--line:#e7e5e4;--card:#fff;--accent:#2563eb;--warn:#b45309;--chip:#f5f5f4;--hl:#fef3c7;--on-accent:#fff;--scale:1;--float-w:min(360px,60vw,calc(40vh * 16 / 9))}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0c0a09;--fg:#f5f5f4;--muted:#a8a29e;--line:#292524;--card:#1c1917;--accent:#60a5fa;--warn:#fbbf24;--chip:#292524;--hl:#422006;--on-accent:#0c0a09}}
-:root[data-theme="dark"]{color-scheme:dark;--bg:#0c0a09;--fg:#f5f5f4;--muted:#a8a29e;--line:#292524;--card:#1c1917;--accent:#60a5fa;--warn:#fbbf24;--chip:#292524;--hl:#422006;--on-accent:#0c0a09}
+${digestThemeCss()}
+:root{--scale:1;--float-w:min(360px,60vw,calc(40vh * 16 / 9))}
 *{box-sizing:border-box}
 html{font-size:calc(100% * var(--scale))}
 body{margin:0;background:var(--bg);color:var(--fg);font:1rem/1.7 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif}
@@ -631,7 +631,7 @@ button{font:inherit;color:inherit}
 .script-body{overflow:auto;flex:1;position:relative}
 #script-list{list-style:none;margin:0;padding:4px 0}
 #script-list li{display:flex;gap:10px;padding:4px 12px;font-size:.9em;line-height:1.55}
-#script-list li.is-playing{background:var(--hl)}
+#script-list li.is-playing{background:var(--hl)}#script-list li.is-playing .ts{color:var(--fg)}
 .tr{display:block;color:var(--muted);font-size:.95em}
 .spk{display:inline-block;margin-right:6px;font-size:.78em;font-weight:600;color:var(--accent)}
 .script.hide-tr .tr{display:none}
@@ -640,7 +640,7 @@ button{font:inherit;color:inherit}
 .script.is-focus #script-list li:not(.is-playing){display:none}
 .script.is-focus:not(.has-cur) #script-list li:first-child{display:flex}
 .tr-toggle,.script-toggle{float:right;border:1px solid var(--line);background:var(--card);border-radius:6px;padding:0 8px;font-size:.85em;font-weight:400;cursor:pointer}
-.tr-toggle[aria-pressed="true"],.script-toggle[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.tr-toggle[aria-pressed="true"],.script-toggle[aria-pressed="true"]{background:var(--accent-fill);color:var(--on-accent);border-color:var(--accent-fill)}
 .tr-toggle + .script-toggle{margin-right:6px}
 .ts{font-variant-numeric:tabular-nums;color:var(--accent);text-decoration:none;font-size:.85em;white-space:nowrap;cursor:pointer}
 a.ts:hover{text-decoration:underline}
@@ -653,14 +653,16 @@ a.ts:hover{text-decoration:underline}
 .head-row .report-bar{margin:0}
 .head-row .report-bar~.tools{margin-left:auto}
 .tools button{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:4px 10px;cursor:pointer}
-.theme-switch{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;gap:2px}
+.theme-switch{display:inline-flex;flex-wrap:wrap;align-items:center;border:1px solid var(--line);border-radius:12px;padding:2px;gap:2px 6px}
+.theme-switch label{display:inline-flex;align-items:center;gap:4px;font-size:.85em;padding:0 4px}
+.theme-switch select{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:2px 4px;min-height:28px}
 .tools .theme-switch button{border:0;border-radius:999px;padding:2px 10px;background:none}
-.tools .theme-switch button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.tools .theme-switch button[aria-pressed="true"]{background:var(--accent-fill);color:var(--on-accent)}
 .note{color:var(--warn);font-size:.9em}
 .report-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0;font-size:.85em}
 .report-bar .bar-label{color:var(--muted);margin-left:6px}
 .report-bar button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:3px 12px;cursor:pointer}
-.report-bar button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.report-bar button[aria-pressed="true"]{background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)}
 .report-bar select{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .report-missing{border:1px dashed var(--line);border-radius:8px;padding:8px 12px;margin:8px 0;font-size:.88em;background:var(--card)}
@@ -678,7 +680,7 @@ a.ts:hover{text-decoration:underline}
 .busy-dot{display:inline-block;width:.75em;height:.75em;margin-right:6px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;vertical-align:-.08em;animation:busy-spin .9s linear infinite}
 .busy-dot.is-stopped{animation:none;border-color:var(--warn)}
 @keyframes busy-spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.busy-dot{animation:none;border-color:var(--accent)}}
+@media (prefers-reduced-motion:reduce){.busy-dot{animation:none;border-color:var(--accent-fill)}}
 .ext-pending .pending-meta{color:var(--muted);font-size:.92em}
 .ext-pending .pending-hint{color:var(--muted);font-size:.85em}
 .busy-chip{display:inline-flex;align-items:center;margin-left:8px;border:1px solid var(--line);border-radius:999px;padding:1px 10px;font-size:.85em;color:var(--muted);background:var(--card)}
@@ -731,76 +733,20 @@ button.busy-chip{cursor:pointer;color:var(--accent)}
 .quiz-q.is-wrong .quiz-result{color:var(--warn);font-weight:600}
 .quiz-choice.is-answer>span:not(.quiz-mark){background:var(--hl);font-weight:600}
 .quiz-choice.is-picked>span:not(.quiz-mark){outline:2px dashed var(--warn);outline-offset:1px;border-radius:3px}
-.diagram{margin:16px 0}
 .fig-card{margin:24px 0}
 .fig-card .diagram{margin:8px 0}
 .fig-exp{margin:6px 0 0}
-.dg-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--card);padding:8px}
-.dg-svg{display:block;max-width:none}
-.dg-svg text{fill:var(--fg);font-size:13px;font-family:inherit}
-.dg-svg rect{fill:var(--bg);stroke:var(--line)}
-.dg-svg path,.dg-svg line{stroke:var(--muted);fill:none;stroke-width:1.2}
-.dg-svg .mm-d0 rect,.dg-svg .dg-head rect{fill:var(--accent);stroke:var(--accent)}
-.dg-svg .mm-d0 text,.dg-svg .dg-head text{fill:var(--on-accent);font-size:14px;font-weight:600}
-.dg-svg .mm-d1 rect,.dg-flow rect,.dg-cycle rect,.dg-timeline rect{stroke:var(--accent)}
-.dg-svg rect.dg-cell{fill:var(--card);stroke:var(--line);stroke-dasharray:4 3}
-.dg-svg .dg-dot{fill:var(--accent);stroke:none}
-.dg-svg .dg-when text{fill:var(--accent);font-weight:600}
-.dg-svg .dg-axis text{fill:var(--muted)}
-.dg-svg .dg-arrow{fill:var(--muted);stroke:none}
-.dg-svg .mm-cite,.dg-svg .dg-cite{cursor:pointer}
+${diagramCss()}.dg-svg .mm-cite,.dg-svg .dg-cite{cursor:pointer}
 .dg-svg .mm-cite:hover rect,.dg-svg .dg-cite:hover rect{fill:var(--hl)}
 .dg-svg .mm-cite:focus{outline:none}.dg-svg .dg-cite:focus{outline:none}
-.dg-svg .mm-cite:focus-visible rect,.dg-svg .dg-cite:focus-visible rect{stroke:var(--accent);stroke-width:2}
-.dg-bar{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:4px;font-size:.9em;color:var(--muted)}
-.dg-bar span{margin-right:auto}
+.dg-svg .mm-cite:focus-visible rect,.dg-svg .dg-cite:focus-visible rect{stroke:var(--gestalt-color-focus);stroke-width:2}
 .zoom-btn{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer;color:inherit;font:inherit}
-.dg-outline{margin-top:4px;font-size:.92em}
-.dg-outline summary{cursor:pointer;color:var(--muted)}
-.dg-svg .dg-focus rect{fill:var(--hl);stroke:var(--accent);stroke-width:2}
-.dg-svg .dg-focus text{font-weight:600}
-.dg-svg .dg-stat-value text{fill:var(--accent);font-size:40px;font-weight:700}
-.dg-svg .dg-stat-label rect{fill:none;stroke:none}
-.dg-svg .dg-spark circle{fill:var(--accent);opacity:.45}
-.dg-svg .dg-picked rect{fill:var(--hl);stroke:var(--accent);stroke-width:3}
-.dg-svg .dg-picked text{font-weight:600}
-.dg-svg .dg-check{stroke:var(--accent);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
-.dg-svg .dg-dim{opacity:.5}
-.dg-svg rect.dg-scan{fill:var(--accent);stroke:none;opacity:0}
+.dg-svg rect.dg-scan{fill:var(--accent-fill);stroke:none;opacity:0}
 .replay-btn{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 10px;cursor:pointer;color:inherit;font:inherit}
 .replay-btn[hidden]{display:none}
 .sec-card>.conclusion strong,.sec-intro strong,.lead strong{background:linear-gradient(var(--hl),var(--hl)) 0 88%/100% 42% no-repeat}
 .sec-card{--dg-base:.9s}
-.armed{--dg-ease:cubic-bezier(.22,.8,.3,1)}
-.armed>.conclusion,.armed .dg-step,.armed .dg-arrow,.armed .dg-dot,.armed .dg-cell,.armed .dg-spark,.armed .dg-when,.armed .dg-axis{opacity:0}
-.armed .dg-svg path.dg-line{stroke-dasharray:1;stroke-dashoffset:1}
-.armed .dg-svg .dg-picked rect{fill:var(--bg);stroke:var(--line);stroke-width:1}
-.armed .dg-svg .dg-picked text{font-weight:400}
-.armed .dg-svg .dg-check{opacity:0}
-.armed .dg-svg .dg-dim{opacity:1}
-.armed>.conclusion strong{background-size:0 42%}
-.armed.play>.conclusion{animation:dg-up .5s var(--dg-ease) both}
-.armed.play>.conclusion strong{animation:dg-hl .6s var(--dg-ease) .3s both}
-.armed.play .dg-step{animation:dg-pop .4s var(--dg-ease) both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,${STEP_SEC}s));transform-box:fill-box;transform-origin:center}
-.armed.play .dg-svg path.dg-line{animation:dg-draw .55s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,${STEP_SEC}s))}
-.armed.play .dg-arrow{animation:dg-fade .2s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,${STEP_SEC}s) + .45s)}
-.armed.play .dg-dot,.armed.play .dg-cell,.armed.play .dg-spark{animation:dg-fade .3s ease both;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,${STEP_SEC}s))}
-.armed.play .dg-when,.armed.play .dg-axis{animation:dg-fade .3s ease both;animation-delay:var(--dg-base,0s)}
-.armed.play .dg-focus{animation:dg-ping .8s ease-in-out 3;animation-delay:calc(var(--dg-base,0s) + var(--i,0) * var(--dg-step,${STEP_SEC}s) + .4s);transform-box:fill-box;transform-origin:center}
-.armed.play .dg-svg rect.dg-scan{animation:dg-scan 1s linear both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,${STEP_SEC}s) + .4s)}
-.armed.play .dg-svg .dg-picked rect{animation:dg-pick .4s ease both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,${STEP_SEC}s) + 1.4s)}
-.armed.play .dg-svg .dg-check{animation:dg-fade .3s ease both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,${STEP_SEC}s) + 1.4s)}
-.armed.play .dg-svg .dg-dim{animation:dg-dim .4s ease both;animation-delay:calc(var(--dg-base,0s) + var(--n,0) * var(--dg-step,${STEP_SEC}s) + 1.4s)}
-@keyframes dg-up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-@keyframes dg-pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
-@keyframes dg-fade{from{opacity:0}to{opacity:1}}
-@keyframes dg-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
-@keyframes dg-hl{from{background-size:0 42%}to{background-size:100% 42%}}
-@keyframes dg-ping{0%,100%{transform:none}50%{transform:scale(1.08)}}
-@keyframes dg-scan{0%{opacity:0;transform:translateX(0)}10%,90%{opacity:.7}100%{opacity:0;transform:translateX(var(--w,0px))}}
-@keyframes dg-pick{from{fill:var(--bg);stroke:var(--line);stroke-width:1}to{fill:var(--hl);stroke:var(--accent);stroke-width:3}}
-@keyframes dg-dim{from{opacity:1}to{opacity:.5}}
-@media (prefers-reduced-motion:reduce),print{.armed>.conclusion,.armed .dg-step,.armed .dg-arrow,.armed .dg-dot,.armed .dg-cell,.armed .dg-spark,.armed .dg-when,.armed .dg-axis,.armed .dg-focus{opacity:1!important;animation:none!important}.armed .dg-svg .dg-check{opacity:1!important;animation:none!important}.armed .dg-svg .dg-picked rect{fill:var(--hl);stroke:var(--accent);stroke-width:3;animation:none!important}.armed .dg-svg .dg-picked text{font-weight:600}.armed .dg-svg .dg-dim{opacity:.5;animation:none!important}.armed .dg-svg rect.dg-scan{opacity:0;animation:none!important}.armed .dg-svg path.dg-line{stroke-dasharray:none;animation:none!important}.armed>.conclusion strong{background-size:100% 42%;animation:none!important}}
+${diagramMotionCss()}
 #zoom-dialog{width:min(96vw,1400px);max-height:92vh;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--fg);padding:12px}
 #zoom-dialog::backdrop{background:rgba(0,0,0,.5)}
 #zoom-dialog .zoom-body{overflow:auto;max-height:calc(92vh - 64px)}
@@ -860,7 +806,7 @@ body[data-tab="ext"] .minimap{display:none}
 .pop p{margin:4px 0 0}
 .minimap{position:fixed;right:12px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:6px;z-index:10}
 .minimap a{display:flex;width:28px;height:28px;border-radius:50%;align-items:center;justify-content:center;background:var(--card);border:1px solid var(--line);color:var(--muted);text-decoration:none;font-size:12px}
-.minimap a.is-current{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.minimap a.is-current{background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)}
 .minimap[hidden]{display:none}
 @container (max-width:640px){.sub-body.has-shots{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:900px){

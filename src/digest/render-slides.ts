@@ -52,7 +52,7 @@ export function slideDialogHtml(id: string, deck: SlideSource, omitCrops?: boole
 }
 
 export const SLIDE_CSS = `
-.slide-cite{display:inline-block;margin-inline:.3em;padding:.1em .4em;border:1px solid var(--line);border-radius:.35em;background:var(--chip);color:var(--accent);font:inherit;font-size:.8em;cursor:pointer}
+.slide-cite{display:inline-block;margin-inline:.3em;padding:.1em .4em;border:1px solid var(--line);border-radius:.35em;background:var(--card);color:var(--accent);font:inherit;font-size:.8em;cursor:pointer}
 .slide-comparison{margin:.45em 0;padding:.5em .75em;border-inline-start:3px solid var(--accent);background:var(--chip)}
 .slide-comparison p{margin:.2em 0}.slide-comparison blockquote{margin:.2em 0 .4em 1em}
 .slide-dialog{width:min(68rem,90vw);max-height:85dvh;padding:1rem;border:1px solid var(--line);border-radius:.6rem;background:var(--bg);color:var(--fg)}

@@ -358,22 +358,23 @@ export function sectionContextHtml(
   return `<aside class="ctx" aria-label="바깥 맥락과 내 지식">${mine.map((c) => contextCardHtml(c, ctx)).join('')}${linked.map((l) => knowledgeLinkHtml(l, ctx)).join('')}</aside>`;
 }
 
+// 색은 공용 테마의 역할 변수만 읽는다. 원문 쪽 그림과 잘라낸 표, 그림은 종이 원본이라 흰 바탕과 쪽 번호 색을 테마와 상관없이 둔다
 export const LENS_CSS = `
 .doc-pane{display:flex;flex-direction:column;min-height:0;flex:1;border:1px solid var(--line);border-radius:8px;background:var(--card)}
 .doc-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);font-size:.85em;color:var(--muted)}
 .doc-bar button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:2px 10px;cursor:pointer}
-.doc-bar button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.doc-bar button[aria-pressed="true"]{background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)}
 .doc-link{margin-left:auto}
 .doc-pages{position:relative;overflow:auto;flex:1;padding:8px;display:flex;flex-direction:column;gap:10px;background:var(--chip)}
 .doc-page{position:relative;width:100%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .doc-page img{display:block;width:100%;height:100%}
 .page-no{position:absolute;right:6px;bottom:4px;font-size:11px;color:#57534e;background:rgba(255,255,255,.8);padding:0 4px;border-radius:3px}
-.doc-hl{position:absolute;background:rgba(250,204,21,.28);outline:2px solid rgba(217,119,6,.85);border-radius:2px;pointer-events:none}
-.doc-hl.is-key{background:rgba(250,204,21,.45)}
+.doc-hl{position:absolute;background:color-mix(in srgb,var(--gestalt-color-highlight) 45%,transparent);outline:2px solid var(--gestalt-color-warning-fill);border-radius:2px;pointer-events:none}
+.doc-hl.is-key{background:color-mix(in srgb,var(--gestalt-color-highlight) 70%,transparent)}
 #script-list li.is-cited{background:var(--hl)}
 #script-list li.u-heading .src{font-weight:700}
 #script-list li.u-caption .src{font-style:italic;color:var(--muted)}
-.loc{border:0;background:var(--chip);color:var(--accent);border-radius:4px;padding:0 5px;font-size:.78em;cursor:pointer;white-space:nowrap;font-variant-numeric:tabular-nums}
+.loc{border:1px solid var(--line);background:var(--card);color:var(--accent);border-radius:4px;padding:0 5px;font-size:.78em;cursor:pointer;white-space:nowrap;font-variant-numeric:tabular-nums}
 .loc:hover{text-decoration:underline}
 .glance{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:6px 16px;margin:16px 0}
 .glance h2{font-size:1em;margin:8px 0}
@@ -410,7 +411,7 @@ li.aside{background:var(--card);border:1px dashed var(--line);border-radius:6px;
 .fig-pair{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr);gap:10px;align-items:start}
 .page-thumb{position:relative;padding:0;border:1px solid var(--line);border-radius:4px;background:#fff;cursor:pointer;display:block}
 .page-thumb img{display:block;width:100%;height:auto}
-.thumb-hl{position:absolute;outline:2px solid var(--warn);background:rgba(250,204,21,.25)}
+.thumb-hl{position:absolute;outline:2px solid var(--gestalt-color-warning-fill);background:color-mix(in srgb,var(--gestalt-color-highlight) 45%,transparent)}
 .player-audio .player{background:var(--card)}
 .ctx{display:flex;flex-direction:column;gap:8px;margin:16px 0}
 .ctx-card{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;background:var(--card);padding:6px 12px}

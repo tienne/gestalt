@@ -4,6 +4,7 @@ import { lintPrdView } from '../../../src/digest/lint-prd.js';
 import { collectPrdGaps } from '../../../src/digest/lint-prd-gaps.js';
 import { parsePrdView, type PrdView } from '../../../src/digest/prd-schema.js';
 import { PRD_VIEWER_JS } from '../../../src/digest/prd-viewer-js.js';
+import { THEME_BOOT_JS } from '../../../src/digest/theme-color.js';
 import { renderPrdHtml, type RenderPrdOptions } from '../../../src/digest/render-prd.js';
 import { sampleSource, sampleV2, sampleView } from './prd-fixture.js';
 
@@ -28,6 +29,7 @@ function open(view: PrdView, hash = '', options: Partial<RenderPrdOptions> = {})
   });
   windows.push(window);
   window.document.write(html.replace(/<script>[\s\S]*?<\/script>/g, ''));
+  window.eval(THEME_BOOT_JS);
   window.eval(PRD_VIEWER_JS);
   const query = (selector: string) => {
     const el = window.document.querySelector<HTMLElement>(selector);
@@ -212,11 +214,20 @@ describe('PRD 뷰어 조작', () => {
     const { window, query, click } = open(sampleV2().view);
     await click('[data-source-toggle]');
     expect(window.document.documentElement.classList.contains('show-src')).toBe(true);
-    await click('[data-theme-toggle]');
+    const bg = query('#theme-bg') as unknown as HTMLSelectElement;
+    bg.value = 'paper';
+    bg.dispatchEvent(new window.Event('change', { bubbles: true }));
     expect(window.document.documentElement.dataset.theme).toBe('light');
+    expect(window.document.documentElement.dataset.gestaltBackground).toBe('paper');
+    expect(query('[data-theme-set="auto"]').getAttribute('aria-pressed')).toBe('false');
     await click('[role="tab"][data-go="metrics"]');
     expect(window.localStorage.getItem('gestalt-prd-view:도서 대여:tab')).toBe('metrics');
-    expect(window.localStorage.getItem('gestalt-prd-view:도서 대여:theme')).toBe('light');
+    expect(JSON.parse(window.localStorage.getItem('gestalt-digest-color')!)).toEqual({
+      background: 'paper',
+    });
+    await click('[data-theme-set="auto"]');
+    expect(query('[data-theme-set="auto"]').getAttribute('aria-pressed')).toBe('true');
+    expect(bg.value).toBe('paper');
     query('[role="tab"][data-go="metrics"]').dispatchEvent(
       new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
     );

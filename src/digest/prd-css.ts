@@ -1,4 +1,32 @@
 import { PRD_COPY as C } from './prd-copy.js';
+import { digestThemeCss } from './theme-color.js';
+
+const role = (name: string) => `var(--gestalt-color-${name})`;
+const tint = (name: string, pct: number) => `color-mix(in srgb,${role(name)} ${pct}%,transparent)`;
+
+// 영상 요약과 같은 테마를 깔고 PRD가 원래 쓰던 변수 이름을 역할에 잇는다.
+// 흐린 글자(--mute)도 대비 기준을 넘겨야 해서 보조 글자 역할로 합쳤다.
+const PRD_THEME_CSS =
+  digestThemeCss() +
+  `:root{${[
+    `--text:${role('text')}`,
+    `--sub:${role('text-muted')}`,
+    `--mute:${role('text-muted')}`,
+    `--rail:${role('surface')}`,
+    `--panel:color-mix(in srgb,${role('surface')} 50%,${role('background')})`,
+    `--line2:${role('border')}`,
+    `--gap:${role('border')}`,
+    `--accentbg:${tint('accent-fill', 14)}`,
+    `--ok:${role('success-text')}`,
+    `--okbg:${tint('success-fill', 12)}`,
+    `--warnbg:${tint('warning-fill', 12)}`,
+    `--bad:${role('danger-text')}`,
+    `--badbg:${tint('danger-fill', 12)}`,
+    `--info:${role('info-text')}`,
+    '--danger:var(--bad)',
+    '--chip:var(--panel)',
+    '--hl:var(--warnbg)',
+  ].join(';')}}`;
 
 export const PRD_CSS = `
 *{box-sizing:border-box}
@@ -19,9 +47,6 @@ main{padding:24px 0 80px;min-width:0}
 .meta .row{background:var(--chip);border-radius:999px;padding:2px 10px;font-size:.82rem}
 .meta .row b{color:var(--muted);font-weight:500;margin-right:6px}
 .src-path{color:var(--muted);font-size:.78rem;word-break:break-all}
-.theme-switch{display:inline-flex;gap:2px;border:1px solid var(--line);border-radius:8px;padding:2px;float:right}
-.theme-switch button{border:0;background:none;padding:2px 8px;border-radius:6px;cursor:pointer;font-size:.8rem}
-.theme-switch button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
 section.sec{margin:0 0 36px;scroll-margin-top:16px}
 section.sec>h2{font-size:1.2rem;margin:0 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}
 .blk{position:relative;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:0 0 12px;scroll-margin-top:16px}
@@ -79,7 +104,7 @@ section.sec>h2{font-size:1.2rem;margin:0 0 12px;padding-bottom:6px;border-bottom
 .aud-filter{display:flex;flex-wrap:wrap;gap:4px;padding:0 8px}
 .aud-filter .toc-h{flex-basis:100%;margin-left:0}
 .aud-filter button{border:1px solid var(--line);background:none;border-radius:999px;padding:0 10px;font-size:.8rem;cursor:pointer}
-.aud-filter button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.aud-filter button[aria-pressed="true"]{background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)}
 .blk.aud-hide{display:none}
 .overview details{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:8px 14px;margin:0 0 12px}
 .overview summary{cursor:pointer;font-weight:600}
@@ -96,18 +121,7 @@ section.sec>h2{font-size:1.2rem;margin:0 0 12px;padding-bottom:6px;border-bottom
 @media (max-width:860px){.layout{grid-template-columns:1fr}.toc{position:static;height:auto;padding-bottom:0}.cells{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 
-:root{
-  --bg:#0f0f10;--rail:#141415;--panel:#17171a;--card:#1c1c1f;--line:#2a2a2e;--line2:#34343a;
-  --text:#ececee;--sub:#a1a1a8;--mute:#6b6b73;--accent:#4c8dff;--accentbg:rgba(76,141,255,.14);
-  --ok:#3ecf8e;--okbg:rgba(62,207,142,.14);--warn:#f0b429;--warnbg:rgba(240,180,41,.14);
-  --bad:#ff6b6b;--badbg:rgba(255,107,107,.13);--gap:#3a3a40;
-}
-[data-theme=light]{
-  --bg:#f6f6f7;--rail:#ffffff;--panel:#fbfbfc;--card:#ffffff;--line:#e6e6ea;--line2:#d9d9de;
-  --text:#18181b;--sub:#55555d;--mute:#8b8b94;--accent:#2f6fec;--accentbg:rgba(47,111,236,.09);
-  --ok:#119a62;--okbg:rgba(17,154,98,.1);--warn:#b7791f;--warnbg:rgba(183,121,31,.1);
-  --bad:#d64545;--badbg:rgba(214,69,69,.09);--gap:#cfcfd6;
-}
+${PRD_THEME_CSS}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
   font:15px/1.7 -apple-system,BlinkMacSystemFont,"Pretendard","Apple SD Gothic Neo",sans-serif}
@@ -169,7 +183,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .chip.ok{background:var(--okbg);color:var(--ok);border-color:transparent}
 .chip.warn{background:var(--warnbg);color:var(--warn);border-color:transparent}
 .chip.bad{background:var(--badbg);color:var(--bad);border-color:transparent}
-.chip.acc{background:var(--accentbg);color:var(--accent);border-color:transparent}
+.chip.acc{background:var(--accentbg);color:var(--text);border-color:var(--accent)}
 .quote{border-left:3px solid var(--line2);padding:4px 0 4px 16px;color:var(--sub);font-style:italic}
 .callout{border-radius:10px;padding:12px 16px;background:var(--accentbg)}
 table{border-collapse:collapse;width:100%;font-size:14px;margin:4px 0}
@@ -233,8 +247,6 @@ code{font-size:.88em;background:var(--bg);border:1px solid var(--line);padding:0
 .mq:last-child{border:0}
 .mq .w{flex:1}
 
-:root,:root[data-theme="dark"]{color-scheme:dark;--fg:var(--text);--muted:var(--sub);--chip:var(--panel);--hl:var(--warnbg);--on-accent:#fff;--danger:var(--bad)}
-:root[data-theme="light"]{color-scheme:light;--fg:var(--text);--muted:var(--sub);--chip:var(--panel);--hl:var(--warnbg);--on-accent:#fff;--danger:var(--bad)}
 [hidden],.aud-hide{display:none!important}
 .main{padding:0;overflow:hidden}.body{height:100%}
 .top .title{font-size:14px;margin-top:0;margin-bottom:0;max-width:200px}.tabs{display:flex;flex-shrink:0;gap:4px}
@@ -263,4 +275,35 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 .gaprow .w{min-width:0}.gaprow>div:last-child{max-width:40%;min-width:0;overflow-wrap:anywhere}
 #panel-decisions .blk-question .chips{display:none}
 #panel-spec .spec-cards:not([hidden])+.bottombar{display:none}
+
+.theme-pop{position:relative}
+.theme-pop>summary{list-style:none;width:52px;padding:8px 0;border-radius:10px;font-size:11px;color:var(--sub);display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}
+.theme-pop>summary::-webkit-details-marker{display:none}
+.theme-pop[open]>summary{background:var(--accentbg);color:var(--text)}
+.theme-pop .theme-switch{position:absolute;left:calc(100% + 8px);bottom:0;z-index:10;display:grid;gap:8px;width:220px;padding:12px;background:var(--card);border:1px solid var(--line2);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.theme-pop .theme-switch label{display:grid;gap:4px;font-size:12px;color:var(--sub)}
+.theme-pop .theme-switch select{font:inherit;font-size:13px;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 6px;min-height:30px}
+.rail .theme-pop .theme-switch button{width:auto;flex-direction:row;font-size:13px;padding:4px 10px;border:1px solid var(--line);border-radius:8px;color:var(--text)}
+.rail .theme-pop .theme-switch button[aria-pressed="true"]{background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)}
+.theme-pop>summary:focus-visible,.theme-pop select:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:860px){.theme-pop>summary{width:44px}}
+
+.blk ol.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 28px;padding:0;list-style:none}
+.blk ol.flow li{position:relative;display:inline-flex;align-items:center;gap:8px;margin:0;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:3px 12px 3px 4px}
+.blk ol.flow li::before{content:counter(st);display:inline-grid;place-items:center;min-width:22px;height:22px;border-radius:50%;background:var(--accent-fill);color:var(--on-accent);font-size:12px;font-weight:700}
+.blk ol.flow li:not(:last-child)::after{content:"→"/"";position:absolute;right:-21px;color:var(--sub)}
+.blk .tl{position:relative;border-left:2px solid var(--line);padding-left:18px}
+.blk .tl li{position:relative;margin:10px 0}
+.blk .tl li::before{content:"";position:absolute;left:-24px;top:.6em;width:10px;height:10px;border-radius:50%;background:var(--accent-fill);box-shadow:0 0 0 3px var(--card)}
+.blk-compare thead th[scope="col"]{border-top:3px solid ${role('series-1')}}
+.blk-compare thead th[scope="col"]+th[scope="col"]{border-top-color:${role('series-2')}}
+.tbl td.empty{display:table-cell;background:repeating-linear-gradient(135deg,transparent 0 6px,var(--line) 6px 7px)}
+.blk-stateMatrix tbody th{background:var(--panel);color:var(--text)}
+/* 상태 글자색은 배경과 표면 위에서만 대비가 보장돼서 상태 칩은 바탕을 채우지 않고 테두리로 구분한다 */
+.badge,.badge.sum,.badge.warn,.chip.ok,.chip.warn,.chip.bad{background:transparent;border:1px solid currentColor}
+.card .blk-claim,.card .blk-callout{border-left:3px solid var(--line);padding-left:14px}
+.card .blk-claim.st-open,.card .blk-callout.tone-warn{border-left-color:var(--warn)}
+.card .blk-claim.st-confirmed{border-left-color:var(--ok)}
+.card .blk-callout.tone-info{border-left-color:var(--info)}
+.card .blk-callout.tone-danger{border-left-color:var(--danger)}
 `;

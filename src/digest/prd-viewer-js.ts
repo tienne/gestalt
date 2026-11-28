@@ -1,4 +1,3 @@
-import { PRD_COPY as C } from './prd-copy.js';
 import { createHash } from 'node:crypto';
 
 /** 탭, 기능 탐색, 대상별 필터를 단일 HTML 안에서 처리한다. 원문은 다시 쓰지 않는다. */
@@ -37,9 +36,11 @@ syncSpec();
 }
 function show(id,save){if(!panels.some(function(p){return p.getAttribute('data-panel')===id;}))id='prd';tab=id;panels.forEach(function(p){p.hidden=p.getAttribute('data-panel')!==id;});document.querySelectorAll('[data-go]').forEach(function(b){var active=b.getAttribute('data-go')===id;b.classList.toggle('on',active);if(b.getAttribute('role')==='tab'){b.setAttribute('aria-selected',String(active));b.tabIndex=active?0:-1;}});if(save){store('tab',id);location.hash='tab-'+id;}}
 function navigate(){var id;try{id=decodeURIComponent(location.hash.slice(1));}catch(e){return;}if(id.indexOf('tab-')===0){show(id.slice(4),false);store('tab',tab);return;}var el=document.getElementById(id);if(!el)return;var panel=el.closest('[data-panel]');if(!panel)return;show(panel.getAttribute('data-panel'),false);store('tab',tab);if(id.indexOf('f-')===0){selected=el.getAttribute('data-req');mode='directory';if(!visible(el)){audience='';pressed('[data-aud-filter]','data-aud-filter','');}if(phase&&el.getAttribute('data-phase')!==phase)phase='';filter();}else if(el.closest('[data-aud]')&&!visible(el.closest('[data-aud]'))){audience='';pressed('[data-aud-filter]','data-aud-filter','');filter();}if(el===panel){var content=panel.querySelector('.content');if(content)content.scrollTop=0;}el.scrollIntoView({block:'start'});}
-function theme(value){root.setAttribute('data-theme',value);store('theme',value);document.querySelector('[data-theme-label]').textContent=value==='dark'?'${C.light}':'${C.dark}';}
-theme(read('theme','dark'));
-document.querySelector('[data-theme-toggle]').addEventListener('click',function(){theme(root.getAttribute('data-theme')==='dark'?'light':'dark');});
+function setupTheme(){var api=window.gestaltDigestTheme;if(!api)return;var auto=document.querySelector('[data-theme-set="auto"]'),bg=document.getElementById('theme-bg'),ac=document.getElementById('theme-accent');
+function sync(){if(auto)auto.setAttribute('aria-pressed',api.get().background?'false':'true');if(bg)bg.value=root.getAttribute('data-gestalt-background')||'';if(ac)ac.value=root.getAttribute('data-gestalt-accent')||'';}
+if(auto)auto.addEventListener('click',function(){api.set({background:null});});if(bg)bg.addEventListener('change',function(){api.set({background:bg.value});});if(ac)ac.addEventListener('change',function(){api.set({accent:ac.value});});
+document.addEventListener('gestalt-theme',sync);sync();}
+setupTheme();
 document.querySelector('[data-source-toggle]').addEventListener('click',function(){var on=root.classList.toggle('show-src');this.setAttribute('aria-pressed',String(on));});
 document.querySelectorAll('[data-go]').forEach(function(b){b.addEventListener('click',function(){show(b.getAttribute('data-go'),true);});});
 document.querySelectorAll('[role=tab]').forEach(function(b){b.addEventListener('keydown',function(e){var tabs=Array.from(document.querySelectorAll('[role=tab]'));var i=tabs.indexOf(b);if(e.key==='ArrowRight')i=(i+1)%tabs.length;else if(e.key==='ArrowLeft')i=(i+tabs.length-1)%tabs.length;else if(e.key==='Home')i=0;else if(e.key==='End')i=tabs.length-1;else return;e.preventDefault();tabs[i].focus();show(tabs[i].getAttribute('data-go'),true);});});
@@ -54,11 +55,4 @@ show(read('tab','prd'),false);filter();navigate();
 
 export const PRD_VIEWER_JS_SHA256 = createHash('sha256')
   .update(PRD_VIEWER_JS, 'utf8')
-  .digest('base64');
-
-/** 저장한 테마를 첫 화면을 그리기 전에 적용한다. */
-export const PRD_THEME_BOOT_JS =
-  "try{var t=localStorage.getItem('gestalt-prd-view:'+document.title+':theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}";
-export const PRD_THEME_BOOT_JS_SHA256 = createHash('sha256')
-  .update(PRD_THEME_BOOT_JS, 'utf8')
   .digest('base64');

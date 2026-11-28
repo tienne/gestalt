@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { lintPrdView } from '../../../src/digest/lint-prd.js';
 import { parsePrdView, type PrdView } from '../../../src/digest/prd-schema.js';
 import { PRD_HTML_MARKER } from '../../../src/digest/prd-store.js';
-import { PRD_VIEWER_JS, PRD_THEME_BOOT_JS } from '../../../src/digest/prd-viewer-js.js';
+import { PRD_VIEWER_JS } from '../../../src/digest/prd-viewer-js.js';
+import { THEME_BOOT_JS } from '../../../src/digest/theme-color.js';
 import { renderPrdHtml } from '../../../src/digest/render-prd.js';
 import { inlineMd } from '../../../src/digest/render-prd-blocks.js';
 import { collectPrdGaps } from '../../../src/digest/lint-prd-gaps.js';
@@ -96,7 +97,7 @@ describe('renderPrdHtml', () => {
     const html = render(v);
     const scripts = html.match(/<script>[\s\S]*?<\/script>/g) ?? [];
     expect(scripts).toEqual([
-      `<script>${PRD_THEME_BOOT_JS}</script>`,
+      `<script>${THEME_BOOT_JS}</script>`,
       `<script>${PRD_VIEWER_JS}</script>`,
     ]);
     expect(html).not.toContain('<img');

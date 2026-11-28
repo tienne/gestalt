@@ -2,7 +2,8 @@
  * 영상 요약과 읽기 렌즈가 같이 쓰는 다이어리 테마. 본문을 줄 노트 한 장으로 그리고 제목은 손글씨로 쓴다.
  * render-html이 body에 is-diary를 붙여 모든 요약에 건다. 렌즈 전용 칸(한눈에 보기, 의심 표시)은 영상에 없어서 같이 둬도 영향이 없다.
  * 템플릿 리터럴 안이라 백틱과 달러 중괄호를 쓰지 않는다. 바깥 값은 문자열 연결로 끼운다.
- * 폴라로이드(--polaroid)는 다크에서도 흰 종이라 캡션 색을 고정값으로 두고 다크 팔레트에서 다시 정하지 않는다
+ * 색은 Gestalt 역할 변수만 읽어서 고른 배경과 강조색을 따라간다. 책상은 배경, 노트 종이는 표면 역할이다.
+ * 폴라로이드(--polaroid)는 어떤 테마에서도 흰 인화지라 캡션 색을 고정값으로 둔다
  * 형광펜 선택자는 render-html의 기본 규칙(.sec-card>.conclusion strong, 특이도 0,2,1)보다 낮으면 .conclusion에서 진다. :where로 묶지 않고 .is-diary를 앞에 붙여 이긴다
  */
 
@@ -10,19 +11,8 @@
 export const DIARY_FONT_LINK =
   '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&display=swap">\n';
 
-/** 다크 팔레트. OS 설정을 따를 때와 다크를 고른 때가 같은 값을 쓴다 */
-const DARK_PALETTE =
-  '--bg:#29292a;--page:#333334;--rule:rgba(255,255,255,.07);--margin:rgba(255,130,130,.35);--fg:#ededed;--muted:#adadad;--line:#4a4a4b;--card:#3c3c3d;--chip:#444445;--accent:#6fd3cf;--warn:#ff8a7a;--hl:rgba(255,226,80,.3);--on-accent:#29292a;--sticky:#5a5130;--tape:rgba(255,170,200,.22);--ink-red:#ff8a7a;--ink-blue:#8db7ff;--ink-green:#7fd6a0;--ink-orange:#ffb35c';
-
-export const DIARY_CSS =
-  `
-.is-diary{--bg:#e9e1d1;--page:#fffdf7;--rule:rgba(70,110,170,.14);--margin:rgba(214,72,72,.42);--fg:#2d2a26;--muted:#7b7368;--line:#e4d9c6;--card:#fffaf0;--chip:#f2e9d6;--accent:#1f7a7a;--warn:#c4362b;--hl:#fff08a;--on-accent:#fff;--sticky:#fff3a6;--tape:rgba(240,150,170,.45);--ink-red:#c4362b;--ink-blue:#2f5d9e;--ink-green:#2e8a57;--ink-orange:#d0700e;--hand:"Nanum Pen Script","Gaegu","AppleMyungjo",serif;--polaroid:#fdfdfb;--polaroid-ink:#555;--polaroid-accent:#1f7a7a;--sans:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif}
-` +
-  '@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .is-diary{' +
-  DARK_PALETTE +
-  '}}\n:root[data-theme="dark"] .is-diary{' +
-  DARK_PALETTE +
-  `}
+export const DIARY_CSS = `
+.is-diary{--bg:var(--gestalt-color-background);--page:var(--gestalt-color-surface);--card:var(--gestalt-color-background);--chip:color-mix(in srgb,var(--gestalt-color-text) 6%,var(--gestalt-color-surface));--fg:var(--gestalt-color-text);--muted:var(--gestalt-color-text-muted);--line:var(--gestalt-color-border);--accent:var(--gestalt-color-accent-text);--accent-fill:var(--gestalt-color-accent-fill);--on-accent:var(--gestalt-color-on-accent);--warn:var(--gestalt-color-danger-text);--hl:var(--gestalt-color-highlight);--sticky:var(--gestalt-color-highlight);--rule:color-mix(in srgb,var(--gestalt-color-info-text) 14%,transparent);--margin:color-mix(in srgb,var(--gestalt-color-danger-text) 40%,transparent);--tape:color-mix(in srgb,var(--gestalt-color-accent-fill) 35%,transparent);--ink-red:var(--gestalt-color-danger-text);--ink-blue:var(--gestalt-color-info-text);--ink-green:var(--gestalt-color-success-text);--ink-orange:var(--gestalt-color-warning-text);--hand:"Nanum Pen Script","Gaegu","AppleMyungjo",serif;--polaroid:#fdfdfb;--polaroid-ink:#555;--polaroid-accent:#1f7a7a;--sans:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif}
 .is-diary .main{--lh:1.85em;--mx:60px;max-width:52rem;margin:20px 0 40px;padding:32px 44px 96px calc(var(--mx) + 24px);font-size:1.0625rem;line-height:1.85;letter-spacing:-.005em;word-break:keep-all;overflow-wrap:break-word;background-color:var(--page);background-image:radial-gradient(circle at 26px 36px,var(--bg) 0 8px,transparent 9px),linear-gradient(90deg,transparent var(--mx),var(--margin) var(--mx),var(--margin) calc(var(--mx) + 1px),transparent calc(var(--mx) + 1px),transparent calc(var(--mx) + 4px),var(--margin) calc(var(--mx) + 4px),var(--margin) calc(var(--mx) + 5px),transparent calc(var(--mx) + 5px)),repeating-linear-gradient(transparent 0,transparent calc(var(--lh) - 1px),var(--rule) calc(var(--lh) - 1px),var(--rule) var(--lh));background-size:52px 72px,100% 100%,100% var(--lh);background-repeat:repeat-y,no-repeat,repeat;border-radius:3px 10px 10px 3px;box-shadow:0 1px 2px rgba(0,0,0,.08),0 12px 32px rgba(60,40,10,.12)}
 .is-diary .head{padding-bottom:18px;border-bottom:2px dashed var(--line)}
 .is-diary .head h1{font-family:var(--hand);font-weight:400;font-size:2.7em;line-height:1.15;letter-spacing:0;margin-top:8px}
@@ -81,7 +71,7 @@ export const DIARY_CSS =
 .is-diary .ctx-card,.is-diary .kn-card{border-radius:6px}
 .is-diary .extra{margin-top:44px;padding-top:12px;border-top:2px dashed var(--line);font-size:.88em;color:var(--muted)}
 .is-diary .minimap a{width:8px;height:8px;border:0;background:var(--line);font-size:0}
-.is-diary .minimap a.is-current{background:var(--accent);height:20px;border-radius:4px}
+.is-diary .minimap a.is-current{background:var(--accent-fill);height:20px;border-radius:4px}
 .is-diary .minimap{gap:8px}
 .is-diary .doc-hl{background:color-mix(in srgb,var(--hl) 55%,transparent);outline:2px solid color-mix(in srgb,var(--accent) 75%,transparent)}
 .is-diary .doc-hl.is-key{background:color-mix(in srgb,var(--hl) 80%,transparent)}
@@ -89,7 +79,7 @@ export const DIARY_CSS =
 .is-diary :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .is-lens .head h1::before{content:"읽기 렌즈";content:"읽기 렌즈" / ""}
 .is-diary:not(.is-lens) .head h1::before{content:"영상 요약";content:"영상 요약" / ""}
-.is-diary h2 .ts,.is-diary h3 .ts{display:inline-block;font-family:var(--sans);font-size:.68rem;font-weight:500;line-height:1.6;background:var(--chip);border-radius:4px;padding:0 5px;vertical-align:.3em;margin-left:4px}
+.is-diary h2 .ts,.is-diary h3 .ts{display:inline-block;font-family:var(--sans);font-size:.68rem;font-weight:500;line-height:1.6;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:0 5px;vertical-align:.3em;margin-left:4px}
 .is-diary .ts{color:var(--accent)}
 .is-diary .player{border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.18)}
 .is-diary .script{background:var(--page);border-color:var(--line);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.08)}

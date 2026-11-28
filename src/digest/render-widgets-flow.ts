@@ -414,14 +414,14 @@ export const FLOW_WIDGET_CSS = `
 .wl-node.w-gone circle{fill:none;stroke:currentColor;stroke-dasharray:3 2}
 .wl-node.w-ill circle{fill:var(--card);stroke:currentColor;stroke-dasharray:3 2}
 path.w-gone{stroke-dasharray:3 3}
-.wl-c0{color:var(--accent)}.wl-c1{color:var(--warn)}.wl-c2{color:#2a9d8f}.wl-c3{color:#8e6bbf}.wl-c4{color:#c0703a}.wl-c5{color:#5a7fa8}
+.wl-c0{color:var(--accent)}.wl-c1{color:var(--warn)}.wl-c2{color:var(--gestalt-color-success-text)}.wl-c3{color:var(--gestalt-color-info-text)}.wl-c4{color:var(--gestalt-color-danger-text)}.wl-c5{color:var(--muted)}
 .wl-c0 .wl-name,.wl-c1 .wl-name,.wl-c2 .wl-name,.wl-c3 .wl-name,.wl-c4 .wl-name,.wl-c5 .wl-name{fill:currentColor}
 .wc{border-collapse:collapse;font-size:.86em;min-width:100%}
 .wc th,.wc td{border:1px solid var(--line);padding:4px 6px;text-align:center;vertical-align:middle}
 .wc thead th{color:var(--muted);font-weight:600}
-.wc-span{display:block;background:color-mix(in srgb, var(--accent) 18%, transparent);border-radius:6px;padding:2px 6px}
+.wc-span{display:block;background:color-mix(in srgb, var(--accent-fill) 18%, transparent);border-radius:6px;padding:2px 6px}
 .wc-at{background:none;border:1px solid var(--accent)}
-.wc-release{background:var(--accent);color:var(--on-accent)}
+.wc-release{background:var(--accent-fill);color:var(--on-accent)}
 .wc-warn{background:color-mix(in srgb, var(--warn) 22%, transparent)}
 .wc-span.w-ill{background:none;border:1px dashed var(--muted)}
 .wc-span.w-gone{background:none;border:1px dashed var(--muted);text-decoration:line-through}
@@ -434,7 +434,7 @@ path.w-gone{stroke-dasharray:3 3}
 .wst-dot text{fill:var(--fg);font-size:10px}
 .wst-dot.wst-opt circle{stroke-dasharray:3 2}
 .wst-dot.w-gone circle{stroke:var(--muted);stroke-dasharray:3 2}
-.wst-dot.w-focus circle{fill:var(--accent)}.wst-dot.w-focus text{fill:var(--on-accent)}
+.wst-dot.w-focus circle{fill:var(--accent-fill)}.wst-dot.w-focus text{fill:var(--on-accent)}
 .wst-cards{list-style:none;padding:0;margin:6px 0;display:grid;gap:6px}
 .wst-card{display:flex;gap:10px;border:1px solid var(--line);border-radius:8px;padding:6px 10px}
 .wst-card p{margin:2px 0;font-size:.9em}
@@ -446,7 +446,7 @@ path.w-gone{stroke-dasharray:3 3}
 .wst-back{color:var(--warn)}
 .wa{border-collapse:collapse;width:100%;font-size:.9em}
 .wa th,.wa td{border:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}
-.wa-src{background:color-mix(in srgb, var(--accent) 8%, transparent)}
+.wa-src{background:color-mix(in srgb, var(--accent-fill) 8%, transparent)}
 .wa-analog{background:var(--hl)}
 .wa-breaks{font-size:.9em;border-left:3px solid var(--warn);padding:2px 10px;margin:8px 0}
 .wa-breaks ul{margin:2px 0;padding-left:18px}

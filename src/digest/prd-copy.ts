@@ -131,8 +131,6 @@ export const PRD_COPY = {
   later: '이후',
   source: '원문 줄',
   theme: '테마',
-  dark: '다크',
-  light: '라이트',
   audience: '대상별 보기',
   toc: '목차',
   document: '문서 정보',
