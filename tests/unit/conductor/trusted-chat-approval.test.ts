@@ -403,11 +403,17 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
     }).gate;
     await conductorBotChatOfferCommand(overlap.id, opts);
     const offered = last();
-    expect(offered).toMatchObject({ gateId: overlap.id, type: 'file-overlap' });
+    expect(offered).toMatchObject({
+      gateId: overlap.id,
+      type: 'file-overlap',
+      reason: '파일 중첩',
+      refs: overlap.refs,
+    });
     expect(offered).not.toHaveProperty('pr');
     expect(offered).not.toHaveProperty('head');
     await conductorBotChatDecideCommand({ ...opts, message: `${overlap.id} 승인해줘` });
     expect(last()).toMatchObject({
+      type: 'file-overlap',
       decision: 'approved',
       signer: `trusted-chat:${owner.botId}:${owner.chatId}`,
     });
@@ -417,6 +423,26 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
       offerId: offered.offerId,
     });
     expect(store.snapshot.gates[gate.id]?.status).toBe('open');
+  });
+
+  it('PR과 HEAD, base가 일부만 있거나 PR 없는 머지 게이트 안내는 기록하지 않는다', async () => {
+    const { store, gate, opts } = fixture();
+    await conductorBotChatOfferCommand(gate.id, opts);
+    store.reload();
+    const offer = store.snapshot.gates[gate.id]!.chatApprovalOffer!;
+    const { head: _head, base: _base, ...prOnly } = offer;
+    const { prRef: _prRef, head: _h, base: _b, ...noPr } = offer;
+    for (const bad of [prOnly, noPr])
+      expect(() =>
+        store.append({
+          type: 'gate-chat-offered',
+          gateId: gate.id,
+          at: store.timestamp(),
+          offer: { ...bad, id: 'bad-offer' },
+        }),
+      ).toThrow();
+    store.reload();
+    expect(store.snapshot.gates[gate.id]?.chatApprovalOffer?.id).toBe(offer.id);
   });
 
   it('재리뷰 전환 게이트는 PR HEAD를 고정해 안내하고 HEAD가 바뀌면 승인하지 않는다', async () => {
@@ -767,7 +793,7 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
     store.updateOrder(other.id, { prRef: `${repo}#44` });
     await conductorBotChatDecideCommand({ ...opts, message: '42 승인해줘' });
     expect(last()).toMatchObject({ status: 'ambiguous' });
-    expect(last().guidance).toContain('여러 게이트가 걸려요');
+    expect(last().guidance).toContain('여러 게이트가 후보예요');
     const commands = last()
       .candidates.filter((c: { command?: string }) => c.command)
       .map((c: { gateId: string }) => c.gateId);

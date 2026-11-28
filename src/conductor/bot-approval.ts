@@ -167,13 +167,11 @@ export function matchMergeGate(store: ConductorStore, id: string) {
   return { gate, order, ref, url };
 }
 
-export { BOT_GATE_TYPES };
-
 export interface BotGate {
   gate: Gate;
   repo: string;
   title?: string;
-  /** 머지 게이트만 있다 */
+  /** 머지 승인은 늘, 리뷰 수동 전환은 PR이 연결됐을 때만 있다. 파일 중첩은 없다 */
   ref?: string;
   url?: string;
 }

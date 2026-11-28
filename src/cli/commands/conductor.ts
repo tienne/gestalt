@@ -2219,6 +2219,7 @@ function botDecisionStatus(gate: Gate) {
         : '서명';
   return {
     gateId: gate.id,
+    type: gate.type,
     decision: gate.decision ?? 'open',
     ...(gate.decisionBy ? { signer: gate.decisionBy } : {}),
     ...(source ? { source } : {}),
@@ -2467,7 +2468,7 @@ async function applyBotDecision(
         caller,
       );
       if (matches.length !== 1 || matches[0]?.id !== gateId)
-        throw new InputError('승인 ID의 대상이 바뀌었어요. 어느 PR인지 다시 확인해 주세요');
+        throw new InputError('승인 ID의 대상이 바뀌었어요. 어느 게이트인지 다시 확인해 주세요');
     }
     const existing = ctx.store.snapshot.gates[gateId];
     if (existing?.status === 'resolved')
@@ -2609,7 +2610,9 @@ function chatOfferView(ctx: Ctx, gate: Gate, offer: ChatApprovalOffer) {
     orderId: gate.orderId,
     ids,
     type: gate.type,
-    ...(offer.prRef ? { pr: chatOfferPr(offer.prRef), head: offer.head, base: offer.base } : {}),
+    ...(offer.prRef
+      ? { pr: chatOfferPr(offer.prRef), head: offer.head, base: offer.base }
+      : { reason: gate.reason, refs: gate.refs }),
     offerId: offer.id,
     offeredAt: offer.offeredAt,
     commands: ids.map((id) => `${id} 승인해줘`),
@@ -2737,7 +2740,12 @@ type ChatOfferStatus =
  * matchBotGate의 InputError(봇이 닫을 수 없거나 레포, PR 연결이 맞지 않는 게이트)는 unavailable로 돌리고
  * 정책 파일 오류는 단일 후보 경로처럼 그대로 던진다.
  */
-function chatOfferStatus(ctx: Ctx, gate: Gate, caller: BotOwner): ChatOfferStatus {
+function chatOfferStatus(
+  ctx: Ctx,
+  gate: Gate,
+  caller: BotOwner,
+  policy: ReturnType<typeof loadBotPolicy>,
+): ChatOfferStatus {
   if (gate.status !== 'open')
     return { ready: false, reason: 'closed', message: '이미 결정한 게이트예요' };
   let target: BotGate;
@@ -2748,7 +2756,7 @@ function chatOfferStatus(ctx: Ctx, gate: Gate, caller: BotOwner): ChatOfferStatu
       return { ready: false, reason: 'unavailable', message: error.message };
     throw error;
   }
-  if (approvalPolicy(loadBotPolicy(ctx.store.dir), target.repo) !== 'trusted-chat')
+  if (approvalPolicy(policy, target.repo) !== 'trusted-chat')
     return { ready: false, reason: 'policy-off', message: TRUSTED_CHAT_OFF, target };
   const offer = gate.chatApprovalOffer;
   const problem = chatOfferProblem(offer, caller, decisionTarget(ctx.store, target));
@@ -2773,7 +2781,7 @@ const AMBIGUOUS_GUIDANCE: Record<ChatOfferReason, string> = {
 function ambiguousGuidance(statuses: ChatOfferStatus[]): string {
   if (!statuses.length) return '해당 ID로 채팅 승인할 수 있는 게이트가 없어요';
   if (statuses.some((status) => status.ready))
-    return '여러 게이트가 걸려요. 어느 게이트인지 확인하고 command 문구로 다시 요청해 주세요';
+    return '여러 게이트가 후보예요. 어느 게이트인지 확인하고 command 문구로 다시 요청해 주세요';
   const reasons = new Set(statuses.flatMap((status) => (status.ready ? [] : [status.reason])));
   const open = [...reasons].filter((reason) => reason !== 'closed');
   if (!open.length) return AMBIGUOUS_GUIDANCE.closed;
@@ -2790,6 +2798,7 @@ function ambiguousCandidate(gate: Gate, status: ChatOfferStatus, caller: BotOwne
   return {
     gateId: gate.id,
     orderId: gate.orderId,
+    type: gate.type,
     status: gate.status,
     ...(pr ? { pr } : {}),
     ...(offeredPr && offeredPr !== pr ? { offeredPr } : {}),
@@ -2806,7 +2815,8 @@ export async function conductorBotChatDecideCommand(
     const id = chatApprovalId(opts.message);
     const candidates = chatApprovalCandidates(Object.values(ctx.store.snapshot.gates), id, caller);
     if (candidates.length !== 1) {
-      const statuses = candidates.map((gate) => chatOfferStatus(ctx, gate, caller));
+      const policy = loadBotPolicy(ctx.store.dir);
+      const statuses = candidates.map((gate) => chatOfferStatus(ctx, gate, caller, policy));
       return print({
         status: candidates.length ? 'ambiguous' : 'not-found',
         guidance: ambiguousGuidance(statuses),
@@ -2816,7 +2826,7 @@ export async function conductorBotChatDecideCommand(
     const gate = candidates[0]!;
     if (gate.status === 'resolved')
       return print({ ...botDecisionStatus(gate), alreadyResolved: true });
-    const status = chatOfferStatus(ctx, gate, caller);
+    const status = chatOfferStatus(ctx, gate, caller, loadBotPolicy(ctx.store.dir));
     if (!status.ready) throw new InputError(status.message);
     const { offer } = status;
     if (offer.item && id === String(offer.item.number)) {

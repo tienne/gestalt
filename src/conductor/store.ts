@@ -807,6 +807,13 @@ function validate(event: ConductorEvent, s: ConductorSnapshot): void {
     if (g.status !== 'open') throw new Error(`이미 종료된 게이트예요: ${event.gateId}`);
     if (event.type === 'gate-chat-offered' && !BOT_GATE_TYPES.includes(g.type))
       throw new Error('봇이 닫는 게이트만 채팅 승인을 안내할 수 있어요');
+    if (event.type === 'gate-chat-offered') {
+      const { prRef, head, base } = event.offer;
+      const pinned = [prRef, head, base].filter((v) => v !== undefined).length;
+      if (pinned !== 0 && pinned !== 3)
+        throw new Error('채팅 안내의 PR과 HEAD, base는 함께 있거나 함께 없어야 해요');
+      if (g.type === 'merge' && !prRef) throw new Error('머지 게이트 안내에는 PR이 있어야 해요');
+    }
   }
   if (event.type === 'gate-completed') {
     const g = s.gates[event.gateId];
