@@ -736,15 +736,20 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
   }
 
   // ─── Window resize ───────────────────────────────────────────
+  // 창을 끄는 동안 resize가 수십 번 들어온다. 모션을 줄인 모드는 매번 60틱을 동기로 돌아 끌기가 끊기므로 멈춘 뒤 한 번만 다시 그린다
+  let resizeTimer = 0;
   window.addEventListener('resize', () => {
-    const w = document.getElementById('graph-container').clientWidth;
-    const h = document.getElementById('graph-container').clientHeight;
-    svg.attr('width', w).attr('height', h);
-    simulation.force('center', d3.forceCenter(w / 2, h / 2)).alpha(0.1);
-    if (REDUCE) {
-      simulation.tick(60);
-      draw();
-    } else simulation.restart();
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const w = document.getElementById('graph-container').clientWidth;
+      const h = document.getElementById('graph-container').clientHeight;
+      svg.attr('width', w).attr('height', h);
+      simulation.force('center', d3.forceCenter(w / 2, h / 2)).alpha(0.1);
+      if (REDUCE) {
+        simulation.tick(60);
+        draw();
+      } else simulation.restart();
+    }, 150);
   });
 
 })();
