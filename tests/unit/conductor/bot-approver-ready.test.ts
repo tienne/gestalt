@@ -101,7 +101,10 @@ const cases = [
   {
     name: '이전 WebAuthn 승인자만 있으면',
     type: 'merge' as const,
-    policy: { mergeApprovers: { [repo]: { legacy: legacyApprover } } },
+    policy: {
+      defaultApprovalPolicy: 'signed',
+      mergeApprovers: { [repo]: { legacy: legacyApprover } },
+    },
     gap: 'no-repo',
     says: 'acme/app 레포에는 게이트를 닫을 승인자가 등록되지 않았어요',
   },
@@ -115,21 +118,24 @@ const cases = [
   {
     name: '레포 승인자가 없으면',
     type: 'file-overlap' as const,
-    policy: { gateApprovers: { 'acme/other': { 'approver-1': pem } } },
+    policy: {
+      defaultApprovalPolicy: 'signed',
+      gateApprovers: { 'acme/other': { 'approver-1': pem } },
+    },
     gap: 'no-repo',
     says: 'acme/app 레포에는 게이트를 닫을 승인자가 등록되지 않았어요',
   },
   {
     name: '머지 승인자만 있고 파일 겹침 승인자가 없으면',
     type: 'file-overlap' as const,
-    policy: { mergeApprovers: { [repo]: { 'approver-1': pem } } },
+    policy: { defaultApprovalPolicy: 'signed', mergeApprovers: { [repo]: { 'approver-1': pem } } },
     gap: 'no-type-approvers',
     says: 'acme/app 레포에는 파일 겹침 게이트를 닫을 승인자가 등록되지 않았어요',
   },
   {
     name: '게이트 승인자만 있고 머지 승인자가 없으면',
     type: 'merge' as const,
-    policy: { gateApprovers: { [repo]: { 'approver-1': pem } } },
+    policy: { defaultApprovalPolicy: 'signed', gateApprovers: { [repo]: { 'approver-1': pem } } },
     gap: 'no-type-approvers',
     says: 'acme/app 레포에는 머지 게이트를 닫을 승인자가 등록되지 않았어요',
   },
@@ -137,26 +143,30 @@ const cases = [
 
 describe('승인자 미등록 안내', () => {
   for (const c of cases) {
-    it(`${c.name} bot gate가 approverReady false와 터미널 명령을 준다`, async () => {
-      fakeOrca();
-      ghMustNotRun();
-      const { store, gate } = fixture(c.type, c.policy);
-      await conductorBotGateCommand(gate.id, { stateDir: store.dir });
-      const out = last();
-      expect(out).toMatchObject({
-        approverReady: false,
-        approverGap: c.gap,
-        terminal: {
-          approved: `gestalt conductor gate resolve ${gate.id} --approve`,
-          rejected: `gestalt conductor gate resolve ${gate.id} --reject`,
-        },
-      });
-      expect(out.guidance).toContain(c.says);
-      expect(out).not.toHaveProperty('messages');
-      expect(out).not.toHaveProperty('orcaItem');
-      expect(out).not.toHaveProperty('touchId');
-      expect(out.guidance).not.toContain('approver enroll');
-    });
+    // 정책 파일이 없으면 기본값이 채팅 승인이라 bot gate는 터미널로 보내지 않는다. 아래 따로 본다
+    it.skipIf(!c.policy)(
+      `${c.name} bot gate가 approverReady false와 터미널 명령을 준다`,
+      async () => {
+        fakeOrca();
+        ghMustNotRun();
+        const { store, gate } = fixture(c.type, c.policy);
+        await conductorBotGateCommand(gate.id, { stateDir: store.dir });
+        const out = last();
+        expect(out).toMatchObject({
+          approverReady: false,
+          approverGap: c.gap,
+          terminal: {
+            approved: `gestalt conductor gate resolve ${gate.id} --approve`,
+            rejected: `gestalt conductor gate resolve ${gate.id} --reject`,
+          },
+        });
+        expect(out.guidance).toContain(c.says);
+        expect(out).not.toHaveProperty('messages');
+        expect(out).not.toHaveProperty('orcaItem');
+        expect(out).not.toHaveProperty('touchId');
+        expect(out.guidance).not.toContain('approver enroll');
+      },
+    );
 
     it(`${c.name} bot decide가 ENOENT나 권한 없는 서명자 대신 안내 에러로 멈추고 게이트를 열어 둔다`, async () => {
       fakeOrca();
@@ -180,9 +190,31 @@ describe('승인자 미등록 안내', () => {
     });
   }
 
+  it('정책 파일이 없으면 bot gate가 터미널 대신 채팅 승인 경로를 안내한다', async () => {
+    fakeOrca();
+    ghMustNotRun();
+    const { store, gate } = fixture('file-overlap', undefined);
+    await conductorBotGateCommand(gate.id, { stateDir: store.dir });
+    expect(last()).toMatchObject({ approverReady: false, approvalPolicy: 'trusted-chat' });
+    expect(last().guidance).toContain(`chat-offer ${gate.id}로 게이트를 안내하고`);
+    expect(last()).not.toHaveProperty('terminal');
+    expect(last()).not.toHaveProperty('messages');
+  });
+
+  it('정책 파일이 깨졌으면 기본값인 채팅 승인으로 열지 않는다', async () => {
+    fakeOrca();
+    ghMustNotRun();
+    const { store, gate } = fixture('file-overlap', undefined);
+    writeFileSync(join(store.dir, BOT_POLICY_FILE), '{');
+    await conductorBotGateCommand(gate.id, { stateDir: store.dir });
+    expect(last()).not.toHaveProperty('approvalPolicy');
+    expect(last()).toHaveProperty('terminal');
+  });
+
   it('승인자가 있으면 approverReady true와 서명 재료를 그대로 싣는다', async () => {
     fakeOrca();
     const { store, gate } = fixture('file-overlap', {
+      defaultApprovalPolicy: 'signed',
       gateApprovers: { [repo]: { 'approver-1': pem } },
     });
     await conductorBotGateCommand(gate.id, { stateDir: store.dir });
@@ -232,6 +264,7 @@ describe('승인자 미등록 안내', () => {
   it('이전 WebAuthn이 섞여 있어도 다른 승인자와 게이트 정책은 유지한다', async () => {
     fakeOrca();
     const policy = {
+      defaultApprovalPolicy: 'signed',
       mergeApprovers: { [repo]: { legacy: legacyApprover, current: pem } },
       gateApprovers: { [repo]: { legacy: legacyApprover, current: pem } },
     };
@@ -267,14 +300,14 @@ describe('conductor status 승인자 등록 상태', () => {
     conductorStatusCommand({ stateDir: store.dir, json: true });
     expect(last().approvers).toEqual({
       policy: 'present',
-      repos: [{ repo, merge: 1, gate: 0 }],
+      repos: [{ repo, merge: 1, gate: 0, approvalPolicy: 'trusted-chat' }],
     });
   });
 
-  it('정책 파일이 없으면 텍스트 출력에 봇에서 못 닫는다고 적는다', () => {
+  it('정책 파일이 없으면 텍스트 출력에 기본값인 채팅 문구 승인을 적는다', () => {
     const { store } = fixture('merge', undefined);
     conductorStatusCommand({ stateDir: store.dir });
-    expect(lines.join('\n')).toContain('승인자: 봇 정책 파일이 없어요');
+    expect(lines.join('\n')).toContain(`승인자 ${repo}  채팅 문구 승인`);
   });
 
   it('정책 파일이 깨져도 status는 멈추지 않는다', () => {

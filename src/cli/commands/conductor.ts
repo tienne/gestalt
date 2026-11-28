@@ -4,10 +4,12 @@ import {
   chatApprovalId,
   chatDecisionId,
   chatOfferProblem,
-  mergeApprovalPolicy,
+  approvalPolicy,
+  defaultApprovalPolicy,
   requireTrustedChat,
   TRUSTED_CHAT_OFF,
   verifyChatOffer,
+  type ApprovalPolicy,
   type ChatOfferReason,
 } from '../../conductor/trusted-chat-approval.js';
 import type { ChatApprovalOffer, DecisionVia } from '../../conductor/types.js';
@@ -811,15 +813,17 @@ export function conductorStatusCommand(opts: ConductorStatusOptions): void {
     }
     for (const b of bypassesOf.get('') ?? []) console.log(`bypass ${b.at}  ${b.need}  ${b.action}`);
     const approvers = statusApprovers(store, config, orders);
-    if (approvers.policy !== 'present')
-      console.log(
-        `승인자: 봇 정책 파일이 ${approvers.policy === 'missing' ? '없어요' : '깨져서 못 읽어요'}. 봇 채팅에서는 게이트를 못 닫아요`,
-      );
+    if (approvers.policy === 'unreadable')
+      console.log('승인자: 봇 정책 파일이 깨져서 못 읽어요. 봇 채팅에서는 게이트를 못 닫아요');
     else
-      for (const a of approvers.repos)
+      for (const a of approvers.repos) {
+        const signed = (n: number) => (n ? `서명 ${n}명` : '서명 미등록');
         console.log(
-          `승인자 ${a.repo}  머지 ${a.mergeApprovalPolicy === 'trusted-chat' ? `채팅 문구 승인${a.merge ? `, 서명 ${a.merge}명` : ''}` : a.merge ? `${a.merge}명` : '미등록'}  게이트 ${a.gate ? `${a.gate}명` : '미등록'}`,
+          a.approvalPolicy === 'trusted-chat'
+            ? `승인자 ${a.repo}  채팅 문구 승인${a.merge || a.gate ? `  머지 ${signed(a.merge)}  게이트 ${signed(a.gate)}` : ''}`
+            : `승인자 ${a.repo}  서명 승인  머지 ${a.merge ? `${a.merge}명` : '미등록'}  게이트 ${a.gate ? `${a.gate}명` : '미등록'}`,
         );
+      }
     for (const g of gates) console.log(`게이트 ${g.id}  ${g.type}  ${g.reason}`);
   });
 }
@@ -2333,12 +2337,13 @@ export async function conductorBotGateCommand(
     // 승인자가 없으면 서명을 요구할 이유가 없다. 봇이 터미널 안내로 바로 가게 서명 재료를 싣지 않는다
     const read = peekBotPolicy(ctx.store.dir);
     const policy = 'policy' in read ? read.policy : undefined;
+    // 정책 파일이 깨졌으면 기본값인 채팅 승인으로 열지 않는다
     const trusted =
-      gate.type === 'merge' && mergeApprovalPolicy(policy, target.repo) === 'trusted-chat'
+      'policy' in read && approvalPolicy(policy, target.repo) === 'trusted-chat'
         ? {
-            mergeApprovalPolicy: 'trusted-chat' as const,
+            approvalPolicy: 'trusted-chat' as const,
             chatApproval: gate.chatApprovalOffer,
-            guidance: `chat-offer ${gate.id}로 PR과 HEAD를 안내하고 <ID> 승인해줘 요청을 chat-decide로 처리해 주세요`,
+            guidance: `chat-offer ${gate.id}로 ${target.ref ? 'PR과 HEAD를' : '게이트를'} 안내하고 <ID> 승인해줘 요청을 chat-decide로 처리해 주세요`,
           }
         : undefined;
     // trusted-chat 레포에서 approverReady는 서명 경로를 함께 쓸 수 있는지만 뜻한다. 없어도 터미널로 보내지 않는다
@@ -2408,8 +2413,8 @@ function verifyBotDecision(
 } {
   if ('chatOffer' in request) {
     requireTrustedChat(policy, target.repo);
-    if (target.gate.type !== 'merge' || request.decision !== 'approved')
-      throw new InputError('운영 채팅 문구를 신뢰하는 경로는 머지 승인만 처리해요');
+    if (request.decision !== 'approved')
+      throw new InputError('운영 채팅 문구를 신뢰하는 경로는 승인만 처리해요');
     const offer = verifyChatOffer(target.gate.chatApprovalOffer, request.owner, receiptTarget);
     if (
       offer.id !== request.chatOffer.id ||
@@ -2525,36 +2530,53 @@ async function applyBotDecision(
   }
 }
 
-export async function conductorBotMergePolicyCommand(
-  repo: string,
-  opts: ConductorCommonOptions & { mode: string },
+export async function conductorBotApprovalPolicyCommand(
+  repo: string | undefined,
+  opts: ConductorCommonOptions & { mode: string; default?: boolean },
 ): Promise<void> {
   try {
     const ctx = open(opts);
     const caller = await requireBotOperator(ctx);
-    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new InputError('레포는 owner/name 형식이어야 해요');
-    repo = repo.toLowerCase();
-    const mode = oneOf<'signed' | 'trusted-chat'>(opts.mode, ['signed', 'trusted-chat'], '--mode');
+    if (opts.default ? repo !== undefined : repo === undefined)
+      throw new InputError('레포(owner/name)와 --default 중 하나만 주세요');
+    if (repo !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(repo))
+      throw new InputError('레포는 owner/name 형식이어야 해요');
+    const key = repo?.toLowerCase();
+    const mode = oneOf<ApprovalPolicy>(opts.mode, ['signed', 'trusted-chat'], '--mode');
     const lock = await waitForDecisionLock(ctx);
     try {
       assertBotOwner(ctx.store.dir, caller);
       const policy = loadBotPolicy(ctx.store.dir) ?? {};
-      const previous = mergeApprovalPolicy(policy, repo);
-      const table = policy['mergeApprovalPolicy'] as Record<string, unknown> | undefined;
+      const previous = key ? approvalPolicy(policy, key) : defaultApprovalPolicy(policy);
+      const table = policy['approvalPolicy'] as Record<string, unknown> | undefined;
+      const legacy = policy['mergeApprovalPolicy'] as Record<string, unknown> | undefined;
+      // 예전 칸에 남은 같은 레포 값은 새 칸이 덮으므로 지워서 읽는 사람이 헷갈리지 않게 한다
+      const rest =
+        legacy && key && Object.hasOwn(legacy, key)
+          ? Object.fromEntries(Object.entries(legacy).filter(([k]) => k !== key))
+          : legacy;
+      const others = { ...policy };
+      delete others['mergeApprovalPolicy'];
       writeJsonAtomic(
         join(ctx.store.dir, BOT_POLICY_FILE),
         {
-          ...policy,
-          mergeApprovalPolicy: { ...table, [repo]: mode },
+          ...others,
+          ...(rest && Object.keys(rest).length ? { mergeApprovalPolicy: rest } : {}),
+          ...(key
+            ? { approvalPolicy: { ...table, [key]: mode } }
+            : { defaultApprovalPolicy: mode }),
         },
         { mode: 0o600 },
       );
       print({
-        repo,
+        ...(key ? { repo: key } : { default: true }),
         previous,
         mode,
         changedBy: `${caller.botId}:${caller.chatId}`,
-        trust: '운영 채팅 에이전트가 전달한 문구를 신뢰하고, 사람의 신원은 확인하지 않아요',
+        trust:
+          mode === 'trusted-chat'
+            ? '운영 채팅 에이전트가 전달한 문구를 신뢰하고, 사람의 신원은 확인하지 않아요'
+            : '레포 승인자의 서명이나 Orca 증빙이 있어야 게이트를 닫아요',
       });
     } finally {
       lock.release();
@@ -2564,8 +2586,8 @@ export async function conductorBotMergePolicyCommand(
   }
 }
 
-function chatOfferPr(offer: ChatApprovalOffer) {
-  return `https://github.com/${offer.prRef.replace('#', '/pull/')}`;
+function chatOfferPr(prRef: string) {
+  return `https://github.com/${prRef.replace('#', '/pull/')}`;
 }
 
 /** 이 게이트 하나로만 좁혀지는 ID만 안내한다. 게이트 ID는 늘 남는다. */
@@ -2586,9 +2608,8 @@ function chatOfferView(ctx: Ctx, gate: Gate, offer: ChatApprovalOffer) {
     gateId: gate.id,
     orderId: gate.orderId,
     ids,
-    pr: chatOfferPr(offer),
-    head: offer.head,
-    base: offer.base,
+    type: gate.type,
+    ...(offer.prRef ? { pr: chatOfferPr(offer.prRef), head: offer.head, base: offer.base } : {}),
     offerId: offer.id,
     offeredAt: offer.offeredAt,
     commands: ids.map((id) => `${id} 승인해줘`),
@@ -2611,10 +2632,11 @@ function assertOrcaItemInChat(
   if (uid && show.item.uid !== uid.expected) throw new InputError(uid.message ?? mismatch);
 }
 
-function openTrustedMergeGate(ctx: Ctx, gateId: string) {
+function openTrustedGate(ctx: Ctx, gateId: string) {
   const target = matchBotGate(ctx.store, gateId);
-  if (target.gate.type !== 'merge' || !target.ref || target.gate.status !== 'open')
-    throw new InputError('열린 머지 게이트의 PR만 안내할 수 있어요');
+  if (target.gate.status !== 'open') throw new InputError('열린 게이트만 안내할 수 있어요');
+  if (target.gate.type === 'merge' && !target.ref)
+    throw new InputError('PR이 연결된 머지 게이트만 안내할 수 있어요');
   requireTrustedChat(loadBotPolicy(ctx.store.dir), target.repo);
   return { target, ref: target.ref, decision: decisionTarget(ctx.store, target) };
 }
@@ -2627,7 +2649,7 @@ export async function conductorBotChatOfferCommand(
     const ctx = open(opts);
     const caller = await requireBotOperator(ctx);
     assertBotOwner(ctx.store.dir, caller);
-    const before = openTrustedMergeGate(ctx, gateId);
+    const before = openTrustedGate(ctx, gateId);
     const existing = before.target.gate.chatApprovalOffer;
     if (existing && !opts.refresh) {
       verifyChatOffer(existing, caller, before.decision);
@@ -2668,13 +2690,18 @@ export async function conductorBotChatOfferCommand(
       );
       item = { number, uid: show.item.uid };
     }
-    if (!evidence || evidence.state !== 'OPEN' || evidence.draft)
-      throw new InputError('리뷰 준비가 끝난 열린 PR만 머지 승인 안내를 할 수 있어요');
+    // PR이 걸린 게이트는 HEAD를 고정해 안내한다. 머지는 draft를 빼고 재리뷰 전환은 열린 PR이면 된다
+    if (before.ref) {
+      if (!evidence || evidence.state !== 'OPEN')
+        throw new InputError('열린 PR만 승인 안내를 할 수 있어요');
+      if (before.target.gate.type === 'merge' && evidence.draft)
+        throw new InputError('리뷰 준비가 끝난 열린 PR만 머지 승인 안내를 할 수 있어요');
+    }
     const lock = await waitForDecisionLock(ctx);
     try {
       assertBotOwner(ctx.store.dir, caller);
       ctx.store.reload();
-      const now = openTrustedMergeGate(ctx, gateId);
+      const now = openTrustedGate(ctx, gateId);
       if (
         now.decision !== before.decision ||
         now.target.gate.chatApprovalOffer?.id !== existing?.id
@@ -2685,9 +2712,9 @@ export async function conductorBotChatOfferCommand(
         botId: caller.botId,
         chatId: caller.chatId,
         target: now.decision,
-        prRef: now.ref,
-        head: evidence.head,
-        base: evidence.base,
+        ...(now.ref && evidence
+          ? { prRef: now.ref, head: evidence.head, base: evidence.base }
+          : {}),
         offeredAt: ctx.store.timestamp(),
         ...(item ? { item } : {}),
       };
@@ -2707,12 +2734,12 @@ type ChatOfferStatus =
 
 /**
  * 이 채팅에서 안내한 열린 게이트이고 안내 뒤 대상이 그대로일 때만 바로 승인할 수 있다.
- * matchBotGate의 InputError(대상 레포의 PR이 연결된 머지 게이트가 아님)는 unavailable로 돌리고
+ * matchBotGate의 InputError(봇이 닫을 수 없거나 레포, PR 연결이 맞지 않는 게이트)는 unavailable로 돌리고
  * 정책 파일 오류는 단일 후보 경로처럼 그대로 던진다.
  */
 function chatOfferStatus(ctx: Ctx, gate: Gate, caller: BotOwner): ChatOfferStatus {
   if (gate.status !== 'open')
-    return { ready: false, reason: 'closed', message: '이미 결정한 머지 게이트예요' };
+    return { ready: false, reason: 'closed', message: '이미 결정한 게이트예요' };
   let target: BotGate;
   try {
     target = matchBotGate(ctx.store, gate.id);
@@ -2721,7 +2748,7 @@ function chatOfferStatus(ctx: Ctx, gate: Gate, caller: BotOwner): ChatOfferStatu
       return { ready: false, reason: 'unavailable', message: error.message };
     throw error;
   }
-  if (mergeApprovalPolicy(loadBotPolicy(ctx.store.dir), target.repo) !== 'trusted-chat')
+  if (approvalPolicy(loadBotPolicy(ctx.store.dir), target.repo) !== 'trusted-chat')
     return { ready: false, reason: 'policy-off', message: TRUSTED_CHAT_OFF, target };
   const offer = gate.chatApprovalOffer;
   const problem = chatOfferProblem(offer, caller, decisionTarget(ctx.store, target));
@@ -2730,23 +2757,23 @@ function chatOfferStatus(ctx: Ctx, gate: Gate, caller: BotOwner): ChatOfferStatu
 }
 
 const REFRESH_GUIDANCE =
-  '안내 뒤 대상이 바뀌었거나 다른 채팅에서 안내한 머지 게이트예요. 변경을 확인하고 chat-offer --refresh로 다시 안내해 주세요';
+  '안내 뒤 대상이 바뀌었거나 다른 채팅에서 안내한 게이트예요. 변경을 확인하고 chat-offer --refresh로 다시 안내해 주세요';
 
 const AMBIGUOUS_GUIDANCE: Record<ChatOfferReason, string> = {
-  closed: '이미 닫힌 머지 게이트만 남았어요. 후보마다 결정 상태를 확인해 주세요',
+  closed: '이미 닫힌 게이트만 남았어요. 후보마다 결정 상태를 확인해 주세요',
   unavailable:
-    '주문이 없거나 PR이 연결되지 않았거나 PR이 주문 레포와 다른 머지 게이트예요. 주문의 레포와 PR 연결을 확인해 주세요',
-  'policy-off': '이 레포는 채팅 문구 승인이 꺼져 있어요. bot gate로 서명 승인 경로를 안내해 주세요',
-  'no-offer':
-    '열린 머지 게이트가 있지만 이 채팅에서 안내하지 않았어요. 먼저 chat-offer로 안내해 주세요',
+    '레포를 알 수 없거나 PR이 연결되지 않았거나 PR이 주문 레포와 다른 게이트예요. 주문의 레포와 PR 연결을 확인해 주세요',
+  'policy-off':
+    '이 레포는 서명 승인을 쓰도록 설정돼 있어요. bot gate로 서명 승인 경로를 안내해 주세요',
+  'no-offer': '열린 게이트가 있지만 이 채팅에서 안내하지 않았어요. 먼저 chat-offer로 안내해 주세요',
   'other-chat': REFRESH_GUIDANCE,
   stale: REFRESH_GUIDANCE,
 };
 
 function ambiguousGuidance(statuses: ChatOfferStatus[]): string {
-  if (!statuses.length) return '해당 ID의 머지 게이트가 없어요';
+  if (!statuses.length) return '해당 ID로 채팅 승인할 수 있는 게이트가 없어요';
   if (statuses.some((status) => status.ready))
-    return '여러 머지 대상이 있어요. 어느 PR인지 확인하고 command 문구로 다시 요청해 주세요';
+    return '여러 게이트가 걸려요. 어느 게이트인지 확인하고 command 문구로 다시 요청해 주세요';
   const reasons = new Set(statuses.flatMap((status) => (status.ready ? [] : [status.reason])));
   const open = [...reasons].filter((reason) => reason !== 'closed');
   if (!open.length) return AMBIGUOUS_GUIDANCE.closed;
@@ -2758,7 +2785,7 @@ function ambiguousGuidance(statuses: ChatOfferStatus[]): string {
 function ambiguousCandidate(gate: Gate, status: ChatOfferStatus, caller: BotOwner) {
   const offer = gate.chatApprovalOffer;
   const ownOffer = offer?.botId === caller.botId && offer.chatId === caller.chatId;
-  const offeredPr = offer && ownOffer ? chatOfferPr(offer) : undefined;
+  const offeredPr = offer?.prRef && ownOffer ? chatOfferPr(offer.prRef) : undefined;
   const pr = status.target?.url;
   return {
     gateId: gate.id,
@@ -2807,7 +2834,7 @@ export async function conductorBotChatDecideCommand(
         { caller, request: { decision: 'approved', chatOffer: offer, owner: caller, inputId: id } },
         gate.id,
         offer.target,
-        { head: offer.head, base: offer.base },
+        offer.head ? { head: offer.head, base: offer.base } : undefined,
       ),
     );
   } catch (error) {

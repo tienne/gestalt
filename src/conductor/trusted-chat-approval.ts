@@ -2,41 +2,65 @@ import { createHash } from 'node:crypto';
 import { isPlainObject } from '../core/json-file.js';
 import type { BotOwner } from './bot-owner.js';
 import { InputError } from './input-error.js';
-import type { ChatApprovalOffer, Gate } from './types.js';
+import type { ChatApprovalOffer, Gate, GateType } from './types.js';
 
-export type MergeApprovalPolicy = 'signed' | 'trusted-chat';
+/** 봇 채팅에서 닫을 수 있는 게이트. 머지 외에는 워커를 멈춰 세우는 확인 자리만 넣었다 */
+export const BOT_GATE_TYPES: readonly GateType[] = [
+  'merge',
+  'file-overlap',
+  'review-manual-switch',
+];
 
-/** 신뢰 채팅은 레포별 명시 설정만 허용한다. 알 수 없는 값은 서명 정책으로 숨기지 않는다. */
-export function mergeApprovalPolicy(
-  policy: Record<string, unknown> | undefined,
-  repo: string,
-): MergeApprovalPolicy {
-  const table = policy?.['mergeApprovalPolicy'];
-  if (table === undefined) return 'signed';
+export type ApprovalPolicy = 'signed' | 'trusted-chat';
+
+const REPO_KEY = /^[\w.-]+\/[\w.-]+$/;
+const isMode = (value: unknown): value is ApprovalPolicy =>
+  value === 'signed' || value === 'trusted-chat';
+
+function repoTable(policy: Record<string, unknown> | undefined, field: string) {
+  const table = policy?.[field];
+  if (table === undefined) return undefined;
   if (
     !isPlainObject(table) ||
     Object.entries(table).some(
-      ([key, value]) =>
-        !/^[\w.-]+\/[\w.-]+$/.test(key) ||
-        key !== key.toLowerCase() ||
-        (value !== 'signed' && value !== 'trusted-chat'),
+      ([key, value]) => !REPO_KEY.test(key) || key !== key.toLowerCase() || !isMode(value),
     )
   )
-    throw new InputError(
-      'mergeApprovalPolicy는 소문자 레포별 signed 또는 trusted-chat 설정이어야 해요',
-    );
-  return Object.hasOwn(table, repo.toLowerCase())
-    ? (table[repo.toLowerCase()] as MergeApprovalPolicy)
-    : 'signed';
+    throw new InputError(`${field}는 소문자 레포별 signed 또는 trusted-chat 설정이어야 해요`);
+  return table as Record<string, ApprovalPolicy>;
 }
 
-export const TRUSTED_CHAT_OFF = '이 레포는 운영 채팅 문구를 신뢰하는 승인을 켜지 않았어요';
+/** 정책 파일이 기본값을 안 정하면 채팅 승인이다. 서명은 레포나 기본값에서 signed를 골라야 쓴다 */
+export function defaultApprovalPolicy(policy: Record<string, unknown> | undefined): ApprovalPolicy {
+  const value = policy?.['defaultApprovalPolicy'];
+  if (value === undefined) return 'trusted-chat';
+  if (!isMode(value))
+    throw new InputError('defaultApprovalPolicy는 signed 또는 trusted-chat이어야 해요');
+  return value;
+}
+
+/**
+ * 레포의 봇 게이트 승인 정책. approvalPolicy, 예전 칸인 mergeApprovalPolicy, defaultApprovalPolicy 순서로 본다.
+ * 알 수 없는 값은 어느 정책으로도 숨기지 않고 오류로 낸다.
+ */
+export function approvalPolicy(
+  policy: Record<string, unknown> | undefined,
+  repo: string,
+): ApprovalPolicy {
+  const key = repo.toLowerCase();
+  const tables = [repoTable(policy, 'approvalPolicy'), repoTable(policy, 'mergeApprovalPolicy')];
+  const fallback = defaultApprovalPolicy(policy);
+  for (const table of tables) if (table && Object.hasOwn(table, key)) return table[key]!;
+  return fallback;
+}
+
+export const TRUSTED_CHAT_OFF =
+  '이 레포는 운영 채팅 문구 승인 대신 서명 승인을 쓰도록 설정돼 있어요';
 
 export function requireTrustedChat(policy: Record<string, unknown> | undefined, repo: string) {
-  if (mergeApprovalPolicy(policy, repo) !== 'trusted-chat') throw new InputError(TRUSTED_CHAT_OFF);
+  if (approvalPolicy(policy, repo) !== 'trusted-chat') throw new InputError(TRUSTED_CHAT_OFF);
 }
 
-/** 인용이나 본문에서 명령을 추출하지 않고 전체 메시지가 합의한 한 줄인지 확인한다. */
 export function chatApprovalId(message: string): string {
   const match = /^([A-Za-z0-9_-]+) 승인해줘$/.exec(message);
   if (!match) throw new InputError('승인 요청은 <ID> 승인해줘 한 줄이어야 해요');
@@ -49,7 +73,7 @@ export function chatApprovalCandidates(
   owner: Pick<BotOwner, 'botId' | 'chatId'>,
 ): Gate[] {
   return [...gates].filter((gate) => {
-    if (gate.type !== 'merge') return false;
+    if (!BOT_GATE_TYPES.includes(gate.type)) return false;
     const offer = gate.chatApprovalOffer;
     return (
       gate.id === id ||

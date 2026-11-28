@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   conductorBotChatDecideCommand,
   conductorBotChatOfferCommand,
-  conductorBotMergePolicyCommand,
+  conductorBotApprovalPolicyCommand,
   conductorBotDecideCommand,
   conductorBotGateCommand,
   conductorBotGithubCommand,
@@ -262,7 +262,7 @@ describe('Orca 채팅 머지 승인', () => {
       fakePr();
       const { store, gate, opts } = gateFixture('orca-worktree');
       if (mode === 'trusted-chat') {
-        await conductorBotMergePolicyCommand(repo, { ...opts, mode });
+        await conductorBotApprovalPolicyCommand(repo, { ...opts, mode });
         await conductorBotChatOfferCommand(gate.id, opts);
         await conductorBotChatDecideCommand({ ...opts, message: `${gate.id} 승인해줘` });
       } else {

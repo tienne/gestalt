@@ -30,7 +30,7 @@ import {
 } from './commands/ship.js';
 import {
   conductorBotBindCommand,
-  conductorBotMergePolicyCommand,
+  conductorBotApprovalPolicyCommand,
   conductorBotChatOfferCommand,
   conductorBotChatDecideCommand,
   conductorBotDecideCommand,
@@ -1159,14 +1159,16 @@ export function createCli(): Command {
     .action(conductorBotDecideCommand);
 
   bot
-    .command('merge-policy <repo>')
-    .description('레포의 머지 승인 정책을 설정한다')
+    .command('approval-policy [repo]')
+    .alias('merge-policy')
+    .description('레포나 기본값의 봇 게이트 승인 정책을 설정한다 (기본은 trusted-chat)')
     .requiredOption('--mode <mode>', 'signed 또는 trusted-chat')
+    .option('--default', '레포 대신 정책 파일의 기본값을 바꾼다')
     .addOption(stateDir())
-    .action(conductorBotMergePolicyCommand);
+    .action(conductorBotApprovalPolicyCommand);
   bot
     .command('chat-offer <gateId>')
-    .description('운영 채팅에 안내할 머지 PR과 HEAD를 고정한다')
+    .description('운영 채팅에 안내할 게이트를 고정한다. PR이 걸린 게이트는 HEAD까지 고정한다')
     .option('--item <n>', '현재 운영 채팅의 Orca 항목 번호')
     .option('--refresh', '변경된 PR과 HEAD를 새로 안내한다')
     .addOption(stateDir())
