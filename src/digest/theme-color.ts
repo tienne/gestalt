@@ -32,12 +32,13 @@ const darkTheme = () =>
  * 스크립트가 꺼진 정지 HTML에서도 읽히도록 자동 테마 두 벌을 CSS로 깐다. 부트 스크립트가 돌면 :root 인라인 변수가 이 값을 덮는다.
  * data-theme은 부트 스크립트가 해석 결과의 밝기로 붙여서 OS와 고른 배경의 밝기가 다를 때 미디어 규칙을 끈다.
  */
+let themeCssCache: string | undefined;
 export function digestThemeCss(): string {
-  return (
+  themeCssCache ??=
     `:root{color-scheme:light;${colorCssText(lightTheme())};${DIGEST_VAR_BRIDGE}}` +
     `@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;${colorCssText(darkTheme())}}}` +
-    ':root[data-theme="dark"]{color-scheme:dark}'
-  );
+    ':root[data-theme="dark"]{color-scheme:dark}';
+  return themeCssCache;
 }
 
 /** head에서 저장된 선택을 먼저 적용해 첫 화면이 깜빡이지 않게 한다. VIEWER_JS는 window.gestaltDigestTheme으로 이 상태를 바꾼다 */
@@ -48,13 +49,22 @@ export const THEME_BOOT_JS = `${COLOR_RESOLVER_JS}
   var AUTO_LIGHT = '${DIGEST_AUTO_BACKGROUND.light}', AUTO_DARK = '${DIGEST_AUTO_BACKGROUND.dark}', ACCENT = '${DIGEST_DEFAULT_ACCENT}';
   var root = document.documentElement;
   var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  function known(list, id){ for (var i = 0; i < list.length; i++) { if (list[i].id === id) return true; } return false; }
+  // 카탈로그에서 빠진 id가 저장돼 있으면 resolve가 throw해서 첫 화면 테마가 안 뜬다. 읽을 때 걸러 다시 저장한다
   function read(){
+    var s;
     try {
-      var s = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (s && typeof s === 'object') return s;
-      var o = localStorage.getItem(OLD);
-      return o === 'light' ? { background: AUTO_LIGHT } : o === 'dark' ? { background: AUTO_DARK } : {};
+      s = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (!s || typeof s !== 'object') {
+        var o = localStorage.getItem(OLD);
+        return o === 'light' ? { background: AUTO_LIGHT } : o === 'dark' ? { background: AUTO_DARK } : {};
+      }
     } catch (e) { return {}; }
+    var dirty = false;
+    if (s.background != null && !known(sys.catalog.backgrounds, s.background)) { delete s.background; dirty = true; }
+    if (s.accent != null && !known(sys.catalog.accents, s.accent)) { delete s.accent; dirty = true; }
+    if (dirty) write(s);
+    return s;
   }
   function write(s){ try { localStorage.setItem(KEY, JSON.stringify(s)); localStorage.removeItem(OLD); } catch (e) {} }
   function apply(s){
@@ -73,13 +83,13 @@ export const THEME_BOOT_JS = `${COLOR_RESOLVER_JS}
     set: function(part){
       var s = read();
       for (var k in part) { if (Object.prototype.hasOwnProperty.call(part, k)) { if (part[k]) s[k] = part[k]; else delete s[k]; } }
-      write(s);
       var t = apply(s);
+      write(s);
       emit(t);
       return t;
     }
   };
-  apply(read());
+  try { apply(read()); } catch (e) { write({}); apply({}); }
   if (mq) {
     var follow = function(){ var s = read(); if (!s.background) emit(apply(s)); };
     if (mq.addEventListener) mq.addEventListener('change', follow); else if (mq.addListener) mq.addListener(follow);
@@ -93,11 +103,13 @@ export const THEME_BOOT_JS_SHA256 = createHash('sha256')
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 
-/** themeSwitchHtml 선택기를 window.gestaltDigestTheme에 잇는다. 다른 곳에서 테마가 바뀌면 gestalt-theme 이벤트로 표시를 맞춘다 */
+/** themeSwitchHtml 선택기를 window.gestaltDigestTheme에 잇는다. 다른 곳에서 테마가 바뀌면 gestalt-theme 이벤트로 표시를 맞춘다. 선택기를 감싼 details.theme-pop은 Escape와 바깥 클릭으로 닫는다 */
 export const THEME_SWITCH_JS = `(function(){var api=window.gestaltDigestTheme;if(!api)return;var root=document.documentElement,auto=document.querySelector('[data-theme-set="auto"]'),bg=document.getElementById('theme-bg'),ac=document.getElementById('theme-accent');
 function sync(){if(auto)auto.setAttribute('aria-pressed',api.get().background?'false':'true');if(bg)bg.value=root.getAttribute('data-gestalt-background')||'';if(ac)ac.value=root.getAttribute('data-gestalt-accent')||'';}
 if(auto)auto.addEventListener('click',function(){api.set({background:null});});if(bg)bg.addEventListener('change',function(){api.set({background:bg.value});});if(ac)ac.addEventListener('change',function(){api.set({accent:ac.value});});
-document.addEventListener('gestalt-theme',sync);sync();})();`;
+document.addEventListener('gestalt-theme',sync);sync();
+document.addEventListener('keydown',function(e){if(e.key!=='Escape')return;var d=document.querySelector('details.theme-pop[open]');if(!d)return;d.removeAttribute('open');var s=d.querySelector('summary');if(s)s.focus();});
+document.addEventListener('click',function(e){var d=document.querySelector('details.theme-pop[open]');if(d&&!d.contains(e.target))d.removeAttribute('open');});})();`;
 
 /** 헤더의 테마 선택기. 자동 버튼과 배경, 강조색 고르기. 처음 선택값은 VIEWER_JS가 현재 상태로 맞춘다 */
 export function themeSwitchHtml(): string {

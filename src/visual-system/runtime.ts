@@ -152,7 +152,18 @@ export function themeRuntimeJs(storageKey = 'gestalt-color', perPage = false): s
 (function(){
   var sys = gestaltColorSystem(${JSON.stringify(COLOR_CATALOG)});
   var KEY = ${JSON.stringify(storageKey)}${perPage ? " + ':' + location.pathname" : ''};
-  function read(){ try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function known(list, id){ for (var i = 0; i < list.length; i++) { if (list[i].id === id) return true; } return false; }
+  // 카탈로그에서 빠진 id가 저장돼 있으면 resolve가 throw해서 그 문서의 테마가 통째로 안 뜬다. 읽을 때 걸러 다시 저장한다
+  function read(){
+    var s;
+    try { s = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; }
+    if (!s || typeof s !== 'object') return {};
+    var dirty = false;
+    if (s.background != null && !known(sys.catalog.backgrounds, s.background)) { delete s.background; dirty = true; }
+    if (s.accent != null && !known(sys.catalog.accents, s.accent)) { delete s.accent; dirty = true; }
+    if (dirty) write(s);
+    return s;
+  }
   function write(sel){ try { localStorage.setItem(KEY, JSON.stringify(sel)); } catch (e) {} }
   var root = document.documentElement;
   // 문서가 처음 들고 온 배경과 강조색이 그 산출물의 기본값이다. 적용할 때마다 속성을 덮어쓰므로 시작할 때 한 번만 읽는다
@@ -164,14 +175,14 @@ export function themeRuntimeJs(storageKey = 'gestalt-color', perPage = false): s
     root.setAttribute('data-gestalt-accent', t.accent);
     return t;
   }
-  var current = read();
   window.gestaltTheme = {
     system: sys,
     get: function(){ return read(); },
-    set: function(part){ var s = read(); for (var k in part) { if (Object.prototype.hasOwnProperty.call(part, k)) s[k] = part[k]; } write(s); var t = apply(s); document.dispatchEvent(new CustomEvent('gestalt-theme', { detail: t })); return t; },
+    // 적용이 throw하면 저장하지 않는다. 먼저 저장하면 잘못된 값이 남아 다음 방문부터 테마가 안 뜬다
+    set: function(part){ var s = read(); for (var k in part) { if (Object.prototype.hasOwnProperty.call(part, k)) s[k] = part[k]; } var t = apply(s); write(s); document.dispatchEvent(new CustomEvent('gestalt-theme', { detail: t })); return t; },
     reset: function(){ write({}); var t = apply({}); document.dispatchEvent(new CustomEvent('gestalt-theme', { detail: t })); return t; },
     resolve: function(sel){ return sys.resolve(sel || read()); }
   };
-  apply(current);
+  try { apply(read()); } catch (e) { write({}); apply({}); }
 })();`;
 }
