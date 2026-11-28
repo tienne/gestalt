@@ -1,3 +1,6 @@
+import { THEME_BOOT_JS, THEME_SWITCH_JS, digestThemeCss } from '../digest/theme-color.js';
+import { THEME_POP_CSS, graphThemePicker } from '../graph-viz/theme.js';
+
 export const VIEWER_WARNING = '비밀값 패턴은 가리지만 전부 잡지는 못해요.';
 
 /** 뷰어 화면에 그릴 입력. 원격 공유를 볼 때만 켜진다 */
@@ -15,7 +18,8 @@ export interface ViewerAbilities {
  * 인라인 스크립트와 스타일도 nonce가 맞는 것만 돈다.
  *
  * 대화 내용은 전부 textContent로 넣는다. 마크다운을 HTML로 그리면 남의 도구 출력에
- * 든 태그가 이 페이지에서 실행될 길이 생긴다. localStorage나 IndexedDB도 안 쓴다.
+ * 든 태그가 이 페이지에서 실행될 길이 생긴다. 대화 내용은 localStorage나 IndexedDB에 안 남긴다.
+ * localStorage에는 테마 선택(배경, 강조색 id)만 들어간다.
  *
  * 발췌는 고른 줄의 번호와 펼쳤는지만 보낸다. 글자는 보는 쪽 데몬이 들고 있는 이벤트에서 다시 만든다.
  * 32KB 검사는 여기서 한 번 하고 데몬이 정리한 본문으로 한 번 더 한다.
@@ -32,53 +36,88 @@ export function renderViewerHtml(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>gestalt peer</title>
+<style nonce="${nonce}">${digestThemeCss()}${THEME_POP_CSS}</style>
 <style nonce="${nonce}">
-  :root { color-scheme: light dark; --muted: #888; --line: #8884; }
-  body { font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; }
+  body { font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0;
+    background: var(--bg); color: var(--fg); }
   header { position: sticky; top: 0; padding: 10px 16px; border-bottom: 1px solid var(--line);
-    background: Canvas; z-index: 1; }
-  header h1 { font-size: 15px; margin: 0 0 4px; }
-  .warn { color: #b45309; font-size: 13px; }
-  .meta { color: var(--muted); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+    background: var(--bg); z-index: 1; }
+  .head-row { display: flex; align-items: flex-start; gap: 12px; }
+  header h1 { font-size: 15px; margin: 0 0 4px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .warn { color: var(--gestalt-color-warning-text); font-size: 13px; }
+  .meta { color: var(--muted); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+    min-height: 20px; }
+  /* 연결 상태는 글자가 먼저고 점은 거든다. 색을 못 구분해도 문구로 읽힌다 */
+  #status::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 6px; vertical-align: 1px; background: var(--muted); }
+  #status[data-state="live"]::before { background: var(--gestalt-color-success-text); }
+  #status[data-state="waiting"]::before { background: var(--gestalt-color-info-text); }
+  #status[data-state="missing"]::before, #status[data-state="truncated"]::before,
+  #status[data-state="offline"]::before, #status[data-state="retry"]::before {
+    background: var(--gestalt-color-warning-text); }
+  #status[data-state="closed"]::before, #status[data-state="lost"]::before {
+    background: var(--gestalt-color-danger-text); }
+  #fresh { font: inherit; font-size: 12px; color: var(--accent); background: var(--card);
+    border: 1px solid currentColor; border-radius: 999px; padding: 0 8px; line-height: 18px;
+    cursor: pointer; }
+  #fresh[hidden] { display: none; }
+  time { font-variant-numeric: tabular-nums; }
+  textarea, select, button { font: inherit; color: var(--fg); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px; }
+  button { padding: 4px 10px; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--gestalt-color-focus); outline-offset: 2px; }
   main { padding: 12px 16px 48px; max-width: 980px; }
   .ev { margin: 10px 0; }
   .who { font-size: 12px; color: var(--muted); }
   .text { white-space: pre-wrap; word-break: break-word; }
-  .prompt .text { border-left: 3px solid #2563eb; padding-left: 8px; }
-  details { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+  .prompt .text { border-left: 3px solid var(--gestalt-color-series-2); padding-left: 8px; }
+  details:not(.theme-pop) { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
   details pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; margin: 6px 0 2px; }
   summary { cursor: pointer; font-size: 13px; }
-  .error summary { color: #dc2626; }
+  .error summary { color: var(--gestalt-color-danger-text); }
   .note { color: var(--muted); font-style: italic; font-size: 13px; }
-  .peer_message .text { border-left: 3px solid #059669; padding-left: 8px; }
-  .peer_answer .text { border-left: 3px solid #7c3aed; padding-left: 8px; }
-  .ask { border: 1px solid #7c3aed88; border-radius: 6px; padding: 8px 10px; }
+  .peer_message .text { border-left: 3px solid var(--gestalt-color-series-3); padding-left: 8px; }
+  .peer_answer .text { border-left: 3px solid var(--gestalt-color-series-4); padding-left: 8px; }
+  .ask { border: 1px solid var(--gestalt-color-series-4); border-radius: 6px; padding: 8px 10px; }
   .ask form { display: flex; gap: 8px; margin-top: 6px; }
   .ask form[hidden] { display: none; }
   .ask textarea { flex: 1; min-height: 38px; font: inherit; }
-  .ask .state.rejected { color: #dc2626; }
+  .ask .state.rejected { color: var(--gestalt-color-danger-text); }
   footer { position: sticky; bottom: 0; padding: 8px 16px; border-top: 1px solid var(--line);
-    background: Canvas; }
+    background: var(--bg); }
   footer form { display: flex; gap: 8px; max-width: 980px; }
   footer textarea { flex: 1; min-height: 38px; font: inherit; }
   #mine { list-style: none; margin: 0 0 6px; padding: 0; font-size: 12px; color: var(--muted);
     max-width: 980px; max-height: 120px; overflow: auto; }
-  #mine .rejected { color: #dc2626; }
+  #mine .rejected { color: var(--gestalt-color-danger-text); }
   .pick { float: left; margin: 3px 8px 0 0; }
-  .ev.picked { background: #2563eb14; }
+  /* 옅은 강조 바탕 위에서는 글자 대비가 보장되지 않아서 표면색 바탕에 왼쪽 선으로 고른 줄을 표시한다 */
+  .ev.picked { background: var(--card); box-shadow: inset 3px 0 0 var(--accent); }
   #pickbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px;
     margin-top: 6px; }
   #pickbar[hidden] { display: none; }
-  #pickbar .over { color: #dc2626; }
+  #pickbar .over { color: var(--gestalt-color-danger-text); }
+  .ev.fresh { animation: peer-live 900ms ease-out; }
+  @keyframes peer-live { from { background: color-mix(in srgb, var(--accent) 14%, transparent); } }
+  @media (prefers-reduced-motion: reduce) { .ev.fresh { animation: none; } }
+  @media (max-width: 640px) {
+    header, main, footer { padding-left: 12px; padding-right: 12px; }
+    footer form, .ask form { flex-direction: column; }
+  }
 </style>
+<script nonce="${nonce}">${THEME_BOOT_JS}</script>
 </head>
 <body>
 <header>
-  <h1 id="title">gestalt peer</h1>
+  <div class="head-row">
+    <h1 id="title">gestalt peer</h1>
+    ${graphThemePicker()}
+  </div>
   <div class="warn">${VIEWER_WARNING}</div>
   <div class="meta">
-    <span id="status">연결 중</span>
+    <span id="status" data-state="connecting">연결 중</span>
     <span id="unknown"></span>
+    <button type="button" id="fresh" aria-live="polite" hidden></button>
   </div>
 ${
   canExcerpt
@@ -127,6 +166,16 @@ ${
     return n;
   };
   const time = (at) => (at ? new Date(at).toLocaleTimeString() : '');
+  // 시각은 기계가 읽는 원래 값을 datetime에 같이 둔다. 보이는 글자는 예전과 같다
+  const stamp = (tag, cls, label, at) => {
+    const n = el(tag, cls, label + ' ');
+    if (at) {
+      const t = el('time', '', time(at));
+      t.dateTime = at;
+      n.append(t);
+    }
+    return n;
+  };
   const atBottom = () => window.innerHeight + window.scrollY >= document.body.scrollHeight - 40;
 
   const STATUS = {
@@ -162,14 +211,42 @@ ${
     box.prepend(c);
   }
 
+  // 접속하자마자 몰려오는 지난 기록에는 하이라이트를 안 건다. 한 번 조용해진 뒤 붙는 줄만 새 줄이다
+  let primed = false;
+  let quiet = 0;
+  let unseen = 0;
+  const freshBtn = document.getElementById('fresh');
+  function add(box) {
+    log.append(box);
+    clearTimeout(quiet);
+    quiet = setTimeout(() => (primed = true), 300);
+    if (!primed) return;
+    box.classList.add('fresh');
+    box.addEventListener('animationend', () => box.classList.remove('fresh'), { once: true });
+    if (!atBottom()) {
+      unseen++;
+      freshBtn.textContent = '새 항목 ' + unseen + '개';
+      freshBtn.hidden = false;
+    }
+  }
+  function seen() {
+    unseen = 0;
+    freshBtn.hidden = true;
+  }
+  freshBtn.addEventListener('click', () => {
+    window.scrollTo(0, document.body.scrollHeight);
+    seen();
+  });
+  window.addEventListener('scroll', () => unseen && atBottom() && seen(), { passive: true });
+
   function render(ev, seq) {
     const box = el('div', 'ev ' + ev.kind);
     if (ev.kind === 'prompt' || ev.kind === 'reply') {
-      box.append(el('div', 'who', (ev.kind === 'prompt' ? '주인' : '모델') + ' ' + time(ev.at)));
+      box.append(stamp('div', 'who', ev.kind === 'prompt' ? '주인' : '모델', ev.at));
       box.append(el('div', 'text', ev.text));
     } else if (ev.kind === 'tool_call') {
       const d = el('details');
-      d.append(el('summary', '', '도구 ' + ev.name + ' ' + time(ev.at)));
+      d.append(stamp('summary', '', '도구 ' + ev.name, ev.at));
       if (ev.input !== undefined) d.append(el('pre', '', ev.input));
       const slot = el('div');
       d.append(slot);
@@ -178,7 +255,7 @@ ${
       const entry = { seq, details: d, name: ev.name, input: ev.input || '', results: [] };
       if (ev.id) calls.set(ev.id, entry);
       pickable(box, seq, entry);
-      log.append(box);
+      add(box);
       return;
     } else if (ev.kind === 'tool_result') {
       const d = el('details', ev.isError ? 'error' : '');
@@ -195,7 +272,7 @@ ${
       }
       box.append(d);
       pickable(box, seq, { seq, details: d, results: [], text: ev.hidden ? '' : ev.text || '' });
-      log.append(box);
+      add(box);
       return;
     } else if (ev.kind === 'title') {
       titleEl.textContent = ev.text;
@@ -207,16 +284,16 @@ ${
       box.append(el('div', 'note', '이전 대화가 압축됐어요'));
     } else if (ev.kind === 'peer_message') {
       const who = ev.origin === 'agent' ? ' 님의 에이전트가' : ' 님이';
-      box.append(el('div', 'who', '팀원 ' + ev.from + who + ' 넣은 메시지 ' + time(ev.at)));
+      box.append(stamp('div', 'who', '팀원 ' + ev.from + who + ' 넣은 메시지', ev.at));
       box.append(el('div', 'text', ev.text));
     } else if (ev.kind === 'peer_answer') {
-      box.append(el('div', 'who', '팀원 ' + ev.from + ' 님이 질문에 단 답 (서명 확인) ' + time(ev.at)));
+      box.append(stamp('div', 'who', '팀원 ' + ev.from + ' 님이 질문에 단 답 (서명 확인)', ev.at));
       box.append(el('div', 'text', ev.text));
     } else {
       return;
     }
     pickable(box, seq, { seq, text: ev.text || '' });
-    log.append(box);
+    add(box);
   }
 
   const pickbar = document.getElementById('pickbar');
@@ -354,12 +431,15 @@ ${
     unknownEl.textContent = n > 0 ? '모르는 줄 ' + n + '개 건너뜀' : '';
   });
   es.addEventListener('state', (m) => {
-    statusEl.textContent = STATUS[JSON.parse(m.data).status] || '';
+    const st = JSON.parse(m.data).status;
+    statusEl.textContent = STATUS[st] || '';
+    statusEl.dataset.state = Object.hasOwn(STATUS, st) ? st : '';
   });
   es.addEventListener('closed', (m) => {
     const closed = JSON.parse(m.data);
     // 원격 공유의 reason은 주인 데몬이 보낸 글자다. 프로토타입 이름이 들어와도 안 걸리게 자기 키만 본다
     statusEl.textContent = Object.hasOwn(CLOSED, closed.reason) ? CLOSED[closed.reason] : '공유가 종료됐어요';
+    statusEl.dataset.state = 'closed';
     const missed = closed.missed;
     if (missed > 0) {
       log.append(el('div', 'ev note', '공유가 종료돼 뒤쪽 ' + missed + '개는 못 받았어요'));
@@ -486,9 +566,11 @@ ${
   es.onerror = () => {
     if (es.readyState !== EventSource.CLOSED) {
       statusEl.textContent = '다시 연결 중';
+      statusEl.dataset.state = 'retry';
       return;
     }
     statusEl.textContent = '연결이 끊겼어요';
+    statusEl.dataset.state = 'lost';
     const ctl = new AbortController();
     fetch(eventsUrl, { signal: ctl.signal, cache: 'no-store' })
       .then((r) => {
@@ -501,6 +583,7 @@ ${
   };
 })();
 </script>
+<script nonce="${nonce}">${THEME_SWITCH_JS}</script>
 </body>
 </html>
 `;

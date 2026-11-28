@@ -503,6 +503,8 @@ export function emptyView(
 
 export type StatusBarState = {
   text: string
+  // 색을 못 구분해도 상태가 읽히게 아이콘 모양을 같이 바꾼다
+  icon: 'activity' | 'warning' | 'error'
   tone: 'neutral' | 'warning' | 'danger'
   tooltip: string
 }
@@ -515,15 +517,17 @@ export function statusBarOf(view: ConductorView): StatusBarState {
   if (view.state === 'missing')
     return {
       text: '컨덕터 저장소 없음',
+      icon: 'error',
       tone: 'danger',
       tooltip: `${view.stateDir ?? '컨덕터 저장소'}에 events.jsonl이 없어요`
     }
   if (view.state === 'error')
-    return { text: '컨덕터 오류', tone: 'danger', tooltip: view.error ?? 'CLI가 실패했어요' }
+    return { text: '컨덕터 오류', icon: 'error', tone: 'danger', tooltip: view.error ?? 'CLI가 실패했어요' }
   const orders = activeOrderCount(view)
   const gates = view.gates.length
   return {
     text: `주문 ${orders} · 확인 대기 ${gates}`,
+    icon: gates > 0 ? 'warning' : 'activity',
     tone: gates > 0 ? 'warning' : 'neutral',
     tooltip: `진행 중인 주문 ${orders}개, 사람 확인을 기다리는 게이트 ${gates}개`
   }

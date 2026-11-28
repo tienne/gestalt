@@ -117,6 +117,7 @@ test('저장소가 비었으면 CLI를 부르지 않고 저장소 없음을 띄�
     assert.deepEqual(lastBar(h.callsOf('statusBar.update')), {
       id: 'conductor',
       text: '컨덕터 저장소 없음',
+      icon: 'error',
       tone: 'danger',
       tooltip: `${s.dir}에 events.jsonl이 없어요`
     })

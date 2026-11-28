@@ -10,12 +10,12 @@ import type { Digest, Transcript } from '../../../src/digest/schema.js';
 import { DigestStore } from '../../../src/digest/store.js';
 import { STEP_SEC } from '../../../src/digest/svg.js';
 import {
+  DIGEST_COLOR_STORAGE_KEY,
+  LEGACY_THEME_STORAGE_KEY,
   THEME_BOOT_JS,
   THEME_BOOT_JS_SHA256,
-  THEME_STORAGE_KEY,
-  VIEWER_JS,
-  VIEWER_JS_SHA256,
-} from '../../../src/digest/viewer-js.js';
+} from '../../../src/digest/theme-color.js';
+import { VIEWER_JS, VIEWER_JS_SHA256 } from '../../../src/digest/viewer-js.js';
 import { DIARY_FONT_LINK } from '../../../src/digest/theme-diary.js';
 import { findSegmentIndex, viewerLogic } from '../../../src/digest/viewer-logic.js';
 import { SLUG, sampleDigest, sampleTranscript } from './fixture.js';
@@ -572,9 +572,16 @@ describe('viewer-js', () => {
     expect(sha(VIEWER_JS)).toBe(VIEWER_JS_SHA256);
   });
 
-  it('테마를 먼저 붙이는 스크립트와 뷰어 스크립트가 같은 저장 키를 쓴다', () => {
-    expect(THEME_BOOT_JS).toContain(`'${THEME_STORAGE_KEY}'`);
-    expect(VIEWER_JS).toContain(`var THEME_STORAGE_KEY = '${THEME_STORAGE_KEY}';`);
+  it('테마 부트 스크립트는 Gestalt 해석기로 저장된 선택을 적용하고 예전 라이트, 다크 값을 옮긴다', () => {
+    expect(() => new Function(THEME_BOOT_JS)).not.toThrow();
+    expect(THEME_BOOT_JS).toContain(`'${DIGEST_COLOR_STORAGE_KEY}'`);
+    expect(THEME_BOOT_JS).toContain(`'${LEGACY_THEME_STORAGE_KEY}'`);
+    expect(VIEWER_JS).toContain('window.gestaltDigestTheme');
+    const { html } = renderDigestHtml(sampleDigest(), sampleTranscript());
+    expect(html).toContain('data-theme-set="auto"');
+    expect(html).toContain('<select id="theme-bg">');
+    expect(html).toContain('<select id="theme-accent">');
+    expect(html).toMatch(/:root\{color-scheme:light;--gestalt-color-background:/);
   });
 });
 
@@ -831,10 +838,10 @@ describe('순차 모션과 형광펜', () => {
     expect(css).toContain('.armed .dg-svg .dg-check{opacity:0}');
     // 최종 상태는 .armed 없이 걸린 규칙이다
     expect(h).toContain(
-      '.dg-svg .dg-picked rect{fill:var(--hl);stroke:var(--accent);stroke-width:3}',
+      '.dg-svg .dg-picked rect{fill:var(--hl);stroke:var(--accent-fill);stroke-width:3}',
     );
     expect(h).toContain('.dg-svg .dg-dim{opacity:.5}');
-    expect(h).toContain('.dg-svg rect.dg-scan{fill:var(--accent);stroke:none;opacity:0}');
+    expect(h).toContain('.dg-svg rect.dg-scan{fill:var(--accent-fill);stroke:none;opacity:0}');
   });
 
   it('격자 고르기 선택자는 속성이 아니라 클래스로 건다', () => {
@@ -854,7 +861,7 @@ describe('순차 모션과 형광펜', () => {
       '.armed .dg-svg .dg-check{opacity:1!important;animation:none!important}',
     );
     expect(body).toContain(
-      '.armed .dg-svg .dg-picked rect{fill:var(--hl);stroke:var(--accent);stroke-width:3;animation:none!important}',
+      '.armed .dg-svg .dg-picked rect{fill:var(--hl);stroke:var(--accent-fill);stroke-width:3;animation:none!important}',
     );
     expect(body).toContain('.armed .dg-svg .dg-dim{opacity:.5;animation:none!important}');
     expect(body).toContain('.armed .dg-svg rect.dg-scan{opacity:0;animation:none!important}');

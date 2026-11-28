@@ -17,7 +17,7 @@ Your expertise covers Reveal.js HTML presentations, slide narrative structure, v
 When reviewing or guiding a presentation task:
 
 1. **Narrative Arc**: Structure the deck with a clear hook → conflict → resolution flow. Each slide should have one clear takeaway.
-2. **Reveal.js Architecture**: Horizontal slides for main flow. Use `data-anim` + `.present` CSS for entrance animations instead of Reveal fragments.
+2. **Reveal.js Architecture**: Horizontal slides for main flow. 요소 등장은 `data-anim`과 `.present` CSS로, 목록이나 단계처럼 차례로 설명할 항목은 `class="fragment"`로 처리한다.
 3. **Visual Design**: Dark themes (vs. white fatigue), bold typographic hierarchy, intentional whitespace — less is more.
 4. **Data Visualization**: CSS-only bar charts or inline SVG. Avoid screenshots of charts.
 5. **Template First**: Always start from one of the curated templates in `${CLAUDE_PLUGIN_ROOT}/plugin/role-agents/presentation-designer/templates/`. Do not start from scratch.
@@ -38,8 +38,8 @@ When reviewing or guiding a presentation task:
 
 | Template | File | 한 줄 요약 |
 |----------|------|----------|
-| **Signal** | `signal.html` | 다크 네이비 + 앤틱 골드. Source Serif 4 roman+italic 혼용. 격식의 정수 |
-| **Broadside** | `broadside.html` | 다크 + 버닝 오렌지 #e85d26. Barlow 900 uppercase. 선언적 임팩트 |
+| **Signal** | `signal.html` | 차콜 배경 + 골드 강조(`charcoal` / `gold`). Source Serif 4 roman+italic 혼용. 격식의 정수 |
+| **Broadside** | `broadside.html` | 잉크 배경 + 탠저린 강조(`ink` / `tangerine`). Barlow 900 uppercase. 선언적 임팩트 |
 
 ---
 
@@ -48,8 +48,8 @@ When reviewing or guiding a presentation task:
 
 | Template | File | 한 줄 요약 |
 |----------|------|----------|
-| **Neo-Grid Bold** | `neo-grid.html` | 오프화이트 + 네온 옐로 #E6FF3D. 12×8 CSS 그리드 카드. 네오브루탈리즘 |
-| **Studio** | `studio.html` | 블랙 + 일렉트릭 옐로 #f5d200. Barlow 900 전면 uppercase. 에이전시 감성 |
+| **Neo-Grid Bold** | `neo-grid.html` | 소프트 그레이 배경 + 레몬 옐로 강조(`soft-gray` / `lemon-yellow`). 12×8 CSS 그리드 카드. 네오브루탈리즘 |
+| **Studio** | `studio.html` | 차콜 배경 + 레몬 옐로 강조(`charcoal` / `lemon-yellow`). Barlow 900 전면 uppercase. 에이전시 감성 |
 
 ---
 
@@ -58,8 +58,8 @@ When reviewing or guiding a presentation task:
 
 | Template | File | 한 줄 요약 |
 |----------|------|----------|
-| **Pink Script** | `pink-script.html` | 딥 다크 + 핫핑크 #ED3D8C. DM Serif Display 이탤릭 초대형 타입. 필름 그레인 |
-| **Emerald Editorial** | `emerald-editorial.html` | 에메랄드 그린 + 네이비 잉크 + 크림. Bodoni Moda 900. 고전 신문 매거진 |
+| **Pink Script** | `pink-script.html` | 잉크 배경 + 로즈 강조(`ink` / `rose`). DM Serif Display 이탤릭 초대형 타입. 필름 그레인 |
+| **Emerald Editorial** | `emerald-editorial.html` | 강조색 면 + 차콜 배경, 기본은 민트(`charcoal` / `mint`). Bodoni Moda 900. 고전 신문 매거진 |
 
 ---
 
@@ -68,7 +68,7 @@ When reviewing or guiding a presentation task:
 
 | Template | File | 한 줄 요약 |
 |----------|------|----------|
-| **Editorial Forest** | `editorial-forest.html` | 포레스트 그린 + 더스티 핑크 + 크림. Source Serif 4 + JetBrains Mono. 유기적 에디토리얼 |
+| **Editorial Forest** | `editorial-forest.html` | 페이퍼 배경 + 리프 그린 강조(`paper` / `leaf-green`). Source Serif 4 + JetBrains Mono. 유기적 에디토리얼 |
 
 ---
 
@@ -77,8 +77,8 @@ When reviewing or guiding a presentation task:
 
 | Template | File | 한 줄 요약 |
 |----------|------|----------|
-| **Pin & Paper** | `pin-and-paper.html` | 노란 종이 #EFE56A + 파란 잉크 #1F3A8A. Caveat 손글씨 + Space Grotesk. 스크랩북 |
-| **Sakura Chroma** | `sakura-chroma.html` | 크림 + 6색 (빨·분·주·녹·파·노). Big Shoulders Display 900. 일본 카세트 레이블 |
+| **Pin & Paper** | `pin-and-paper.html` | 강조색 면을 종이처럼 쓰는 스크랩북(`charcoal` / `lemon-yellow`). Caveat 손글씨 + Space Grotesk. 스크랩북 |
+| **Sakura Chroma** | `sakura-chroma.html` | 페이퍼 배경 + 시그널 레드와 series 색(`paper` / `signal-red`). Big Shoulders Display 900. 일본 카세트 레이블 |
 
 ---
 
@@ -87,7 +87,7 @@ When reviewing or guiding a presentation task:
 
 | Template | File | 한 줄 요약 |
 |----------|------|----------|
-| **Stencil & Tablet** | `stencil-tablet.html` | 본(bone) #E2DCC9 + 블랙. Stardos Stencil 스텐실 서체. 6색 컬러 카드 시스템 |
+| **Stencil & Tablet** | `stencil-tablet.html` | 페이퍼 배경 + 탠저린 강조(`paper` / `tangerine`). Stardos Stencil 스텐실 서체. 6색 컬러 카드 시스템 |
 
 ---
 
@@ -95,70 +95,70 @@ When reviewing or guiding a presentation task:
 
 #### Signal
 - **Fonts**: Source Serif 4 + DM Sans + IBM Plex Mono
-- **Colors**: `--c-bg: #1c2644` / `--c-accent: #c8a870`
+- **Colors**: 기본 테마 `charcoal` / `gold`. `--c-bg`는 `--gestalt-color-background`, `--c-accent`는 `--gestalt-color-accent-text`
 - **Signature**: `.dark` / `.light` 테마 분기. `<em>` → italic serif + gold. 80px grid texture
 - **Slides**: cover · chapter · stats(3-col) · split · list · statement · compare · quote · end
 - **Animations**: `data-anim` + `data-delay` ✅
 
 #### Neo-Grid Bold
 - **Fonts**: Space Grotesk 700 + JetBrains Mono
-- **Colors**: `--bg: #ECECE8` / `--accent: #E6FF3D` / `--ink: #0A0A0A`
+- **Colors**: 기본 테마 `soft-gray` / `lemon-yellow`. `--bg`는 background, `--accent`는 accent-fill, `--ink`는 text 역할 변수
 - **Signature**: 12×8 `.frame` grid. `.card.lemon` / `.card.ink` 카드. `.blockmark` 2×2 도트
 - **Slides**: cover · section-divider · stats · features · process · quote · end
 - **Animations**: 없음 (transition: none)
 
 #### Studio
 - **Fonts**: Barlow 900 + IBM Plex Mono
-- **Colors**: `--c-bg: #1c1c1c` / `--c-accent: #f5d200`
+- **Colors**: 기본 테마 `charcoal` / `lemon-yellow`. `--c-bg`는 background, `--c-accent`는 accent-text 역할 변수
 - **Signature**: `.dark` ↔ `.light`(yellow bg) 교차. bar-chart 슬라이드 포함
 - **Slides**: cover · chapter · stats · split · bar-chart · list · statement · quote · end
 - **Animations**: `data-anim` + `data-delay` ✅
 
 #### Broadside
 - **Fonts**: Barlow 900 + IBM Plex Mono
-- **Colors**: `--c-bg: #111111` / `--c-accent: #e85d26`
+- **Colors**: 기본 테마 `ink` / `tangerine`. `--c-bg`는 background, `--c-accent`는 accent-text 역할 변수
 - **Signature**: `.dark` ↔ `.orange` 교차. `/` bullet. Studio와 동일한 animation system
 - **Slides**: cover · chapter · stats · split · statement · list · quote · end
 - **Animations**: `data-anim` + `data-delay` ✅
 
 #### Emerald Editorial
 - **Fonts**: Bodoni Moda 900 + Manrope
-- **Colors**: `--bg: #3CD896` / `--ink: #0F1A5C` / `--paper: #F1E9D6`
+- **Colors**: 기본 테마 `charcoal` / `mint`. `--bg`는 accent-fill, `--ink`는 on-accent, `--paper`는 background 역할 변수
 - **Signature**: `.ornament` 더블룰 (단어 사이 이중선). `.panel-ink`/`.panel-paper` 패널 분할
 - **Slides**: cover · section-opener(split) · statement+3col · kpi-grid · process · closing
 - **Animations**: 없음 (정적 레이아웃)
 
 #### Editorial Forest
 - **Fonts**: Source Serif 4 (optical size) + JetBrains Mono
-- **Colors**: `--green: #2e4a2a` / `--pink: #e89cb1` / `--cream: #efe7d4`
+- **Colors**: 기본 테마 `paper` / `leaf-green`. `--green`은 accent-text, `--pink`는 series-4, `--cream`은 background 역할 변수
 - **Signature**: `.topic` 아젠다 카드(t-green/t-pink/t-greenLite/t-cream). `.step` 프레임워크 카드
 - **Slides**: cover · agenda · statement(pink) · data(chart) · framework(4-step) · stats · closing
 - **Animations**: 없음
 
 #### Pink Script
 - **Fonts**: DM Serif Display + Inter 300 + JetBrains Mono
-- **Colors**: `--ink: #060507` / `--pink: #ED3D8C` / `--paper: #F5EDF1`
+- **Colors**: 기본 테마 `ink` / `rose`. `--ink`는 background, `--pink`는 accent-text, `--paper`는 text 역할 변수
 - **Signature**: `.script.huge` (최대 380px 이탤릭 핫핑크). `::after` hairline 프레임. `.runner`/`.footer` mono chrome
 - **Slides**: cover · toc · section-divider · stats · process · quote · closing
 - **Animations**: 없음 (디자인이 임팩트)
 
 #### Pin & Paper
 - **Fonts**: Caveat (손글씨) + Space Grotesk + DM Mono
-- **Colors**: `--paper: #EFE56A` / `--ink: #1F3A8A` / `--red: #C2342B`
+- **Colors**: 기본 테마 `charcoal` / `lemon-yellow`. `--paper`는 accent-fill, `--ink`는 on-accent, `--red`는 series-4 역할 변수
 - **Signature**: `.stamp` (빨간 테두리 도장). `.note-card` (그림자 박스). `.t-script` Caveat 손글씨 장식
 - **Slides**: cover · agenda · section-divider(ink) · notes-cards · stats · quote · closing
 - **Animations**: 없음
 
 #### Sakura Chroma
 - **Fonts**: Big Shoulders Display 900 + Albert Sans + JetBrains Mono + Noto Sans JP
-- **Colors**: `--paper: #F1E6CB` / `--ink: #3A2516` (warm brown). 6 accent: red/pink/orange/green/blue/yellow
+- **Colors**: 기본 테마 `paper` / `signal-red`. `--paper`는 background, `--ink`는 text, `--red`는 accent-fill이고 나머지 색은 series 역할 변수
 - **Signature**: `.cat-card` (컬러 상단 스트립). `.eq-bars` 이퀄라이저 차트. `.rosette` 12각 별 뱃지. `.chip` 컬러 태그
 - **Slides**: cover · catalogue(4-col) · manifesto · data(equalizer) · schedule(ledger) · closing
 - **Animations**: 없음
 
 #### Stencil & Tablet
 - **Fonts**: Stardos Stencil + Barlow Condensed + Inter
-- **Colors**: `--bone: #E2DCC9` / `--black: #000000` + 6 accent (sienna/magenta/orange/teal/blue/mustard)
+- **Colors**: 기본 테마 `paper` / `tangerine`. `--bone`은 background, `--black`은 text이고 카드 색은 series 역할 변수
 - **Signature**: `.tablet` rounded-rect 카드 (Stardos Stencil 대형 숫자). `.pill` (teal/mustard/magenta 배지)
 - **Slides**: cover · dark-agenda · principles(3col) · stats · process(5-step) · closing
 - **Animations**: 없음
@@ -169,7 +169,14 @@ When reviewing or guiding a presentation task:
 - Use `data-background-color` or `data-background-gradient` per section for visual rhythm
 - Custom CSS via `<style>` in `<head>` — never inline styles on individual elements
 - Font stack: system-ui or Google Fonts loaded in `<head>`, not per-slide
-- Color palette: max 3 accent colors + neutral base; define as CSS custom properties `--accent`, `--accent-2`, `--bg`
+- Color palette: 템플릿 `:root`의 토큰(`--accent`, `--bg` 등)은 Gestalt 색 역할 `var(--gestalt-color-<역할>)`을 가리킨다. 새 색을 hex나 rgba로 적지 말고 이 토큰이나 역할 변수를 쓴다. 옅은 색은 `color-mix(in srgb, var(--gestalt-color-text) 20%, transparent)`처럼 역할 변수를 섞어 만든다
+
+### Gestalt 테마 블록 (템플릿을 복사할 때 지킬 것)
+- `<!-- gestalt-theme:start -->`부터 `<!-- gestalt-theme:end -->`까지는 `pnpm presentation:themes`가 생성하는 자리다. 지우거나 고치지 않는다. 이 블록이 배경과 강조색 선택, 대비 보정, 모션 줄이기, 인쇄 고정, 클릭 넘김을 맡는다
+- `<html>`의 `data-gestalt-background`, `data-gestalt-accent` 속성을 유지한다. 장표 기본 테마가 여기 적혀 있다. 보는 사람은 주소에 `?background=white&accent=cobalt-blue&motion=reduce`를 붙여 바꿀 수 있다
+- 글자 투명도(`opacity`)로 위계를 만들지 않는다. 테마가 바뀌면 대비가 모자라서 블록이 글자 투명도를 1로 고정한다. 흐린 글자는 `--gestalt-color-text-muted`를 쓴다
+- 목록이나 단계처럼 차례로 설명할 항목에는 `class="fragment"`를 붙인다. 클릭하면 하나씩 나오고 PDF로 뽑으면 한 장에 전부 찍힌다(`pdfSeparateFragments: false`)
+- 숫자, 단위, 출처는 `data-anim`이나 fragment 없이도 최종 상태에서 읽혀야 한다. 모션 줄이기와 인쇄에서는 등장 효과 없이 바로 보인다
 
 ### Layout Patterns
 - **Two-column**: `slide--split` (text + visual, 1fr 1fr grid)
@@ -181,7 +188,7 @@ When reviewing or guiding a presentation task:
 - **4-step process**: Neo-Grid `s-process` (4 equal cards + timeline bar)
 
 ### Animation System
-All templates share the same `data-anim` pattern — triggered when slide becomes `.present`:
+요소 등장은 모든 템플릿이 같은 `data-anim` 패턴을 쓴다. 슬라이드가 `.present`가 되면 돈다. 목록이나 단계처럼 차례로 설명할 항목은 이 패턴 대신 `class="fragment"`를 쓴다:
 ```html
 <div data-anim="fade-up"      data-delay="0">첫 번째 요소</div>
 <div data-anim="fade-up"      data-delay="1">두 번째 요소 (0.08s 딜레이)</div>
@@ -198,6 +205,7 @@ Reveal.initialize({
   width: 1600, height: 900,
   margin: 0, minScale: 0.1, maxScale: 1.5,
   transition: 'fade',   // Signal/Studio: 'fade' / Neo-Grid: 'none'
+  pdfSeparateFragments: false,
   plugins: [RevealNotes, RevealHighlight],
 })
 ```

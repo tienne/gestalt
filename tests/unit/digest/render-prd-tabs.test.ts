@@ -21,16 +21,17 @@ function render() {
 }
 
 describe('탭형 PRD 렌더', () => {
-  it('다섯 탭과 대응 패널, 검수 배지 하나를 제공하고 기본 다크로 연다', () => {
+  it('다섯 탭과 대응 패널, 검수 배지 하나를 제공하고 테마는 자동으로 연다', () => {
     const html = render();
     for (const id of ['prd', 'spec', 'metrics', 'decisions', 'review']) {
       expect(html).toContain(`id="tab-${id}" aria-controls="panel-${id}"`);
       expect(html).toContain(`data-panel="${id}" role="tabpanel" aria-labelledby="tab-${id}"`);
     }
     expect(html.match(/class="badge review-count"/g)).toHaveLength(1);
-    expect(html).toContain('<html lang="ko" data-theme="dark">');
+    expect(html).toContain('<html lang="ko">');
     expect(html).toContain('data-source-toggle aria-pressed="false"');
-    expect(html).toContain('data-theme-toggle');
+    expect(html).toContain('<details class="theme-pop"><summary>');
+    expect(html).toContain('id="theme-bg"');
     expect(html).toContain('value="100" aria-label="원문 반영"');
   });
 

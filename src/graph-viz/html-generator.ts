@@ -1,9 +1,10 @@
 import type { CodeGraphNode, CodeGraphEdge } from '../code-graph/types.js';
 import { NodeKind, EdgeKind } from '../code-graph/types.js';
+import { GRAPH_THEME_HEAD, GRAPH_THEME_JS, graphThemePicker } from './theme.js';
 
 /**
  * Generates a self-contained interactive HTML visualization for a code knowledge graph.
- * Uses D3.js v7 force-directed layout with dark theme UI.
+ * Uses D3.js v7 force-directed layout with the shared Gestalt color theme.
  */
 export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGraphEdge[]): string {
   const nodesJson = JSON.stringify(nodes);
@@ -22,6 +23,7 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Code Knowledge Graph</title>
+  ${GRAPH_THEME_HEAD}
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
     *, *::before, *::after {
@@ -31,8 +33,8 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     }
 
     body {
-      background: #0d1117;
-      color: #e6edf3;
+      background: var(--bg);
+      color: var(--fg);
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
       display: flex;
       height: 100vh;
@@ -54,8 +56,8 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     /* ─── Sidebar ─────────────────────────────────────────────── */
     #sidebar {
       width: 280px;
-      background: #161b22;
-      border-left: 1px solid #30363d;
+      background: var(--card);
+      border-left: 1px solid var(--line);
       display: flex;
       flex-direction: column;
       transition: transform 0.2s ease;
@@ -63,7 +65,7 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
 
     #sidebar-header {
       padding: 16px 20px;
-      border-bottom: 1px solid #30363d;
+      border-bottom: 1px solid var(--line);
       display: flex;
       align-items: center;
       gap: 10px;
@@ -72,9 +74,13 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     #sidebar-header h2 {
       font-size: 13px;
       font-weight: 600;
-      color: #8b949e;
+      color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.05em;
+    }
+
+    #sidebar-header .theme-pop {
+      margin-left: auto;
     }
 
     #sidebar-content {
@@ -84,7 +90,7 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     }
 
     #node-placeholder {
-      color: #484f58;
+      color: var(--muted);
       font-size: 13px;
       text-align: center;
       margin-top: 40px;
@@ -98,7 +104,7 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     .detail-label {
       font-size: 10px;
       font-weight: 600;
-      color: #8b949e;
+      color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.07em;
       margin-bottom: 4px;
@@ -106,13 +112,13 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
 
     .detail-value {
       font-size: 13px;
-      color: #e6edf3;
+      color: var(--fg);
       word-break: break-all;
       margin-bottom: 16px;
       padding: 8px 10px;
-      background: #0d1117;
+      background: var(--bg);
       border-radius: 6px;
-      border: 1px solid #30363d;
+      border: 1px solid var(--line);
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
     }
 
@@ -123,17 +129,21 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
       font-size: 11px;
       font-weight: 600;
       margin-bottom: 16px;
+      color: var(--fg);
+      background: var(--bg);
+      border: 1px solid var(--k);
     }
 
-    .badge-file     { background: #1f4068; color: #58a6ff; border: 1px solid #388bfd40; }
-    .badge-function { background: #1a3a1a; color: #3fb950; border: 1px solid #3fb95040; }
-    .badge-class    { background: #3d2000; color: #f0883e; border: 1px solid #f0883e40; }
-    .badge-type     { background: #2e1f5e; color: #bc8cff; border: 1px solid #bc8cff40; }
+    /* 종류 색은 테두리와 점에만 쓰고 글자는 본문색으로 둔다. 계열색은 글자 대비가 보장되지 않아서다 */
+    .k-file     { --k: var(--gestalt-color-series-2); }
+    .k-function { --k: var(--gestalt-color-series-3); }
+    .k-class    { --k: var(--gestalt-color-series-5); }
+    .k-type     { --k: var(--gestalt-color-series-4); }
 
     #connections-section h3 {
       font-size: 11px;
       font-weight: 600;
-      color: #8b949e;
+      color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.07em;
       margin-bottom: 8px;
@@ -141,11 +151,11 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
 
     .connection-item {
       font-size: 12px;
-      color: #c9d1d9;
+      color: var(--fg);
       padding: 5px 8px;
       border-radius: 4px;
       margin-bottom: 3px;
-      background: #21262d;
+      background: var(--bg);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -155,12 +165,12 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     }
 
     .connection-item:hover {
-      border-color: #388bfd;
+      border-color: var(--accent);
     }
 
     .connection-item .conn-kind {
       font-size: 10px;
-      color: #8b949e;
+      color: var(--muted);
       margin-right: 4px;
     }
 
@@ -175,17 +185,16 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     }
 
     .stat-chip {
-      background: #161b22cc;
-      border: 1px solid #30363d;
+      background: var(--card);
+      border: 1px solid var(--line);
       border-radius: 6px;
       padding: 5px 10px;
       font-size: 11px;
-      color: #8b949e;
-      backdrop-filter: blur(4px);
+      color: var(--muted);
     }
 
     .stat-chip span {
-      color: #e6edf3;
+      color: var(--fg);
       font-weight: 600;
     }
 
@@ -194,18 +203,17 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
       position: absolute;
       bottom: 16px;
       left: 12px;
-      background: #161b22cc;
-      border: 1px solid #30363d;
+      background: var(--card);
+      border: 1px solid var(--line);
       border-radius: 8px;
       padding: 10px 14px;
       pointer-events: none;
-      backdrop-filter: blur(4px);
     }
 
     .legend-title {
       font-size: 10px;
       font-weight: 600;
-      color: #8b949e;
+      color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.07em;
       margin-bottom: 8px;
@@ -217,7 +225,7 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
       gap: 7px;
       margin-bottom: 5px;
       font-size: 11px;
-      color: #8b949e;
+      color: var(--muted);
     }
 
     .legend-dot {
@@ -225,6 +233,16 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
       height: 10px;
       border-radius: 50%;
       flex-shrink: 0;
+      background: var(--k);
+    }
+
+    .legend-dot.k-file {
+      width: 14px;
+      height: 14px;
+    }
+
+    .legend-solid {
+      background: var(--muted);
     }
 
     .legend-line {
@@ -237,7 +255,7 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     .legend-dashed {
       background: repeating-linear-gradient(
         90deg,
-        #6e7681 0, #6e7681 4px,
+        var(--muted) 0, var(--muted) 4px,
         transparent 4px, transparent 8px
       );
     }
@@ -256,12 +274,22 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
       pointer-events: none;
       user-select: none;
       font-size: 10px;
-      fill: #8b949e;
+      fill: var(--muted);
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    .node circle {
+      fill: var(--k);
+      stroke: var(--bg);
     }
 
     .link {
       pointer-events: none;
+      stroke: var(--muted);
+    }
+
+    #arrow path {
+      fill: var(--muted);
     }
 
     .link.dimmed {
@@ -281,7 +309,7 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     }
 
     .node.highlighted text {
-      fill: #e6edf3;
+      fill: var(--fg);
     }
 
     /* ─── Controls ───────────────────────────────────────────── */
@@ -297,22 +325,42 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     .ctrl-btn {
       width: 32px;
       height: 32px;
-      background: #161b22cc;
-      border: 1px solid #30363d;
+      background: var(--card);
+      border: 1px solid var(--line);
       border-radius: 6px;
-      color: #8b949e;
+      color: var(--muted);
       font-size: 16px;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       transition: background 0.15s, color 0.15s;
-      backdrop-filter: blur(4px);
     }
 
     .ctrl-btn:hover {
-      background: #21262d;
-      color: #e6edf3;
+      background: var(--chip);
+      color: var(--fg);
+    }
+
+    @media (max-width: 640px) {
+      body {
+        flex-direction: column;
+      }
+
+      #sidebar {
+        width: auto;
+        max-height: 45vh;
+        border-left: 0;
+        border-top: 1px solid var(--line);
+      }
+
+      #sidebar-header .theme-switch {
+        top: auto;
+        bottom: calc(100% + 6px);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition: none !important; }
     }
   </style>
 </head>
@@ -334,17 +382,18 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
 
   <div id="legend">
     <div class="legend-title">Legend</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#388bfd;width:14px;height:14px;"></div> File</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#3fb950;"></div> Function</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#f0883e;"></div> Class / Type</div>
+    <div class="legend-item"><div class="legend-dot k-file"></div> File</div>
+    <div class="legend-item"><div class="legend-dot k-function"></div> Function</div>
+    <div class="legend-item"><div class="legend-dot k-class"></div> Class / Type</div>
     <div class="legend-item"><div class="legend-line legend-dashed"></div> Import</div>
-    <div class="legend-item"><div class="legend-line" style="background:#6e7681;"></div> Call / Other</div>
+    <div class="legend-item"><div class="legend-line legend-solid"></div> Call / Other</div>
   </div>
 </div>
 
 <div id="sidebar">
   <div id="sidebar-header">
     <h2>Node Details</h2>
+    ${graphThemePicker()}
   </div>
   <div id="sidebar-content">
     <div id="node-placeholder">Click a node to<br/>inspect its details</div>
@@ -371,11 +420,12 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
   document.getElementById('stat-edges').textContent = RAW_EDGES.length;
 
   // ─── Helpers ───────────────────────────────────────────────────
-  function nodeColor(kind) {
-    if (kind === NODE_KIND_FILE)     return '#388bfd';
-    if (kind === NODE_KIND_FUNCTION) return '#3fb950';
-    if (kind === NODE_KIND_CLASS)    return '#f0883e';
-    return '#bc8cff'; // Type, etc.
+  // 색은 CSS 클래스가 역할 변수로 칠한다. 테마를 바꿔도 다시 그리지 않아도 된다
+  function kindClass(kind) {
+    if (kind === NODE_KIND_FILE)     return 'k-file';
+    if (kind === NODE_KIND_FUNCTION) return 'k-function';
+    if (kind === NODE_KIND_CLASS)    return 'k-class';
+    return 'k-type';
   }
 
   function nodeRadius(kind) {
@@ -388,13 +438,6 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
       return parts[parts.length - 1] || n.name;
     }
     return n.name.length > 22 ? n.name.slice(0, 20) + '…' : n.name;
-  }
-
-  function badgeClass(kind) {
-    if (kind === NODE_KIND_FILE)     return 'badge-file';
-    if (kind === NODE_KIND_FUNCTION) return 'badge-function';
-    if (kind === NODE_KIND_CLASS)    return 'badge-class';
-    return 'badge-type';
   }
 
   // ─── D3 Setup ──────────────────────────────────────────────────
@@ -417,8 +460,11 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     .attr('markerHeight', 5)
     .attr('orient', 'auto')
     .append('path')
-    .attr('d', 'M0,-4L8,0L0,4')
-    .attr('fill', '#4d5566');
+    .attr('d', 'M0,-4L8,0L0,4');
+
+  // 모션 줄이기에서는 배치를 화면 밖에서 끝까지 계산해 최종 자리로 한 번에 그리고 이동도 바로 한다
+  const REDUCE = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const dur = (ms) => (REDUCE ? 0 : ms);
 
   const zoomLayer = svg.append('g').attr('class', 'zoom-layer');
 
@@ -466,7 +512,6 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     .data(simEdges)
     .join('line')
     .attr('class', 'link')
-    .attr('stroke', d => d.kind === EDGE_KIND_CALL ? '#4d5566' : '#3a3f4b')
     .attr('stroke-width', d => d.kind === EDGE_KIND_CALL ? 1.2 : 0.8)
     .attr('stroke-dasharray', d => d.kind === EDGE_KIND_IMPORT ? '4 3' : null)
     .attr('stroke-opacity', d => d.kind === EDGE_KIND_CALL ? 0.7 : 0.45)
@@ -477,7 +522,7 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
   const node = nodeGroup.selectAll('g')
     .data(simNodes)
     .join('g')
-    .attr('class', 'node')
+    .attr('class', d => 'node ' + kindClass(d.kind))
     .call(
       d3.drag()
         .on('start', (event, d) => {
@@ -499,8 +544,6 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
 
   node.append('circle')
     .attr('r', d => nodeRadius(d.kind))
-    .attr('fill', d => nodeColor(d.kind))
-    .attr('stroke', '#0d1117')
     .attr('stroke-width', 1.5);
 
   node.append('text')
@@ -509,7 +552,7 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     .text(d => shortName(d));
 
   // ─── Tick ─────────────────────────────────────────────────────
-  simulation.on('tick', () => {
+  function draw() {
     link
       .attr('x1', d => d.source.x)
       .attr('y1', d => d.source.y)
@@ -517,7 +560,12 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
       .attr('y2', d => d.target.y);
 
     node.attr('transform', d => \`translate(\${d.x},\${d.y})\`);
-  });
+  }
+  simulation.on('tick', draw);
+  if (REDUCE) {
+    simulation.stop().tick(300);
+    draw();
+  }
 
   // ─── Click Interaction ────────────────────────────────────────
   let selectedId = null;
@@ -598,7 +646,7 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     detailsEl.style.display = 'block';
     detailsEl.innerHTML = \`
       <div class="detail-label">Kind</div>
-      <div class="detail-badge \${badgeClass(d.kind)}">\${d.kind}</div>
+      <div class="detail-badge \${kindClass(d.kind)}">\${d.kind}</div>
 
       <div class="detail-label">Name</div>
       <div class="detail-value">\${escHtml(d.name)}</div>
@@ -653,7 +701,7 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
     const t = d3.zoomTransform(svg.node());
     const cx = width / 2 - t.k * d.x;
     const cy = height / 2 - t.k * d.y;
-    svg.transition().duration(400).call(
+    svg.transition().duration(dur(400)).call(
       zoom.transform,
       d3.zoomIdentity.translate(cx, cy).scale(t.k)
     );
@@ -661,13 +709,13 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
 
   // ─── Controls ────────────────────────────────────────────────
   document.getElementById('btn-zoom-in').addEventListener('click', () => {
-    svg.transition().duration(200).call(zoom.scaleBy, 1.4);
+    svg.transition().duration(dur(200)).call(zoom.scaleBy, 1.4);
   });
   document.getElementById('btn-zoom-out').addEventListener('click', () => {
-    svg.transition().duration(200).call(zoom.scaleBy, 1 / 1.4);
+    svg.transition().duration(dur(200)).call(zoom.scaleBy, 1 / 1.4);
   });
   document.getElementById('btn-reset').addEventListener('click', () => {
-    svg.transition().duration(400).call(
+    svg.transition().duration(dur(400)).call(
       zoom.transform,
       d3.zoomIdentity.translate(width / 2, height / 2).scale(1)
         .translate(-width / 2, -height / 2)
@@ -688,15 +736,25 @@ export function generateVisualizationHtml(nodes: CodeGraphNode[], edges: CodeGra
   }
 
   // ─── Window resize ───────────────────────────────────────────
+  // 창을 끄는 동안 resize가 수십 번 들어온다. 모션을 줄인 모드는 매번 60틱을 동기로 돌아 끌기가 끊기므로 멈춘 뒤 한 번만 다시 그린다
+  let resizeTimer = 0;
   window.addEventListener('resize', () => {
-    const w = document.getElementById('graph-container').clientWidth;
-    const h = document.getElementById('graph-container').clientHeight;
-    svg.attr('width', w).attr('height', h);
-    simulation.force('center', d3.forceCenter(w / 2, h / 2)).alpha(0.1).restart();
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const w = document.getElementById('graph-container').clientWidth;
+      const h = document.getElementById('graph-container').clientHeight;
+      svg.attr('width', w).attr('height', h);
+      simulation.force('center', d3.forceCenter(w / 2, h / 2)).alpha(0.1);
+      if (REDUCE) {
+        simulation.tick(60);
+        draw();
+      } else simulation.restart();
+    }, 150);
   });
 
 })();
 </script>
+<script>${GRAPH_THEME_JS}</script>
 </body>
 </html>`;
 }

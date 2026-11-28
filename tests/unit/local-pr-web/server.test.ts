@@ -218,6 +218,21 @@ describe('PrWebServer', () => {
       expect(html).toContain(`<script nonce="${header}">`);
     });
 
+    it('목록 페이지도 인라인 스크립트마다 헤더와 같은 nonce를 단다', async () => {
+      engine.create({ title: 't', author: 'a' });
+      await server.start(ANY_PORT);
+
+      const res = await fetch(`http://127.0.0.1:${server.port}/r/${repoKey}`);
+      const html = await res.text();
+      const header = res.headers.get('content-security-policy')!.match(/'nonce-([^']+)'/)?.[1];
+
+      // 테마 부트 스크립트가 nonce 없이 막히면 저장해 둔 테마가 안 걸리고 선택기도 안 돈다
+      expect(header).toBeTruthy();
+      const inline = html.match(/<script(?![^>]*\ssrc=)[^>]*>/g) ?? [];
+      expect(inline.length).toBeGreaterThan(0);
+      for (const tag of inline) expect(tag).toBe(`<script nonce="${header}">`);
+    });
+
     it('nonce가 추측할 수 없는 값이다', async () => {
       const pr = engine.create({ title: 't', author: 'a' });
       await server.start(ANY_PORT);

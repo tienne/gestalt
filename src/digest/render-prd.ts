@@ -6,12 +6,7 @@ import { PRD_COPY as C, PRD_TABS } from './prd-copy.js';
 import { PRD_CSS } from './prd-css.js';
 import { allBlocks, type PrdView } from './prd-schema.js';
 import { PRD_HTML_MARKER } from './prd-store.js';
-import {
-  PRD_VIEWER_JS,
-  PRD_VIEWER_JS_SHA256,
-  PRD_THEME_BOOT_JS,
-  PRD_THEME_BOOT_JS_SHA256,
-} from './prd-viewer-js.js';
+import { PRD_VIEWER_JS, PRD_VIEWER_JS_SHA256 } from './prd-viewer-js.js';
 import {
   AUDIENCE_LABEL,
   esc,
@@ -21,6 +16,7 @@ import {
   type BlockContext,
 } from './render-prd-blocks.js';
 import { usedAudiences } from './render-prd-views.js';
+import { THEME_BOOT_JS, THEME_BOOT_JS_SHA256, themeSwitchHtml } from './theme-color.js';
 import {
   renderDecisions,
   renderMetrics,
@@ -43,7 +39,7 @@ export interface RenderPrdOptions {
 const CSP = [
   "default-src 'none'",
   "style-src 'unsafe-inline'",
-  `script-src 'sha256-${PRD_THEME_BOOT_JS_SHA256}' 'sha256-${PRD_VIEWER_JS_SHA256}'`,
+  `script-src 'sha256-${THEME_BOOT_JS_SHA256}' 'sha256-${PRD_VIEWER_JS_SHA256}'`,
   'img-src data:',
   "base-uri 'none'",
   "form-action 'none'",
@@ -118,9 +114,9 @@ export function renderPrdHtml(view: PrdView, opts: RenderPrdOptions): string {
     : '';
   return `${PRD_HTML_MARKER}
 <!doctype html>
-<html lang="ko" data-theme="dark">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${CSP}"><meta name="referrer" content="no-referrer"><title>${esc(view.meta.title)}</title><script>${PRD_THEME_BOOT_JS}</script><style>${PRD_CSS}</style><noscript><style>.rail,.tabs,.aud-filter{display:none!important}.tab-panel[hidden],.spec-directory{display:grid!important}.app{grid-template-columns:1fr;height:auto;min-height:100vh}.main{display:block;overflow:visible}.body{height:auto}.content{overflow:visible}.req-detail{display:block!important}</style></noscript></head>
-<body><div class="app"><nav class="rail" aria-label="PRD"><div class="logo" aria-hidden="true">G</div>${nav(true)}<div class="sp"></div><button type="button" data-source-toggle aria-pressed="false"><span class="ic" aria-hidden="true">≡</span>${C.source}</button><button type="button" data-theme-toggle aria-label="${C.theme}"><span class="ic" aria-hidden="true">◐</span><span data-theme-label>${C.light}</span></button></nav><main class="main"><header class="top"><h1 class="title">${inlineMd(view.meta.title)}</h1><div class="tabs" role="tablist" aria-label="PRD">${nav(false)}</div><div class="sp"></div>${audience}</header>
+<html lang="ko">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${CSP}"><meta name="referrer" content="no-referrer"><title>${esc(view.meta.title)}</title><script>${THEME_BOOT_JS}</script><style>${PRD_CSS}</style><noscript><style>.rail,.tabs,.aud-filter,.theme-pop{display:none!important}.tab-panel[hidden],.spec-directory{display:grid!important}.app{grid-template-columns:1fr;height:auto;min-height:100vh}.main{display:block;overflow:visible}.body{height:auto}.content{overflow:visible}.req-detail{display:block!important}</style></noscript></head>
+<body><div class="app"><nav class="rail" aria-label="PRD"><div class="logo" aria-hidden="true">G</div>${nav(true)}<div class="sp"></div><button type="button" data-source-toggle aria-pressed="false"><span class="ic" aria-hidden="true">≡</span>${C.source}</button><details class="theme-pop"><summary><span class="ic" aria-hidden="true">◐</span>${C.theme}</summary>${themeSwitchHtml()}</details></nav><main class="main"><header class="top"><h1 class="title">${inlineMd(view.meta.title)}</h1><div class="tabs" role="tablist" aria-label="PRD">${nav(false)}</div><div class="sp"></div>${audience}</header>
 ${panel('prd', renderPrdToc(view), `<div class="progress"><span>${C.coverage}</span><progress max="100" value="${coverage}" aria-label="${C.coverage}"></progress><span>${coverage}%</span><a href="#panel-review" class="warn">${C.gaps} ${review.gaps.length}</a></div><div class="doc">${meta}${renderPrdSections(view, ctx)}<footer class="foot" id="source-coverage"><p>${covText}</p>${omitted}<p>원문 sha256 ${esc(opts.sourceSha256)}</p></footer></div>`)}
 ${panel('spec', spec.toc, spec.html)}
 ${panel(

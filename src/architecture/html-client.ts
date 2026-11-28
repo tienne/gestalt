@@ -1,5 +1,6 @@
 import { BAND_LINE_X, BAND_LINE_Y, BAND_TITLE_HALF, BAND_TITLE_X } from './canvas-geometry.js';
 import { FOCUS_SOURCE } from './focus.js';
+import { THEME_BOOT_JS } from '../digest/theme-color.js';
 import { PRODUCT_COLORS } from './html-theme.js';
 import { CHUNK_FIT_MIN_K, SIDE_PANEL_SHEET_MAX } from './layout-tuning.js';
 import { FRAME_PAD, NODE_DESC_LINE, type LaneId } from './layout.js';
@@ -493,16 +494,10 @@ export function markBidi(s: string): string {
   );
 }
 
-export const THEME_STORAGE_KEY = 'gestalt-architecture-theme';
 const HINT_STORAGE_KEY = 'gestalt-architecture-hint';
 
-// 첫 화면을 그리기 전에 저장한 테마를 걸어야 밝은 화면이 한 번 번쩍이지 않는다
-export const THEME_BOOT_SCRIPT = `(function () {
-  try {
-    var t = localStorage.getItem('${THEME_STORAGE_KEY}');
-    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
-  } catch (e) {}
-})();`;
+// 첫 화면을 그리기 전에 저장한 테마를 걸어야 밝은 화면이 한 번 번쩍이지 않는다. 영상 요약과 같은 부트 스크립트를 쓴다
+export const THEME_BOOT_SCRIPT = THEME_BOOT_JS;
 
 /**
  * client 스크립트가 window에 등록하는 이름. 라이브 스크립트가 이 이름으로 dispose와 state, restore를 찾는다.
@@ -559,7 +554,6 @@ export function renderClientScript(c: ClientConstants): string {
   }
   var BACKWARD = ${JSON.stringify(Object.fromEntries(c.backwardKinds.map((k) => [k, true])))};
   var services = data.services || {};
-  var THEME_KEY = '${THEME_STORAGE_KEY}';
   var HINT_KEY = '${HINT_STORAGE_KEY}';
   var SVG_NS = 'http://www.w3.org/2000/svg';
   var nodes = {};
@@ -613,7 +607,6 @@ export function renderClientScript(c: ClientConstants): string {
   var zoomLevel = byId('zoom-level');
   var search = byId('search');
   var searchCount = byId('search-count');
-  var themeBtn = byId('theme-btn');
   var sections = Array.prototype.slice.call(doc.querySelectorAll('.level[data-level-id]'));
   var current = 'root';
   var active = null;
@@ -658,25 +651,22 @@ ${FOCUS_SOURCE}
   function store(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
   function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
 
-  // 테마. 저장한 값이 없으면 시스템 설정을 따른다
-  function systemDark() { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); }
-  function themeNow() { return root.getAttribute('data-theme') || (systemDark() ? 'dark' : 'light'); }
+  // 테마. 영상 요약, PRD와 같은 선택값을 읽고 쓴다. 다른 탭이나 부트 스크립트가 바꾸면 gestalt-theme 이벤트로 선택기 표시를 맞춘다
+  var themeApi = window.gestaltDigestTheme;
+  var themeAuto = doc.querySelector('[data-theme-set="auto"]');
+  var themeBg = byId('theme-bg');
+  var themeAccent = byId('theme-accent');
   function syncTheme() {
-    var dark = themeNow() === 'dark';
-    var text = dark ? '밝은 화면으로 바꾸기' : '어두운 화면으로 바꾸기';
-    themeBtn.setAttribute('data-mode', dark ? 'dark' : 'light');
-    themeBtn.setAttribute('aria-label', text);
-    themeBtn.title = text;
+    if (!themeApi) return;
+    if (themeAuto) themeAuto.setAttribute('aria-pressed', themeApi.get().background ? 'false' : 'true');
+    if (themeBg) themeBg.value = root.getAttribute('data-gestalt-background') || '';
+    if (themeAccent) themeAccent.value = root.getAttribute('data-gestalt-accent') || '';
   }
-  themeBtn.addEventListener('click', function () {
-    var next = themeNow() === 'dark' ? 'light' : 'dark';
-    root.setAttribute('data-theme', next);
-    store(THEME_KEY, next);
-    syncTheme();
-  });
-  if (window.matchMedia) {
-    var mq = window.matchMedia('(prefers-color-scheme: dark)');
-    if (mq.addEventListener) onGlobal(mq, 'change', syncTheme);
+  if (themeApi) {
+    if (themeAuto) themeAuto.addEventListener('click', function () { themeApi.set({ background: null }); });
+    if (themeBg) themeBg.addEventListener('change', function () { themeApi.set({ background: themeBg.value }); });
+    if (themeAccent) themeAccent.addEventListener('change', function () { themeApi.set({ accent: themeAccent.value }); });
+    onGlobal(doc, 'gestalt-theme', syncTheme);
   }
   syncTheme();
 
@@ -2452,6 +2442,8 @@ ${c.views ? VIEW_POP : ''}  // 흐름 단추는 서비스 아래 레벨에서만
     });
   }
   onGlobal(doc, 'pointerdown', function (e) {
+    var themePop = doc.querySelector('details.theme-pop[open]');
+    if (themePop && !themePop.contains(e.target)) themePop.removeAttribute('open');
     if (!productMenu.hidden && !(e.target.closest && e.target.closest('.pmenu, .pb.more'))) closeProducts(false);
     if (!anyPop()) return;
     if (e.target.closest && (e.target.closest('.pop') || e.target.closest('[aria-controls]'))) return;
@@ -2490,6 +2482,8 @@ ${c.sequences ? '    seqPlaceSteps();\n' : ''}  });
   onGlobal(doc, 'keydown', function (e) {
     if (e.key === 'Escape') {
 ${c.sequences ? '      seqStop();\n' : ''}      if (!productMenu.hidden) { closeProducts(true); return; }
+      var openTheme = doc.querySelector('details.theme-pop[open]');
+      if (openTheme) { openTheme.removeAttribute('open'); var themeSummary = openTheme.querySelector('summary'); if (themeSummary) themeSummary.focus(); return; }
       if (anyPop()) { closePops(true); return; }
       if (drawerOpen()) { closeDrawer(true); return; }
       releaseFocus();

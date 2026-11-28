@@ -1,5 +1,6 @@
 import { assert, test } from 'orca/testing'
 import type { ConductorView, OrderView } from './protocol'
+import { STATUS_COLORS } from './palette'
 import { TERMINAL_STYLE, terminalMarkup } from './terminal-markup'
 
 const NOW = Date.parse('2026-11-12T02:00:00.000Z')
@@ -361,16 +362,19 @@ test('중립색은 오르카 테마 변수를 따르고 변수가 없는 웹 페
   has(TERMINAL_STYLE, '--t-pop: var(--orca-popover, #2b2b2b);')
   has(TERMINAL_STYLE, '--t-pop-fg: var(--orca-popover-foreground, #e6e6e6);')
   has(TERMINAL_STYLE, '--t-pop-line: var(--orca-border, #454545);')
-  has(TERMINAL_STYLE, '--t-done-line: #2f5b43;')
   has(TERMINAL_STYLE, 'html.light { color-scheme: light;')
-  // 강조색 자체는 그대로 두고 라이트에서만 글자색을 섞는다
+  // 상태는 Gestalt 상태 역할 값을 다크와 라이트에 따로 싣는다
+  for (const [name, c] of Object.entries(STATUS_COLORS)) {
+    has(TERMINAL_STYLE, `--t-${name}: ${c.dark};`)
+    has(TERMINAL_STYLE, `--t-${name}: ${c.light};`)
+  }
+  // 워크트리 종류를 가르는 계열색은 그대로 두고 라이트에서만 글자색을 섞는다
   for (const [name, hex, pct] of [
     ['orange', '#f0915a', 62],
     ['blue', '#7aa7ff', 62],
     ['green', '#5fd38d', 58],
     ['purple', '#a78bfa', 68],
     ['yellow', '#f2c94c', 55],
-    ['red', '#f26d6d', 70],
   ] as const) {
     has(TERMINAL_STYLE, `--t-${name}:${hex};`)
     has(TERMINAL_STYLE, `--t-${name}: color-mix(in srgb, ${hex} ${pct}%, var(--t-fg));`)
@@ -380,13 +384,23 @@ test('중립색은 오르카 테마 변수를 따르고 변수가 없는 웹 페
   has(TERMINAL_STYLE, '--t-badge-orange: color-mix(in srgb, #f0915a 50%, var(--t-fg));')
   has(TERMINAL_STYLE, '--t-badge-yellow: var(--t-yellow);')
   has(TERMINAL_STYLE, '--t-badge-orange: var(--t-orange);')
-  has(TERMINAL_STYLE, '--t-done-line: color-mix(in srgb, var(--t-green) 45%, var(--t-bg));')
+  has(TERMINAL_STYLE, '--t-done-line: color-mix(in srgb, var(--t-success) 45%, var(--t-bg));')
   // 색 값은 :root와 html.light에만 둔다. 테마와 무관한 검은 그림자만 빼고 나머지 규칙에 색이 다시 들어오면 테마를 안 따른다
   const rules = TERMINAL_STYLE.split('\n')
     .filter((line) => !line.startsWith(':root {') && !line.startsWith('html.light {'))
     .join('\n')
     .replace(/box-shadow: 0 4px 12px rgba\(0,0,0,\.\d+\);/g, '')
   assert.equal(rules.match(/#[0-9a-fA-F]{3,8}\b|\brgba?\(/g), null, '테마 변수 밖에 박아 둔 색이 있어요')
+})
+
+test('승인 필요와 진행, 완료, 실패는 상태 역할 색으로 그리고 모양 표시를 같이 단다', () => {
+  has(TERMINAL_STYLE, '.lane-head.approval .lane-name { color: var(--t-warning); } .lane-head.running .lane-name { color: var(--t-info); }')
+  has(TERMINAL_STYLE, ".st.run::before { content: '●'; margin-right: 4px; color: var(--t-info);")
+  has(TERMINAL_STYLE, ".st.wait, .st.gate { color: var(--t-warning); } .st.wait::before, .st.gate::before { content: '◷ '; }")
+  has(TERMINAL_STYLE, ".st.limit { color: var(--t-danger); } .st.limit::before { content: '■ '; }")
+  has(TERMINAL_STYLE, '.chip.done { color: var(--t-success);')
+  has(TERMINAL_STYLE, '.b-run { color: var(--t-info); } .b-gate { color: var(--t-warning); }')
+  has(terminalMarkup(view([order('ord-a')]), { now: NOW, interactive: true, private: true }), '<b class="b-gate">')
 })
 
 test('컨덕터 칸은 세션을 알면 데스크톱에만 세션으로 이동 버튼을 그린다', () => {

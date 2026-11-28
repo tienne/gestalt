@@ -291,4 +291,42 @@ describe('renderViewerHtml', () => {
     expect(html).toContain('.ask form[hidden] { display: none; }');
     expect(html).toContain("a.form.hidden = d.state !== 'open'");
   });
+
+  it('CSP가 nonce만 받으므로 테마 스타일과 스크립트까지 모든 인라인 태그에 nonce를 단다', () => {
+    const html = renderViewerHtml('abc', 16, { canSend: true, canAnswer: true, canExcerpt: true });
+    const tags = html.match(/<(?:script|style)\b[^>]*>/g) ?? [];
+    expect(tags.length).toBeGreaterThanOrEqual(4);
+    for (const tag of tags) expect(tag).toMatch(/ nonce="abc">$/);
+    expect(html).toContain('gestaltDigestTheme');
+    expect(html).toContain('class="theme-pop"');
+    // 인라인 이벤트 속성과 style 속성은 nonce로 못 풀어서 CSP에 막힌다
+    expect(html).not.toMatch(/\son[a-z]+="/);
+    expect(html).not.toMatch(/\sstyle="/);
+  });
+
+  it('뷰어 CSS는 원색 대신 역할 변수만 쓴다', () => {
+    const html = renderViewerHtml('n', 16, { canSend: true, canAnswer: true, canExcerpt: true });
+    const styles = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]!);
+    // 첫 블록은 공용 테마(역할 값 정의)라 빼고 본다
+    expect(styles.length).toBe(2);
+    expect(styles[1]).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    expect(styles[1]).not.toContain('Canvas');
+  });
+
+  it('시각은 datetime을 단 time 요소로 넣고 보이는 글자는 예전 꼴을 지킨다', () => {
+    const html = renderViewerHtml('n', 16);
+    expect(html).toContain("const t = el('time', '', time(at));");
+    expect(html).toContain('t.dateTime = at;');
+    expect(html).toContain("const n = el(tag, cls, label + ' ');");
+  });
+
+  it('지난 기록이 몰려올 때는 새 줄 표시를 안 하고 읽던 위치가 위면 새 항목 수만 알린다', () => {
+    const html = renderViewerHtml('n', 16);
+    expect(html).toContain('quiet = setTimeout(() => (primed = true), 300);');
+    expect(html).toContain('if (!atBottom()) {');
+    expect(html).toContain('id="fresh" aria-live="polite" hidden');
+    expect(html).toContain(
+      '@media (prefers-reduced-motion: reduce) { .ev.fresh { animation: none; } }',
+    );
+  });
 });

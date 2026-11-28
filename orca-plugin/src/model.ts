@@ -56,13 +56,14 @@ export const STATUS_LABEL: Record<string, string> = {
 
 export type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
 
+// 레포의 src/visual-system/status.ts 표를 Orca tone으로 옮긴 값. 플러그인은 레포 밖 파일을 못 읽어서 복사해 두고 레포 테스트가 둘을 맞춰 본다
 export const STATUS_TONE: Record<string, Tone> = {
   queued: 'neutral',
   running: 'accent',
   'waiting-gate': 'warning',
   [AWAITING_DEPLOY]: 'accent',
   merged: 'success',
-  done: 'neutral',
+  done: 'success',
   failed: 'danger',
   escalated: 'warning',
   cancelled: 'neutral',

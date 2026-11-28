@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, sep } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { renderDigestLibrary } from './library.js';
+import { LIBRARY_CSP, renderDigestLibrary } from './library.js';
 import { SLIDE_VIEWER_JS_SHA256 } from './render-slides.js';
 import { parseTranscript, type SourceKind } from './schema.js';
 import {
@@ -17,7 +17,8 @@ import {
 } from './session-request.js';
 import { isValidSlug, readRaw } from './store.js';
 import { templateFitsKind, templateKindOf, type DigestTemplate } from './templates.js';
-import { THEME_BOOT_JS_SHA256, VIEWER_JS_SHA256 } from './viewer-js.js';
+import { THEME_BOOT_JS_SHA256 } from './theme-color.js';
+import { VIEWER_JS_SHA256 } from './viewer-js.js';
 
 export const DEFAULT_DIGEST_PORT = 7893;
 
@@ -274,8 +275,7 @@ export class DigestServer {
         ...BASE_HEADERS,
         'Content-Type': MIME['.html']!,
         'Content-Length': String(Buffer.byteLength(body)),
-        'Content-Security-Policy':
-          "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        'Content-Security-Policy': LIBRARY_CSP,
       });
       return void res.end(req.method === 'HEAD' ? undefined : body);
     }

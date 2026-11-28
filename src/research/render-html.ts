@@ -1,3 +1,9 @@
+import {
+  digestThemeCss,
+  THEME_BOOT_JS,
+  THEME_SWITCH_JS,
+  themeSwitchHtml,
+} from '../digest/theme-color.js';
 import { boardMarkup, CANVAS_CSS, CANVAS_JS } from './canvas-view.js';
 import type { BasisKind, EvidenceRef } from './evidence.js';
 import { metricCasesByProduct, type Capture, type Finding, type Research } from './schema.js';
@@ -473,10 +479,21 @@ export function escapeHtml(text: string): string {
 
 const e = escapeHtml;
 
+const role = (name: string) => `var(--gestalt-color-${name})`;
+
+// 영상 요약과 같은 테마를 깔고 리포트가 쓰던 변수 이름(--ok)만 역할에 더 잇는다
+const RESEARCH_THEME_CSS = digestThemeCss() + `:root{--ok:${role('success-text')}}`;
+
+// 테마 선택기는 캔버스 도구 막대 맨 앞으로 옮긴다. 스크립트가 없으면 막대도 없어서 선택기도 안 보인다
+const RESEARCH_THEME_JS = `
+(function(){
+  var pop = document.querySelector('.theme-pop'), bar = document.querySelector('.cv-bar');
+  if (pop && bar) bar.insertBefore(pop, bar.firstChild);
+${THEME_SWITCH_JS}
+})();`;
+
 const CSS = `
-:root{--bg:#fafaf9;--fg:#1c1917;--muted:#78716c;--line:#e7e5e4;--card:#fff;--accent:#2563eb;--warn:#b45309;--ok:#15803d;--chip:#f5f5f4}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c0a09;--fg:#f5f5f4;--muted:#a8a29e;--line:#292524;--card:#1c1917;--accent:#60a5fa;--warn:#fbbf24;--ok:#4ade80;--chip:#292524}}
-:root[data-theme="dark"]{--bg:#0c0a09;--fg:#f5f5f4;--muted:#a8a29e;--line:#292524;--card:#1c1917;--accent:#60a5fa;--warn:#fbbf24;--ok:#4ade80;--chip:#292524}
+${RESEARCH_THEME_CSS}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",sans-serif}
 main{max-width:1080px;margin:0 auto;padding:32px 16px 96px}
@@ -518,6 +535,25 @@ ul{margin:4px 0;padding-left:20px}
 .chip.own-other-team{color:var(--accent)}
 .chip.kind-pain{color:var(--warn)}
 .chip.kind-wow{color:var(--ok)}
+a{color:var(--accent)}
+a:focus-visible,button:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid ${role('focus')};outline-offset:2px}
+.cmp thead th:nth-child(n+3){border-top:3px solid ${role('series-6')}}
+.cmp thead th:nth-child(3){border-top-color:${role('series-1')}}
+.cmp thead th:nth-child(4){border-top-color:${role('series-2')}}
+.cmp thead th:nth-child(5){border-top-color:${role('series-3')}}
+.cmp thead th:nth-child(6){border-top-color:${role('series-4')}}
+.cmp thead th:nth-child(7){border-top-color:${role('series-5')}}
+.chip.basis-unconfirmed,.chip.basis-absent,.chip.own-immediate,.chip.own-data,.chip.own-other-team,.chip.kind-pain,.chip.kind-wow{background:transparent;border-color:currentColor}
+.card{border-left:3px solid var(--accent-fill)}
+.theme-pop{display:none;position:relative}
+.cv-bar .theme-pop{display:block}
+.theme-pop>summary{list-style:none;cursor:pointer;border-radius:6px;padding:4px 8px;color:var(--fg)}
+.theme-pop>summary:hover,.theme-pop[open]>summary{background:var(--chip)}
+.theme-pop>summary::-webkit-details-marker{display:none}
+.theme-pop .theme-switch{position:absolute;top:calc(100% + 8px);right:-4px;display:grid;gap:8px;width:220px;padding:12px;background:var(--bg);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+.theme-pop .theme-switch label{display:grid;gap:4px;font-size:12px;color:var(--muted)}
+.theme-pop .theme-switch select,.theme-pop .theme-switch button{font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 8px}
+.theme-pop .theme-switch button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
 `;
 
 function list(items: string[]): string {
@@ -1085,8 +1121,10 @@ export function renderResearchHtml(research: Research, opts: RenderOptions): Ren
   const html =
     '<!doctype html>\n<html lang="ko">\n<head>\n<meta charset="utf-8">\n' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
-    `<title>${e(research.meta.title)}</title>\n<style>${CSS}${CANVAS_CSS}</style>\n</head>\n<body>\n<main>\n` +
+    `<title>${e(research.meta.title)}</title>\n<script>${THEME_BOOT_JS}</script>\n` +
+    `<style>${CSS}${CANVAS_CSS}</style>\n</head>\n<body>\n` +
+    `<details class="theme-pop"><summary>테마</summary>${themeSwitchHtml()}</details>\n<main>\n` +
     boardMarkup(parts, e(research.meta.title)) +
-    `\n</main>\n<script>${CANVAS_JS}</script>\n</body>\n</html>\n`;
+    `\n</main>\n<script>${CANVAS_JS}${RESEARCH_THEME_JS}</script>\n</body>\n</html>\n`;
   return { ok: true, html, warnings };
 }

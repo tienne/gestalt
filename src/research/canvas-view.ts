@@ -14,9 +14,7 @@ export function boardMarkup(parts: string[], firstTitle: string): string {
 }
 
 export const CANVAS_CSS = `
-:root{--canvas:#e7e5e4}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--canvas:#000}}
-:root[data-theme="dark"]{--canvas:#000}
+:root{--canvas:color-mix(in srgb,var(--gestalt-color-border) 45%,var(--gestalt-color-background))}
 .board-label{display:none}
 .cv-bar{position:fixed;top:12px;right:12px;z-index:10;display:flex;gap:4px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px;box-shadow:0 2px 8px rgba(0,0,0,.08);font-size:13px}
 .cv-bar select{max-width:140px}
@@ -27,7 +25,7 @@ export const CANVAS_CSS = `
 body.canvas{overflow:hidden;height:100vh;background:var(--canvas);overscroll-behavior:none}
 body.canvas .cv-bar .cv-only{display:inline-block}
 body.canvas main{position:absolute;left:0;top:0;max-width:none;margin:0;padding:0;transform-origin:0 0}
-body.canvas .board{position:absolute;width:1080px;background:var(--card);border-radius:12px;padding:28px 40px 40px;box-shadow:0 1px 3px rgba(0,0,0,.08),0 0 0 1px var(--line)}
+body.canvas .board{position:absolute;width:1080px;background:var(--bg);border-radius:12px;padding:28px 40px 40px;box-shadow:0 1px 3px rgba(0,0,0,.08),0 0 0 1px var(--line)}
 body.canvas .board>h2:first-of-type{border-top:0;margin-top:0;padding-top:0}
 body.canvas .wrap{overflow:visible}
 body.canvas .board-label{display:block;position:absolute;bottom:100%;left:0;padding-bottom:calc(8px / var(--z,1));font-size:calc(13px / var(--z,1));line-height:1.2;color:var(--muted);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;cursor:pointer;user-select:none}

@@ -13,6 +13,7 @@ import {
   type ValidatedIr,
 } from '../../../src/architecture/index.js';
 import { markBidi } from '../../../src/architecture/html-client.js';
+import { THEME_BOOT_JS } from '../../../src/digest/theme-color.js';
 import { cspCoversInline, cspOf, directive, executableScripts } from './csp-check.js';
 import { embedJson, escapeHtml } from '../../../src/architecture/html-renderer.js';
 import {
@@ -237,10 +238,11 @@ describe('renderArchitectureHtml', () => {
     expect(html).toContain('실선: 코드나 스펙으로 확인한 연결');
     expect(html).toContain('점선: 문서나 사람 말, 실제 조회로만 확인한 연결');
     expect(html).toContain('class="swatch k-endpoint"');
-    // 토글은 html의 data-theme로 덮고 저장 실패에도 동작해야 한다
+    // 테마는 영상 요약과 같은 부트 스크립트가 html 속성으로 고르고 OS 밝기를 기본으로 따른다
     expect(html).toContain(':root[data-theme="dark"]');
     expect(html).toContain(':root:not([data-theme="light"])');
-    expect(html).toMatch(/try \{\s*var t = localStorage\.getItem/);
+    expect(html).toContain(THEME_BOOT_JS);
+    expect(html).toContain('id="theme-bg"');
   });
 
   it('레인 띠와 제목을 서버 좌표로 박고 kind별 아이콘을 sprite로 싣는다', async () => {

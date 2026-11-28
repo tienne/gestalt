@@ -98,7 +98,7 @@ function heatmapHtml(w: Extract<Widget, { kind: 'heatmap' }>, ctx: LensHtmlConte
         `<tr><th>${ctx.escape(w.y.labels[r] ?? '')}</th>${row
           .map(
             (v) =>
-              `<td style="background:color-mix(in srgb, var(--accent) ${shade(v.value)}%, transparent)"${valueSrc(v, ctx)}>${ctx.escape(valueText(v, ctx))}</td>`,
+              `<td style="background:color-mix(in srgb, var(--accent-fill) ${shade(v.value)}%, transparent)"${valueSrc(v, ctx)}>${ctx.escape(valueText(v, ctx))}</td>`,
           )
           .join('')}</tr>`,
     )
@@ -269,10 +269,10 @@ li.w-ill{color:var(--muted)}
 .w-original figcaption{font-size:.85em;color:var(--muted)}
 .w-toggle{display:flex;gap:6px;margin:6px 0}
 .w-toggle button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:2px 12px;cursor:pointer}
-.w-toggle button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.w-toggle button[aria-pressed="true"]{background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent)}
 .wb-row{display:grid;grid-template-columns:minmax(120px,38%) 1fr auto;gap:8px;align-items:center;font-size:.88em;margin:3px 0}
 .wb-track{background:var(--chip);border-radius:3px;height:12px;overflow:hidden}
-.wb-bar{display:block;height:100%;background:var(--accent)}
+.wb-bar{display:block;height:100%;background:var(--accent-fill)}
 .wb-neg{display:flex;align-items:center;justify-content:flex-end}
 .wb-neg .wb-bar{background:var(--warn)}
 .wb-sign{margin-right:auto;padding:0 3px;font-size:11px;line-height:1;font-weight:700;color:var(--warn)}
@@ -281,7 +281,7 @@ li.w-ill{color:var(--muted)}
 .wh th,.wh td{padding:4px 10px;border:1px solid var(--line);text-align:center}
 .wh td{cursor:pointer}
 .ws-range{display:flex;gap:8px;align-items:center;font-size:.9em}
-.ws-range input{flex:1}
+.ws-range input{flex:1;accent-color:var(--accent-fill)}
 .ws-ticks{display:flex;justify-content:space-between;list-style:none;padding:0;margin:0 0 4px;font-size:.75em;color:var(--muted)}
 .ws-step{margin:4px 0;font-size:.9em}
 .ws-svg{display:block;width:100%;max-width:420px;height:auto}

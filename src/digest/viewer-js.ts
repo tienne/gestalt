@@ -1,15 +1,9 @@
 import { createHash } from 'node:crypto';
 import { VIEWER_LOGIC_JS } from './viewer-logic.js';
 
-/** 테마 저장 키. VIEWER_JS의 setupTheme과 THEME_BOOT_JS가 같이 쓴다 */
-export const THEME_STORAGE_KEY = 'gestalt-digest-theme';
-
 // 템플릿 리터럴 안이라 백틱과 달러 중괄호를 쓰지 않는다. 바깥 값은 문자열 연결로 끼운다
 export const VIEWER_JS =
   VIEWER_LOGIC_JS +
-  "var THEME_STORAGE_KEY = '" +
-  THEME_STORAGE_KEY +
-  "';" +
   `
 (function(){
   var dataEl = document.getElementById('digest-data');
@@ -66,22 +60,24 @@ export const VIEWER_JS =
     if (range) range.addEventListener('input', function(){ setScale(range.value); });
   }
 
-  // 테마 전환. 자동이면 data-theme을 지워 OS 설정을 따르고 라이트와 다크는 고른 값을 기억한다.
-  // 첫 화면이 깜빡이지 않게 head의 짧은 스크립트가 저장된 값을 먼저 붙인다
+  // 테마 전환. head의 THEME_BOOT_JS가 이미 적용한 상태를 선택기에 맞추고 바꾼 값은 같은 객체로 저장한다.
+  // 자동은 배경 선택만 지워 OS 밝기를 따르게 하고 고른 강조색은 남긴다
   function setupTheme() {
-    var THEME_KEY = THEME_STORAGE_KEY;
-    var btns = document.querySelectorAll('[data-theme-set]');
-    function setTheme(t) {
-      if (t !== 'light' && t !== 'dark') t = 'auto';
-      if (t === 'auto') root.removeAttribute('data-theme');
-      else root.setAttribute('data-theme', t);
-      btns.forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute('data-theme-set') === t ? 'true' : 'false'); });
-      try { if (t === 'auto') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, t); } catch (e) {}
+    var api = window.gestaltDigestTheme;
+    if (!api) return;
+    var autoBtn = document.querySelector('[data-theme-set="auto"]');
+    var bgSel = document.getElementById('theme-bg');
+    var acSel = document.getElementById('theme-accent');
+    function sync() {
+      if (autoBtn) autoBtn.setAttribute('aria-pressed', api.get().background ? 'false' : 'true');
+      if (bgSel) bgSel.value = root.getAttribute('data-gestalt-background') || '';
+      if (acSel) acSel.value = root.getAttribute('data-gestalt-accent') || '';
     }
-    var saved = 'auto';
-    try { saved = localStorage.getItem(THEME_KEY) || 'auto'; } catch (e) {}
-    setTheme(saved);
-    btns.forEach(function(b){ b.addEventListener('click', function(){ setTheme(b.getAttribute('data-theme-set')); }); });
+    if (autoBtn) autoBtn.addEventListener('click', function(){ api.set({ background: null }); });
+    if (bgSel) bgSel.addEventListener('change', function(){ api.set({ background: bgSel.value }); });
+    if (acSel) acSel.addEventListener('change', function(){ api.set({ accent: acSel.value }); });
+    document.addEventListener('gestalt-theme', sync);
+    sync();
   }
 
   // 플레이어 어댑터. 유튜브와 로컬 영상이 같은 꼴을 내서 따라가기 코드는 둘을 가리지 않는다
@@ -1534,14 +1530,3 @@ export const VIEWER_JS =
 
 /** CSP script-src에 싣는 VIEWER_JS 해시. 렌더가 이 문자열을 그대로 인라인으로 싣는다 */
 export const VIEWER_JS_SHA256 = createHash('sha256').update(VIEWER_JS, 'utf8').digest('base64');
-
-/** 첫 화면이 깜빡이지 않게 head에서 저장된 테마를 먼저 붙이는 스크립트. VIEWER_JS는 body 끝에서 돌아서 따로 둔다 */
-export const THEME_BOOT_JS =
-  "try{var t=localStorage.getItem('" +
-  THEME_STORAGE_KEY +
-  "');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}";
-
-/** CSP script-src에 싣는 THEME_BOOT_JS 해시 */
-export const THEME_BOOT_JS_SHA256 = createHash('sha256')
-  .update(THEME_BOOT_JS, 'utf8')
-  .digest('base64');

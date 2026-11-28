@@ -21,11 +21,8 @@ import {
 } from '../../../src/digest/server.js';
 import type { SendResult } from '../../../src/digest/session-request.js';
 import { DIARY_FONT_LINK } from '../../../src/digest/theme-diary.js';
-import {
-  THEME_BOOT_JS_SHA256,
-  VIEWER_JS,
-  VIEWER_JS_SHA256,
-} from '../../../src/digest/viewer-js.js';
+import { THEME_BOOT_JS_SHA256 } from '../../../src/digest/theme-color.js';
+import { VIEWER_JS, VIEWER_JS_SHA256 } from '../../../src/digest/viewer-js.js';
 import { viewerLogic } from '../../../src/digest/viewer-logic.js';
 import { lensTranscript } from '../lens/fixture.js';
 import { sampleTranscript } from './fixture.js';
@@ -113,6 +110,9 @@ describe('DigestServer', () => {
     const all = await get(server.port!, '/');
     expect(all.body).toContain('Common &lt;Talk&gt;');
     expect(all.body.indexOf('href="/paper/"')).toBeLessThan(all.body.indexOf('href="/video/"'));
+    expect(all.body).toContain('<span class="kind" data-kind="pdf">');
+    expect(all.headers['content-security-policy']).toContain(`'sha256-${THEME_BOOT_JS_SHA256}'`);
+    expect(all.headers['content-security-policy']).toContain("default-src 'none'");
     const pdf = await get(server.port!, '/?q=cOmMoN&kind=pdf');
     expect(pdf.body).toContain('href="/paper/"');
     expect(pdf.body).not.toContain('href="/video/"');

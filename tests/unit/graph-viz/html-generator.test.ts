@@ -54,9 +54,10 @@ describe('generateVisualizationHtml()', () => {
     expect(html).toContain(EdgeKind.CALLS);
   });
 
-  it('다크 테마 배경색(#0d1117)을 포함한다', () => {
+  it('배경은 공용 테마의 역할 변수를 읽는다', () => {
     const html = generateVisualizationHtml([], []);
-    expect(html).toContain('#0d1117');
+    expect(html).toContain('background: var(--bg);');
+    expect(html).toContain('--gestalt-color-background');
   });
 
   it('/api/graph fetch 코드를 포함하지 않는다 (데이터가 임베드되므로)', () => {
@@ -71,12 +72,12 @@ describe('generateVisualizationHtml()', () => {
     expect(html.trim().startsWith('<!DOCTYPE html>')).toBe(true);
   });
 
-  it('노드 kind에 따른 컬러 코드를 포함한다', () => {
+  it('노드 kind마다 다른 계열 역할을 쓴다', () => {
     const html = generateVisualizationHtml([], []);
-    // File = blue, Function = green, Class = orange
-    expect(html).toContain('#388bfd'); // file
-    expect(html).toContain('#3fb950'); // function
-    expect(html).toContain('#f0883e'); // class
+    expect(html).toContain('.k-file     { --k: var(--gestalt-color-series-2); }');
+    expect(html).toContain('.k-function { --k: var(--gestalt-color-series-3); }');
+    expect(html).toContain('.k-class    { --k: var(--gestalt-color-series-5); }');
+    expect(html).toContain('.k-type     { --k: var(--gestalt-color-series-4); }');
   });
 
   it('노드 이름에 HTML 특수문자가 있어도 에러 없이 생성된다', () => {
@@ -90,5 +91,15 @@ describe('generateVisualizationHtml()', () => {
     const html = generateVisualizationHtml([node], []);
     // 노드 데이터가 임베드되어야 함
     expect(html).toContain('file:src/evil.ts');
+  });
+
+  it('모션 줄이기에서는 전환을 끄고 배치를 미리 계산해 바로 그린다', () => {
+    const html = generateVisualizationHtml([makeNode()], []);
+    expect(html).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{\s*\*, \*::before, \*::after \{ transition: none !important; \}/,
+    );
+    expect(html).toContain("matchMedia('(prefers-reduced-motion: reduce)').matches");
+    expect(html).toMatch(/if \(REDUCE\) \{\s*simulation\.stop\(\)\.tick\(300\);\s*draw\(\);/);
+    expect(html).not.toMatch(/\.duration\(\d+\)/);
   });
 });

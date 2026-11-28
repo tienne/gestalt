@@ -407,13 +407,21 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(
 .dl-mark text { fill: var(--text); font-size: 11px; font-weight: 700; text-anchor: middle; }
 .dl-card { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1; }
 .dl-card.c-added { stroke: var(--edge-strong); stroke-width: 2.5; }
-.dl-card.c-removed { fill: var(--surface-2); stroke: var(--edge-strong); stroke-width: 1.5; stroke-dasharray: 2 4; stroke-linecap: round; }
+.dl-card.c-removed { fill: var(--bg); stroke: var(--edge-strong); stroke-width: 1.5; stroke-dasharray: 2 4; stroke-linecap: round; }
 .dl-inset { fill: var(--edge-strong); }
 .dl-chip { fill: var(--text-3); font-size: 10.5px; font-weight: 600; }
 .dl-name { fill: var(--text); font-size: 13px; font-weight: 650; }
 .dl-id { fill: var(--text-3); font: 11px var(--mono); }
 .dl-badge-g rect { fill: var(--surface); stroke: var(--edge-strong); stroke-width: 1; }
 .dl-badge-g.b-removed rect { stroke-dasharray: 3 2; }
+.dl-card.c-added, .dl-edge.c-added, .dl-badge-g.b-added rect { stroke: var(--gestalt-color-diff-added-text); }
+.dl-card.c-removed, .dl-edge.c-removed, .dl-badge-g.b-removed rect { stroke: var(--gestalt-color-diff-removed-text); }
+.dl-badge-g.b-changed rect { stroke: var(--gestalt-color-diff-changed-text); }
+.dl-tip.c-removed { fill: var(--gestalt-color-diff-removed-text); }
+.dl-inset { fill: var(--gestalt-color-diff-changed-text); }
+.dl-badge.b-added { border-color: var(--gestalt-color-diff-added-text); }
+.dl-badge.b-removed { border-color: var(--gestalt-color-diff-removed-text); }
+.dl-badge.b-changed { border-color: var(--gestalt-color-diff-changed-text); }
 .dl-badge-g text { fill: var(--text); font-size: 10.5px; font-weight: 650; text-anchor: middle; }
 .dl-ledger ol { margin: 0; padding: 4px 0; list-style: none; }
 .dl-ledger li { padding: 10px 16px; border-bottom: 1px solid var(--border); }

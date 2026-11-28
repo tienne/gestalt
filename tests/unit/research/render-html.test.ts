@@ -4,6 +4,7 @@ import {
   renderResearchHtml,
   type LoadedImage,
 } from '../../../src/research/render-html.js';
+import { THEME_BOOT_JS } from '../../../src/digest/theme-color.js';
 import { parseResearch, type Research } from '../../../src/research/schema.js';
 import { sampleResearch } from './fixture.js';
 
@@ -77,7 +78,9 @@ describe('research HTML 렌더', () => {
     );
     if (!r.ok) throw new Error('렌더 실패');
     expect(r.html).not.toContain('<script>alert');
-    expect(r.html.match(/<script>/g)).toHaveLength(1);
+    // 테마 부트 스크립트와 캔버스 스크립트 두 개뿐이다
+    expect(r.html.match(/<script>/g)).toHaveLength(2);
+    expect(r.html).toContain(THEME_BOOT_JS);
     expect(r.html).toContain('&lt;script&gt;');
     expect(r.html).toContain('a &amp; b');
   });

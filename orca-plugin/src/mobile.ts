@@ -4,6 +4,7 @@ import { buildHierarchy, pruneHierarchy, type HierarchyNode } from './hierarchy'
 import { ago, isTerminal, ms, splitRepo, statusLabel, statusTone, summarize, type RepoSummary } from './model'
 import type { ConductorView, GateView, OrderView } from './protocol'
 import { esc } from './html'
+import { statusVars } from './palette'
 import { TERMINAL_STYLE, terminalMarkup } from './terminal-markup'
 
 const MAX_FINISHED = 30
@@ -150,19 +151,20 @@ const summarizeProject = (repos: readonly RepoSummary[], repo: string) => repos.
 // 단계는 바탕 > 레포 카드(s1) > 확인 대기 카드와 끝난 주문 상자(s2) > 사유 상자와 배지(s3) 순이다.
 // 다크에서는 안쪽으로 갈수록 밝아진다. 라이트에서는 카드가 흰색이고 그 안쪽이 한 단계씩 어두워진다.
 // 확인 대기 카드(--raised)는 라이트에서 회색이면 바탕에 묻혀서 흰 면에 진한 테두리로 띄운다.
-// 상태색은 배지와 점에만 쓰고 카드 면이나 테두리를 칠하지 않는다.
+// 상태색은 배지와 점에만 쓰고 카드 면이나 테두리를 칠하지 않는다. 값은 Gestalt 상태 팔레트(palette.ts)를 따른다.
 const STYLE = `
 :root { color-scheme: light dark;
   --canvas: #f4f5f6; --s1: #ffffff; --s2: #f7f8f9; --s3: #eff1f3; --raised: #ffffff;
   --ink: #08090a; --ink-muted: #3c4149; --ink-subtle: #6b6f76; --ink-3: #6b6f76;
   --line: #e4e6e9; --line-strong: #d3d6db; --line-3: #c6cad0;
-  --accent: #5e6ad2; --ok: #1f8f3a; --warn: #c27c0e; --danger: #d63c3c;
+  ${statusVars('--st-', 'light')}
+  --ok: var(--st-success); --warn: var(--st-warning); --danger: var(--st-danger); --info: var(--st-info);
   --edge: 0 1px 2px rgba(8, 9, 10, 0.04); }
 @media (prefers-color-scheme: dark) { :root {
   --canvas: #010102; --s1: #0f1011; --s2: #141516; --s3: #18191a; --raised: #141516;
   --ink: #f7f8f8; --ink-muted: #d0d6e0; --ink-subtle: #8a8f98; --ink-3: #8a8f98;
   --line: #23252a; --line-strong: #34343a; --line-3: #3e3e44;
-  --accent: #5e6ad2; --ok: #27a644; --warn: #e2a33b; --danger: #eb5757;
+  ${statusVars('--st-', 'dark')}
   --edge: inset 0 1px 0 rgba(255, 255, 255, 0.04); } }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--canvas); color: var(--ink);
@@ -191,7 +193,7 @@ h2 { font-size: 13px; font-weight: 500; line-height: 1.3; letter-spacing: 0.4px;
 .section-head::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .hint { font-size: 12px; color: var(--ink-3); margin: -4px 0 12px; }
 
-.tone-accent { --tone: var(--accent); }
+.tone-accent { --tone: var(--info); }
 .tone-warning { --tone: var(--warn); }
 .tone-success { --tone: var(--ok); }
 .tone-danger { --tone: var(--danger); }
@@ -320,7 +322,7 @@ export function terminalFragment(v: ConductorView | null, now = Date.now()): str
 const TERMINAL_PAGE_STYLE = `${TERMINAL_STYLE}
 .webnav { display: flex; align-items: center; gap: 10px; padding: max(6px, env(safe-area-inset-top)) 10px 6px; border-bottom: 1px solid var(--t-line); font: 11px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
 .webnav a { color: var(--t-dim); text-decoration: none; }
-#offline { display: none; color: var(--t-red); }
+#offline { display: none; color: var(--t-danger); }
 body.offline #offline { display: inline; }
 .webnav + .term { min-height: calc(100vh - 31px); min-height: calc(100dvh - 31px); }
 /* 폴링이 본문을 갈아 끼우면 스크롤이 맨 위로 돌아가서 웹에서는 스크롤 칸 없이 최근 12줄만 보인다 */

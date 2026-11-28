@@ -222,7 +222,13 @@ export class PrWebServer {
       if (!held) return this.notFound(res);
       // 한 번만 접는다. 탭 숫자도 이 목록에서 센다
       const prs = held.engine.list();
-      this.sendHtml(res, generatePrListHtml(prs, this.repoNav(listMatch[1]!, prs)));
+      // 목록에도 테마 부트 스크립트가 있어서 nonce를 같이 준다
+      const listNonce = randomBytes(16).toString('base64');
+      this.sendHtml(
+        res,
+        generatePrListHtml(prs, this.repoNav(listMatch[1]!, prs), listNonce),
+        listNonce,
+      );
       return;
     }
 

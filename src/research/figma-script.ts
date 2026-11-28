@@ -1,3 +1,4 @@
+import { mixColor, resolveColorTheme } from '../visual-system/color.js';
 import type { FigmaPlan } from './figma-plan.js';
 
 export interface FigmaImageData {
@@ -9,11 +10,12 @@ const NO_IMAGE_MARK = '(이미지 없음)';
 
 /**
  * Plugin API 스크립트의 본문. `async () => {...}` 꼴이라 실행기가 그대로 호출한다.
- * 백틱과 템플릿 치환(달러+중괄호)은 쓰지 않는다. 계획, 이미지, 이미지 없음 표시는 아래 세 자리에 JSON으로 들어간다.
+ * 백틱과 템플릿 치환(달러+중괄호)은 쓰지 않는다. 계획, 이미지, 색, 이미지 없음 표시는 아래 네 자리에 JSON으로 들어간다.
  */
 const SCRIPT_TEMPLATE = String.raw`async () => {
   const PLAN = __PLAN__;
   const IMAGES = __IMAGES__;
+  const C = __COLORS__;
   if (typeof figma === 'undefined' || typeof figma.createPage !== 'function') {
     return { ok: false, code: 'NO_FIGMA', message: '편집 권한이 있는 Figma 파일에서 실행해야 한다. 보기 전용 파일에는 figma 전역이 없다' };
   }
@@ -34,17 +36,17 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
   const rgb = (h) => ({ r: parseInt(h.slice(1, 3), 16) / 255, g: parseInt(h.slice(3, 5), 16) / 255, b: parseInt(h.slice(5, 7), 16) / 255 });
   const solid = (h) => [{ type: 'SOLID', color: rgb(h) }];
   const STYLES = {
-    title: { size: 32, bold: true, color: '#111111' },
-    h2: { size: 24, bold: true, color: '#111111' },
-    h3: { size: 18, bold: true, color: '#111111' },
-    body: { size: 14, bold: false, color: '#222222' },
-    cell: { size: 16, bold: false, color: '#222222' },
-    caption: { size: 12, bold: false, color: '#666666' },
-    notice: { size: 14, bold: true, color: '#8a4b00' },
+    title: { size: 32, bold: true, color: C.text },
+    h2: { size: 24, bold: true, color: C.text },
+    h3: { size: 18, bold: true, color: C.text },
+    body: { size: 14, bold: false, color: C.text },
+    cell: { size: 16, bold: false, color: C.text },
+    caption: { size: 12, bold: false, color: C.textMuted },
+    notice: { size: 14, bold: true, color: C.warning },
   };
 
-  const TINTS = { green: '#e8f5ec', blue: '#e8eff9', orange: '#fff4e5' };
-  const NOTE_COLORS = { wow: '#1a7f37', pain: '#c0362c', insight: '#1f5fbf', design: '#6b46c1' };
+  const TINTS = C.tints;
+  const NOTE_COLORS = C.notes;
   const NOTE_W = 560;
   const CARD_W = 320;
 
@@ -113,7 +115,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
       row.primaryAxisSizingMode = 'FIXED';
       row.counterAxisSizingMode = 'AUTO';
       row.itemSpacing = 0;
-      row.fills = header ? solid('#eef0f2') : tinted ? solid('#ffffff') : [];
+      row.fills = header ? solid(C.surface) : tinted ? solid(C.background) : [];
       table.appendChild(row);
       for (let c = 0; c < cols; c++) {
         const cell = figma.createFrame();
@@ -127,7 +129,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
         cell.paddingTop = 8;
         cell.paddingBottom = 8;
         cell.fills = [];
-        cell.strokes = solid('#dde1e4');
+        cell.strokes = solid(C.border);
         cell.strokeWeight = 1;
         row.appendChild(cell);
         cell.layoutSizingVertical = 'FILL';
@@ -180,7 +182,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
         rect.fills = [{ type: 'IMAGE', scaleMode: 'FIT', imageHash: hash }];
         stats.imageNodes.push({ id: item.imageId, nodeId: rect.id });
       } else {
-        rect.fills = solid('#e4e6e8');
+        rect.fills = solid(C.surface);
         stats.missingImages.push(item.imageId);
         stats.imageSlots.push({ id: item.imageId, nodeId: rect.id });
       }
@@ -200,7 +202,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
       const tint = TINTS[node.tint];
       const sec = vframe('section', width, 16, 32);
       sec.name = node.title;
-      sec.fills = solid(tint || '#ffffff');
+      sec.fills = solid(tint || C.background);
       sec.cornerRadius = 12;
       parent.appendChild(sec);
       sec.layoutSizingHorizontal = 'FILL';
@@ -222,7 +224,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
 
   function addNotes(parent, notes) {
     const card = vframe('notes', NOTE_W, 12, 24);
-    card.fills = solid('#ffffff');
+    card.fills = solid(C.background);
     card.cornerRadius = 12;
     parent.appendChild(card);
     for (const n of notes) {
@@ -230,7 +232,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
       card.appendChild(line);
       line.layoutSizingHorizontal = 'FILL';
       const label = addText(line, n.label, 'h3', 'label');
-      label.fills = solid(NOTE_COLORS[n.kind] || '#222222');
+      label.fills = solid(NOTE_COLORS[n.kind] || C.text);
       label.layoutSizingHorizontal = 'HUG';
       addText(line, n.text, 'cell');
     }
@@ -254,7 +256,7 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
     const columnIds = [];
     for (const col of PLAN.board.columns) {
       const frame = vframe(col.title, W, 32, PAD);
-      frame.fills = solid('#f3f4f6');
+      frame.fills = solid(C.surface);
       frame.cornerRadius = 32;
       root.appendChild(frame);
       addText(frame, col.title, 'h2', 'column-title');
@@ -279,12 +281,12 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
     root.paddingRight = 120;
     root.paddingTop = 120;
     root.paddingBottom = 120;
-    root.fills = solid('#e3e5e8');
+    root.fills = solid(C.canvas);
     page.appendChild(root);
     columnIds = await addBoard(root);
   } else {
     root = vframe(PLAN.pageName, W, 32, PAD);
-    root.fills = solid('#f6f7f8');
+    root.fills = solid(C.surface);
     page.appendChild(root);
     for (const node of PLAN.nodes) await addNode(root, node, INNER, false);
   }
@@ -300,6 +302,31 @@ const SCRIPT_TEMPLATE = String.raw`async () => {
     imageSlots: stats.imageSlots,
   };
 }`;
+
+/**
+ * Figma에는 CSS 변수가 없어서 Gestalt 색 역할을 hex로 풀어 넣는다. 공유 파일이라 보는 사람의 테마를 따를 수 없으니 흰 배경 한 벌로 고정한다.
+ * 섹션 바탕은 상태 채움색을 배경에 10%만 섞어 본문 글자 대비가 배경과 거의 같게 남는다.
+ */
+export function figmaColors() {
+  const c = resolveColorTheme({ background: 'white', accent: 'cyan' }).colors;
+  const tint = (role: string) => mixColor(c.background!, c[role]!, 0.1);
+  return {
+    background: c.background!,
+    surface: c.surface!,
+    border: c.border!,
+    canvas: mixColor(c.background!, c.border!, 0.6),
+    text: c.text!,
+    textMuted: c['text-muted']!,
+    warning: c['warning-text']!,
+    tints: { green: tint('success-fill'), blue: tint('info-fill'), orange: tint('warning-fill') },
+    notes: {
+      wow: c['success-text']!,
+      pain: c['danger-text']!,
+      insight: c['info-text']!,
+      design: c['series-4']!,
+    },
+  };
+}
 
 function embed(value: unknown): string {
   return JSON.stringify(value)
@@ -329,6 +356,7 @@ export function buildFigmaScript(
 ): string {
   const script = SCRIPT_TEMPLATE.replace('__PLAN__', () => embed(plan))
     .replace('__IMAGES__', () => (images ? embed(images) : 'null'))
+    .replace('__COLORS__', () => embed(figmaColors()))
     .replace('__NO_IMAGE_TAIL__', () => embed('\n' + NO_IMAGE_MARK));
   return shape(script, runner);
 }

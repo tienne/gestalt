@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" data-gestalt-background="ink" data-gestalt-accent="rose">
 <head>
   <meta charset="utf-8" />
   <title>Pink Script — After Hours — Reveal.js</title>
@@ -9,15 +9,15 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css" />
   <style>
     :root {
-      --ink:       #060507;
-      --ink-2:     #0F0D11;
-      --paper:     #F5EDF1;
-      --pink:      #ED3D8C;
-      --pink-2:    #FF66A8;
-      --pink-deep: #B81D67;
-      --line:      rgba(237, 61, 140, 0.32);
-      --mute:      rgba(245, 237, 241, 0.55);
-      --hair:      rgba(245, 237, 241, 0.14);
+      --ink:       var(--gestalt-color-background);
+      --ink-2:     var(--gestalt-color-surface);
+      --paper:     var(--gestalt-color-text);
+      --pink:      var(--gestalt-color-accent-text);
+      --pink-2:    var(--gestalt-color-accent-text);
+      --pink-deep: var(--gestalt-color-accent-fill);
+      --line:      color-mix(in srgb, var(--gestalt-color-accent-text) 32%, transparent);
+      --mute:      var(--gestalt-color-text-muted);
+      --hair:      color-mix(in srgb, var(--gestalt-color-text) 14%, transparent);
     }
 
     .reveal { font-family: 'Inter', 'Noto Sans KR', sans-serif; }
@@ -83,8 +83,138 @@
     /* STEP (process) */
     .step { display: flex; flex-direction: column; gap: 1rem; padding-top: 1.5vh; border-top: 1px solid var(--pink); }
   </style>
+<!-- gestalt-theme:start -->
+<!-- 생성물: src/visual-system/presentation.ts의 표를 고치고 pnpm presentation:themes로 다시 쓴다 -->
+<style id="gestalt-theme">
+:root{--gestalt-color-background:#101010;--gestalt-color-surface:#1B1B1B;--gestalt-color-text:#F1F1F1;--gestalt-color-text-muted:#ADADAD;--gestalt-color-border:#373737;--gestalt-color-accent-text:#F895BB;--gestalt-color-accent-fill:#F895BB;--gestalt-color-on-accent:#171717;--gestalt-color-focus:#F895BB;--gestalt-color-highlight:#483039;--gestalt-color-success-text:#79C98F;--gestalt-color-success-fill:#79C98F;--gestalt-color-on-success:#171717;--gestalt-color-warning-text:#F1C06B;--gestalt-color-warning-fill:#F1C06B;--gestalt-color-on-warning:#171717;--gestalt-color-danger-text:#FF8295;--gestalt-color-danger-fill:#FF8295;--gestalt-color-on-danger:#171717;--gestalt-color-info-text:#8DB6F5;--gestalt-color-info-fill:#8DB6F5;--gestalt-color-on-info:#171717;--gestalt-color-diff-added-text:#79C98F;--gestalt-color-diff-added-bg:#233127;--gestalt-color-diff-removed-text:#FF8295;--gestalt-color-diff-removed-bg:#3B2528;--gestalt-color-diff-changed-text:#F1C06B;--gestalt-color-diff-changed-bg:#393020;--gestalt-color-series-1:#F895BB;--gestalt-color-series-2:#8DB6F5;--gestalt-color-series-3:#79C98F;--gestalt-color-series-4:#E796F2;--gestalt-color-series-5:#F1C06B;--gestalt-color-series-6:#BDBDBD;--gestalt-alt-background:#F3F3F3;--gestalt-alt-surface:#E9E9E9;--gestalt-alt-text:#202020;--gestalt-alt-text-muted:#585858;--gestalt-alt-border:#C4C4C4;--gestalt-alt-accent-text:#962759;--gestalt-alt-accent-fill:#B86E8A;--gestalt-alt-on-accent:#171717;--gestalt-alt-focus:#B86E8A;--gestalt-alt-highlight:#E5D3DA;--gestalt-alt-success-text:#21643A;--gestalt-alt-success-fill:#21643A;--gestalt-alt-on-success:#FFFFFF;--gestalt-alt-warning-text:#795100;--gestalt-alt-warning-fill:#795100;--gestalt-alt-on-warning:#FFFFFF;--gestalt-alt-danger-text:#A52244;--gestalt-alt-danger-fill:#A52244;--gestalt-alt-on-danger:#FFFFFF;--gestalt-alt-info-text:#254D96;--gestalt-alt-info-fill:#254D96;--gestalt-alt-on-info:#FFFFFF;--gestalt-alt-diff-added-text:#21643A;--gestalt-alt-diff-added-bg:#CDD9D2;--gestalt-alt-diff-removed-text:#A52244;--gestalt-alt-diff-removed-bg:#E5CDD4;--gestalt-alt-diff-changed-text:#795100;--gestalt-alt-diff-changed-bg:#DDD6C7;--gestalt-alt-series-1:#B86E8A;--gestalt-alt-series-2:#254D96;--gestalt-alt-series-3:#21643A;--gestalt-alt-series-4:#83228E;--gestalt-alt-series-5:#795100;--gestalt-alt-series-6:#5A5A5A;--gestalt-on-series-1:#101010;--gestalt-on-series-2:#101010;--gestalt-on-series-3:#101010;--gestalt-on-series-4:#101010;--gestalt-on-series-5:#101010;--gestalt-on-series-6:#101010;--gestalt-motion-fast:160ms;--gestalt-motion-base:280ms;--gestalt-motion-slow:800ms;--gestalt-motion-stagger:80ms;--gestalt-ease-enter:cubic-bezier(0.16, 1, 0.3, 1);--gestalt-ease-move:cubic-bezier(0.4, 0, 0.2, 1)}
+.pill.solid{--pink:var(--gestalt-color-accent-fill);--ink:var(--gestalt-color-on-accent);color:var(--ink)}
+.reveal .slides section :is(p,span,li,small,em,strong,h1,h2,h3,h4,[class^="t-"],[class*=" t-"],.label,.caption,.kicker,.micro,.mono,.foot,.muted,.topbar,.meta,.footer,.runner,.masthead,.footline,.slide-chrome,.slide-foot,.bar-label):not(.fragment):not([data-anim]){opacity:1!important}
+:root[data-gestalt-motion="reduce"] .reveal .slides section,:root[data-gestalt-motion="reduce"] .reveal .slides section .fragment,:root[data-gestalt-motion="reduce"] .reveal .backgrounds .slide-background,:root[data-gestalt-motion="reduce"] .reveal .progress span,:root[data-gestalt-motion="reduce"] [data-anim]{transition:none!important;animation:none!important}:root[data-gestalt-motion="reduce"] [data-anim]{opacity:1!important;transform:none!important;clip-path:none!important}
+@media (prefers-reduced-motion: reduce){:root:not([data-gestalt-motion="full"]) .reveal .slides section,:root:not([data-gestalt-motion="full"]) .reveal .slides section .fragment,:root:not([data-gestalt-motion="full"]) .reveal .backgrounds .slide-background,:root:not([data-gestalt-motion="full"]) .reveal .progress span,:root:not([data-gestalt-motion="full"]) [data-anim]{transition:none!important;animation:none!important}:root:not([data-gestalt-motion="full"]) [data-anim]{opacity:1!important;transform:none!important;clip-path:none!important}}
+html.print-pdf [data-anim],html.reveal-print [data-anim]{opacity:1!important;transform:none!important;clip-path:none!important;animation:none!important}
+@media print{[data-anim]{opacity:1!important;transform:none!important;clip-path:none!important;animation:none!important}}
+</style>
+<script>
+function gestaltColorSystem(catalog){
+function ch(c){return [1,3,5].map(function(o){return parseInt(c.slice(o,o+2),16);});}
+function lum(c){var w=[0.2126,0.7152,0.0722];return ch(c).map(function(v){var l=v/255;return l<=0.04045?l/12.92:Math.pow((l+0.055)/1.055,2.4);}).reduce(function(t,v,i){return t+v*w[i];},0);}
+function contrast(a,b){var x=lum(a),y=lum(b);return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05);}
+function mix(c,target,amt){var t=ch(target);return '#'+ch(c).map(function(v,i){return Math.round(v+(t[i]-v)*amt).toString(16);}).map(function(s){return s.length<2?'0'+s:s;}).join('').toUpperCase();}
+function worst(color,bg){return Math.min(contrast(color,bg.color),contrast(color,bg.panel));}
+function fit(start,bg,min){var target=bg.light?'#000000':'#FFFFFF';var out=start;for(var a=1;a<=100&&worst(out,bg)<min;a++){out=mix(start,target,a/100);}return out;}
+function onFill(fill){if(contrast('#171717',fill)>=4.5)return '#171717';return contrast('#000000',fill)>=contrast('#FFFFFF',fill)?'#000000':'#FFFFFF';}
+function find(list,id){for(var i=0;i<list.length;i++){if(list[i].id===id)return list[i];}return null;}
+function has(kind,id){return !!find(kind==='background'?catalog.backgrounds:catalog.accents,id);}
+function resolve(sel){
+sel=sel||{};
+var bgId=sel.background||catalog.defaults.background;var acId=sel.accent||catalog.defaults.accent;
+var bg=find(catalog.backgrounds,bgId);var ac=find(catalog.accents,acId);
+if(!bg)throw new RangeError('Unknown Gestalt background: '+bgId);
+if(!ac)throw new RangeError('Unknown Gestalt accent: '+acId);
+var colors={},adjust=[];
+function put(role,seed,min){var v=fit(seed,bg,min);colors[role]=v;adjust.push({role:role,seed:seed,value:v,min:min,before:worst(seed,bg),after:worst(v,bg)});return v;}
+colors.background=bg.color;colors.surface=bg.panel;colors.text=bg.ink;colors['text-muted']=bg.muted;colors.border=bg.line;
+var textSeed=bg.light?(ac.light||ac.dark):ac.dark;var fillSeed=bg.light?(ac.lightFill||ac.dark):ac.dark;
+put('accent-text',textSeed,4.5);var fill=put('accent-fill',fillSeed,3);colors['on-accent']=onFill(fill);
+colors.focus=fill;
+var hl=0.24;var h=mix(bg.color,fill,hl);while(contrast(bg.ink,h)<4.5&&hl>0.04){hl-=0.02;h=mix(bg.color,fill,hl);}colors.highlight=h;
+var names=['success','warning','danger','info'];
+for(var i=0;i<names.length;i++){var k=names[i];var p=catalog.status[k];var s=bg.light?p.light:p.dark;put(k+'-text',s,4.5);var f=put(k+'-fill',s,3);colors['on-'+k]=onFill(f);}
+var diff=catalog.diff;
+for(var d in diff){if(!Object.prototype.hasOwnProperty.call(diff,d))continue;var st=diff[d].status;colors['diff-'+d+'-text']=colors[st+'-text'];var amt=0.18;var row=mix(bg.color,colors[st+'-fill'],amt);while(contrast(bg.ink,row)<4.5&&amt>0.04){amt-=0.02;row=mix(bg.color,colors[st+'-fill'],amt);}colors['diff-'+d+'-bg']=row;}
+var seeds=bg.light?catalog.series.light:catalog.series.dark;colors['series-1']=fill;
+for(var n=0;n<seeds.length;n++){put('series-'+(n+2),seeds[n],3);}
+return {id:bg.id+'/'+ac.id,version:catalog.version,tone:bg.light?'light':'dark',background:bg.id,accent:ac.id,colors:colors,adjustments:adjust};
+}
+function cssVars(theme){var out={};for(var r in theme.colors){if(Object.prototype.hasOwnProperty.call(theme.colors,r))out['--gestalt-color-'+r]=theme.colors[r];}return out;}
+function cssText(theme){var v=cssVars(theme);var parts=[];for(var k in v){if(Object.prototype.hasOwnProperty.call(v,k))parts.push(k+':'+v[k]);}return parts.join(';');}
+function apply(el,theme){var v=cssVars(theme);for(var k in v){if(Object.prototype.hasOwnProperty.call(v,k))el.style.setProperty(k,v[k]);}el.setAttribute('data-gestalt-theme',theme.id);el.setAttribute('data-gestalt-tone',theme.tone);}
+return {resolve:resolve,has:has,contrast:contrast,mix:mix,cssVars:cssVars,cssText:cssText,apply:apply,catalog:catalog};
+}
+(function(){
+var sys = gestaltColorSystem({"version":"0.2.0","defaults":{"background":"charcoal","accent":"cyan"},"backgrounds":[{"id":"ink","name":"잉크","color":"#101010","panel":"#1B1B1B","ink":"#F1F1F1","muted":"#ADADAD","line":"#373737","light":false},{"id":"charcoal","name":"차콜","color":"#171717","panel":"#232323","ink":"#F1F1F1","muted":"#ADADAD","line":"#404040","light":false},{"id":"graphite","name":"그래파이트","color":"#303030","panel":"#3B3B3B","ink":"#F3F3F3","muted":"#C8C8C8","line":"#565656","light":false},{"id":"soft-gray","name":"소프트 그레이","color":"#E6E6E6","panel":"#DCDCDC","ink":"#1F1F1F","muted":"#555555","line":"#B6B6B6","light":true},{"id":"paper","name":"페이퍼","color":"#F3F3F3","panel":"#E9E9E9","ink":"#202020","muted":"#585858","line":"#C4C4C4","light":true},{"id":"white","name":"화이트","color":"#FFFFFF","panel":"#F1F1F1","ink":"#202020","muted":"#5A5A5A","line":"#D0D0D0","light":true}],"accents":[{"id":"sage","name":"세이지","dark":"#B3C8A1","light":"#3D5A2D"},{"id":"indigo","name":"인디고","dark":"#9C9DFF","light":"#4941A8"},{"id":"lemon-yellow","name":"레몬 옐로","dark":"#F1E879","light":"#655D00"},{"id":"tangerine","name":"탠저린","dark":"#FFAD65","light":"#8A4007"},{"id":"signal-red","name":"시그널 레드","dark":"#FF7882","light":"#A62738"},{"id":"orchid","name":"오키드","dark":"#E796F2","light":"#83228E"},{"id":"cobalt-blue","name":"코발트 블루","dark":"#82A8FF","light":"#294DA7"},{"id":"cyan","name":"시안","dark":"#62D3EA","light":"#006479"},{"id":"mint","name":"민트","dark":"#74D9B2","light":"#13684F"},{"id":"amber","name":"앰버","dark":"#F5C25E","light":"#805100"},{"id":"coral","name":"코럴","dark":"#FF957F","light":"#A2382B"},{"id":"rose","name":"로즈","dark":"#F895BB","light":"#962759"},{"id":"lilac","name":"라일락","dark":"#BEA5FA","light":"#6036A2"},{"id":"powder-blue","name":"파우더 블루","dark":"#B9DBFF","light":null},{"id":"royal-blue","name":"로열 블루","dark":"#5A8FFF","light":null},{"id":"steel-blue","name":"스틸 블루","dark":"#A1B6CF","light":null},{"id":"electric-aqua","name":"일렉트릭 아쿠아","dark":"#22DDF6","light":null},{"id":"teal","name":"청록","dark":"#37BAAF","light":null},{"id":"celadon","name":"셀라돈","dark":"#CAE0C2","light":null},{"id":"leaf-green","name":"리프 그린","dark":"#8ACF75","light":null},{"id":"olive","name":"올리브","dark":"#CBD384","light":"#4F6600","lightFill":"#789600"},{"id":"mauve","name":"모브","dark":"#C5ADC7","light":null},{"id":"iris","name":"아이리스","dark":"#BA79E9","light":null},{"id":"buttercream","name":"버터 크림","dark":"#FCE9B2","light":null},{"id":"gold","name":"골드","dark":"#E4B13F","light":null},{"id":"copper","name":"카퍼","dark":"#CE986D","light":null},{"id":"peach","name":"피치","dark":"#FFD2BB","light":null},{"id":"terracotta","name":"테라코타","dark":"#DE8B6C","light":null},{"id":"vermilion","name":"버밀리언","dark":"#FA6950","light":null},{"id":"cherry","name":"체리","dark":"#EF689C","light":null},{"id":"dusty-rose","name":"더스티 로즈","dark":"#C994A5","light":null},{"id":"taupe","name":"토프","dark":"#C4B2A3","light":null},{"id":"silver","name":"실버","dark":"#C4C4C4","light":null},{"id":"orange-red","name":"오렌지레드","dark":"#FF3D00","light":"#C93303"}],"status":{"success":{"dark":"#79C98F","light":"#21643A"},"warning":{"dark":"#F1C06B","light":"#795100"},"danger":{"dark":"#FF8295","light":"#A52244"},"info":{"dark":"#8DB6F5","light":"#254D96"}},"series":{"dark":["#8DB6F5","#79C98F","#E796F2","#F1C06B","#BDBDBD"],"light":["#254D96","#21643A","#83228E","#795100","#5A5A5A"]},"diff":{"added":{"status":"success","symbol":"+","label":"추가"},"removed":{"status":"danger","symbol":"−","label":"삭제"},"changed":{"status":"warning","symbol":"~","label":"변경"}}});
+var KEY = "gestalt-presentation-color" + ':' + location.pathname;
+function read(){
+var s;
+try { s = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; }
+if (!s || typeof s !== 'object') return {};
+var dirty = false;
+if (s.background != null && !sys.has('background', s.background)) { delete s.background; dirty = true; }
+if (s.accent != null && !sys.has('accent', s.accent)) { delete s.accent; dirty = true; }
+if (dirty) write(s);
+return s;
+}
+function write(sel){ try { localStorage.setItem(KEY, JSON.stringify(sel)); } catch (e) {} }
+var root = document.documentElement;
+var base = { background: root.getAttribute('data-gestalt-background') || undefined, accent: root.getAttribute('data-gestalt-accent') || undefined };
+function apply(sel){
+var t = sys.resolve({ background: sel.background || base.background, accent: sel.accent || base.accent });
+sys.apply(root, t);
+root.setAttribute('data-gestalt-background', t.background);
+root.setAttribute('data-gestalt-accent', t.accent);
+return t;
+}
+window.gestaltTheme = {
+system: sys,
+get: function(){ return read(); },
+set: function(part){ var s = read(); for (var k in part) { if (Object.prototype.hasOwnProperty.call(part, k)) s[k] = part[k]; } var t = apply(s); write(s); document.dispatchEvent(new CustomEvent('gestalt-theme', { detail: t })); return t; },
+reset: function(){ write({}); var t = apply({}); document.dispatchEvent(new CustomEvent('gestalt-theme', { detail: t })); return t; },
+resolve: function(sel){ return sys.resolve(sel || read()); }
+};
+try { apply(read()); } catch (e) { write({}); apply({}); }
+})();
+function gestaltPresentationVars(sys, t){
+var out = {};
+var alt = sys.resolve({ background: t.tone === 'light' ? 'charcoal' : 'paper', accent: t.accent });
+for (var r in alt.colors) { if (Object.prototype.hasOwnProperty.call(alt.colors, r)) out['--gestalt-alt-' + r] = alt.colors[r]; }
+for (var n = 1; n <= 6; n++) {
+var s = t.colors['series-' + n];
+var on = sys.contrast(s, t.colors.background) >= sys.contrast(s, t.colors.text) ? t.colors.background : t.colors.text;
+if (sys.contrast(s, on) < 4.5) on = sys.contrast(s, '#000000') >= sys.contrast(s, '#FFFFFF') ? '#000000' : '#FFFFFF';
+out['--gestalt-on-series-' + n] = on;
+}
+return out;
+}
+(function(){
+var root = document.documentElement;
+var sys = window.gestaltTheme.system;
+function extra(t){ var v = gestaltPresentationVars(sys, t); for (var k in v) { if (Object.prototype.hasOwnProperty.call(v, k)) root.style.setProperty(k, v[k]); } }
+extra(sys.resolve({ background: root.getAttribute('data-gestalt-background'), accent: root.getAttribute('data-gestalt-accent') }));
+document.addEventListener('gestalt-theme', function(e){ extra(e.detail); });
+function dec(s){ try { return decodeURIComponent(s); } catch (e) { return ''; } }
+var q = {};
+location.search.replace(/^\?/, '').split('&').forEach(function(p){ var kv = p.split('='); var k = dec(kv[0]); if (k) q[k] = dec(kv[1] || ''); });
+var pick = {};
+if (q.background && sys.has('background', q.background)) pick.background = q.background;
+if (q.accent && sys.has('accent', q.accent)) pick.accent = q.accent;
+if (pick.background || pick.accent) { try { window.gestaltTheme.set(pick); } catch (e) {} }
+if (q.motion === 'reduce' || q.motion === 'full') root.setAttribute('data-gestalt-motion', q.motion);
+function reduced(){
+var m = root.getAttribute('data-gestalt-motion');
+if (m === 'reduce') return true;
+if (m === 'full') return false;
+return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+function calm(){ var R = window.Reveal; if (R && R.configure && reduced()) R.configure({ fragments: false }); }
+document.addEventListener('DOMContentLoaded', function(){
+var R = window.Reveal;
+if (!R) return;
+if (R.isReady && R.isReady()) calm(); else if (R.on) R.on('ready', calm);
+});
+document.addEventListener('click', function(ev){
+var R = window.Reveal;
+if (!R || !R.isReady || !R.isReady() || (R.isOverview && R.isOverview())) return;
+var t = ev.target;
+if (!t || !t.closest || !t.closest('.reveal .slides')) return;
+if (t.closest('a,button,input,select,textarea,label,summary,[contenteditable],[data-no-advance]')) return;
+if (window.getSelection && String(window.getSelection())) return;
+R.next();
+});
+})();
+</script>
+<!-- gestalt-theme:end -->
 </head>
-<body style="margin:0;background:#000">
+<body style="margin:0;background:var(--gestalt-color-background)">
 <div class="reveal">
   <div class="slides">
 
@@ -175,11 +305,11 @@
           <p class="mono" style="font-size:clamp(11px,1.2vw,17px);color:var(--mute)">{{PERIOD}}</p>
         </div>
         <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:2vw">
-          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">01</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
-          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">02</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
-          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">03</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
-          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">04</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
-          <div class="step"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">05</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
+          <div class="step fragment"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">01</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
+          <div class="step fragment"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">02</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
+          <div class="step fragment"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">03</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
+          <div class="step fragment"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">04</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
+          <div class="step fragment"><span class="mono" style="font-size:clamp(11px,1.1vw,16px);color:var(--mute)">05</span><p class="sans-display" style="font-size:clamp(13px,1.6vw,24px)">단계명</p><p style="font-size:clamp(12px,1.3vw,18px);color:var(--mute);line-height:1.4">설명</p></div>
         </div>
       </div>
       <div class="footer"><span>{{DATE}}</span><span class="pageno"><em>05</em> / 08</span></div>
@@ -230,6 +360,7 @@
 <script src="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/notes/notes.js"></script>
 <script>
   Reveal.initialize({
+    pdfSeparateFragments: false,
     hash: true, width: 1600, height: 900, margin: 0,
     minScale: 0.1, maxScale: 1.5,
     controls: false, progress: false, slideNumber: false,

@@ -3,37 +3,11 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { renderCss, renderTokenCss } from '../../../src/architecture/html-theme.js';
 import { BUILTIN_PACKS, vocabularyOf } from '../../../src/architecture/packs/index.js';
+import { BACKGROUND_IDS, chroma, resolveTokens } from './role-tokens.js';
 
 const SRC = join(__dirname, '../../../src/architecture');
-const TOKEN_CSS = renderTokenCss();
 const LAYOUT = renderCss(vocabularyOf(BUILTIN_PACKS.map((p) => p.id)));
-
-function tokenBlock(selector: string): Map<string, string> {
-  const start = TOKEN_CSS.indexOf(`${selector} {`);
-  if (start < 0) throw new Error(`토큰 블록 없음: ${selector}`);
-  const body = TOKEN_CSS.slice(start, TOKEN_CSS.indexOf('}', start));
-  const out = new Map<string, string>();
-  for (const m of body.matchAll(/(--[a-z0-9-]+):\s*([^;]+);/g)) out.set(m[1]!, m[2]!.trim());
-  return out;
-}
-
-const THEMES = {
-  light: tokenBlock(':root'),
-  dark: tokenBlock(':root[data-theme="dark"]'),
-} as const;
-
-function rgb(theme: keyof typeof THEMES, name: string): [number, number, number] {
-  const v = THEMES[theme].get(name);
-  const m = v === undefined ? null : /^#([0-9a-f]{6})$/i.exec(v);
-  if (!m) throw new Error(`${theme} ${name}는 6자리 hex여야 한다: ${v}`);
-  const h = m[1]!;
-  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
-}
-
-/** 채널 최댓값과 최솟값의 차. 0이면 무채색이다 */
-function chroma(c: [number, number, number]): number {
-  return Math.max(...c) - Math.min(...c);
-}
+const DEFAULTS = BACKGROUND_IDS.map((b) => resolveTokens(b, 'orange-red'));
 
 function ruleBody(selector: string): string {
   const at = LAYOUT.indexOf(`\n${selector} {`);
@@ -67,69 +41,69 @@ describe('무채색 바탕', () => {
     '--border-strong',
   ];
 
-  it.each(SURFACE_TOKENS)('어두운 테마 %s는 R=G=B 회색이다', (name) => {
-    expect(chroma(rgb('dark', name))).toBe(0);
+  it.each(SURFACE_TOKENS)('배경 여섯 개 모두 %s는 R=G=B 회색이다', (name) => {
+    for (const t of DEFAULTS) expect(chroma(t.get(name)), t.id).toBe(0);
   });
 
-  it('어두운 테마 바탕과 면은 #0f0f0f와 #191919 근처다', () => {
-    expect(rgb('dark', '--bg')[0]).toBeLessThanOrEqual(0x14);
-    expect(Math.abs(rgb('dark', '--surface')[0] - 0x19)).toBeLessThanOrEqual(4);
-  });
-
-  it('밝은 테마는 따뜻한 회색 바탕과 흰 면이다', () => {
-    const [r, g, b] = rgb('light', '--bg');
-    expect(r).toBeGreaterThanOrEqual(g);
-    expect(g).toBeGreaterThanOrEqual(b);
-    expect(r - b).toBeLessThanOrEqual(4);
-    expect(Math.abs(r - 0xf3)).toBeLessThanOrEqual(4);
-    expect(THEMES.light.get('--surface')).toBe('#ffffff');
-    expect(THEMES.light.get('--card')).toBe('#ffffff');
+  it('바탕과 면, 선은 Gestalt 색 역할을 읽는다', () => {
+    const t = DEFAULTS[0]!;
+    expect(t.raw('--bg')).toBe('var(--gestalt-color-background)');
+    expect(t.raw('--surface')).toBe('var(--gestalt-color-surface)');
+    expect(t.raw('--card')).toBe('var(--gestalt-color-surface)');
+    expect(t.raw('--border')).toBe('var(--gestalt-color-border)');
   });
 });
 
 describe('글자 4단계', () => {
   const LEVELS = ['--text', '--text-2', '--text-3', '--text-4'];
 
-  it.each(['light', 'dark'] as const)(
-    '%s 테마에 네 단계가 무채색으로 있고 바탕에서 멀수록 앞 단계다',
-    (theme) => {
-      const bg = rgb(theme, '--bg')[0];
+  it('배경 여섯 개 모두 네 단계가 무채색이고 바탕에서 멀수록 앞 단계다', () => {
+    for (const t of DEFAULTS) {
+      const bg = t.get('--bg')[0];
       const dist = LEVELS.map((n) => {
-        expect(chroma(rgb(theme, n))).toBe(0);
-        return Math.abs(rgb(theme, n)[0] - bg);
+        expect(chroma(t.get(n)), `${t.id} ${n}`).toBe(0);
+        return Math.abs(t.get(n)[0] - bg);
       });
-      expect([...dist].sort((a, b) => b - a)).toEqual(dist);
-    },
-  );
+      expect(
+        [...dist].sort((a, b) => b - a),
+        t.id,
+      ).toEqual(dist);
+    }
+  });
 
-  it('--muted 토큰은 없어졌고 아무 규칙도 읽지 않는다', () => {
-    expect(THEMES.light.has('--muted')).toBe(false);
-    expect(THEMES.dark.has('--muted')).toBe(false);
+  it('본문과 보조 글자는 text와 text-muted 역할이다', () => {
+    const t = DEFAULTS[0]!;
+    expect(t.raw('--text')).toBe('var(--gestalt-color-text)');
+    expect(t.raw('--text-3')).toBe('var(--gestalt-color-text-muted)');
+  });
+
+  it('--muted 토큰은 구조도 CSS 어디서도 읽지 않는다', () => {
     for (const src of CSS_SOURCES) expect(src).not.toContain('var(--muted)');
   });
 
-  it('--text-4는 비활성 질문과 출처 표기, 장식 화살표 세 자리에만 쓴다', () => {
+  it('--text-4는 비활성 질문에만 쓴다', () => {
     const used = CSS_SOURCES.flatMap((src) => selectorsUsing(src, '--text-4'));
-    expect(used.sort()).toEqual(['.infra-credit', '.q:disabled .q-subj', '.sp-arrow']);
+    expect(used.sort()).toEqual(['.q:disabled .q-subj']);
   });
 });
 
-describe('잉크 강조', () => {
-  it.each(['light', 'dark'] as const)('%s 테마 --accent는 파랑이 아니라 글자색 잉크다', (theme) => {
-    expect(chroma(rgb(theme, '--accent'))).toBe(0);
-    expect(Math.abs(rgb(theme, '--accent')[0] - rgb(theme, '--text')[0])).toBeLessThanOrEqual(8);
+describe('고른 강조색', () => {
+  it('--accent는 강조 글자 역할이고 채움은 강조 채움 역할이다', () => {
+    const t = DEFAULTS[0]!;
+    expect(t.raw('--accent')).toBe('var(--gestalt-color-accent-text)');
+    expect(t.raw('--accent-fill')).toBe('var(--gestalt-color-accent-fill)');
+    expect(t.raw('--on-accent')).toBe('var(--gestalt-color-on-accent)');
   });
 
-  it('카드 테두리 묶음과 이 단계 카드 테두리도 무채색이다', () => {
-    for (const theme of ['light', 'dark'] as const)
-      expect(chroma(rgb(theme, '--frame-line'))).toBe(0);
+  it('카드 테두리 묶음은 무채색이고 이 단계 카드 테두리만 강조색이다', () => {
+    for (const t of DEFAULTS) expect(chroma(t.get('--frame-line')), t.id).toBe(0);
     expect(ruleBody('.node.is-focus')).toContain('border-color: var(--accent)');
   });
 
   it('의미 색은 남는다', () => {
-    for (const theme of ['light', 'dark'] as const)
+    for (const t of DEFAULTS)
       for (const name of ['--x-account', '--loads', '--warn'])
-        expect(chroma(rgb(theme, name))).toBeGreaterThan(60);
+        expect(chroma(t.get(name)), `${t.id} ${name}`).toBeGreaterThan(60);
   });
 
   it('본문 안 링크는 색 대신 밑줄로 구분한다', () => {
@@ -138,15 +112,12 @@ describe('잉크 강조', () => {
 });
 
 describe('회색 선, 고른 선만 강조', () => {
-  it.each(['light', 'dark'] as const)(
-    '%s 테마 기본 선은 무채색에 불투명도 .5 안팎이다',
-    (theme) => {
-      expect(chroma(rgb(theme, '--edge'))).toBe(0);
-      const alpha = Number(THEMES[theme].get('--edge-alpha'));
-      expect(alpha).toBeGreaterThanOrEqual(0.4);
-      expect(alpha).toBeLessThanOrEqual(0.6);
-    },
-  );
+  it('기본 선은 무채색에 불투명도 .5 안팎이다', () => {
+    for (const t of DEFAULTS) expect(chroma(t.get('--edge')), t.id).toBe(0);
+    const alpha = Number(DEFAULTS[0]!.raw('--edge-alpha'));
+    expect(alpha).toBeGreaterThanOrEqual(0.4);
+    expect(alpha).toBeLessThanOrEqual(0.6);
+  });
 
   it('기본 선 규칙은 --edge와 --edge-alpha를 읽는다', () => {
     const body = ruleBody('.link .edge');
@@ -182,8 +153,7 @@ describe('점 격자', () => {
     expect(LAYOUT).toMatch(
       /\n\.stage \{ background-image: radial-gradient\(circle, var\(--grid-dot\) [^)]+\); background-size: 24px 24px; \}/,
     );
-    for (const theme of ['light', 'dark'] as const)
-      expect(chroma(rgb(theme, '--grid-dot'))).toBeLessThanOrEqual(5);
+    for (const t of DEFAULTS) expect(chroma(t.get('--grid-dot')), t.id).toBeLessThanOrEqual(5);
   });
 
   it('인쇄에서는 격자를 끈다', () => {
@@ -217,5 +187,17 @@ describe('색 값은 html-theme.ts에만', () => {
   it.each(others)('%s에 hex나 rgb 색 값이 없다', (name) => {
     const src = readFileSync(join(SRC, name), 'utf8');
     expect(src).not.toMatch(/#[0-9a-f]{6}\b|#[0-9a-f]{3}\b|\brgba?\(|\bhsla?\(/i);
+  });
+});
+
+describe('모션 줄이기', () => {
+  // 테마를 바꾸면 선과 바탕 색 전환이 그림 전체에서 돈다. 시퀀스 뷰 전용 CSS에만 두면 다른 그림에서 빠진다
+  it.each([
+    ['구조도', LAYOUT],
+    ['구조 변경 그림', renderTokenCss()],
+  ])('%s CSS가 모든 요소의 전환을 끈다', (_, css) => {
+    expect(css).toMatch(
+      /@media \(prefers-reduced-motion: reduce\) \{\s*\*, \*::before, \*::after \{ transition: none !important; \}/,
+    );
   });
 });

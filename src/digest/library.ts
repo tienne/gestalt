@@ -3,6 +3,7 @@ import { join, sep } from 'node:path';
 import { SOURCE_KINDS, type SourceKind, videoMetaSchema } from './schema.js';
 import { isValidSlug, readRaw } from './store.js';
 import { escapeXml } from './svg.js';
+import { digestThemeCss, THEME_BOOT_JS, THEME_BOOT_JS_SHA256 } from './theme-color.js';
 
 const labels: Record<SourceKind, string> = {
   youtube: '유튜브',
@@ -11,6 +12,12 @@ const labels: Record<SourceKind, string> = {
   web: '웹 글',
   podcast: '팟캐스트',
 };
+
+/** 보관함 화면 CSP. 영상 요약에서 고른 테마를 같이 쓰려고 테마 부트 스크립트만 해시로 연다 */
+export const LIBRARY_CSP = `default-src 'none'; script-src 'sha256-${THEME_BOOT_JS_SHA256}'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`;
+
+// 자료 유형마다 계열색 점을 붙여 목록을 훑을 때 유형이 먼저 보이게 한다
+const KIND_SERIES: Record<SourceKind, number> = { youtube: 1, file: 2, pdf: 3, web: 4, podcast: 5 };
 
 interface LibraryEntry {
   slug: string;
@@ -61,24 +68,35 @@ export function renderDigestLibrary(root: string, query: URLSearchParams): strin
   );
   const items = matches.map((entry) => {
     const day = new Date(entry.updated).toISOString().slice(0, 10);
-    return `<li><a href="/${entry.slug}/">${escapeXml(entry.title)}</a><small>${labels[entry.kind]} <time datetime="${day}">${day}</time></small></li>`;
+    return `<li><a href="/${entry.slug}/">${escapeXml(entry.title)}</a><small><span class="kind" data-kind="${entry.kind}">${labels[entry.kind]}</span> <time datetime="${day}">${day}</time></small></li>`;
   });
   return `<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>요약 보관함</title>
+<script>${THEME_BOOT_JS}</script>
 <style>
-:root{color-scheme:light dark;font-family:system-ui,sans-serif}
-body{margin:0;background:light-dark(#f7f5ef,#181b1e);color:light-dark(#242923,#e6e7df)}
+${digestThemeCss()}
+:root{font-family:system-ui,sans-serif}
+body{margin:0;background:var(--bg);color:var(--fg)}
 main{max-width:46rem;margin:clamp(1rem,6vw,4rem) auto;padding:0 1rem}
 h1{font-size:clamp(1.75rem,5vw,2.6rem);margin:0 0 1.25rem}
 form{display:flex;align-items:end;gap:.75rem;flex-wrap:wrap}
-label{display:grid;gap:.25rem}label:first-child{flex:1 1 15rem}
-input,select,button{font:inherit;padding:.5rem .65rem;border:1px solid #83897f;border-radius:.35rem}
-button{cursor:pointer}
+label{display:grid;gap:.25rem;color:var(--muted)}label:first-child{flex:1 1 15rem}
+input,select,button{font:inherit;padding:.5rem .65rem;border:1px solid var(--line);border-radius:.35rem;background:var(--card);color:var(--fg)}
+button{cursor:pointer;background:var(--accent-fill);border-color:var(--accent-fill);color:var(--on-accent);font-weight:650}
+:is(input,select,button,a):focus-visible{outline:2px solid var(--gestalt-color-focus);outline-offset:2px}
 ul{list-style:none;padding:0;margin:1.5rem 0;display:grid;gap:.65rem}
-li{padding:.9rem 1rem;background:light-dark(#fff,#22262a);border:1px solid light-dark(#dedfd6,#444a48);border-radius:.5rem}
-a{color:light-dark(#24554c,#9dd8c8);font-weight:650;overflow-wrap:anywhere}
-small{display:flex;gap:.7rem;margin-top:.35rem}
+li{position:relative;padding:.9rem 1rem;background:var(--card);border:1px solid var(--line);border-radius:.5rem;transition:border-color .15s}
+li:hover,li:focus-within{border-color:var(--accent)}
+a{color:var(--accent);font-weight:650;overflow-wrap:anywhere;text-decoration:none}
+a::after{content:"";position:absolute;inset:0}
+small{display:flex;align-items:center;gap:.7rem;margin-top:.35rem;color:var(--muted)}
+.kind{display:inline-flex;align-items:center;gap:.35rem;padding:0 .5rem;border:1px solid var(--line);border-radius:999px;color:var(--fg)}
+.kind::before{content:"";width:.5rem;height:.5rem;border-radius:50%;background:var(--kind)}
+${Object.entries(KIND_SERIES)
+  .map(([k, n]) => `.kind[data-kind="${k}"]{--kind:var(--gestalt-color-series-${n})}`)
+  .join('')}
+@media (prefers-reduced-motion:reduce){li{transition:none}}
 </style></head>
 <body><main><h1>요약 보관함</h1>
 <form method="get" action="/">
