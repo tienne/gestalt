@@ -135,3 +135,20 @@ describe('화면 이행 순서', () => {
     expect(SCREENS.filter((s) => s.phase === 2).every((s) => s.status === 'verified')).toBe(true);
   });
 });
+
+describe('렌더러 링크 스킴', () => {
+  it('출처와 인용 링크는 허용한 스킴만 남기고 나머지는 #으로 바꾼다', async () => {
+    const { quoteCard, sourceCite } = await import('../../../src/visual-system/render.js');
+    const quote = quoteCard({ quote: 'q', source: { label: 's', href: 'javascript:alert(1)' } });
+    const cite = sourceCite({
+      text: 't',
+      cites: [
+        { label: 'a', href: 'JavaScript:alert(1)' },
+        { label: 'b', href: 'https://example.com/x' },
+      ],
+    });
+    expect(quote).toContain('href="#"');
+    expect(quote + cite).not.toMatch(/javascript:/i);
+    expect(cite).toContain('href="https://example.com/x"');
+  });
+});

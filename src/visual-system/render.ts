@@ -17,9 +17,12 @@ export interface Source {
   href?: string;
 }
 
+// 출처 링크는 데이터에서 그대로 온다. javascript: 같은 스킴이 섞이면 클릭 한 번에 스크립트가 돌아서 허용한 형태만 남긴다
+const safeHref = (h: string): string => (/^(https?:\/\/|#|\/|mailto:)/i.test(h) ? h : '#');
+
 const sourceHtml = (s?: Source): string =>
   s
-    ? `<p class="vs-src">출처 ${s.href ? `<a href="${esc(s.href)}" target="_blank" rel="noopener">${esc(s.label)}</a>` : esc(s.label)}</p>`
+    ? `<p class="vs-src">출처 ${s.href ? `<a href="${esc(safeHref(s.href))}" target="_blank" rel="noopener">${esc(s.label)}</a>` : esc(s.label)}</p>`
     : '';
 
 const fmt = (n: number): string => (Number.isInteger(n) ? n.toLocaleString('en-US') : String(n));
@@ -53,8 +56,6 @@ export function frame(id: string, inner: string, o: FrameOptions = {}): string {
 
 export const at = (k?: number): string => (k ? ` data-at="${k}"` : '');
 export const focusAt = (k?: number): string => (k ? ` data-focus-at="${k}"` : '');
-
-// ── 차트, 수치 ──────────────────────────────────────────────
 
 export interface StatData {
   value: string;
@@ -243,8 +244,6 @@ export function donut(d: DonutData, id = 'donut'): string {
   );
 }
 
-// ── 비교, 비율 ──────────────────────────────────────────────
-
 export interface CardData {
   title: string;
   rows: Array<{ k: string; v: string }>;
@@ -320,8 +319,6 @@ export function balanceScale(d: {
   );
 }
 
-// ── 흐름, 관계, 구조 ──────────────────────────────────────────
-
 export interface GraphNode {
   id: string;
   label: string;
@@ -377,8 +374,6 @@ export function nodeGraph(
     { source: d.source, steps: d.steps, title: d.title },
   );
 }
-
-// ── 시간, 이벤트 ────────────────────────────────────────────
 
 export interface LogEvent {
   time: string;
@@ -442,8 +437,6 @@ export function durationBar(
   );
 }
 
-// ── 상태, 매트릭스 ──────────────────────────────────────────
-
 export function statusBadge(kind: StatusKind, label?: string): string {
   const cue = STATUS_CUES[kind];
   return `<span class="vs-badge vs-badge-${kind}"><span aria-hidden="true">${cue.symbol}</span> ${esc(label ?? cue.label)}</span>`;
@@ -481,15 +474,13 @@ export function statusMatrix(
   );
 }
 
-// ── 근거, 변경 ──────────────────────────────────────────────
-
 export function sourceCite(d: {
   text: string;
   cites: Array<{ label: string; href?: string }>;
 }): string {
   return frame(
     'source-cite',
-    `<p class="vs-prose">${esc(d.text)} ${d.cites.map((c) => `<a class="vs-cite" ${c.href ? `href="${esc(c.href)}"` : 'href="#"'}>${esc(c.label)}</a>`).join(' ')}</p>`,
+    `<p class="vs-prose">${esc(d.text)} ${d.cites.map((c) => `<a class="vs-cite" ${c.href ? `href="${esc(safeHref(c.href))}"` : 'href="#"'}>${esc(c.label)}</a>`).join(' ')}</p>`,
   );
 }
 
@@ -533,8 +524,6 @@ export function diffView(
     { source },
   );
 }
-
-// ── 장표 ───────────────────────────────────────────────────
 
 export interface SlideData {
   kind: string;
