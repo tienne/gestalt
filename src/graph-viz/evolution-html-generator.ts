@@ -1,4 +1,5 @@
 import type { ExecuteSession } from '../core/types.js';
+import { GRAPH_THEME_HEAD, GRAPH_THEME_JS, graphThemePicker } from './theme.js';
 
 /**
  * Generates a self-contained HTML page visualizing the evolution history of an execute session.
@@ -14,10 +15,11 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Gestalt Evolution Visualization</title>
+  ${GRAPH_THEME_HEAD}
   <style>
     body {
-      background: #0d1117;
-      color: #e6edf3;
+      background: var(--bg);
+      color: var(--fg);
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
       display: flex;
       align-items: center;
@@ -27,20 +29,27 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
     }
     .empty-state {
       text-align: center;
-      color: #8b949e;
+      color: var(--muted);
     }
     .empty-state h2 {
       font-size: 20px;
       margin-bottom: 8px;
-      color: #e6edf3;
+      color: var(--fg);
+    }
+    .corner {
+      position: fixed;
+      top: 16px;
+      right: 16px;
     }
   </style>
 </head>
 <body>
+  <div class="corner">${graphThemePicker()}</div>
   <div class="empty-state">
     <h2>No evolution data</h2>
     <p>Session <code>${session.sessionId}</code> has not entered the evolution loop yet.</p>
   </div>
+  <script>${GRAPH_THEME_JS}</script>
 </body>
 </html>`;
   }
@@ -64,6 +73,7 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Gestalt Evolution Visualization — ${session.sessionId}</title>
+  ${GRAPH_THEME_HEAD}
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     *, *::before, *::after {
@@ -73,11 +83,18 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
     }
 
     body {
-      background: #0d1117;
-      color: #e6edf3;
+      background: var(--bg);
+      color: var(--fg);
       font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
       min-height: 100vh;
       padding: 32px;
+    }
+
+    .page-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
     }
 
     h1 {
@@ -88,8 +105,9 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
 
     .subtitle {
       font-size: 13px;
-      color: #8b949e;
+      color: var(--muted);
       margin-bottom: 32px;
+      word-break: break-all;
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
     }
 
@@ -101,8 +119,8 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
     }
 
     .chart-card {
-      background: #161b22;
-      border: 1px solid #30363d;
+      background: var(--card);
+      border: 1px solid var(--line);
       border-radius: 12px;
       padding: 24px;
     }
@@ -110,7 +128,7 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
     .chart-card h2 {
       font-size: 14px;
       font-weight: 600;
-      color: #8b949e;
+      color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.05em;
       margin-bottom: 16px;
@@ -122,8 +140,8 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
     }
 
     .summary-card {
-      background: #161b22;
-      border: 1px solid #30363d;
+      background: var(--card);
+      border: 1px solid var(--line);
       border-radius: 12px;
       padding: 24px;
     }
@@ -131,7 +149,7 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
     .summary-card h2 {
       font-size: 14px;
       font-weight: 600;
-      color: #8b949e;
+      color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.05em;
       margin-bottom: 20px;
@@ -144,7 +162,7 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
     .stat-label {
       font-size: 10px;
       font-weight: 600;
-      color: #8b949e;
+      color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.07em;
       margin-bottom: 4px;
@@ -152,13 +170,13 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
 
     .stat-value {
       font-size: 15px;
-      color: #e6edf3;
+      color: var(--fg);
       font-weight: 600;
     }
 
     .stat-value.score {
       font-size: 24px;
-      color: #3b82f6;
+      color: var(--accent);
     }
 
     .badge {
@@ -169,24 +187,17 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
       font-weight: 600;
       margin-bottom: 4px;
       margin-right: 4px;
+      background: var(--card);
+      box-shadow: inset 0 0 0 1px currentColor;
     }
 
-    .badge-persona {
-      background: #1f4068;
-      color: #58a6ff;
-      border: 1px solid #388bfd40;
-    }
+    .badge-persona     { color: var(--gestalt-color-info-text); }
+    .badge-termination { color: var(--gestalt-color-warning-text); }
+    .badge-success     { color: var(--gestalt-color-success-text); }
 
-    .badge-termination {
-      background: #3d2000;
-      color: #f0883e;
-      border: 1px solid #f0883e40;
-    }
-
-    .badge-success {
-      background: #1a3a1a;
-      color: #3fb950;
-      border: 1px solid #3fb95040;
+    .stat-none {
+      color: var(--muted);
+      font-size: 13px;
     }
 
     .legend {
@@ -194,7 +205,7 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
       gap: 20px;
       margin-top: 12px;
       font-size: 12px;
-      color: #8b949e;
+      color: var(--muted);
     }
 
     .legend-item {
@@ -209,7 +220,14 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
       border-radius: 2px;
     }
 
+    .s-eval { background: var(--gestalt-color-series-2); }
+    .s-goal { background: var(--gestalt-color-series-3); }
+
     @media (max-width: 768px) {
+      body {
+        padding: 20px 16px;
+      }
+
       .layout {
         grid-template-columns: 1fr;
       }
@@ -217,8 +235,13 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
   </style>
 </head>
 <body>
-  <h1>Evolution Visualization</h1>
-  <div class="subtitle">Session: ${session.sessionId}</div>
+  <header class="page-head">
+    <div>
+      <h1>Evolution Visualization</h1>
+      <div class="subtitle">Session: ${session.sessionId}</div>
+    </div>
+    ${graphThemePicker()}
+  </header>
 
   <div class="layout">
     <div class="chart-card">
@@ -228,11 +251,11 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
       </div>
       <div class="legend">
         <div class="legend-item">
-          <div class="legend-dot" style="background:#3b82f6;"></div>
+          <div class="legend-dot s-eval"></div>
           Evaluation Score
         </div>
         <div class="legend-item">
-          <div class="legend-dot" style="background:#22c55e;"></div>
+          <div class="legend-dot s-goal"></div>
           Goal Alignment
         </div>
       </div>
@@ -262,7 +285,7 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
           ${
             triedPersonas.length > 0
               ? triedPersonas.map((p) => `<span class="badge badge-persona">${p}</span>`).join('')
-              : '<span style="color:#484f58;font-size:13px;">none</span>'
+              : '<span class="stat-none">none</span>'
           }
         </div>
       </div>
@@ -275,13 +298,14 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
               ? terminationReason === 'success'
                 ? `<span class="badge badge-success">${terminationReason}</span>`
                 : `<span class="badge badge-termination">${terminationReason}</span>`
-              : '<span style="color:#484f58;font-size:13px;">in progress</span>'
+              : '<span class="stat-none">in progress</span>'
           }
         </div>
       </div>
     </div>
   </div>
 
+  <script>${GRAPH_THEME_JS}</script>
   <script>
   (function () {
     'use strict';
@@ -291,8 +315,44 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
     const goalAlignments = ${goalAlignJson};
 
     const ctx = document.getElementById('evolutionChart').getContext('2d');
+    const role = window.gestaltRole;
 
-    new Chart(ctx, {
+    // 캔버스는 CSS 변수를 못 읽어서 테마가 바뀔 때마다 역할 값을 다시 꺼내 칠한다
+    function palette() {
+      return {
+        eval: role('series-2'),
+        evalFill: role('series-2', 0.08),
+        goal: role('series-3'),
+        goalFill: role('series-3', 0.08),
+        muted: role('text-muted'),
+        text: role('text'),
+        line: role('border'),
+        surface: role('surface'),
+      };
+    }
+
+    // 차트를 만들기 전 설정과 만든 뒤의 chart가 data, options 모양이 같아서 둘 다 받는다
+    function paint(chart) {
+      const c = palette();
+      const [ev, goal] = chart.data.datasets;
+      ev.borderColor = c.eval;
+      ev.backgroundColor = c.evalFill;
+      ev.pointBackgroundColor = c.eval;
+      goal.borderColor = c.goal;
+      goal.backgroundColor = c.goalFill;
+      goal.pointBackgroundColor = c.goal;
+      for (const axis of ['x', 'y']) {
+        chart.options.scales[axis].ticks.color = c.muted;
+        chart.options.scales[axis].grid.color = c.line;
+      }
+      const tip = chart.options.plugins.tooltip;
+      tip.backgroundColor = c.surface;
+      tip.borderColor = c.line;
+      tip.titleColor = c.text;
+      tip.bodyColor = c.muted;
+    }
+
+    const config = {
       type: 'line',
       data: {
         labels: labels,
@@ -300,10 +360,7 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
           {
             label: 'Evaluation Score',
             data: evalScores,
-            borderColor: '#3b82f6',
-            backgroundColor: 'rgba(59, 130, 246, 0.08)',
             borderWidth: 2,
-            pointBackgroundColor: '#3b82f6',
             pointRadius: 4,
             pointHoverRadius: 6,
             fill: true,
@@ -312,10 +369,7 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
           {
             label: 'Goal Alignment',
             data: goalAlignments,
-            borderColor: '#22c55e',
-            backgroundColor: 'rgba(34, 197, 94, 0.08)',
             borderWidth: 2,
-            pointBackgroundColor: '#22c55e',
             pointRadius: 4,
             pointHoverRadius: 6,
             fill: true,
@@ -329,24 +383,18 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
         scales: {
           x: {
             ticks: {
-              color: '#8b949e',
               font: { size: 11 },
             },
-            grid: {
-              color: '#21262d',
-            },
+            grid: {},
           },
           y: {
             min: 0,
             max: 1,
             ticks: {
-              color: '#8b949e',
               font: { size: 11 },
               stepSize: 0.2,
             },
-            grid: {
-              color: '#21262d',
-            },
+            grid: {},
           },
         },
         plugins: {
@@ -354,14 +402,20 @@ export function generateEvolutionHtml(session: ExecuteSession): string {
             display: false,
           },
           tooltip: {
-            backgroundColor: '#161b22',
-            borderColor: '#30363d',
             borderWidth: 1,
-            titleColor: '#e6edf3',
-            bodyColor: '#8b949e',
           },
         },
       },
+    };
+    paint(config);
+    // 모션 줄이기에서는 선이 자라는 진입 애니메이션 없이 최종 값을 바로 그린다
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+      config.options.animation = false;
+    const chart = new Chart(ctx, config);
+
+    document.addEventListener('gestalt-theme', function () {
+      paint(chart);
+      chart.update('none');
     });
   })();
   </script>

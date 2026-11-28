@@ -184,4 +184,13 @@ describe('generateEvolutionHtml()', () => {
       expect(html).toContain('</html>');
     });
   });
+
+  it('모션 줄이기에서는 차트 진입 애니메이션을 끈다', () => {
+    const html = generateEvolutionHtml(
+      makeSession({ evolutionHistory: [makeEvolutionGeneration()], currentGeneration: 1 }),
+    );
+    expect(html).toMatch(
+      /prefers-reduced-motion: reduce\)'\)\.matches\)\s*config\.options\.animation = false;\s*const chart = new Chart/,
+    );
+  });
 });
