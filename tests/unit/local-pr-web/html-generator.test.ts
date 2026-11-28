@@ -252,8 +252,9 @@ describe('generatePrDetailHtml', () => {
     // 버전을 안 묶으면 CDN이 오염되는 순간 리뷰 중인 소스가 남의 코드 손에 들어간다
     expect(html).toMatch(/diff2html@\d+\.\d+\.\d+/);
     expect(html).not.toContain('npm/diff2html/bundles');
-    expect((html.match(/integrity="sha384-/g) ?? []).length).toBe(3);
-    expect(html).toContain('highlight.js@');
+    expect((html.match(/integrity="sha384-/g) ?? []).length).toBe(2);
+    // 하이라이트 토큰 색은 역할 CSS로 직접 칠해서 highlight.js 테마는 안 받는다
+    expect(html).not.toContain('highlight.js@');
   });
 
   it('렌더러를 못 불러오면 원본 diff를 보여준다', () => {
@@ -294,14 +295,20 @@ describe('generatePrDetailHtml', () => {
     expect(html).not.toContain('badge-open evil-class');
     expect(html).toContain('class="badge badge-closed"');
   });
-  it('라이브러리에 다크 스킴을 넘긴다', () => {
+  it('diff2html 색 변수를 밝은 쪽과 어두운 쪽 모두 역할 값으로 덮는다', () => {
     const html = generatePrDetailHtml(makePr({}), 'diff --git a/x b/x', 'aaaaaaaa', 'r');
 
-    // CSS 변수를 밖에서 덮는 방법은 안 통한다 — --d2h-bg-color를 읽는 셀렉터는 줄
-    // 번호와 태그뿐이고 추가와 삭제 줄은 --d2h-ins-bg-color 쪽을 읽는다
-    expect(html).toContain("colorScheme: 'dark'");
-    // 밖에서 덮으려던 오버라이드 규칙이 남아 있으면 안 된다 (주석 속 언급은 제외)
-    expect(html).not.toContain('.d2h-wrapper {');
+    // 라이브러리는 wrapper의 색 구성 클래스로 두 벌 중 하나를 고른다. 한쪽만 덮으면 테마 밝기에 따라 원색이 돌아온다
+    expect(html).toContain('--d2h-ins-bg-color:var(--gestalt-color-diff-added-bg)');
+    expect(html).toContain('--d2h-dark-ins-bg-color:var(--gestalt-color-diff-added-bg)');
+    expect(html).toContain('--d2h-dark-del-bg-color:var(--gestalt-color-diff-removed-bg)');
+    expect(html).toContain('colorScheme: tone()');
+    expect(html).not.toContain("colorScheme: 'dark'");
+  });
+
+  it('줄 앞 추가, 삭제 기호는 diff 바탕 위 대비가 보장되는 본문 글자색으로 둔다', () => {
+    const html = generatePrDetailHtml(makePr({}), 'diff --git a/x b/x');
+    expect(html).toMatch(/\.d2h-code-line-prefix,[^{]*\{color:var\(--fg\)\}/);
   });
 
   it('잘린 diff에 붙는 안내가 폴백 경로에서도 나온다', () => {
