@@ -11,6 +11,7 @@ export const COLOR_RESOLVER_JS = `function gestaltColorSystem(catalog){
   function fit(start,bg,min){var target=bg.light?'#000000':'#FFFFFF';var out=start;for(var a=1;a<=100&&worst(out,bg)<min;a++){out=mix(start,target,a/100);}return out;}
   function onFill(fill){if(contrast('#171717',fill)>=4.5)return '#171717';return contrast('#000000',fill)>=contrast('#FFFFFF',fill)?'#000000':'#FFFFFF';}
   function find(list,id){for(var i=0;i<list.length;i++){if(list[i].id===id)return list[i];}return null;}
+  function has(kind,id){return !!find(kind==='background'?catalog.backgrounds:catalog.accents,id);}
   function resolve(sel){
     sel=sel||{};
     var bgId=sel.background||catalog.defaults.background;var acId=sel.accent||catalog.defaults.accent;
@@ -35,5 +36,5 @@ export const COLOR_RESOLVER_JS = `function gestaltColorSystem(catalog){
   function cssVars(theme){var out={};for(var r in theme.colors){if(Object.prototype.hasOwnProperty.call(theme.colors,r))out['--gestalt-color-'+r]=theme.colors[r];}return out;}
   function cssText(theme){var v=cssVars(theme);var parts=[];for(var k in v){if(Object.prototype.hasOwnProperty.call(v,k))parts.push(k+':'+v[k]);}return parts.join(';');}
   function apply(el,theme){var v=cssVars(theme);for(var k in v){if(Object.prototype.hasOwnProperty.call(v,k))el.style.setProperty(k,v[k]);}el.setAttribute('data-gestalt-theme',theme.id);el.setAttribute('data-gestalt-tone',theme.tone);}
-  return {resolve:resolve,contrast:contrast,mix:mix,cssVars:cssVars,cssText:cssText,apply:apply,catalog:catalog};
+  return {resolve:resolve,has:has,contrast:contrast,mix:mix,cssVars:cssVars,cssText:cssText,apply:apply,catalog:catalog};
 }`;

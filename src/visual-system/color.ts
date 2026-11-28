@@ -219,6 +219,7 @@ export interface ResolvedTheme {
 
 interface ResolverApi {
   resolve(sel?: ThemeSelection): ResolvedTheme;
+  has(kind: 'background' | 'accent', id: string): boolean;
   contrast(a: string, b: string): number;
   mix(color: string, target: string, amount: number): string;
   cssVars(theme: ResolvedTheme): Record<string, string>;

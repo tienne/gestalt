@@ -420,13 +420,12 @@ const DECK_JS = `(function(){
   extra(sys.resolve({ background: root.getAttribute('data-gestalt-background'), accent: root.getAttribute('data-gestalt-accent') }));
   document.addEventListener('gestalt-theme', function(e){ extra(e.detail); });
   function dec(s){ try { return decodeURIComponent(s); } catch (e) { return ''; } }
-  function known(list, id){ for (var i = 0; i < list.length; i++) { if (list[i].id === id) return true; } return false; }
   var q = {};
   location.search.replace(/^\\?/, '').split('&').forEach(function(p){ var kv = p.split('='); var k = dec(kv[0]); if (k) q[k] = dec(kv[1] || ''); });
   // 주소 값은 누구나 붙여 보낼 수 있다. 카탈로그에 있는 id만 받아야 저장소에 잘못된 값이 남지 않는다
   var pick = {};
-  if (q.background && known(sys.catalog.backgrounds, q.background)) pick.background = q.background;
-  if (q.accent && known(sys.catalog.accents, q.accent)) pick.accent = q.accent;
+  if (q.background && sys.has('background', q.background)) pick.background = q.background;
+  if (q.accent && sys.has('accent', q.accent)) pick.accent = q.accent;
   if (pick.background || pick.accent) { try { window.gestaltTheme.set(pick); } catch (e) {} }
   if (q.motion === 'reduce' || q.motion === 'full') root.setAttribute('data-gestalt-motion', q.motion);
   function reduced(){

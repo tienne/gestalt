@@ -154,15 +154,14 @@ export function themeRuntimeJs(storageKey = 'gestalt-color', perPage = false): s
 (function(){
   var sys = gestaltColorSystem(${JSON.stringify(COLOR_CATALOG)});
   var KEY = ${JSON.stringify(storageKey)}${perPage ? " + ':' + location.pathname" : ''};
-  function known(list, id){ for (var i = 0; i < list.length; i++) { if (list[i].id === id) return true; } return false; }
   // 카탈로그에서 빠진 id가 저장돼 있으면 resolve가 throw해서 그 문서의 테마가 통째로 안 뜬다. 읽을 때 걸러 다시 저장한다
   function read(){
     var s;
     try { s = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; }
     if (!s || typeof s !== 'object') return {};
     var dirty = false;
-    if (s.background != null && !known(sys.catalog.backgrounds, s.background)) { delete s.background; dirty = true; }
-    if (s.accent != null && !known(sys.catalog.accents, s.accent)) { delete s.accent; dirty = true; }
+    if (s.background != null && !sys.has('background', s.background)) { delete s.background; dirty = true; }
+    if (s.accent != null && !sys.has('accent', s.accent)) { delete s.accent; dirty = true; }
     if (dirty) write(s);
     return s;
   }

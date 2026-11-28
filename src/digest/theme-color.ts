@@ -49,7 +49,6 @@ export const THEME_BOOT_JS = `${COLOR_RESOLVER_JS}
   var AUTO_LIGHT = '${DIGEST_AUTO_BACKGROUND.light}', AUTO_DARK = '${DIGEST_AUTO_BACKGROUND.dark}', ACCENT = '${DIGEST_DEFAULT_ACCENT}';
   var root = document.documentElement;
   var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
-  function known(list, id){ for (var i = 0; i < list.length; i++) { if (list[i].id === id) return true; } return false; }
   // 카탈로그에서 빠진 id가 저장돼 있으면 resolve가 throw해서 첫 화면 테마가 안 뜬다. 읽을 때 걸러 다시 저장한다
   function read(){
     var s;
@@ -61,8 +60,8 @@ export const THEME_BOOT_JS = `${COLOR_RESOLVER_JS}
       }
     } catch (e) { return {}; }
     var dirty = false;
-    if (s.background != null && !known(sys.catalog.backgrounds, s.background)) { delete s.background; dirty = true; }
-    if (s.accent != null && !known(sys.catalog.accents, s.accent)) { delete s.accent; dirty = true; }
+    if (s.background != null && !sys.has('background', s.background)) { delete s.background; dirty = true; }
+    if (s.accent != null && !sys.has('accent', s.accent)) { delete s.accent; dirty = true; }
     if (dirty) write(s);
     return s;
   }

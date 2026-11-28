@@ -157,6 +157,7 @@ function worst(color,bg){return Math.min(contrast(color,bg.color),contrast(color
 function fit(start,bg,min){var target=bg.light?'#000000':'#FFFFFF';var out=start;for(var a=1;a<=100&&worst(out,bg)<min;a++){out=mix(start,target,a/100);}return out;}
 function onFill(fill){if(contrast('#171717',fill)>=4.5)return '#171717';return contrast('#000000',fill)>=contrast('#FFFFFF',fill)?'#000000':'#FFFFFF';}
 function find(list,id){for(var i=0;i<list.length;i++){if(list[i].id===id)return list[i];}return null;}
+function has(kind,id){return !!find(kind==='background'?catalog.backgrounds:catalog.accents,id);}
 function resolve(sel){
 sel=sel||{};
 var bgId=sel.background||catalog.defaults.background;var acId=sel.accent||catalog.defaults.accent;
@@ -181,19 +182,18 @@ return {id:bg.id+'/'+ac.id,version:catalog.version,tone:bg.light?'light':'dark',
 function cssVars(theme){var out={};for(var r in theme.colors){if(Object.prototype.hasOwnProperty.call(theme.colors,r))out['--gestalt-color-'+r]=theme.colors[r];}return out;}
 function cssText(theme){var v=cssVars(theme);var parts=[];for(var k in v){if(Object.prototype.hasOwnProperty.call(v,k))parts.push(k+':'+v[k]);}return parts.join(';');}
 function apply(el,theme){var v=cssVars(theme);for(var k in v){if(Object.prototype.hasOwnProperty.call(v,k))el.style.setProperty(k,v[k]);}el.setAttribute('data-gestalt-theme',theme.id);el.setAttribute('data-gestalt-tone',theme.tone);}
-return {resolve:resolve,contrast:contrast,mix:mix,cssVars:cssVars,cssText:cssText,apply:apply,catalog:catalog};
+return {resolve:resolve,has:has,contrast:contrast,mix:mix,cssVars:cssVars,cssText:cssText,apply:apply,catalog:catalog};
 }
 (function(){
 var sys = gestaltColorSystem({"version":"0.2.0","defaults":{"background":"charcoal","accent":"cyan"},"backgrounds":[{"id":"ink","name":"잉크","color":"#101010","panel":"#1B1B1B","ink":"#F1F1F1","muted":"#ADADAD","line":"#373737","light":false},{"id":"charcoal","name":"차콜","color":"#171717","panel":"#232323","ink":"#F1F1F1","muted":"#ADADAD","line":"#404040","light":false},{"id":"graphite","name":"그래파이트","color":"#303030","panel":"#3B3B3B","ink":"#F3F3F3","muted":"#C8C8C8","line":"#565656","light":false},{"id":"soft-gray","name":"소프트 그레이","color":"#E6E6E6","panel":"#DCDCDC","ink":"#1F1F1F","muted":"#555555","line":"#B6B6B6","light":true},{"id":"paper","name":"페이퍼","color":"#F3F3F3","panel":"#E9E9E9","ink":"#202020","muted":"#585858","line":"#C4C4C4","light":true},{"id":"white","name":"화이트","color":"#FFFFFF","panel":"#F1F1F1","ink":"#202020","muted":"#5A5A5A","line":"#D0D0D0","light":true}],"accents":[{"id":"sage","name":"세이지","dark":"#B3C8A1","light":"#3D5A2D"},{"id":"indigo","name":"인디고","dark":"#9C9DFF","light":"#4941A8"},{"id":"lemon-yellow","name":"레몬 옐로","dark":"#F1E879","light":"#655D00"},{"id":"tangerine","name":"탠저린","dark":"#FFAD65","light":"#8A4007"},{"id":"signal-red","name":"시그널 레드","dark":"#FF7882","light":"#A62738"},{"id":"orchid","name":"오키드","dark":"#E796F2","light":"#83228E"},{"id":"cobalt-blue","name":"코발트 블루","dark":"#82A8FF","light":"#294DA7"},{"id":"cyan","name":"시안","dark":"#62D3EA","light":"#006479"},{"id":"mint","name":"민트","dark":"#74D9B2","light":"#13684F"},{"id":"amber","name":"앰버","dark":"#F5C25E","light":"#805100"},{"id":"coral","name":"코럴","dark":"#FF957F","light":"#A2382B"},{"id":"rose","name":"로즈","dark":"#F895BB","light":"#962759"},{"id":"lilac","name":"라일락","dark":"#BEA5FA","light":"#6036A2"},{"id":"powder-blue","name":"파우더 블루","dark":"#B9DBFF","light":null},{"id":"royal-blue","name":"로열 블루","dark":"#5A8FFF","light":null},{"id":"steel-blue","name":"스틸 블루","dark":"#A1B6CF","light":null},{"id":"electric-aqua","name":"일렉트릭 아쿠아","dark":"#22DDF6","light":null},{"id":"teal","name":"청록","dark":"#37BAAF","light":null},{"id":"celadon","name":"셀라돈","dark":"#CAE0C2","light":null},{"id":"leaf-green","name":"리프 그린","dark":"#8ACF75","light":null},{"id":"olive","name":"올리브","dark":"#CBD384","light":"#4F6600","lightFill":"#789600"},{"id":"mauve","name":"모브","dark":"#C5ADC7","light":null},{"id":"iris","name":"아이리스","dark":"#BA79E9","light":null},{"id":"buttercream","name":"버터 크림","dark":"#FCE9B2","light":null},{"id":"gold","name":"골드","dark":"#E4B13F","light":null},{"id":"copper","name":"카퍼","dark":"#CE986D","light":null},{"id":"peach","name":"피치","dark":"#FFD2BB","light":null},{"id":"terracotta","name":"테라코타","dark":"#DE8B6C","light":null},{"id":"vermilion","name":"버밀리언","dark":"#FA6950","light":null},{"id":"cherry","name":"체리","dark":"#EF689C","light":null},{"id":"dusty-rose","name":"더스티 로즈","dark":"#C994A5","light":null},{"id":"taupe","name":"토프","dark":"#C4B2A3","light":null},{"id":"silver","name":"실버","dark":"#C4C4C4","light":null},{"id":"orange-red","name":"오렌지레드","dark":"#FF3D00","light":"#C93303"}],"status":{"success":{"dark":"#79C98F","light":"#21643A"},"warning":{"dark":"#F1C06B","light":"#795100"},"danger":{"dark":"#FF8295","light":"#A52244"},"info":{"dark":"#8DB6F5","light":"#254D96"}},"series":{"dark":["#8DB6F5","#79C98F","#E796F2","#F1C06B","#BDBDBD"],"light":["#254D96","#21643A","#83228E","#795100","#5A5A5A"]},"diff":{"added":{"status":"success","symbol":"+","label":"추가"},"removed":{"status":"danger","symbol":"−","label":"삭제"},"changed":{"status":"warning","symbol":"~","label":"변경"}}});
 var KEY = "gestalt-presentation-color" + ':' + location.pathname;
-function known(list, id){ for (var i = 0; i < list.length; i++) { if (list[i].id === id) return true; } return false; }
 function read(){
 var s;
 try { s = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { return {}; }
 if (!s || typeof s !== 'object') return {};
 var dirty = false;
-if (s.background != null && !known(sys.catalog.backgrounds, s.background)) { delete s.background; dirty = true; }
-if (s.accent != null && !known(sys.catalog.accents, s.accent)) { delete s.accent; dirty = true; }
+if (s.background != null && !sys.has('background', s.background)) { delete s.background; dirty = true; }
+if (s.accent != null && !sys.has('accent', s.accent)) { delete s.accent; dirty = true; }
 if (dirty) write(s);
 return s;
 }
@@ -235,12 +235,11 @@ function extra(t){ var v = gestaltPresentationVars(sys, t); for (var k in v) { i
 extra(sys.resolve({ background: root.getAttribute('data-gestalt-background'), accent: root.getAttribute('data-gestalt-accent') }));
 document.addEventListener('gestalt-theme', function(e){ extra(e.detail); });
 function dec(s){ try { return decodeURIComponent(s); } catch (e) { return ''; } }
-function known(list, id){ for (var i = 0; i < list.length; i++) { if (list[i].id === id) return true; } return false; }
 var q = {};
 location.search.replace(/^\?/, '').split('&').forEach(function(p){ var kv = p.split('='); var k = dec(kv[0]); if (k) q[k] = dec(kv[1] || ''); });
 var pick = {};
-if (q.background && known(sys.catalog.backgrounds, q.background)) pick.background = q.background;
-if (q.accent && known(sys.catalog.accents, q.accent)) pick.accent = q.accent;
+if (q.background && sys.has('background', q.background)) pick.background = q.background;
+if (q.accent && sys.has('accent', q.accent)) pick.accent = q.accent;
 if (pick.background || pick.accent) { try { window.gestaltTheme.set(pick); } catch (e) {} }
 if (q.motion === 'reduce' || q.motion === 'full') root.setAttribute('data-gestalt-motion', q.motion);
 function reduced(){
