@@ -375,7 +375,8 @@ const TEXT_TAGS = [
   'h2',
   'h3',
   'h4',
-  '[class*="t-"]',
+  '[class^="t-"]',
+  '[class*=" t-"]',
   '.label',
   '.caption',
   '.kicker',
@@ -418,13 +419,29 @@ const DECK_JS = `(function(){
   function extra(t){ var v = gestaltPresentationVars(sys, t); for (var k in v) { if (Object.prototype.hasOwnProperty.call(v, k)) root.style.setProperty(k, v[k]); } }
   extra(sys.resolve({ background: root.getAttribute('data-gestalt-background'), accent: root.getAttribute('data-gestalt-accent') }));
   document.addEventListener('gestalt-theme', function(e){ extra(e.detail); });
+  function dec(s){ try { return decodeURIComponent(s); } catch (e) { return ''; } }
+  function known(list, id){ for (var i = 0; i < list.length; i++) { if (list[i].id === id) return true; } return false; }
   var q = {};
-  location.search.replace(/^\\?/, '').split('&').forEach(function(p){ var kv = p.split('='); if (kv[0]) q[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || ''); });
+  location.search.replace(/^\\?/, '').split('&').forEach(function(p){ var kv = p.split('='); var k = dec(kv[0]); if (k) q[k] = dec(kv[1] || ''); });
+  // 주소 값은 누구나 붙여 보낼 수 있다. 카탈로그에 있는 id만 받아야 저장소에 잘못된 값이 남지 않는다
   var pick = {};
-  if (q.background) pick.background = q.background;
-  if (q.accent) pick.accent = q.accent;
+  if (q.background && known(sys.catalog.backgrounds, q.background)) pick.background = q.background;
+  if (q.accent && known(sys.catalog.accents, q.accent)) pick.accent = q.accent;
   if (pick.background || pick.accent) { try { window.gestaltTheme.set(pick); } catch (e) {} }
   if (q.motion === 'reduce' || q.motion === 'full') root.setAttribute('data-gestalt-motion', q.motion);
+  function reduced(){
+    var m = root.getAttribute('data-gestalt-motion');
+    if (m === 'reduce') return true;
+    if (m === 'full') return false;
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+  // 모션을 줄이면 순차 공개도 끈다. Reveal은 fragments를 끄면 모든 fragment에 visible을 붙여 클릭 없이 다 보인다
+  function calm(){ var R = window.Reveal; if (R && R.configure && reduced()) R.configure({ fragments: false }); }
+  document.addEventListener('DOMContentLoaded', function(){
+    var R = window.Reveal;
+    if (!R) return;
+    if (R.isReady && R.isReady()) calm(); else if (R.on) R.on('ready', calm);
+  });
   document.addEventListener('click', function(ev){
     var R = window.Reveal;
     if (!R || !R.isReady || !R.isReady() || (R.isOverview && R.isOverview())) return;
@@ -438,6 +455,18 @@ const DECK_JS = `(function(){
 
 export const THEME_BLOCK_START = '<!-- gestalt-theme:start -->';
 export const THEME_BLOCK_END = '<!-- gestalt-theme:end -->';
+
+/**
+ * 템플릿 10종이 같은 스크립트를 한 벌씩 들고 있어서 주석 줄과 들여쓰기만 걷는다.
+ * 스크립트는 ES5라 템플릿 리터럴이 없고 줄 단위로 걷어도 문자열이 안 바뀐다.
+ */
+function compactJs(js: string): string {
+  return js
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('//'))
+    .join('\n');
+}
 
 /** 템플릿 </head> 앞에 넣는 블록. 기본 색은 정적 CSS로 깔고 스크립트는 저장된 선택과 주소 값이 있을 때만 덮어쓴다 */
 export function presentationThemeBlock(theme: PresentationTemplateTheme): string {
@@ -455,9 +484,9 @@ export function presentationThemeBlock(theme: PresentationTemplateTheme): string
     motionCss(),
     '</style>',
     '<script>',
-    themeRuntimeJs(PRESENTATION_STORAGE_KEY, true),
-    PRESENTATION_EXTRA_JS,
-    DECK_JS,
+    compactJs(
+      [themeRuntimeJs(PRESENTATION_STORAGE_KEY, true), PRESENTATION_EXTRA_JS, DECK_JS].join('\n'),
+    ),
     '</script>',
     THEME_BLOCK_END,
   ].join('\n');
