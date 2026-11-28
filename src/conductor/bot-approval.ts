@@ -1,6 +1,6 @@
 import { createHash, createPublicKey, randomUUID, verify, type KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { mergeApprovalPolicy } from './trusted-chat-approval.js';
+import { approvalPolicy, BOT_GATE_TYPES } from './trusted-chat-approval.js';
 import { join } from 'node:path';
 import { isPlainObject } from '../core/json-file.js';
 import { GhAccounts } from './adapters.js';
@@ -167,18 +167,11 @@ export function matchMergeGate(store: ConductorStore, id: string) {
   return { gate, order, ref, url };
 }
 
-/** 봇 채팅에서 서명으로 닫을 수 있는 게이트. 머지 외에는 워커를 멈춰 세우는 확인 자리만 넣었다 */
-export const BOT_GATE_TYPES: readonly GateType[] = [
-  'merge',
-  'file-overlap',
-  'review-manual-switch',
-];
-
 export interface BotGate {
   gate: Gate;
   repo: string;
   title?: string;
-  /** 머지 게이트만 있다 */
+  /** 머지 승인은 늘, 리뷰 수동 전환은 PR이 연결됐을 때만 있다. 파일 중첩은 없다 */
   ref?: string;
   url?: string;
 }
@@ -513,7 +506,7 @@ export function verifyEd25519(key: KeyObject, message: string, signature: string
 
 export interface ApproverRegistry {
   policy: 'present' | 'missing' | 'unreadable';
-  repos: { repo: string; merge: number; gate: number; mergeApprovalPolicy?: 'trusted-chat' }[];
+  repos: { repo: string; merge: number; gate: number; approvalPolicy: 'signed' | 'trusted-chat' }[];
 }
 
 /** status 화면용. 레포마다 머지와 나머지 게이트 승인자가 몇 명 등록됐는지 센다. 정책이 깨져도 status는 멈추지 않는다 */
@@ -521,12 +514,17 @@ export function approverRegistry(dir: string, repos: Iterable<string>): Approver
   let policy: Record<string, unknown> | undefined;
   try {
     policy = loadBotPolicy(dir);
-    mergeApprovalPolicy(policy, '');
+    approvalPolicy(policy, '');
   } catch {
     return { policy: 'unreadable', repos: [] };
   }
   const names = new Set([...repos].map((r) => r.toLowerCase()));
-  for (const field of ['mergeApprovers', 'gateApprovers', 'mergeApprovalPolicy'] as const) {
+  for (const field of [
+    'mergeApprovers',
+    'gateApprovers',
+    'approvalPolicy',
+    'mergeApprovalPolicy',
+  ] as const) {
     const table = policy?.[field];
     if (isPlainObject(table)) for (const repo of Object.keys(table)) names.add(repo);
   }
@@ -537,9 +535,7 @@ export function approverRegistry(dir: string, repos: Iterable<string>): Approver
       repo,
       merge: count('merge', repo),
       gate: count('file-overlap', repo),
-      ...(mergeApprovalPolicy(policy, repo) === 'trusted-chat'
-        ? { mergeApprovalPolicy: 'trusted-chat' as const }
-        : {}),
+      approvalPolicy: approvalPolicy(policy, repo),
     })),
   };
 }

@@ -319,9 +319,10 @@ export interface ChatApprovalOffer {
   botId: string;
   chatId: string;
   target: string;
-  prRef: string;
-  head: string;
-  base: string;
+  /** PR이 걸린 게이트만 있다. 파일 중첩 게이트는 PR 없이 게이트 범위만 고정한다 */
+  prRef?: string;
+  head?: string;
+  base?: string;
   offeredAt: string;
   item?: { number: number; uid: string };
 }

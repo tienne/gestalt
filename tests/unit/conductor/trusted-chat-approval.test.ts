@@ -6,7 +6,7 @@ import {
   conductorBotChatDecideCommand,
   conductorBotChatOfferCommand,
   conductorBotGateCommand,
-  conductorBotMergePolicyCommand,
+  conductorBotApprovalPolicyCommand,
   conductorStatusCommand,
 } from '../../../src/cli/commands/conductor.js';
 import { BOT_POLICY_FILE } from '../../../src/conductor/bot-approval.js';
@@ -17,7 +17,8 @@ import * as trustedChat from '../../../src/conductor/trusted-chat-approval.js';
 import { ConductorStore } from '../../../src/conductor/store.js';
 import {
   chatApprovalId,
-  mergeApprovalPolicy,
+  approvalPolicy,
+  defaultApprovalPolicy,
 } from '../../../src/conductor/trusted-chat-approval.js';
 import { cleanupStateDirs, order, tempStateDir, worker } from './fixtures.js';
 
@@ -105,7 +106,7 @@ afterEach(() => {
 });
 
 async function enable(opts: { stateDir: string }) {
-  await conductorBotMergePolicyCommand(repo, { ...opts, mode: 'trusted-chat' });
+  await conductorBotApprovalPolicyCommand(repo, { ...opts, mode: 'trusted-chat' });
 }
 
 describe('운영 채팅 문구를 신뢰하는 승인', () => {
@@ -123,28 +124,75 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
       expect(() => chatApprovalId(text)).toThrow();
   });
 
-  it('기본은 서명 정책이고 잘못된 설정은 거절하며 다른 정책은 보존한다', async () => {
+  it('정책 파일이 기본값을 안 정하면 채팅 승인이다', () => {
+    expect(approvalPolicy(undefined, repo)).toBe('trusted-chat');
+    expect(approvalPolicy({ gateApprovers: {} }, repo)).toBe('trusted-chat');
+    expect(defaultApprovalPolicy({ defaultApprovalPolicy: 'signed' })).toBe('signed');
+    expect(approvalPolicy({ defaultApprovalPolicy: 'signed' }, repo)).toBe('signed');
+    expect(() => defaultApprovalPolicy({ defaultApprovalPolicy: 'chat' })).toThrow();
+  });
+
+  it('레포 값이 기본값보다 앞서고 새 칸이 예전 mergeApprovalPolicy 칸보다 앞선다', () => {
+    const upper = repo.toUpperCase();
+    expect(
+      approvalPolicy(
+        { defaultApprovalPolicy: 'signed', mergeApprovalPolicy: { [repo]: 'trusted-chat' } },
+        upper,
+      ),
+    ).toBe('trusted-chat');
+    expect(
+      approvalPolicy(
+        {
+          mergeApprovalPolicy: { [repo]: 'trusted-chat' },
+          approvalPolicy: { [repo]: 'signed' },
+        },
+        repo,
+      ),
+    ).toBe('signed');
+    expect(approvalPolicy({ approvalPolicy: { [repo]: 'signed' } }, 'other/repo')).toBe(
+      'trusted-chat',
+    );
+    for (const field of ['approvalPolicy', 'mergeApprovalPolicy'])
+      expect(() => approvalPolicy({ [field]: { [repo]: 'unknown' } }, repo)).toThrow();
+  });
+
+  it('서명 기본값에서 레포를 켜면 새 칸에 쓰고 다른 정책은 보존한다', async () => {
     const { store, gate, opts } = fixture();
-    expect(mergeApprovalPolicy(undefined, repo)).toBe('signed');
-    await expect(conductorBotChatOfferCommand(gate.id, opts)).rejects.toThrow('exit 1');
     const policy = {
+      defaultApprovalPolicy: 'signed',
       githubRepositories: { [repo]: [100] },
       gateApprovers: { [repo]: { old: 'keep' } },
+      mergeApprovalPolicy: { [repo]: 'signed', 'acme/other': 'trusted-chat' },
     };
     writeFileSync(join(store.dir, BOT_POLICY_FILE), JSON.stringify(policy));
+    await expect(conductorBotChatOfferCommand(gate.id, opts)).rejects.toThrow('exit 1');
     await enable(opts);
     expect(last()).toMatchObject({
+      repo,
       previous: 'signed',
       mode: 'trusted-chat',
       changedBy: `${owner.botId}:${owner.chatId}`,
     });
     expect(JSON.parse(readFileSync(join(store.dir, BOT_POLICY_FILE), 'utf8'))).toEqual({
       ...policy,
-      mergeApprovalPolicy: { [repo]: 'trusted-chat' },
+      mergeApprovalPolicy: { 'acme/other': 'trusted-chat' },
+      approvalPolicy: { [repo]: 'trusted-chat' },
     });
-    expect(() =>
-      mergeApprovalPolicy({ mergeApprovalPolicy: { [repo]: 'unknown' } }, repo),
-    ).toThrow();
+  });
+
+  it('--default로 기본값을 바꾸고 레포와 함께 주면 거절한다', async () => {
+    const { store, opts } = fixture();
+    await conductorBotApprovalPolicyCommand(undefined, { ...opts, mode: 'signed', default: true });
+    expect(last()).toMatchObject({ default: true, previous: 'trusted-chat', mode: 'signed' });
+    expect(JSON.parse(readFileSync(join(store.dir, BOT_POLICY_FILE), 'utf8'))).toEqual({
+      defaultApprovalPolicy: 'signed',
+    });
+    await expect(
+      conductorBotApprovalPolicyCommand(repo, { ...opts, mode: 'signed', default: true }),
+    ).rejects.toThrow('exit 1');
+    await expect(
+      conductorBotApprovalPolicyCommand(undefined, { ...opts, mode: 'signed' }),
+    ).rejects.toThrow('exit 1');
   });
 
   for (const kind of ['gate', 'order', 'item'] as const) {
@@ -184,7 +232,7 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
     await conductorBotChatOfferCommand(gate.id, opts);
     const offered = last();
     await conductorBotGateCommand(gate.id, opts);
-    expect(last()).toMatchObject({ approverReady: false, mergeApprovalPolicy: 'trusted-chat' });
+    expect(last()).toMatchObject({ approverReady: false, approvalPolicy: 'trusted-chat' });
     expect(last()).not.toHaveProperty('terminal');
     expect(last()).not.toHaveProperty('messages');
     conductorStatusCommand({ ...opts, json: true });
@@ -192,7 +240,7 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
       repo,
       merge: 0,
       gate: 0,
-      mergeApprovalPolicy: 'trusted-chat',
+      approvalPolicy: 'trusted-chat',
     });
     fakePr('b'.repeat(40));
     await conductorBotChatOfferCommand(gate.id, opts);
@@ -211,7 +259,7 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
       if (change === 'pr') store.updateOrder(gate.orderId!, { prRef: `${repo}#43` });
       if (change === 'worker') store.updateWorker(w.id, { handle: 'ctx_changed' });
       if (change === 'policy')
-        await conductorBotMergePolicyCommand(repo, { ...opts, mode: 'signed' });
+        await conductorBotApprovalPolicyCommand(repo, { ...opts, mode: 'signed' });
       if (change === 'owner') {
         const next = { ...owner, chatId: 'next-home' };
         changeBotOwner(store.dir, owner.chatId, next);
@@ -329,14 +377,13 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
     },
   );
 
-  it('접두어와 머지 외 게이트 ID로는 승인하지 않는다', async () => {
+  it('접두어와 봇이 닫지 않는 게이트 ID로는 승인하지 않는다', async () => {
     const { store, gate, opts } = fixture();
-    await enable(opts);
     await conductorBotChatOfferCommand(gate.id, opts);
     const other = openOrReuse(store, {
-      type: 'file-overlap',
+      type: 'interview',
       orderId: gate.orderId,
-      reason: '파일 중첩',
+      reason: '질문',
     }).gate;
     for (const id of [gate.id.slice(0, -1), other.id]) {
       await conductorBotChatDecideCommand({ ...opts, message: `${id} 승인해줘` });
@@ -345,6 +392,87 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
     await expect(conductorBotChatOfferCommand(other.id, opts)).rejects.toThrow('exit 1');
     store.reload();
     expect(store.openGates()).toHaveLength(2);
+  });
+
+  it('정책 파일 없이도 파일 중첩 게이트를 PR 없이 안내하고 채팅 문구로 승인한다', async () => {
+    const { store, gate, opts } = fixture();
+    const overlap = openOrReuse(store, {
+      type: 'file-overlap',
+      orderId: gate.orderId,
+      reason: '파일 중첩',
+    }).gate;
+    await conductorBotChatOfferCommand(overlap.id, opts);
+    const offered = last();
+    expect(offered).toMatchObject({
+      gateId: overlap.id,
+      type: 'file-overlap',
+      reason: '파일 중첩',
+      refs: overlap.refs,
+    });
+    expect(offered).not.toHaveProperty('pr');
+    expect(offered).not.toHaveProperty('head');
+    await conductorBotChatDecideCommand({ ...opts, message: `${overlap.id} 승인해줘` });
+    expect(last()).toMatchObject({
+      type: 'file-overlap',
+      decision: 'approved',
+      signer: `trusted-chat:${owner.botId}:${owner.chatId}`,
+    });
+    store.reload();
+    expect(store.snapshot.gates[overlap.id]?.decisionVia).toMatchObject({
+      kind: 'trusted-chat',
+      offerId: offered.offerId,
+    });
+    expect(store.snapshot.gates[gate.id]?.status).toBe('open');
+  });
+
+  it('PR과 HEAD, base가 일부만 있거나 PR 없는 머지 게이트 안내는 기록하지 않는다', async () => {
+    const { store, gate, opts } = fixture();
+    await conductorBotChatOfferCommand(gate.id, opts);
+    store.reload();
+    const offer = store.snapshot.gates[gate.id]!.chatApprovalOffer!;
+    const { head: _head, base: _base, ...prOnly } = offer;
+    const { prRef: _prRef, head: _h, base: _b, ...noPr } = offer;
+    for (const bad of [prOnly, noPr])
+      expect(() =>
+        store.append({
+          type: 'gate-chat-offered',
+          gateId: gate.id,
+          at: store.timestamp(),
+          offer: { ...bad, id: 'bad-offer' },
+        }),
+      ).toThrow();
+    store.reload();
+    expect(store.snapshot.gates[gate.id]?.chatApprovalOffer?.id).toBe(offer.id);
+  });
+
+  it('재리뷰 전환 게이트는 PR HEAD를 고정해 안내하고 HEAD가 바뀌면 승인하지 않는다', async () => {
+    const { store, gate, opts } = fixture();
+    const review = openOrReuse(store, {
+      type: 'review-manual-switch',
+      orderId: gate.orderId,
+      reason: '재리뷰 전환',
+    }).gate;
+    await conductorBotChatOfferCommand(review.id, opts);
+    expect(last()).toMatchObject({ type: 'review-manual-switch', head });
+    fakePr('b'.repeat(40));
+    await expect(
+      conductorBotChatDecideCommand({ ...opts, message: `${review.id} 승인해줘` }),
+    ).rejects.toThrow('exit 1');
+    fakePr();
+    await conductorBotChatDecideCommand({ ...opts, message: `${review.id} 승인해줘` });
+    expect(last()).toMatchObject({ decision: 'approved', target: { head } });
+  });
+
+  it('서명 정책 레포는 머지 외 게이트도 채팅으로 안내하지 않는다', async () => {
+    const { store, gate, opts } = fixture();
+    await conductorBotApprovalPolicyCommand(repo, { ...opts, mode: 'signed' });
+    const overlap = openOrReuse(store, {
+      type: 'file-overlap',
+      orderId: gate.orderId,
+      reason: '파일 중첩',
+    }).gate;
+    await expect(conductorBotChatOfferCommand(overlap.id, opts)).rejects.toThrow('exit 1');
+    expect(lines.join('\n')).toContain('서명 승인을 쓰도록 설정돼 있어요');
   });
 
   it('offer 없는 승인과 다른 채팅 소유의 항목 연결을 거절한다', async () => {
@@ -403,7 +531,7 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
     await conductorBotGateCommand(gate.id, opts);
     expect(last()).toMatchObject({
       approverReady: true,
-      mergeApprovalPolicy: 'trusted-chat',
+      approvalPolicy: 'trusted-chat',
       messages: { approved: expect.any(String), rejected: expect.any(String) },
       orcaItem: expect.any(Object),
     });
@@ -442,7 +570,7 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
     resolveGate(store, next.id, 'rejected');
     await conductorBotChatDecideCommand({ ...opts, message: `${gate.orderId} 승인해줘` });
     expect(last()).toMatchObject({ status: 'ambiguous' });
-    expect(last().guidance).toContain('닫힌 머지 게이트만');
+    expect(last().guidance).toContain('닫힌 게이트만');
     expect(last().candidates.some((c: { command?: string }) => c.command)).toBe(false);
   });
 
@@ -516,7 +644,7 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
       reason: '다른 머지',
     }).gate;
     await conductorBotChatOfferCommand(second.id, { ...opts, item: '42' });
-    await conductorBotMergePolicyCommand(repo, { ...opts, mode: 'signed' });
+    await conductorBotApprovalPolicyCommand(repo, { ...opts, mode: 'signed' });
     await conductorBotChatDecideCommand({ ...opts, message: '42 승인해줘' });
     expect(last()).toMatchObject({ status: 'ambiguous' });
     expect(last().guidance).toContain('서명 승인');
@@ -624,7 +752,7 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
     const { store, gate, opts } = fixture();
     const web = 'acme/web';
     await enable(opts);
-    await conductorBotMergePolicyCommand(web, { ...opts, mode: 'trusted-chat' });
+    await conductorBotApprovalPolicyCommand(web, { ...opts, mode: 'trusted-chat' });
     await conductorBotChatOfferCommand(gate.id, { ...opts, item: '42' });
     const other = order({ repo: web, prRef: `${web}#43`, status: 'running' });
     store.addOrder(other);
@@ -635,7 +763,7 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
     }).gate;
     await conductorBotChatOfferCommand(second.id, { ...opts, item: '42' });
     store.updateOrder(gate.orderId!, { prRef: `${repo}#45` });
-    await conductorBotMergePolicyCommand(web, { ...opts, mode: 'signed' });
+    await conductorBotApprovalPolicyCommand(web, { ...opts, mode: 'signed' });
     await conductorBotChatDecideCommand({ ...opts, message: '42 승인해줘' });
     expect(last()).toMatchObject({ status: 'ambiguous' });
     expect(last().guidance).toContain('reason');
@@ -665,7 +793,7 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
     store.updateOrder(other.id, { prRef: `${repo}#44` });
     await conductorBotChatDecideCommand({ ...opts, message: '42 승인해줘' });
     expect(last()).toMatchObject({ status: 'ambiguous' });
-    expect(last().guidance).toContain('여러 머지 대상');
+    expect(last().guidance).toContain('여러 게이트가 후보예요');
     const commands = last()
       .candidates.filter((c: { command?: string }) => c.command)
       .map((c: { gateId: string }) => c.gateId);
