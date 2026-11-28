@@ -3,10 +3,11 @@ import {
   ACCENT_PRESETS,
   BACKGROUND_PRESETS,
   DEFAULT_THEME,
+  contrastRatio,
   resolveColorTheme,
   updateSelection,
 } from '../../../src/visual-system/color.js';
-import { checkAllThemes } from '../../../src/visual-system/contrast.js';
+import { checkAllThemes, checkThemeContrast } from '../../../src/visual-system/contrast.js';
 import { buildDocsSite } from '../../../src/visual-system/docs-site.js';
 import { diagramMotionCss } from '../../../src/digest/diagram-css.js';
 import { examples } from '../../../src/visual-system/examples.js';
@@ -49,6 +50,24 @@ describe('컬러 시스템', () => {
     const s = checkAllThemes();
     expect(s.themes).toBe(204);
     expect(s.failures).toEqual([]);
+  });
+
+  it('대비 판정은 반올림 전 값으로 해서 4.495 이상 4.5 미만을 통과시키지 않는다', () => {
+    const raw = contrastRatio('#7171ad', '#ffffff');
+    expect(raw).toBeGreaterThanOrEqual(4.495);
+    expect(raw).toBeLessThan(4.5);
+    const base = resolveColorTheme({ background: 'white' });
+    const colors = {
+      ...base.colors,
+      'accent-text': '#7171ad',
+      background: '#ffffff',
+      surface: '#ffffff',
+    };
+    const check = checkThemeContrast({ ...base, colors }).checks.find(
+      (c) => c.role === 'accent-text' && c.on === 'background',
+    )!;
+    expect(check.ratio).toBe(4.5);
+    expect(check.pass).toBe(false);
   });
 });
 
