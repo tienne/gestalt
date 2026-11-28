@@ -276,7 +276,7 @@ export class ConductorWebServer {
 
   /**
    * HTML 응답. 페이지에 워커가 쓴 글이 실리니 이스케이프가 한 군데 빠져도 스크립트가 못 돌게
-   * nonce를 단 인라인 스크립트 하나만 허용한다. 바깥 출처는 하나도 열지 않는다.
+   * nonce를 단 인라인 스크립트만 허용한다. 바깥 출처는 하나도 열지 않는다.
    */
   private html(res: ServerResponse, body: string, nonce: string): void {
     res.writeHead(200, {

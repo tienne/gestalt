@@ -1,3 +1,5 @@
+import { THEME_BOOT_JS, THEME_SWITCH_JS, digestThemeCss } from '../digest/theme-color.js';
+import { THEME_POP_CSS, graphThemePicker } from '../graph-viz/theme.js';
 import { escapeHtml } from '../local-pr-web/html-generator.js';
 
 /**
@@ -5,7 +7,7 @@ import { escapeHtml } from '../local-pr-web/html-generator.js';
  *
  * 주문 제목, 요약, 경로 같은 값은 워커와 바깥이 적은 글자라 textContent로만 넣는다.
  * innerHTML로 넣는 건 서버가 마크다운 렌더러로 만든 HTML(본문, 주문 설명, 보고 요약)뿐이다.
- * 스크립트는 nonce를 단 인라인 하나이고 바깥 자산을 끌어오지 않는다.
+ * 스크립트는 nonce를 단 인라인(테마 부트, 본문, 테마 선택기)뿐이고 바깥 자산을 끌어오지 않는다.
  */
 export function renderBrowsePage(nonce: string, stateDir: string): string {
   return `<!doctype html>
@@ -14,14 +16,16 @@ export function renderBrowsePage(nonce: string, stateDir: string): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>컨덕터 결과</title>
-<style>${STYLE}</style>
+<style>${digestThemeCss()}${THEME_POP_CSS}${STYLE}</style>
+<script nonce="${nonce}">${THEME_BOOT_JS}</script>
 </head>
 <body>
 <header class="top">
   <strong class="brand">컨덕터 결과</strong>
   <input id="q" type="search" placeholder="요약과 refs 본문 검색 (Enter)" autocomplete="off">
   <label class="chk"><input id="q-body" type="checkbox" checked> 본문 포함</label>
-  <span class="muted small" title="상태 저장소">${escapeHtml(stateDir)}</span>
+  <span class="muted small path" title="상태 저장소">${escapeHtml(stateDir)}</span>
+  ${graphThemePicker()}
 </header>
 <div class="layout">
   <aside class="side">
@@ -46,13 +50,14 @@ export function renderBrowsePage(nonce: string, stateDir: string): string {
   <main id="main" class="main"><p class="muted">왼쪽에서 주문을 고르거나 위에서 검색하세요.</p></main>
 </div>
 <script nonce="${nonce}">${SCRIPT}</script>
+<script nonce="${nonce}">${THEME_SWITCH_JS}</script>
 </body>
 </html>`;
 }
 
 const STYLE = `
-:root { color-scheme: light dark; --bg:#fff; --fg:#1f2328; --muted:#6b7280; --line:#e5e7eb; --side:#f7f7f5; --hl:#fff3a3; --sel:#ebeef3; --code:#f3f4f6; }
-@media (prefers-color-scheme: dark) { :root { --bg:#191919; --fg:#e6e6e6; --muted:#9b9b9b; --line:#2f2f2f; --side:#202020; --hl:#5c4d00; --sel:#2c2c2c; --code:#262626; } }
+/* 글자 역할은 배경과 표면 위에서만 대비가 보장된다. 선택과 초점은 바탕을 칠하지 않고 왼쪽 강조선으로 보인다 */
+:root { --side:var(--card); --code:var(--card); --mark:inset 3px 0 0 var(--accent); }
 * { box-sizing: border-box; }
 body { margin:0; font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", sans-serif; background:var(--bg); color:var(--fg); }
 .top { display:flex; gap:12px; align-items:center; padding:10px 16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:1; }
@@ -66,7 +71,8 @@ body { margin:0; font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Got
 #count { padding:0 12px 6px; }
 .orders { list-style:none; margin:0; padding:0; overflow:auto; flex:1; }
 .orders li a { display:block; padding:8px 12px; border-bottom:1px solid var(--line); color:inherit; text-decoration:none; }
-.orders li a:hover, .orders li a.sel { background:var(--sel); }
+.orders li a:hover { background:var(--bg); }
+.orders li a.sel { background:var(--bg); box-shadow:var(--mark); }
 .orders .t { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; font-weight:500; overflow:hidden; overflow-wrap:anywhere; }
 .orders .grp { position:sticky; top:0; z-index:1; display:flex; gap:6px; align-items:center; width:100%; padding:6px 12px; border:0; border-bottom:1px solid var(--line); background:var(--side); color:var(--muted); font:inherit; font-size:12px; font-weight:600; text-align:left; cursor:pointer; }
 .orders .grp .n { margin-left:auto; font-weight:400; }
@@ -75,18 +81,20 @@ body { margin:0; font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Got
 .main { flex:1; overflow:auto; padding:24px 40px 80px; }
 .main h1 { font-size:24px; margin:0 0 8px; }
 .meta { display:flex; flex-wrap:wrap; gap:6px 16px; color:var(--muted); margin-bottom:20px; }
-.badge { display:inline-block; padding:0 6px; border-radius:4px; font-size:12px; background:var(--code); color:var(--fg); }
-.badge.done, .badge.merged { background:#d1f4dc; color:#14532d; }
-.badge.failed, .badge.cancelled, .badge.escalated { background:#fde2e1; color:#7f1d1d; }
-.badge.running, .badge.waiting-gate, .badge.queued { background:#dbeafe; color:#1e3a8a; }
+.badge { display:inline-block; padding:0 6px; border-radius:4px; font-size:12px; border:1px solid var(--line); color:var(--fg); }
+.badge.done, .badge.merged { border-color:var(--gestalt-color-success-text); color:var(--gestalt-color-success-text); }
+.badge.failed { border-color:var(--gestalt-color-danger-text); color:var(--gestalt-color-danger-text); }
+.badge.waiting-gate, .badge.escalated { border-color:var(--gestalt-color-warning-text); color:var(--gestalt-color-warning-text); }
+.badge.running, .badge.human-owned { border-color:var(--gestalt-color-info-text); color:var(--gestalt-color-info-text); }
 .muted { color:var(--muted); }
 .small { font-size:12px; }
 section { margin:28px 0; }
 section > h2 { font-size:16px; border-bottom:1px solid var(--line); padding-bottom:4px; }
 .timeline { list-style:none; padding:0; margin:0; border-left:2px solid var(--line); }
-.timeline li { padding:6px 0 12px 16px; position:relative; }
-.timeline li::before { content:""; position:absolute; left:-6px; top:12px; width:10px; height:10px; border-radius:50%; background:var(--line); }
-.timeline li.focus { background:var(--sel); }
+.timeline > li { padding:6px 0 12px 16px; position:relative; }
+/* 보고 요약 안의 목록에 점이 겹쳐 찍히지 않게 바로 아래 항목만 잡는다 */
+.timeline > li::before { content:""; position:absolute; left:-6px; top:12px; width:10px; height:10px; border-radius:50%; background:var(--line); }
+.timeline > li.focus { background:var(--card); box-shadow:var(--mark); }
 .summary { white-space:pre-wrap; margin-top:4px; }
 .md { margin-top:4px; overflow-wrap:anywhere; }
 .md > :first-child { margin-top:0; }
@@ -95,7 +103,7 @@ section > h2 { font-size:16px; border-bottom:1px solid var(--line); padding-bott
 .md p, .md ul, .md ol { margin:4px 0; }
 .card { border:1px solid var(--line); border-radius:8px; margin:8px 0; }
 .card > summary { padding:8px 12px; cursor:pointer; overflow-wrap:anywhere; }
-.card.focus { outline:2px solid #3b82f6; }
+.card.focus { outline:2px solid var(--gestalt-color-focus); }
 .work-box:focus { outline:none; }
 .card .body { padding:4px 16px 12px; border-top:1px solid var(--line); overflow-wrap:anywhere; }
 .body pre { background:var(--code); padding:10px; border-radius:6px; overflow:auto; }
@@ -112,16 +120,27 @@ mark { background:var(--hl); color:inherit; }
 .ex { font-size:13px; overflow-wrap:anywhere; }
 .tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin:0 0 16px; }
 .tabs a { padding:6px 12px; color:var(--muted); text-decoration:none; border-bottom:2px solid transparent; }
-.tabs a.sel { color:var(--fg); border-bottom-color:#3b82f6; }
+.tabs a.sel { color:var(--fg); border-bottom-color:var(--accent); }
 .work-tl { list-style:none; padding:0; margin:0; font-size:13px; }
 .work-tl li { display:flex; gap:8px; padding:3px 0; border-bottom:1px solid var(--line); }
 .work-tl .at { color:var(--muted); white-space:nowrap; font-family: ui-monospace, Menlo, monospace; }
 .work-tl .tool { font-weight:600; white-space:nowrap; }
 .work-tl .d { overflow-wrap:anywhere; font-family: ui-monospace, Menlo, monospace; }
-.work-tl .bad { color:#b91c1c; }
+.work-tl .bad { color:var(--gestalt-color-danger-text); }
 .work-tl li.say { display:block; padding:6px 8px; background:var(--side); white-space:pre-wrap; overflow-wrap:anywhere; }
 .work-lists { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin:8px 0 12px; }
 .work-lists ul { margin:4px 0; padding-left:18px; font-size:13px; overflow-wrap:anywhere; }
+.work-lists .files li::marker { color:var(--gestalt-color-diff-changed-text); }
+.live::before { content:""; display:inline-block; width:8px; height:8px; margin-right:6px; border-radius:50%; background:var(--gestalt-color-success-text); vertical-align:1px; }
+.top .path { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+@media (max-width: 640px) {
+  .top { flex-wrap:wrap; }
+  .top .path { flex-basis:100%; order:3; }
+  .layout { flex-direction:column; height:auto; }
+  .side { width:auto; min-width:0; border-right:0; border-bottom:1px solid var(--line); }
+  .orders { max-height:40vh; }
+  .main { padding:16px 16px 60px; }
+}
 `;
 
 /**
@@ -442,8 +461,8 @@ function clock(iso) {
   function p(n) { return n < 10 ? '0' + n : String(n); }
   return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
-function listBlock(title, items) {
-  var b = el('div');
+function listBlock(title, items, cls) {
+  var b = el('div', cls);
   b.appendChild(el('div', 'small muted', title));
   var ul = el('ul');
   items.forEach(function (t) { ul.appendChild(el('li', '', t)); });
@@ -460,7 +479,7 @@ function workSection(s) {
   var lists = el('div', 'work-lists');
   if (s.tasks) lists.appendChild(listBlock('todo', s.tasks.map(function (t) { return (TASK_MARK[t.status] || '·') + ' ' + t.title; })));
   lists.appendChild(listBlock('서브에이전트', s.subagents.map(function (a) { return a.name + ' · ' + a.state; })));
-  if (s.changedFiles) lists.appendChild(listBlock('고친 파일 (' + s.changedFiles.length + ')', s.changedFiles));
+  if (s.changedFiles) lists.appendChild(listBlock('고친 파일 (' + s.changedFiles.length + ')', s.changedFiles, 'files'));
   sec.appendChild(lists);
   var rows = s.timeline.map(function (t) { return { at: t.at, tool: t }; })
     .concat(s.texts.map(function (x) { return { at: x.at, text: x.text }; }))
@@ -495,7 +514,7 @@ function loadWork(id, box) {
       box.textContent = '';
       if (!d.sections.length) box.appendChild(el('p', 'muted', '이 주문에는 워커가 없어요'));
       d.sections.forEach(function (s) { box.appendChild(workSection(s)); });
-      if (d.live) box.appendChild(el('p', 'muted small', '도는 중이라 ' + (WORK_POLL_MS / 1000) + '초마다 이어서 읽어요'));
+      if (d.live) box.appendChild(el('p', 'muted small live', '도는 중이라 ' + (WORK_POLL_MS / 1000) + '초마다 이어서 읽어요'));
       main.scrollTop = atEnd && d.live ? main.scrollHeight : top;
       if (d.live) next();
     }).catch(function (e) {
