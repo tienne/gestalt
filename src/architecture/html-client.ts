@@ -2442,6 +2442,8 @@ ${c.views ? VIEW_POP : ''}  // 흐름 단추는 서비스 아래 레벨에서만
     });
   }
   onGlobal(doc, 'pointerdown', function (e) {
+    var themePop = doc.querySelector('details.theme-pop[open]');
+    if (themePop && !themePop.contains(e.target)) themePop.removeAttribute('open');
     if (!productMenu.hidden && !(e.target.closest && e.target.closest('.pmenu, .pb.more'))) closeProducts(false);
     if (!anyPop()) return;
     if (e.target.closest && (e.target.closest('.pop') || e.target.closest('[aria-controls]'))) return;
@@ -2480,6 +2482,8 @@ ${c.sequences ? '    seqPlaceSteps();\n' : ''}  });
   onGlobal(doc, 'keydown', function (e) {
     if (e.key === 'Escape') {
 ${c.sequences ? '      seqStop();\n' : ''}      if (!productMenu.hidden) { closeProducts(true); return; }
+      var openTheme = doc.querySelector('details.theme-pop[open]');
+      if (openTheme) { openTheme.removeAttribute('open'); var themeSummary = openTheme.querySelector('summary'); if (themeSummary) themeSummary.focus(); return; }
       if (anyPop()) { closePops(true); return; }
       if (drawerOpen()) { closeDrawer(true); return; }
       releaseFocus();

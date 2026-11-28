@@ -148,6 +148,24 @@ describe('client dispose와 state', () => {
     expect(handle()?.state().node).toBe(id);
   });
 
+  it('테마 팝업은 Escape로 팝업만 닫고 바깥을 누르면 닫힌다', async () => {
+    const { w, d, handle, settle } = await open();
+    const pop = d.querySelector('details.theme-pop')!;
+    expect(pop).not.toBeNull();
+    const card = [...d.querySelectorAll('.level:not([hidden]) .node[data-node-id]')][0]!;
+    card.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    await settle();
+    const drawerBefore = handle()!.state().drawer;
+    pop.setAttribute('open', '');
+    d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(pop.hasAttribute('open')).toBe(false);
+    expect(d.activeElement).toBe(pop.querySelector('summary'));
+    expect(handle()!.state().drawer).toBe(drawerBefore);
+    pop.setAttribute('open', '');
+    d.body.dispatchEvent(new w.PointerEvent('pointerdown', { bubbles: true }));
+    expect(pop.hasAttribute('open')).toBe(false);
+  });
+
   it('dispose 뒤에는 hashchange와 keydown 핸들러가 돌지 않는다', async () => {
     const { w, d, handle, settle } = await open();
     const h = handle()!;
