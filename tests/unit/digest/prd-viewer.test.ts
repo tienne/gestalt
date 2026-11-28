@@ -49,6 +49,18 @@ function legacy() {
 }
 
 describe('PRD 뷰어 조작', () => {
+  it('테마 팝업은 Escape와 바깥 클릭으로 닫히고 Escape면 summary로 포커스가 돌아온다', async () => {
+    const { window, query } = open(legacy());
+    const pop = query('details.theme-pop');
+    pop.setAttribute('open', '');
+    window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(pop.hasAttribute('open')).toBe(false);
+    expect(window.document.activeElement).toBe(query('details.theme-pop summary'));
+    pop.setAttribute('open', '');
+    query('.main').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    expect(pop.hasAttribute('open')).toBe(false);
+  });
+
   it('P6 대상 필터로 카드가 모두 숨은 섹션과 목차를 함께 숨기고 복원한다', async () => {
     const view = legacy();
     view.sections[0]!.blocks.forEach((b) => {
