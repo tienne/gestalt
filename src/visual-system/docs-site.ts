@@ -29,7 +29,7 @@ const DOCS_STORAGE_KEY = 'gestalt-visual-docs-color';
 
 /**
  * 문서 사이트 예제에는 제품의 확대, 다시 보기 버튼이 없다. 정지 규칙과 진입 모션은 제품 CSS를 같이 쓰고
- * 재생은 예제마다 붙인 모션 재생 버튼이 맡는다.
+ * 재생은 예제마다 붙인 모션 다시 보기 버튼이 맡는다.
  */
 const DIGEST_DIAGRAM_STATIC_CSS = `${diagramCss('.vs-product ')}${diagramMotionCss('.vs-product ')}
 .vs-product .zoom-btn,.vs-product .replay-btn{display:none}
@@ -58,6 +58,7 @@ a{color:var(--gestalt-color-accent-text)}
 .side nav a:hover{background:var(--gestalt-color-highlight)}
 .side nav .tag{font-size:10px;color:var(--gestalt-color-text-muted);margin-left:4px}
 .menu-btn{display:none}
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 main{padding:24px clamp(16px,4vw,48px) 80px;max-width:1080px;min-width:0}
 .page{margin-bottom:56px}
 .page>h2{font-size:26px;margin:0 0 4px}
@@ -135,7 +136,7 @@ function chips(list: readonly string[]): string {
 
 function exampleHtml(e: Example): string {
   const body = e.renderer === 'visual-system' ? e.html : `<div class="vs-product">${e.html}</div>`;
-  return `<article class="ex"><header><b>${esc(e.title)}</b><span class="chip">${RENDERER_LABEL[e.renderer]}</span><span class="chip">Gestalt 예시</span><button type="button" class="btn ex-replay" data-ex-replay hidden>모션 재생</button><span class="ex-msg" aria-live="polite"></span></header><div class="stage">${body}</div><p class="usage">${esc(e.usage)}</p></article>`;
+  return `<article class="ex"><header><b>${esc(e.title)}</b><span class="chip">${RENDERER_LABEL[e.renderer]}</span><span class="chip">Gestalt 예시</span><button type="button" class="btn ex-replay" data-ex-replay hidden>모션 다시 보기</button><span class="ex-msg" aria-live="polite"></span></header><div class="stage">${body}</div><p class="usage">${esc(e.usage)}</p></article>`;
 }
 
 function itemPage(c: CatalogItem, extra = ''): string {
@@ -156,8 +157,9 @@ ${extra}<h3>데이터와 표기</h3>
 </section>`;
 }
 
-function overviewPage(): string {
-  const sum = checkAllThemes();
+type ThemeSummary = ReturnType<typeof checkAllThemes>;
+
+function overviewPage(sum: ThemeSummary): string {
   const def = resolveColorTheme();
   return `<section class="page" id="overview" data-search="개요 시작 overview" aria-labelledby="h-overview">
 <h2 id="h-overview">Gestalt 컬러 시스템과 시각화 시스템</h2>
@@ -176,8 +178,7 @@ function overviewPage(): string {
 </section>`;
 }
 
-function colorPage(): string {
-  const sum = checkAllThemes();
+function colorPage(sum: ThemeSummary): string {
   const def = resolveColorTheme();
   const bgOpts = BACKGROUND_PRESETS.map(
     (b) =>
@@ -200,8 +201,8 @@ function colorPage(): string {
 <h2 id="h-color">색상 실습</h2>
 <p class="lede">배경과 강조색을 따로 골라 보세요. 선택은 이 문서 사이트에만 저장돼요.</p>
 <div class="picker">
-<fieldset><legend>배경 ${BACKGROUND_PRESETS.length}개</legend><div class="opts" role="radiogroup">${bgOpts}</div></fieldset>
-<fieldset><legend>강조색 ${ACCENT_PRESETS.length}개</legend><div class="opts" role="radiogroup">${acOpts}</div></fieldset>
+<fieldset><legend>배경 ${BACKGROUND_PRESETS.length}개</legend><div class="opts">${bgOpts}</div></fieldset>
+<fieldset><legend>강조색 ${ACCENT_PRESETS.length}개</legend><div class="opts">${acOpts}</div></fieldset>
 </div>
 <p class="now" aria-live="polite" id="theme-now">현재 테마: ${esc(def.id)}</p>
 <button type="button" class="btn" id="theme-reset">기본값(차콜, 시안)으로 되돌리기</button>
@@ -218,7 +219,7 @@ function colorPage(): string {
 <div class="tbl"><table class="grid"><thead><tr><th scope="col">역할</th><th scope="col">원색</th><th scope="col">보정 결과</th><th scope="col">기준</th><th scope="col">대비 전 → 후</th></tr></thead><tbody id="adjust-body"></tbody></table></div>
 <h3>대비 결과</h3>
 <p>지금 고른 테마의 역할별 검사예요. 실패가 0이어야 제품에 써요.</p>
-<p id="contrast-now" aria-live="polite"></p>
+<p id="contrast-now"></p>
 <div class="tbl"><table class="grid"><thead><tr><th scope="col">역할</th><th scope="col">바탕</th><th scope="col">대비</th><th scope="col">기준</th><th scope="col">결과</th></tr></thead><tbody id="contrast-body"></tbody></table></div>
 <h3>전체 ${sum.themes}개 테마</h3>
 <div class="tbl"><table class="grid"><thead><tr><th scope="col">배경</th><th scope="col">테마 수</th><th scope="col">보정 역할 수</th><th scope="col">보정 없는 테마</th><th scope="col">실패</th></tr></thead><tbody>${perBg}</tbody></table></div>
@@ -303,7 +304,8 @@ function sidebar(): string {
   }).join('');
   return `<aside class="side" id="side"><h1>Gestalt 시각 시스템</h1><p class="ver">컬러 시스템 ${esc(COLOR_SYSTEM_VERSION)}</p>
 <label for="q" class="vs-muted" style="font-size:12px">항목 검색</label><input type="search" id="q" placeholder="이름, 목적, ID" autocomplete="off">
-<button type="button" class="btn menu-btn" aria-expanded="false" aria-controls="side-nav">목록 열기</button>
+<button type="button" class="btn menu-btn" aria-expanded="false" aria-controls="side-nav">목록</button>
+<p id="q-count" class="sr-only" role="status"></p>
 <nav id="side-nav" aria-label="문서 목록"><h2>시작</h2><ul><li><a href="#overview">개요</a></li><li><a href="#color">색상 실습</a></li><li><a href="#motion">모션 실습</a></li><li><a href="#migration">제품 이행표</a></li></ul>${groups}</nav></aside>`;
 }
 
@@ -373,10 +375,11 @@ function siteJs(): string {
     b.hidden = false;
     b.addEventListener('click', function(){ replay(b.closest('.ex')); });
   });
+  function dec(s){ try { return decodeURIComponent(s); } catch (e) { return ''; } }
   var pages = Array.prototype.slice.call(document.querySelectorAll('.page'));
   var links = Array.prototype.slice.call(document.querySelectorAll('#side-nav a'));
   function route(){
-    var id = decodeURIComponent((location.hash || '#overview').slice(1));
+    var id = dec((location.hash || '#overview').slice(1)) || 'overview';
     var hit = document.getElementById(id);
     if (!hit || !hit.classList.contains('page')) { id = 'overview'; hit = document.getElementById(id); }
     pages.forEach(function(p){ p.classList.toggle('is-current', p === hit); });
@@ -391,21 +394,23 @@ function siteJs(): string {
   var q = document.getElementById('q');
   q.addEventListener('input', function(){
     var t = q.value.trim().toLowerCase();
+    var shown = 0;
     links.forEach(function(a){
-      var page = document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1)));
+      var page = document.getElementById(dec(a.getAttribute('href').slice(1)));
       var text = (a.textContent + ' ' + (page ? page.getAttribute('data-search') || '' : '')).toLowerCase();
       a.parentNode.hidden = !!t && text.indexOf(t) < 0;
+      if (!a.parentNode.hidden) shown++;
     });
+    document.getElementById('q-count').textContent = t ? '결과 ' + shown + '개' : '';
     root.classList.toggle('searching', !!t);
     if (!t) route(); else pages.forEach(function(p){ p.classList.remove('is-current'); });
   });
   var mb = document.querySelector('.menu-btn');
-  mb.addEventListener('click', function(){ var s = document.getElementById('side'); var open = !s.classList.contains('open'); s.classList.toggle('open', open); mb.setAttribute('aria-expanded', String(open)); mb.textContent = open ? '목록 닫기' : '목록 열기'; });
+  mb.addEventListener('click', function(){ var s = document.getElementById('side'); var open = !s.classList.contains('open'); s.classList.toggle('open', open); mb.setAttribute('aria-expanded', String(open)); });
 
   var rules = ${JSON.stringify(CONTRAST_RULES)};
   function fmt(n){ return (Math.round(n * 100) / 100).toFixed(2); }
   function paint(t){
-    document.getElementById('theme-now').textContent = '현재 테마: ' + t.id + (t.id === ${JSON.stringify(`${DEFAULT_THEME.background}/${DEFAULT_THEME.accent}`)} ? ' (기본값)' : '');
     document.querySelectorAll('[data-role-value]').forEach(function(el){ el.textContent = t.colors[el.getAttribute('data-role-value')] || ''; });
     var adj = t.adjustments.filter(function(a){ return a.seed !== a.value; });
     document.getElementById('adjust-body').innerHTML = adj.length ? adj.map(function(a){
@@ -422,6 +427,8 @@ function siteJs(): string {
     }); });
     document.getElementById('contrast-body').innerHTML = rows.join('');
     document.getElementById('contrast-now').textContent = total + '건 검사, 실패 ' + fails + '건';
+    // 고를 때마다 읽어 주는 자리는 theme-now 하나로 둔다. 둘이 다 알리면 스크린 리더가 같은 변경을 두 번 읽는다
+    document.getElementById('theme-now').textContent = '현재 테마: ' + t.id + (t.id === ${JSON.stringify(`${DEFAULT_THEME.background}/${DEFAULT_THEME.accent}`)} ? ' (기본값)' : '') + ', 실패 ' + fails + '건';
   }
   function sync(){
     var s = window.gestaltTheme.get();
@@ -458,9 +465,10 @@ export interface DocsSite {
 }
 
 export function buildDocsSite(): DocsSite {
+  const sum = checkAllThemes();
   const pages = [
-    overviewPage(),
-    colorPage(),
+    overviewPage(sum),
+    colorPage(sum),
     motionPage(),
     migrationPage(),
     ...CATALOG.map((c) => itemPage(c, motionSpec(c.id))),

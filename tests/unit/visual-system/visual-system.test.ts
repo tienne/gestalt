@@ -79,10 +79,10 @@ describe('시각화 시스템', () => {
     expect([...hosts]).toEqual([]);
   });
 
-  it('예제마다 모션 재생 버튼이 있고 제품 도식은 요약 뷰어와 같은 진입 모션을 쓴다', () => {
+  it('예제마다 모션 다시 보기 버튼이 있고 제품 도식은 요약 뷰어와 같은 진입 모션을 쓴다', () => {
     const { html } = buildDocsSite();
     const exs = html.match(/<article class="ex">/g) ?? [];
-    const btns = html.match(/data-ex-replay hidden>모션 재생<\/button>/g) ?? [];
+    const btns = html.match(/data-ex-replay hidden>모션 다시 보기<\/button>/g) ?? [];
     expect(exs.length).toBeGreaterThan(0);
     expect(btns).toHaveLength(exs.length);
     expect(html).toContain(diagramMotionCss('.vs-product '));
