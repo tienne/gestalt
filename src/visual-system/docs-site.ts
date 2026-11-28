@@ -426,9 +426,9 @@ function siteJs(): string {
       rows.push('<tr><th scope="row"><code>' + r.role + '</code></th><td><code>' + on + '</code></td><td>' + fmt(c) + ':1</td><td>' + r.min + ':1</td><td class="' + (ok ? 'ok' : 'ng') + '">' + (ok ? '✓ 통과' : '× 실패') + '</td></tr>');
     }); });
     document.getElementById('contrast-body').innerHTML = rows.join('');
-    document.getElementById('contrast-now').textContent = total + '건 검사, 실패 ' + fails + '건';
+    document.getElementById('contrast-now').textContent = total + '건 검사, 대비 실패 ' + fails + '건';
     // 고를 때마다 읽어 주는 자리는 theme-now 하나로 둔다. 둘이 다 알리면 스크린 리더가 같은 변경을 두 번 읽는다
-    document.getElementById('theme-now').textContent = '현재 테마: ' + t.id + (t.id === ${JSON.stringify(`${DEFAULT_THEME.background}/${DEFAULT_THEME.accent}`)} ? ' (기본값)' : '') + ', 실패 ' + fails + '건';
+    document.getElementById('theme-now').textContent = '현재 테마: ' + t.id + (t.id === ${JSON.stringify(`${DEFAULT_THEME.background}/${DEFAULT_THEME.accent}`)} ? ' (기본값)' : '') + ', 대비 실패 ' + fails + '건';
   }
   function sync(){
     var s = window.gestaltTheme.get();
