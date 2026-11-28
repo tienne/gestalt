@@ -14,34 +14,32 @@ export interface ContrastRule {
   role: string;
   on: string[];
   min: number;
-  kind: 'text' | 'graphic';
 }
 
 const STATUS = ['success', 'warning', 'danger', 'info'] as const;
 const DIFF = ['added', 'removed', 'changed'] as const;
 
 export const CONTRAST_RULES: ContrastRule[] = [
-  { role: 'text', on: ['background', 'surface'], min: 4.5, kind: 'text' },
-  { role: 'text-muted', on: ['background', 'surface'], min: 4.5, kind: 'text' },
-  { role: 'accent-text', on: ['background', 'surface'], min: 4.5, kind: 'text' },
-  { role: 'accent-fill', on: ['background', 'surface'], min: 3, kind: 'graphic' },
-  { role: 'on-accent', on: ['accent-fill'], min: 4.5, kind: 'text' },
-  { role: 'text', on: ['highlight'], min: 4.5, kind: 'text' },
+  { role: 'text', on: ['background', 'surface'], min: 4.5 },
+  { role: 'text-muted', on: ['background', 'surface'], min: 4.5 },
+  { role: 'accent-text', on: ['background', 'surface'], min: 4.5 },
+  { role: 'accent-fill', on: ['background', 'surface'], min: 3 },
+  { role: 'on-accent', on: ['accent-fill'], min: 4.5 },
+  { role: 'text', on: ['highlight'], min: 4.5 },
   ...STATUS.flatMap((s): ContrastRule[] => [
-    { role: `${s}-text`, on: ['background', 'surface'], min: 4.5, kind: 'text' },
-    { role: `${s}-fill`, on: ['background', 'surface'], min: 3, kind: 'graphic' },
-    { role: `on-${s}`, on: [`${s}-fill`], min: 4.5, kind: 'text' },
+    { role: `${s}-text`, on: ['background', 'surface'], min: 4.5 },
+    { role: `${s}-fill`, on: ['background', 'surface'], min: 3 },
+    { role: `on-${s}`, on: [`${s}-fill`], min: 4.5 },
   ]),
   ...DIFF.flatMap((d): ContrastRule[] => [
-    { role: 'text', on: [`diff-${d}-bg`], min: 4.5, kind: 'text' },
-    { role: `diff-${d}-text`, on: [`diff-${d}-bg`], min: 3, kind: 'graphic' },
+    { role: 'text', on: [`diff-${d}-bg`], min: 4.5 },
+    { role: `diff-${d}-text`, on: [`diff-${d}-bg`], min: 3 },
   ]),
   ...[1, 2, 3, 4, 5, 6].map(
     (n): ContrastRule => ({
       role: `series-${n}`,
       on: ['background', 'surface'],
       min: 3,
-      kind: 'graphic',
     }),
   ),
 ];
@@ -72,8 +70,10 @@ export function checkThemeContrast(theme: ResolvedTheme): ThemeContrastReport {
         checks.push({ role: rule.role, on, min: rule.min, ratio: 0, pass: false });
         continue;
       }
-      const ratio = Math.round(contrastRatio(fg, bg) * 100) / 100;
-      checks.push({ role: rule.role, on, min: rule.min, ratio, pass: ratio >= rule.min });
+      const raw = contrastRatio(fg, bg);
+      // 반올림한 값으로 판정하면 4.495가 4.5로 올라 통과한다. 문서 사이트 스크립트와 같은 기준으로 원값을 본다
+      const ratio = Math.round(raw * 100) / 100;
+      checks.push({ role: rule.role, on, min: rule.min, ratio, pass: raw >= rule.min - 1e-9 });
     }
   }
   return {

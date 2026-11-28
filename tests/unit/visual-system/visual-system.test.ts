@@ -16,7 +16,11 @@ import {
   themeRuntimeJs,
 } from '../../../src/visual-system/runtime.js';
 import { SCREENS, type ScreenEntry } from '../../../src/visual-system/inventory.js';
-import { screenProgressProblems, verifyVisualSystem } from '../../../src/visual-system/verify.js';
+import {
+  screenProgressProblems,
+  statusBadgeProblems,
+  verifyVisualSystem,
+} from '../../../src/visual-system/verify.js';
 
 describe('컬러 시스템', () => {
   it('배경 6개와 강조색 34개를 따로 고른다', () => {
@@ -53,6 +57,12 @@ describe('시각화 시스템', () => {
     const r = verifyVisualSystem();
     expect(r.problems).toEqual([]);
     expect(r.catalog).toBe(71);
+  });
+
+  it('상태 배지는 CSS 규칙만 있고 마크업이 없으면 잡는다', () => {
+    const css =
+      '<style>.vs-badge-success{} .vs-badge-warning{} .vs-badge-danger{} .vs-badge-info{}</style>';
+    expect(statusBadgeProblems(css)).toHaveLength(4);
   });
 
   it('단계 있는 예제는 마지막 단계를 기본으로 그린다', () => {

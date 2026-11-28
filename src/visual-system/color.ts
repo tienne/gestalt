@@ -2,8 +2,7 @@ import { COLOR_RESOLVER_JS } from './color-resolver-js.js';
 
 /**
  * Gestalt 컬러 시스템. 배경 프리셋 6개와 강조색 프리셋 34개를 독립으로 고르고 둘을 테마 하나로 해석한다.
- * 카탈로그 값은 기존 컬러 자산(color-system/index.mjs 0.1.0)을 그대로 옮겼다. 저장되는 값은 영문 ID라
- * 표시 이름이나 순서를 바꿔도 사용자가 고른 테마가 유지된다.
+ * 저장되는 값은 영문 ID라 표시 이름이나 순서를 바꿔도 사용자가 고른 테마가 유지된다.
  */
 
 export const COLOR_SYSTEM_VERSION = '0.2.0';
@@ -259,7 +258,7 @@ export function isAccentId(id: string): boolean {
 }
 
 /**
- * 한쪽만 바꾼 새 선택. 다른 쪽은 그대로 둔다(AC0의 독립 선택).
+ * 한쪽만 바꾼 새 선택. 다른 쪽은 그대로 둔다.
  * 알 수 없는 ID면 바꾸지 않고 이전 선택을 돌려준다.
  */
 export function updateSelection(

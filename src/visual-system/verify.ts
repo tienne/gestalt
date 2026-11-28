@@ -7,7 +7,7 @@ import { SCREENS, SURVEY, type ScreenEntry } from './inventory.js';
 import { MOTIONS } from './motion.js';
 
 /**
- * 공통 시스템 전수 검사. 제품 전환(task-14 이후)에 들어가기 전에 이 결과의 problems가 비어 있어야 한다.
+ * 공통 시스템 전수 검사. 제품 전환에 들어가기 전에 이 결과의 problems가 비어 있어야 한다.
  * 문서 사이트 HTML을 실제로 만든 뒤 그 안에서 찾으므로 "정의는 있는데 문서에 안 나온" 항목도 걸린다.
  */
 
@@ -21,6 +21,13 @@ export interface VerifyReport {
   motions: number;
   screens: number;
   problems: string[];
+}
+
+// CSS 규칙에도 클래스 이름이 들어 있어서 문자열만 찾으면 배지를 안 그려도 통과한다. 마크업 속성으로 찾는다
+export function statusBadgeProblems(html: string): string[] {
+  return Object.keys(STATUS_CUES)
+    .filter((k) => !html.includes(`class="vs-badge vs-badge-${k}"`))
+    .map((k) => `상태 ${k}가 문서에 안 보임`);
 }
 
 export function verifyVisualSystem(): VerifyReport {
@@ -56,8 +63,7 @@ export function verifyVisualSystem(): VerifyReport {
   for (const f of contrast.failures.slice(0, 20))
     problems.push(`대비 실패 ${f.id} ${f.role}/${f.on} ${f.ratio.toFixed(2)} < ${f.min}`);
 
-  for (const k of Object.keys(STATUS_CUES))
-    if (!site.html.includes(`vs-badge-${k}`)) problems.push(`상태 ${k}가 문서에 안 보임`);
+  problems.push(...statusBadgeProblems(site.html));
 
   const surveyIds = new Set(SURVEY.map((s) => s.id));
   for (const s of SCREENS) {
