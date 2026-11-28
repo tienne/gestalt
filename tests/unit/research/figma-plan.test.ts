@@ -8,9 +8,11 @@ import {
 import {
   buildFigmaFitScript,
   buildFigmaScript,
+  figmaColors,
   buildFigmaVerifyScript,
 } from '../../../src/research/figma-script.js';
 import { parseResearch, type Research } from '../../../src/research/schema.js';
+import { contrastRatio, resolveColorTheme } from '../../../src/visual-system/color.js';
 import { sampleResearch } from './fixture.js';
 
 const LS = String.fromCharCode(0x2028);
@@ -294,7 +296,23 @@ describe('Figma Plugin API 스크립트', () => {
     expect(slot.width).toBe(320);
     const verdict = [...nodes.values()].find((n) => n.name === '6. 판단 (해석)')!;
     const fill = (verdict.fills as { color: { g: number } }[])[0]!;
-    expect(Math.round(fill.color.g * 255)).toBe(0xf5);
+    expect(Math.round(fill.color.g * 255)).toBe(
+      parseInt(figmaColors().tints.green.slice(3, 5), 16),
+    );
+  });
+
+  it('색은 Gestalt 흰 배경 테마의 역할 값만 쓰고 글자는 모든 바탕에서 4.5:1을 넘긴다', () => {
+    const script = buildFigmaScript(planOf(research()));
+    expect(script.replace(/const C = \{.*\};/, '')).not.toMatch(/'#[0-9a-fA-F]{6}'/);
+    const c = figmaColors();
+    const theme = resolveColorTheme({ background: 'white' }).colors;
+    expect(c.text).toBe(theme.text);
+    expect(c.surface).toBe(theme.surface);
+    for (const bg of [c.background, c.surface, ...Object.values(c.tints)]) {
+      for (const fg of [c.text, c.textMuted, c.warning, ...Object.values(c.notes)]) {
+        expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(4.5);
+      }
+    }
   });
 
   it('표 본문 글자는 16으로 그리고 머리글은 18로 그린다', async () => {
