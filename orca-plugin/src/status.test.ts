@@ -64,16 +64,20 @@ test('statusBarOf는 확인 대기가 있으면 warning, 저장소가 없거나 
   const quiet = toView(raw, '/s', [], 0)
   assert.deepEqual(statusBarOf(quiet), {
     text: '주문 2 · 확인 대기 0',
+    icon: 'activity',
     tone: 'neutral',
     tooltip: '진행 중인 주문 2개, 사람 확인을 기다리는 게이트 0개'
   })
   const busy: ConductorView = { ...quiet, gates: [{ id: 'g', type: 'merge', orderId: 'a', reason: '' }] }
   assert.equal(statusBarOf(busy).tone, 'warning')
+  assert.equal(statusBarOf(busy).icon, 'warning')
   assert.equal(statusBarOf(busy).text, '주문 2 · 확인 대기 1')
   assert.equal(statusBarOf(emptyView('missing', '/s', 0)).text, '컨덕터 저장소 없음')
   assert.equal(statusBarOf(emptyView('missing', '/s', 0)).tone, 'danger')
+  assert.equal(statusBarOf(emptyView('missing', '/s', 0)).icon, 'error')
   assert.deepEqual(statusBarOf(emptyView('error', null, 0, 'boom')), {
     text: '컨덕터 오류',
+    icon: 'error',
     tone: 'danger',
     tooltip: 'boom'
   })

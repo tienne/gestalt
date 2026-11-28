@@ -2,6 +2,7 @@
 // 계산은 terminal-model이 하고 여기는 이스케이프한 HTML 문자열만 만든다. DOM과 오르카 런타임은 모른다.
 // 주문 제목이나 게이트 사유는 지라나 PR에서 온 바깥 글이라 전부 esc를 거친다.
 import { esc } from './html'
+import { statusVars } from './palette'
 import { displayStatus, isClosed, ms, OUTDATED_CLI_TEXT, splitRepo } from './model'
 import type { AgentState, ConductorView, EventView, OrderView, WorkerLive, WorkView } from './protocol'
 import { canReachWorker, clock, duration, eventText, gateLabel, groupByRepo, lookup, orderWaitText, reviewText, slotText, terminalModel, waitText, workerEnded, type ApprovalEntry, type Card, type GateItem, type TerminalModel } from './terminal-model'
@@ -400,7 +401,7 @@ const LEGEND: [string, string][] = [
   ['var(--t-blue)', 'git-worktree'],
   ['var(--t-green)', 'subagent'],
   ['var(--t-purple)', 'conductor'],
-  ['var(--t-yellow)', '사람 확인']
+  ['var(--t-warning)', '사람 확인']
 ]
 
 /** .term 안에 들어갈 본문. 상태가 없거나 저장소가 없으면 안내 한 줄만 낸다 */
@@ -442,9 +443,9 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
       'status',
       '<span class="cmd">$ gestalt conductor watch <span class="cursor"></span></span>',
       '<span class="grow"></span>',
-      `<span>workers <b class="b-green">[${m.activeWorkers}${m.maxWorkers !== undefined ? `/${m.maxWorkers}` : ''}]</b></span>`,
+      `<span>workers <b class="b-run">[${m.activeWorkers}${m.maxWorkers !== undefined ? `/${m.maxWorkers}` : ''}]</b></span>`,
       m.slots && `<span class="slots">${esc(slotText(m.slots))}</span>`,
-      `<span>gates <b class="b-yellow">[${m.gates.length}]</b></span>`,
+      `<span>gates <b class="b-gate">[${m.gates.length}]</b></span>`,
       `<span>${BYPASS_LABEL} <b class="b-purple">[${m.bypasses}]</b></span>`
     )
   )
@@ -453,9 +454,10 @@ export function terminalMarkup(v: ConductorView | null, opts: TerminalMarkupOpti
 /** 터미널 화면의 CSS. 480px 이하면 사이드바 레이아웃(세로로 쌓기, 최근 이벤트 8줄)으로 바뀐다 */
 export const TERMINAL_STYLE = `
 /* 중립색은 오르카 테마의 --orca-* 변수를 따르고 변수가 없는 웹 페이지에서는 원래 다크 색으로 그린다.
-   강조색은 그대로 두되 라이트 테마에서는 본문 글자색을 섞어 흰 바탕에서도 읽히게 한다 */
-:root { color-scheme: dark; --t-bg: var(--orca-background, #14161c); --t-card: var(--orca-card, var(--t-bg)); --t-line: var(--orca-border, #2a2f3a); --t-fg: var(--orca-foreground, #c9ced8); --t-dim: var(--orca-muted-foreground, #8b93a1); --t-fill: var(--orca-muted, #232833); --t-hover: var(--orca-accent, #232833); --t-hover-fg: var(--orca-accent-foreground, var(--t-fg)); --t-ring: var(--orca-ring, var(--t-fg)); --t-stripe: var(--orca-border, #2f3542); --t-pop: var(--orca-popover, #2b2b2b); --t-pop-fg: var(--orca-popover-foreground, #e6e6e6); --t-pop-line: var(--orca-border, #454545); --t-orange:#f0915a; --t-blue:#7aa7ff; --t-green:#5fd38d; --t-purple:#a78bfa; --t-yellow:#f2c94c; --t-red:#f26d6d; --t-done-line: #2f5b43; --t-badge-yellow: var(--t-yellow); --t-badge-orange: var(--t-orange); }
-html.light { color-scheme: light; --t-orange: color-mix(in srgb, #f0915a 62%, var(--t-fg)); --t-blue: color-mix(in srgb, #7aa7ff 62%, var(--t-fg)); --t-green: color-mix(in srgb, #5fd38d 58%, var(--t-fg)); --t-purple: color-mix(in srgb, #a78bfa 68%, var(--t-fg)); --t-yellow: color-mix(in srgb, #f2c94c 55%, var(--t-fg)); --t-red: color-mix(in srgb, #f26d6d 70%, var(--t-fg)); --t-done-line: color-mix(in srgb, var(--t-green) 45%, var(--t-bg)); --t-badge-yellow: color-mix(in srgb, #f2c94c 40%, var(--t-fg)); --t-badge-orange: color-mix(in srgb, #f0915a 50%, var(--t-fg)); }
+   상태(승인 필요, 진행, 완료, 실패)는 Gestalt 상태 역할 --t-success, --t-warning, --t-danger, --t-info로 그린다.
+   워크트리 종류를 가르는 계열색은 그대로 두되 라이트 테마에서는 본문 글자색을 섞어 흰 바탕에서도 읽히게 한다 */
+:root { color-scheme: dark; --t-bg: var(--orca-background, #14161c); --t-card: var(--orca-card, var(--t-bg)); --t-line: var(--orca-border, #2a2f3a); --t-fg: var(--orca-foreground, #c9ced8); --t-dim: var(--orca-muted-foreground, #8b93a1); --t-fill: var(--orca-muted, #232833); --t-hover: var(--orca-accent, #232833); --t-hover-fg: var(--orca-accent-foreground, var(--t-fg)); --t-ring: var(--orca-ring, var(--t-fg)); --t-stripe: var(--orca-border, #2f3542); --t-pop: var(--orca-popover, #2b2b2b); --t-pop-fg: var(--orca-popover-foreground, #e6e6e6); --t-pop-line: var(--orca-border, #454545); --t-orange:#f0915a; --t-blue:#7aa7ff; --t-green:#5fd38d; --t-purple:#a78bfa; --t-yellow:#f2c94c; ${statusVars('--t-', 'dark')} --t-done-line: color-mix(in srgb, var(--t-success) 45%, var(--t-bg)); --t-badge-yellow: var(--t-yellow); --t-badge-orange: var(--t-orange); }
+html.light { color-scheme: light; --t-orange: color-mix(in srgb, #f0915a 62%, var(--t-fg)); --t-blue: color-mix(in srgb, #7aa7ff 62%, var(--t-fg)); --t-green: color-mix(in srgb, #5fd38d 58%, var(--t-fg)); --t-purple: color-mix(in srgb, #a78bfa 68%, var(--t-fg)); --t-yellow: color-mix(in srgb, #f2c94c 55%, var(--t-fg)); ${statusVars('--t-', 'light')} --t-badge-yellow: color-mix(in srgb, #f2c94c 40%, var(--t-fg)); --t-badge-orange: color-mix(in srgb, #f0915a 50%, var(--t-fg)); }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--t-fg); }
 .term { font: 12px/1.5 ui-monospace, "SF Mono", Menlo, "D2Coding", monospace; min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
@@ -465,11 +467,11 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .head { display: flex; justify-content: center; flex-wrap: wrap; gap: 22px; padding: 10px 0 4px; font-weight: 700; letter-spacing: .04em; }
 .tools { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 8px 14px 0; min-width: 0; }
 .tools .go { margin-top: 0; flex: none; }
-.viewer-note { color: var(--t-red); min-width: 0; overflow-wrap: anywhere; }
-.k-gate { color: var(--t-yellow); } .k-run { color: var(--t-blue); } .k-wait { color: var(--t-dim); }
+.viewer-note { color: var(--t-danger); min-width: 0; overflow-wrap: anywhere; }
+.k-gate { color: var(--t-warning); } .k-run { color: var(--t-info); } .k-wait { color: var(--t-dim); }
 .legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 18px; color: var(--t-dim); font-size: 11px; padding-bottom: 10px; }
 .legend i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; vertical-align: middle; }
-.alert { margin: 0 14px 10px; border: 1px solid var(--t-red); color: var(--t-red); padding: 6px 10px; }
+.alert { margin: 0 14px 10px; border: 1px solid var(--t-danger); color: var(--t-danger); padding: 6px 10px; }
 .grid { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 14px; padding: 0 14px 12px; align-items: start; }
 .box { border: 1px solid var(--t-line); padding: 8px 10px; background: var(--t-card); }
 .conductor { border-color: var(--t-purple); }
@@ -499,11 +501,11 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .w.orca .t .tid { background: var(--t-orange); } .w.git .t .tid { background: var(--t-blue); } .w.sub .t .tid { background: var(--t-green); }
 .chain { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0; }
 .chip { padding: 0 5px; border: 1px solid var(--t-line); color: var(--t-dim); }
-.chip.done { color: var(--t-green); border-color: var(--t-done-line); }
+.chip.done { color: var(--t-success); border-color: var(--t-done-line); }
 .chip.cur { color: var(--t-bg); background: var(--t-badge-yellow); border-color: var(--t-badge-yellow); font-weight: 700; }
 .prog { height: 7px; background: var(--t-fill); margin: 4px 0; }
-.prog b { display: block; height: 100%; background: var(--t-blue); }
-.prog.gate b { background: var(--t-yellow); } .prog.limit b { background: var(--t-red); }
+.prog b { display: block; height: 100%; background: var(--t-info); }
+.prog.gate b { background: var(--t-warning); } .prog.limit b { background: var(--t-danger); }
 .prog.unknown { background: repeating-linear-gradient(135deg, var(--t-fill) 0 4px, var(--t-stripe) 4px 8px); }
 .todo { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
 .todo .prog { margin: 4px 0; }
@@ -511,17 +513,17 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .todo.review > span { overflow-wrap: anywhere; }
 .work { margin-top: 4px; display: grid; gap: 1px; }
 .work .f { overflow-wrap: anywhere; }
-.work .f.ov { color: var(--t-yellow); }
+.work .f.ov { color: var(--t-warning); }
 .task { display: grid; grid-template-columns: 72px 1fr; gap: 8px; }
 .task > span:last-child { overflow-wrap: anywhere; }
-.c-err { color: var(--t-red); }
+.c-err { color: var(--t-danger); }
 .state { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .st { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.st.run::before { content: '●'; margin-right: 4px; color: var(--t-blue); animation: blink 1.2s infinite; }
-.st.wait, .st.gate { color: var(--t-yellow); } .st.wait::before, .st.gate::before { content: '◷ '; }
-.st.limit { color: var(--t-red); } .st.limit::before { content: '■ '; }
+.st.run::before { content: '●'; margin-right: 4px; color: var(--t-info); animation: blink 1.2s infinite; }
+.st.wait, .st.gate { color: var(--t-warning); } .st.wait::before, .st.gate::before { content: '◷ '; }
+.st.limit { color: var(--t-danger); } .st.limit::before { content: '■ '; }
 .st.idle { color: var(--t-dim); }
-.st.deploy { color: var(--t-blue); } .st.deploy::before { content: '⇡ '; }
+.st.deploy { color: var(--t-info); } .st.deploy::before { content: '⇡ '; }
 @keyframes blink { 50% { opacity: .25; } }
 .children { margin-top: 8px; border-top: 1px dashed var(--t-line); padding-top: 6px; }
 .child { display: flex; justify-content: space-between; gap: 8px; color: var(--t-dim); }
@@ -544,7 +546,7 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
 .copy:hover { color: var(--t-hover-fg); background: var(--t-hover); border-color: var(--t-dim); }
-.meta-link { justify-self: start; max-width: 100%; padding: 0; border: 0; background: none; color: var(--t-blue); text-decoration: underline; text-underline-offset: 2px; font: inherit; cursor: pointer; }
+.meta-link { justify-self: start; max-width: 100%; padding: 0; border: 0; background: none; color: var(--t-info); text-decoration: underline; text-underline-offset: 2px; font: inherit; cursor: pointer; }
 .link-actions { position: fixed; inset: auto; position-area: bottom span-right; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; margin: 4px 0; padding: 4px; border: 1px solid var(--t-pop-line); border-radius: 6px; background: var(--t-pop); color: var(--t-pop-fg); box-shadow: 0 4px 12px rgba(0,0,0,.33); }
 .link-actions button { display: block; width: 100%; border: 0; border-radius: 3px; padding: 4px 8px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .link-actions button:hover, .link-actions button:focus-visible { background: var(--t-hover); color: var(--t-hover-fg); }
@@ -552,19 +554,19 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .lane + .lane { margin-top: 16px; }
 .lane-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-weight: 700; }
 .lane-head::after { content: ''; flex: 1; border-top: 1px solid var(--t-line); }
-.lane-head.approval .lane-name { color: var(--t-yellow); } .lane-head.running .lane-name { color: var(--t-blue); }
+.lane-head.approval .lane-name { color: var(--t-warning); } .lane-head.running .lane-name { color: var(--t-info); }
 .lane-head.waiting .lane-name, .lane-head.ended .lane-name { color: var(--t-dim); }
 .lane-empty { margin-bottom: 4px; }
 .lane.fold > summary { cursor: pointer; list-style: none; }
 .lane.fold > summary::-webkit-details-marker { display: none; }
 .lane.fold > summary .lane-name::before { content: '▸ '; } .lane.fold[open] > summary .lane-name::before { content: '▾ '; }
 .lane.fold > summary:focus-visible { outline: 1px solid var(--t-ring); outline-offset: 2px; }
-.lane.approval .w { border-color: var(--t-yellow); }
+.lane.approval .w { border-color: var(--t-warning); }
 .gate-info { display: grid; gap: 1px; margin: 2px 0 4px; }
 .gi { display: flex; flex-wrap: wrap; gap: 0 10px; }
-.gi .g { color: var(--t-yellow); font-weight: 700; }
-.gi .ready { color: var(--t-green); }
-.stall { color: var(--t-red); }
+.gi .g { color: var(--t-warning); font-weight: 700; }
+.gi .ready { color: var(--t-success); }
+.stall { color: var(--t-danger); }
 .rows { display: grid; gap: 4px; }
 .w.row { padding: 4px 9px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 18em); gap: 10px; align-items: center; }
 .w.row .rt { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -579,11 +581,11 @@ html, body { margin: 0; min-height: 100%; background: var(--t-bg); color: var(--
 .log .r { display: grid; grid-template-columns: 70px 96px 1fr; gap: 8px; white-space: nowrap; }
 .log .r:last-child { animation: fadein .8s; }
 @keyframes fadein { from { opacity: 0; } }
-.c-ck { color: var(--t-blue); } .c-rp { color: var(--t-green); } .c-wt { color: var(--t-yellow); } .c-gt { color: var(--t-yellow); } .c-bp { color: var(--t-purple); }
+.c-ck { color: var(--t-info); } .c-rp { color: var(--t-success); } .c-wt { color: var(--t-warning); } .c-gt { color: var(--t-warning); } .c-bp { color: var(--t-purple); }
 .status { display: flex; align-items: center; gap: 18px; padding: 8px 14px 10px; border-top: 1px solid var(--t-line); font-size: 11px; margin-top: auto; }
 .status .grow { flex: 1; }
 .status .slots { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.status b { font-weight: 700; } .b-green { color: var(--t-green); } .b-yellow { color: var(--t-yellow); } .b-purple { color: var(--t-purple); }
+.status b { font-weight: 700; } .b-run { color: var(--t-info); } .b-gate { color: var(--t-warning); } .b-purple { color: var(--t-purple); }
 .cursor { display: inline-block; width: 7px; height: 12px; background: var(--t-green); animation: blink 1s infinite; }
 .empty { color: var(--t-dim); padding: 24px; text-align: center; }
 .wc { flex: none; padding: 0 7px; border-radius: 8px; background: transparent; border: 1px solid var(--t-dim); color: var(--t-dim); font-size: 11px; font-weight: 400; }

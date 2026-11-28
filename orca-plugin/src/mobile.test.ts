@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { request } from 'node:http'
 import { mobileFragment, mobilePage, screenOf, shortPr, terminalFragment, terminalPage } from './mobile'
 import { allowedHost, MobileServer } from './mobile-server'
+import { STATUS_COLORS } from './palette'
 import type { ConductorView, OrderView } from './protocol'
 
 const NOW = Date.parse('2026-11-13T03:00:00.000Z')
@@ -287,4 +288,19 @@ test('배포를 기다리는 merged 주문은 배포 대기로 그리고 값이 
   has(html, '배포 대기')
   has(html, 'order tone-success')
   has(html, '머지됨')
+})
+
+// 오르카 테마 변수가 없는 폰에서는 정의 안 된 변수를 쓰면 그 색이 통째로 빠진다
+test('두 페이지 모두 쓰는 CSS 변수를 페이지 안에서 정의하고 상태색은 Gestalt 팔레트를 쓴다', () => {
+  for (const html of [mobilePage(''), terminalPage('')]) {
+    const css = /<style>([\s\S]*?)<\/style>/.exec(html)![1]!
+    const defined = new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]))
+    const used = [...css.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]!).filter((n) => !n.startsWith('--orca-'))
+    assert.deepEqual([...new Set(used.filter((n) => !defined.has(n)))], [])
+    for (const c of Object.values(STATUS_COLORS)) {
+      assert.ok(css.includes(c.dark), `${c.dark}가 없어요`)
+      assert.ok(css.includes(c.light), `${c.light}가 없어요`)
+    }
+  }
+  assert.ok(mobilePage('').includes('.tone-accent { --tone: var(--info); }'))
 })

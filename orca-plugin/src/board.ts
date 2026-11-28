@@ -19,6 +19,7 @@ import {
   summarize,
   type RepoSummary
 } from './model'
+import { statusVars } from './palette'
 import type {
   Bypass,
   ConductorView,
@@ -638,31 +639,37 @@ function draw(): void {
 
 const style = document.createElement('style')
 style.textContent = `
+/* 바탕과 글자, 선, 버튼은 오르카 테마 변수를 따르고 변수가 없을 때만 원래 색으로 그린다.
+   상태색은 Gestalt 상태 역할을 그대로 써서 결과 웹, 터미널과 같은 상태가 같은 색으로 보인다. */
 :root { color-scheme: light dark;
-  --canvas: #f4f5f6; --s1: #ffffff; --s2: #f7f8f9; --s3: #eff1f3;
-  --ink: #08090a; --ink-muted: #3c4149; --ink-subtle: #6b6f76;
-  --line: #e4e6e9; --line-strong: #d3d6db; --line-3: #c6cad0;
-  --accent: #5e6ad2; --accent-ink: #ffffff; --ok: #1f8f3a; --warn: #c27c0e; --danger: #d63c3c; --danger-ink: #b42323;
+  --canvas: var(--orca-background, #f4f5f6); --s1: var(--orca-card, #ffffff); --s2: var(--orca-muted, #f7f8f9); --s3: var(--orca-accent, #eff1f3);
+  --ink: var(--orca-foreground, #08090a); --ink-muted: var(--orca-muted-foreground, #3c4149); --ink-subtle: var(--orca-muted-foreground, #6b6f76);
+  --line: var(--orca-border, #e4e6e9); --line-strong: var(--orca-input, #d3d6db); --line-3: var(--orca-input, #c6cad0);
+  --accent: var(--orca-primary, #5e6ad2); --accent-ink: var(--orca-primary-foreground, #ffffff);
+  --ring: var(--orca-ring, var(--accent));
+  --destructive: var(--orca-destructive, #d63c3c); --destructive-ink: var(--orca-destructive-foreground, #ffffff);
+  ${statusVars('--st-', 'light')}
+  --ok: var(--st-success); --warn: var(--st-warning); --danger: var(--st-danger); --danger-ink: var(--st-danger); --info: var(--st-info);
   --edge: 0 1px 2px rgba(8, 9, 10, 0.04); }
 @media (prefers-color-scheme: dark) { :root:not(.light) {
-  --canvas: #010102; --s1: #0f1011; --s2: #141516; --s3: #18191a;
-  --ink: #f7f8f8; --ink-muted: #d0d6e0; --ink-subtle: #8a8f98;
-  --line: #23252a; --line-strong: #34343a; --line-3: #3e3e44;
-  --ok: #27a644; --warn: #e2a33b; --danger: #eb5757; --danger-ink: #eb5757;
+  --canvas: var(--orca-background, #010102); --s1: var(--orca-card, #0f1011); --s2: var(--orca-muted, #141516); --s3: var(--orca-accent, #18191a);
+  --ink: var(--orca-foreground, #f7f8f8); --ink-muted: var(--orca-muted-foreground, #d0d6e0); --ink-subtle: var(--orca-muted-foreground, #8a8f98);
+  --line: var(--orca-border, #23252a); --line-strong: var(--orca-input, #34343a); --line-3: var(--orca-input, #3e3e44);
+  ${statusVars('--st-', 'dark')}
   --edge: inset 0 1px 0 rgba(255, 255, 255, 0.04); } }
 html.dark {
-  --canvas: #010102; --s1: #0f1011; --s2: #141516; --s3: #18191a;
-  --ink: #f7f8f8; --ink-muted: #d0d6e0; --ink-subtle: #8a8f98;
-  --line: #23252a; --line-strong: #34343a; --line-3: #3e3e44;
-  --ok: #27a644; --warn: #e2a33b; --danger: #eb5757; --danger-ink: #eb5757;
+  --canvas: var(--orca-background, #010102); --s1: var(--orca-card, #0f1011); --s2: var(--orca-muted, #141516); --s3: var(--orca-accent, #18191a);
+  --ink: var(--orca-foreground, #f7f8f8); --ink-muted: var(--orca-muted-foreground, #d0d6e0); --ink-subtle: var(--orca-muted-foreground, #8a8f98);
+  --line: var(--orca-border, #23252a); --line-strong: var(--orca-input, #34343a); --line-3: var(--orca-input, #3e3e44);
+  ${statusVars('--st-', 'dark')}
   --edge: inset 0 1px 0 rgba(255, 255, 255, 0.04); }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--canvas); color: var(--ink);
   font: 400 13px/1.5 "Inter Variable", Inter, "SF Pro Text", -apple-system, system-ui, sans-serif; letter-spacing: -0.05px; }
 button, input, textarea { font: inherit; letter-spacing: inherit; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.tone-accent { --tone: var(--accent); }
+.tone-accent { --tone: var(--info); }
 .tone-warning { --tone: var(--warn); }
 .tone-success { --tone: var(--ok); }
 .tone-danger { --tone: var(--danger); }
@@ -717,8 +724,8 @@ button, input, textarea { font: inherit; letter-spacing: inherit; }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, #ffffff); }
-.btn.danger { background: var(--danger); color: #ffffff; border-color: transparent; }
-.btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 88%, #000000); }
+.btn.danger { background: var(--destructive); color: var(--destructive-ink); border-color: transparent; }
+.btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--destructive) 88%, #000000); }
 .btn.danger-outline { background: transparent; color: var(--danger-ink); border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--ink-muted); }
 .btn.xs { font-size: 11px; padding: 2px 8px; }
