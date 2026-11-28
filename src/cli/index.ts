@@ -1161,7 +1161,9 @@ export function createCli(): Command {
   bot
     .command('approval-policy [repo]')
     .alias('merge-policy')
-    .description('레포나 기본값의 봇 게이트 승인 정책을 설정한다 (기본은 trusted-chat)')
+    .description(
+      '봇이 닫는 게이트를 어떻게 승인할지 레포별이나 기본값으로 정한다 (기본은 trusted-chat)',
+    )
     .requiredOption('--mode <mode>', 'signed 또는 trusted-chat')
     .option('--default', '레포 대신 정책 파일의 기본값을 바꾼다')
     .addOption(stateDir())
@@ -1170,7 +1172,7 @@ export function createCli(): Command {
     .command('chat-offer <gateId>')
     .description('운영 채팅에 안내할 게이트를 고정한다. PR이 걸린 게이트는 HEAD까지 고정한다')
     .option('--item <n>', '현재 운영 채팅의 Orca 항목 번호')
-    .option('--refresh', '변경된 PR과 HEAD를 새로 안내한다')
+    .option('--refresh', '변경된 대상을 새로 안내한다')
     .addOption(stateDir())
     .action(conductorBotChatOfferCommand);
   bot

@@ -40,7 +40,7 @@ export function defaultApprovalPolicy(policy: Record<string, unknown> | undefine
 }
 
 /**
- * 레포의 봇 게이트 승인 정책. approvalPolicy, 예전 칸인 mergeApprovalPolicy, defaultApprovalPolicy 순서로 본다.
+ * 봇이 닫는 게이트를 레포에서 어떻게 승인할지 정한 정책. approvalPolicy, 예전 칸인 mergeApprovalPolicy, defaultApprovalPolicy 순서로 본다.
  * 알 수 없는 값은 어느 정책으로도 숨기지 않고 오류로 낸다.
  */
 export function approvalPolicy(
@@ -104,7 +104,7 @@ export function chatOfferProblem(
   if (!offer)
     return {
       reason: 'no-offer',
-      message: '먼저 chat-offer로 PR과 HEAD를 안내한 뒤 승인을 받아 주세요',
+      message: '먼저 chat-offer로 승인 대상을 안내한 뒤 승인을 받아 주세요',
     };
   if (offer.botId !== owner.botId || offer.chatId !== owner.chatId)
     return {
