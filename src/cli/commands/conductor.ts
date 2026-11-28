@@ -2759,7 +2759,7 @@ function ambiguousCandidate(gate: Gate, status: ChatOfferStatus, caller: BotOwne
   const offer = gate.chatApprovalOffer;
   const ownOffer = offer?.botId === caller.botId && offer.chatId === caller.chatId;
   const offeredPr = offer && ownOffer ? chatOfferPr(offer) : undefined;
-  const pr = status.target?.url ?? offeredPr;
+  const pr = status.target?.url;
   return {
     gateId: gate.id,
     orderId: gate.orderId,

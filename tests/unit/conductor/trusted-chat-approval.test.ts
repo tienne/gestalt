@@ -593,6 +593,8 @@ describe('운영 채팅 문구를 신뢰하는 승인', () => {
     const candidate = last().candidates.find((c: { gateId: string }) => c.gateId === next.id);
     expect(candidate).toMatchObject({ reason: 'unavailable' });
     expect(candidate).not.toHaveProperty('command');
+    expect(candidate).not.toHaveProperty('pr');
+    expect(candidate.offeredPr).toContain('/pull/42');
     store.reload();
     expect(store.snapshot.gates[next.id]?.status).toBe('open');
   });
