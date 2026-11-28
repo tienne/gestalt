@@ -656,6 +656,7 @@ export const SCREENS: ScreenEntry[] = [
       '보고 초점 화면과 실행 중 작업 내용 화면에서 204개 테마 글자 대비 실패 0건(18564건, 16320건)',
       '390px에서 가로 넘침 없음. 기준 커밋은 문서 폭이 543px로 넘치고 본문이 80px로 줄었다',
       '보고 요약 안의 목록에 타임라인 점이 겹쳐 찍히던 것을 바로 아래 항목만 잡도록 고쳤다',
+      '배지 색 규칙을 ORDER_STATUS_ROLE에서 뽑게 바꿨다. 손으로 적던 규칙에 빠져 있던 awaiting-deploy가 neutral에서 info로 바뀌어 Orca 패널과 같은 색이 된다',
     ],
     status: 'verified',
   },

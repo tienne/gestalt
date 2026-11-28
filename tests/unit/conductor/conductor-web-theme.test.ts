@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderBrowsePage } from '../../../src/conductor-web/html.js';
 import { THEME_BOOT_JS, THEME_SWITCH_JS } from '../../../src/digest/theme-color.js';
+import { ORDER_STATUS_ROLE } from '../../../src/visual-system/status.js';
 
 const NONCE = 'test-nonce';
 const html = renderBrowsePage(NONCE, '/state');
@@ -27,20 +28,17 @@ describe('컨덕터 결과 웹 테마', () => {
     expect(ownRoot).not.toMatch(/--(?:bg|fg|muted|line|hl):/);
   });
 
-  it('상태 배지는 바탕을 채우지 않고 상태 글자색과 테두리로 구분한다', () => {
+  it('상태 배지는 바탕을 채우지 않고 주문 상태 표의 역할 글자색과 테두리로 구분한다', () => {
     const rules = [...ownCss.matchAll(/(\.badge[^{]*)\{([^}]*)\}/g)];
     expect(rules.length).toBe(5);
     for (const [, , body] of rules) expect(body).not.toMatch(/background/);
-    expect(ownCss).toContain(
-      '.badge.done, .badge.merged { border-color:var(--gestalt-color-success-text); color:var(--gestalt-color-success-text); }',
-    );
-    expect(ownCss).toContain('.badge.failed { border-color:var(--gestalt-color-danger-text);');
-    expect(ownCss).toContain(
-      '.badge.waiting-gate, .badge.escalated { border-color:var(--gestalt-color-warning-text);',
-    );
-    expect(ownCss).toContain(
-      '.badge.running, .badge.human-owned { border-color:var(--gestalt-color-info-text);',
-    );
+    for (const [status, role] of Object.entries(ORDER_STATUS_ROLE)) {
+      const rule = rules.find(([, sel]) =>
+        sel!.split(',').some((x) => x.trim() === `.badge.${status}`),
+      );
+      if (role === 'neutral') expect(rule, status).toBeUndefined();
+      else expect(rule?.[2], status).toContain(`color:var(--gestalt-color-${role}-text)`);
+    }
   });
 
   it('선택한 주문과 초점 보고는 바탕 대신 강조선으로 보인다', () => {

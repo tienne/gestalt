@@ -1,6 +1,7 @@
 import { THEME_BOOT_JS, THEME_SWITCH_JS, digestThemeCss } from '../digest/theme-color.js';
 import { THEME_POP_CSS, graphThemePicker } from '../graph-viz/theme.js';
 import { escapeHtml } from '../local-pr-web/html-generator.js';
+import { ORDER_STATUS_ROLE, type StatusRole } from '../visual-system/status.js';
 
 /**
  * 컨덕터 결과 웹 뷰어의 페이지 한 장. 데이터는 페이지가 `/api/*`에서 받아 그린다.
@@ -55,6 +56,21 @@ export function renderBrowsePage(nonce: string, stateDir: string): string {
 </html>`;
 }
 
+// 배지 색을 손으로 적으면 주문 상태 표가 바뀔 때 Orca 패널과 결과 웹이 다르게 칠한다. 같은 표에서 뽑는다
+export function badgeRoleCss(): string {
+  const byRole = new Map<StatusRole, string[]>();
+  for (const [status, role] of Object.entries(ORDER_STATUS_ROLE)) {
+    if (role === 'neutral') continue;
+    byRole.set(role, [...(byRole.get(role) ?? []), `.badge.${status}`]);
+  }
+  return [...byRole]
+    .map(
+      ([role, sels]) =>
+        `${sels.join(', ')} { border-color:var(--gestalt-color-${role}-text); color:var(--gestalt-color-${role}-text); }`,
+    )
+    .join('\n');
+}
+
 const STYLE = `
 /* 글자 역할은 배경과 표면 위에서만 대비가 보장된다. 선택과 초점은 바탕을 칠하지 않고 왼쪽 강조선으로 보인다 */
 :root { --side:var(--card); --code:var(--card); --mark:inset 3px 0 0 var(--accent); }
@@ -82,10 +98,7 @@ body { margin:0; font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Got
 .main h1 { font-size:24px; margin:0 0 8px; }
 .meta { display:flex; flex-wrap:wrap; gap:6px 16px; color:var(--muted); margin-bottom:20px; }
 .badge { display:inline-block; padding:0 6px; border-radius:4px; font-size:12px; border:1px solid var(--line); color:var(--fg); }
-.badge.done, .badge.merged { border-color:var(--gestalt-color-success-text); color:var(--gestalt-color-success-text); }
-.badge.failed { border-color:var(--gestalt-color-danger-text); color:var(--gestalt-color-danger-text); }
-.badge.waiting-gate, .badge.escalated { border-color:var(--gestalt-color-warning-text); color:var(--gestalt-color-warning-text); }
-.badge.running, .badge.human-owned { border-color:var(--gestalt-color-info-text); color:var(--gestalt-color-info-text); }
+${badgeRoleCss()}
 .muted { color:var(--muted); }
 .small { font-size:12px; }
 section { margin:28px 0; }
