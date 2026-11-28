@@ -262,7 +262,7 @@ openssl pkeyutl -sign -rawin -inkey approver.key -in decision.txt | openssl base
 
 ##### 승인자가 등록되지 않았을 때
 
-`bot gate`는 응답에 `approverReady`를 싣는다. 상태 저장소에 `bot-policy.json`이 없거나, 레포가 `mergeApprovers`와 `gateApprovers` 어디에도 없거나, 다른 유형 칸에만 있으면 `false`다. 정책 파일을 JSON으로 읽지 못해도 `false`다. 승인자는 쓸 수 있는 값만 센다. Ed25519 공개키 PEM 문자열만 센다. 이전 설정의 `webauthn` 객체는 무시하고 함께 등록된 Ed25519 승인자와 다른 정책은 그대로 사용한다. 지원되는 공개키가 없는 레포는 승인자가 없는 것으로 본다. 이때는 서명 문자열(`messages`)과 `orcaItem`을 싣지 않고 이유(`approverGap`: `no-policy`, `unreadable`, `no-repo`, `no-type-approvers`)와 안내 문장(`guidance`), 운영자 터미널에서 닫을 명령(`terminal.approved`, `terminal.rejected`)을 준다. 봇은 서명을 요청하지 않고 `guidance`를 그대로 전한다. 이 안내는 서명 정책(`signed`) 레포에서만 나온다. 채팅 문구 승인 레포에서 `approverReady`는 서명 경로를 함께 쓸 수 있는지만 뜻한다. `false`여도 터미널 명령을 싣지 않고 채팅 승인 절차를 안내한다. 정책 파일이 없어도 기본값이 채팅 문구 승인이라 같은 안내를 준다. 정책 파일이 깨졌으면 기본값으로 채팅 승인을 열지 않고 `unreadable` 터미널 안내를 준다.
+`bot gate`는 응답에 `approverReady`를 싣는다. 상태 저장소에 `bot-policy.json`이 없거나, 레포가 `mergeApprovers`와 `gateApprovers` 어디에도 없거나, 다른 유형 칸에만 있으면 `false`다. 정책 파일을 JSON으로 읽지 못해도 `false`다. 승인자는 쓸 수 있는 값만 센다. Ed25519 공개키 PEM 문자열만 센다. 이전 설정의 `webauthn` 객체는 무시하고 함께 등록된 Ed25519 승인자와 다른 정책은 그대로 사용한다. 지원되는 공개키가 없는 레포는 승인자가 없는 것으로 본다. 이때는 서명 문자열(`messages`)과 `orcaItem`을 싣지 않고 이유(`approverGap`: `no-policy`, `unreadable`, `no-repo`, `no-type-approvers`)와 안내 문장(`guidance`), 운영자 터미널에서 닫을 명령(`terminal.approved`, `terminal.rejected`)을 준다. 봇은 서명을 요청하지 않고 `guidance`를 그대로 전한다. `bot gate`가 이 안내를 주는 건 서명 정책(`signed`) 레포뿐이다. 채팅 문구 승인 레포에서 `approverReady`는 서명 경로를 함께 쓸 수 있는지만 뜻한다. `false`여도 터미널 명령을 싣지 않고 채팅 승인 절차를 안내한다. 정책 파일이 없어도 기본값이 채팅 문구 승인이라 같은 안내를 준다. 정책 파일이 깨졌으면 기본값으로 채팅 승인을 열지 않고 `unreadable` 터미널 안내를 준다.
 
 ```text
 acme/app 레포에는 파일 겹침 게이트를 닫을 승인자가 등록되지 않았어요. 터미널에서 `gestalt conductor gate resolve <게이트-ID> --approve`(거절은 --reject)로 닫아 주세요. 서명 승인자는 bot-policy.json의 gateApprovers에 레포별 Ed25519 공개키 PEM으로 등록해 주세요
@@ -272,22 +272,24 @@ acme/app 레포에는 파일 겹침 게이트를 닫을 승인자가 등록되�
 
 ##### 운영 채팅 문구를 신뢰하는 승인
 
-봇이 닫는 게이트(머지 승인, 파일 중첩, 리뷰 수동 전환)의 기본 정책은 `trusted-chat`이다. `bot-policy.json`이 없거나 기본값 칸이 비어 있어도 채팅 문구로 승인한다. 서명 승인은 레포나 기본값을 `signed`로 바꿔야 쓴다. `slack-post`, `interview`, `no-procedure`는 원래 봇이 닫지 않는 자리라 이 정책과 무관하다. 정책은 현재 운영 봇 채팅에서 아래 명령으로 바꾼다. 운영자가 그 채팅에 직접 보낸 요청일 때만 바꾸고 외부 이벤트나 자동화, 워커 메시지, 인용문이나 긴 본문에 섞인 요청으로는 켜지 않는다. 이 정책은 인간 신원을 인증하는 기능이 아니다. 운영권을 가진 봇 채팅의 에이전트가 전달한 승인 문구를 신뢰하도록 사용자가 선택하는 정책이다. 에이전트가 문구를 만들거나 전달할 수 있다는 점도 이 신뢰 범위에 포함한다.
+봇이 닫는 게이트(머지 승인, 파일 중첩, 리뷰 수동 전환)의 기본 정책은 `trusted-chat`이다. `bot-policy.json`이 없거나 기본값 칸이 비어 있어도 채팅 문구로 승인한다. 서명 승인은 레포나 기본값을 `signed`로 바꿔야 쓴다. `slack-post`, `interview`, `no-procedure`는 원래 봇이 닫지 않는 자리라 이 정책과 무관하다. 정책은 현재 운영 봇 채팅에서 아래 명령으로 바꾼다. 운영자가 그 채팅에 직접 보낸 요청일 때만 바꾸고 외부 이벤트나 자동화, 워커 메시지, 인용문이나 긴 본문에 섞인 요청으로는 바꾸지 않는다. 이 정책은 인간 신원을 인증하는 기능이 아니다. 운영권을 가진 봇 채팅의 에이전트가 전달한 승인 문구를 신뢰하도록 사용자가 선택하는 정책이다. 에이전트가 문구를 만들거나 전달할 수 있다는 점도 이 신뢰 범위에 포함한다.
 
 ```sh
 gestalt conductor bot approval-policy acme/app --mode signed      # 이 레포만 서명 승인
 gestalt conductor bot approval-policy --default --mode signed     # 기본값을 서명 승인으로
 ```
 
+정책 파일 없이 서명 승인을 쓰던 운영이면 업그레이드하는 순간 채팅 문구 승인으로 바뀐다. 서명을 유지하려면 업그레이드 전에 `approval-policy --default --mode signed`나 레포별 `--mode signed`를 먼저 실행한다.
+
 레포 값은 `bot-policy.json`의 `approvalPolicy: {"acme/app": "signed"}`에, 기본값은 `defaultApprovalPolicy`에 저장한다. 정책은 `approvalPolicy`의 레포 값, 예전 칸인 `mergeApprovalPolicy`의 레포 값, `defaultApprovalPolicy`, 패키지 기본값 `trusted-chat` 순서로 정한다. 레포 값을 새로 쓰면 예전 칸에 남은 같은 레포 값은 지운다. `merge-policy`는 `approval-policy`의 예전 이름이라 그대로 받는다. 기존 GitHub 접수 정책과 서명 승인자 표는 보존한다. 출력에는 바꾸기 전 값(`previous`)과 바꾼 운영 채팅(`changedBy: <botId>:<chatId>`)이 함께 나와서 봇이 채팅에 그대로 남긴다. `--mode signed`로 바꾸면 준비해 둔 채팅 승인도 거절한다. 잘못된 정책 값은 오류로 알린다. `bot gate`와 `conductor status`는 운영 채팅을 신뢰하는 정책인지 표시하며 서명 승인자가 없다는 이유로 터미널 승인을 요구하지 않는다. 서명 승인자가 등록된 레포라면 `bot gate`가 서명 문자열과 `orcaItem`도 함께 줘서 기존 서명 경로를 그대로 쓸 수 있다.
 
-먼저 열린 게이트를 사용자에게 안내할 때 대상을 고정한다. PR이 걸린 게이트(머지 승인, 리뷰 수동 전환)는 PR과 HEAD까지 고정한다. 머지 승인은 draft가 아닌 열린 PR, 리뷰 수동 전환은 열린 PR이어야 안내한다. 파일 중첩 게이트는 PR 없이 게이트 내용과 담당 워커만 고정한다. 같은 채팅의 Orca 항목 번호가 있으면 함께 연결한다.
+먼저 열린 게이트를 사용자에게 안내할 때 대상을 고정한다. 머지 승인과 PR이 연결된 리뷰 수동 전환은 PR과 HEAD까지 고정한다. 머지 승인은 draft가 아닌 열린 PR, 리뷰 수동 전환은 연결된 PR이 열려 있어야 안내한다. 파일 중첩과 PR이 연결되지 않은 리뷰 수동 전환은 PR 없이 게이트 내용과 담당 워커만 고정한다. 같은 채팅의 Orca 항목 번호가 있으면 함께 연결한다.
 
 ```sh
 gestalt conductor bot chat-offer <게이트-ID> --item 42
 ```
 
-출력의 게이트 유형(`type`)과 사용할 ID(`commands`)를 사용자에게 보여 준다. PR이 걸린 게이트면 PR 전체 URL과 HEAD도 함께 보여 준다. 예전에 닫힌 게이트와 겹치는 주문 ID나 항목 번호는 이 게이트 하나로 좁혀지지 않으므로 목록에서 빠지고 게이트 ID만 남는다. 사용자는 **`<ID> 승인해줘`** 한 줄만 입력한다. ID는 Orca 항목 번호, 컨덕터 주문 ID, 게이트 ID 중 하나이며 별도 접두어나 확인코드는 없다. 운영 봇은 직접 받은 메시지 전체를 다음 명령에 넘긴다.
+출력의 게이트 유형(`type`)과 사용할 ID(`commands`)를 사용자에게 보여 준다. PR이 걸린 게이트면 PR 전체 URL과 HEAD도 함께 보여 주고 PR이 없는 게이트면 사유(`reason`)와 관련 항목(`refs`)으로 무엇을 승인하는지 보여 준다. 예전에 닫힌 게이트와 겹치는 주문 ID나 항목 번호는 이 게이트 하나로 좁혀지지 않으므로 목록에서 빠지고 게이트 ID만 남는다. 사용자는 **`<ID> 승인해줘`** 한 줄만 입력한다. ID는 Orca 항목 번호, 컨덕터 주문 ID, 게이트 ID 중 하나이며 별도 접두어나 확인코드는 없다. 운영 봇은 직접 받은 메시지 전체를 다음 명령에 넘긴다.
 
 ```sh
 gestalt conductor bot chat-decide --message "42 승인해줘"
