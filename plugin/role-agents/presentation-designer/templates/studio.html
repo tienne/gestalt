@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" data-gestalt-background="charcoal" data-gestalt-accent="lemon-yellow">
 <head>
   <meta charset="utf-8" />
   <title>Studio — Reveal.js</title>
@@ -10,19 +10,19 @@
   <style>
     /* ── DESIGN TOKENS ────────────────────────────────────────────── */
     :root {
-      --c-bg:           #1c1c1c;
-      --c-bg-alt:       #242422;
-      --c-bg-light:     #f5d200;
-      --c-bg-light-alt: #f0cc00;
-      --c-fg:           #f5d200;
-      --c-fg-2:         rgba(245, 210, 0, 0.58);
-      --c-fg-3:         rgba(245, 210, 0, 0.32);
-      --c-fg-light:     #1c1c1c;
-      --c-fg-light-2:   rgba(28, 28, 28, 0.62);
-      --c-fg-light-3:   rgba(28, 28, 28, 0.35);
-      --c-accent:       #f5d200;
-      --c-border:       #2e2e2c;
-      --c-border-light: rgba(28, 28, 28, 0.18);
+      --c-bg:           var(--gestalt-color-background);
+      --c-bg-alt:       var(--gestalt-color-surface);
+      --c-bg-light:     var(--gestalt-color-accent-fill);
+      --c-bg-light-alt: var(--gestalt-color-accent-fill);
+      --c-fg:           var(--gestalt-color-accent-text);
+      --c-fg-2:         var(--gestalt-color-text);
+      --c-fg-3:         var(--gestalt-color-text-muted);
+      --c-fg-light:     var(--gestalt-color-on-accent);
+      --c-fg-light-2:   var(--gestalt-color-on-accent);
+      --c-fg-light-3:   var(--gestalt-color-on-accent);
+      --c-accent:       var(--gestalt-color-accent-text);
+      --c-border:       var(--gestalt-color-border);
+      --c-border-light: color-mix(in srgb, var(--gestalt-color-on-accent) 18%, transparent);
       --f-display: "Barlow", "Noto Sans KR", sans-serif;
       --f-body:    "Barlow", "Noto Sans KR", sans-serif;
       --f-mono:    "IBM Plex Mono", monospace;
@@ -162,8 +162,117 @@
     .reveal .progress { color: var(--c-accent); }
     .reveal .slide-number { font-family: var(--f-mono); background: transparent; color: var(--c-fg-3); font-size: 0.6em; }
   </style>
+<!-- gestalt-theme:start -->
+<!-- 생성물: src/visual-system/presentation.ts의 표를 고치고 pnpm presentation:themes로 다시 쓴다 -->
+<style id="gestalt-theme">
+:root{--gestalt-color-background:#171717;--gestalt-color-surface:#232323;--gestalt-color-text:#F1F1F1;--gestalt-color-text-muted:#ADADAD;--gestalt-color-border:#404040;--gestalt-color-accent-text:#F1E879;--gestalt-color-accent-fill:#F1E879;--gestalt-color-on-accent:#171717;--gestalt-color-focus:#F1E879;--gestalt-color-highlight:#4B492F;--gestalt-color-success-text:#79C98F;--gestalt-color-success-fill:#79C98F;--gestalt-color-on-success:#171717;--gestalt-color-warning-text:#F1C06B;--gestalt-color-warning-fill:#F1C06B;--gestalt-color-on-warning:#171717;--gestalt-color-danger-text:#FF8295;--gestalt-color-danger-fill:#FF8295;--gestalt-color-on-danger:#171717;--gestalt-color-info-text:#8DB6F5;--gestalt-color-info-fill:#8DB6F5;--gestalt-color-on-info:#171717;--gestalt-color-diff-added-text:#79C98F;--gestalt-color-diff-added-bg:#29372D;--gestalt-color-diff-removed-text:#FF8295;--gestalt-color-diff-removed-bg:#412A2E;--gestalt-color-diff-changed-text:#F1C06B;--gestalt-color-diff-changed-bg:#3E3526;--gestalt-color-series-1:#F1E879;--gestalt-color-series-2:#8DB6F5;--gestalt-color-series-3:#79C98F;--gestalt-color-series-4:#E796F2;--gestalt-color-series-5:#F1C06B;--gestalt-color-series-6:#BDBDBD;--gestalt-alt-background:#F3F3F3;--gestalt-alt-surface:#E9E9E9;--gestalt-alt-text:#202020;--gestalt-alt-text-muted:#585858;--gestalt-alt-border:#C4C4C4;--gestalt-alt-accent-text:#655D00;--gestalt-alt-accent-fill:#8C8746;--gestalt-alt-on-accent:#171717;--gestalt-alt-focus:#8C8746;--gestalt-alt-highlight:#DAD9C9;--gestalt-alt-success-text:#21643A;--gestalt-alt-success-fill:#21643A;--gestalt-alt-on-success:#FFFFFF;--gestalt-alt-warning-text:#795100;--gestalt-alt-warning-fill:#795100;--gestalt-alt-on-warning:#FFFFFF;--gestalt-alt-danger-text:#A52244;--gestalt-alt-danger-fill:#A52244;--gestalt-alt-on-danger:#FFFFFF;--gestalt-alt-info-text:#254D96;--gestalt-alt-info-fill:#254D96;--gestalt-alt-on-info:#FFFFFF;--gestalt-alt-diff-added-text:#21643A;--gestalt-alt-diff-added-bg:#CDD9D2;--gestalt-alt-diff-removed-text:#A52244;--gestalt-alt-diff-removed-bg:#E5CDD4;--gestalt-alt-diff-changed-text:#795100;--gestalt-alt-diff-changed-bg:#DDD6C7;--gestalt-alt-series-1:#8C8746;--gestalt-alt-series-2:#254D96;--gestalt-alt-series-3:#21643A;--gestalt-alt-series-4:#83228E;--gestalt-alt-series-5:#795100;--gestalt-alt-series-6:#5A5A5A;--gestalt-on-series-1:#171717;--gestalt-on-series-2:#171717;--gestalt-on-series-3:#171717;--gestalt-on-series-4:#171717;--gestalt-on-series-5:#171717;--gestalt-on-series-6:#171717;--gestalt-motion-fast:160ms;--gestalt-motion-base:280ms;--gestalt-motion-slow:800ms;--gestalt-motion-stagger:80ms;--gestalt-ease-enter:cubic-bezier(0.16, 1, 0.3, 1);--gestalt-ease-move:cubic-bezier(0.4, 0, 0.2, 1)}
+.reveal .slides section.light{--c-accent:var(--gestalt-color-on-accent);--c-fg-3:var(--gestalt-color-on-accent);--c-bg-alt:color-mix(in srgb, var(--gestalt-color-on-accent) 12%, transparent)}
+.reveal .slides section :is(p,span,li,small,em,strong,h1,h2,h3,h4,[class*="t-"],.label,.caption,.kicker,.micro,.mono,.foot,.muted,.topbar,.meta,.footer,.runner,.masthead,.footline,.slide-chrome,.slide-foot,.bar-label):not(.fragment):not([data-anim]){opacity:1!important}
+:root[data-gestalt-motion="reduce"] .reveal .slides section,:root[data-gestalt-motion="reduce"] .reveal .slides section .fragment,:root[data-gestalt-motion="reduce"] .reveal .backgrounds .slide-background,:root[data-gestalt-motion="reduce"] .reveal .progress span,:root[data-gestalt-motion="reduce"] [data-anim]{transition:none!important;animation:none!important}:root[data-gestalt-motion="reduce"] [data-anim]{opacity:1!important;transform:none!important;clip-path:none!important}
+@media (prefers-reduced-motion: reduce){:root:not([data-gestalt-motion="full"]) .reveal .slides section,:root:not([data-gestalt-motion="full"]) .reveal .slides section .fragment,:root:not([data-gestalt-motion="full"]) .reveal .backgrounds .slide-background,:root:not([data-gestalt-motion="full"]) .reveal .progress span,:root:not([data-gestalt-motion="full"]) [data-anim]{transition:none!important;animation:none!important}:root:not([data-gestalt-motion="full"]) [data-anim]{opacity:1!important;transform:none!important;clip-path:none!important}}
+html.print-pdf [data-anim],html.reveal-print [data-anim]{opacity:1!important;transform:none!important;clip-path:none!important;animation:none!important}
+@media print{[data-anim]{opacity:1!important;transform:none!important;clip-path:none!important;animation:none!important}}
+</style>
+<script>
+function gestaltColorSystem(catalog){
+  function ch(c){return [1,3,5].map(function(o){return parseInt(c.slice(o,o+2),16);});}
+  function lum(c){var w=[0.2126,0.7152,0.0722];return ch(c).map(function(v){var l=v/255;return l<=0.04045?l/12.92:Math.pow((l+0.055)/1.055,2.4);}).reduce(function(t,v,i){return t+v*w[i];},0);}
+  function contrast(a,b){var x=lum(a),y=lum(b);return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05);}
+  function mix(c,target,amt){var t=ch(target);return '#'+ch(c).map(function(v,i){return Math.round(v+(t[i]-v)*amt).toString(16);}).map(function(s){return s.length<2?'0'+s:s;}).join('').toUpperCase();}
+  function worst(color,bg){return Math.min(contrast(color,bg.color),contrast(color,bg.panel));}
+  function fit(start,bg,min){var target=bg.light?'#000000':'#FFFFFF';var out=start;for(var a=1;a<=100&&worst(out,bg)<min;a++){out=mix(start,target,a/100);}return out;}
+  function onFill(fill){if(contrast('#171717',fill)>=4.5)return '#171717';return contrast('#000000',fill)>=contrast('#FFFFFF',fill)?'#000000':'#FFFFFF';}
+  function find(list,id){for(var i=0;i<list.length;i++){if(list[i].id===id)return list[i];}return null;}
+  function resolve(sel){
+    sel=sel||{};
+    var bgId=sel.background||catalog.defaults.background;var acId=sel.accent||catalog.defaults.accent;
+    var bg=find(catalog.backgrounds,bgId);var ac=find(catalog.accents,acId);
+    if(!bg)throw new RangeError('Unknown Gestalt background: '+bgId);
+    if(!ac)throw new RangeError('Unknown Gestalt accent: '+acId);
+    var colors={},adjust=[];
+    function put(role,seed,min){var v=fit(seed,bg,min);colors[role]=v;adjust.push({role:role,seed:seed,value:v,min:min,before:worst(seed,bg),after:worst(v,bg)});return v;}
+    colors.background=bg.color;colors.surface=bg.panel;colors.text=bg.ink;colors['text-muted']=bg.muted;colors.border=bg.line;
+    var textSeed=bg.light?(ac.light||ac.dark):ac.dark;var fillSeed=bg.light?(ac.lightFill||ac.dark):ac.dark;
+    put('accent-text',textSeed,4.5);var fill=put('accent-fill',fillSeed,3);colors['on-accent']=onFill(fill);
+    colors.focus=fill;
+    var hl=0.24;var h=mix(bg.color,fill,hl);while(contrast(bg.ink,h)<4.5&&hl>0.04){hl-=0.02;h=mix(bg.color,fill,hl);}colors.highlight=h;
+    var names=['success','warning','danger','info'];
+    for(var i=0;i<names.length;i++){var k=names[i];var p=catalog.status[k];var s=bg.light?p.light:p.dark;put(k+'-text',s,4.5);var f=put(k+'-fill',s,3);colors['on-'+k]=onFill(f);}
+    var diff=catalog.diff;
+    for(var d in diff){if(!Object.prototype.hasOwnProperty.call(diff,d))continue;var st=diff[d].status;colors['diff-'+d+'-text']=colors[st+'-text'];var amt=0.18;var row=mix(bg.color,colors[st+'-fill'],amt);while(contrast(bg.ink,row)<4.5&&amt>0.04){amt-=0.02;row=mix(bg.color,colors[st+'-fill'],amt);}colors['diff-'+d+'-bg']=row;}
+    var seeds=bg.light?catalog.series.light:catalog.series.dark;colors['series-1']=fill;
+    for(var n=0;n<seeds.length;n++){put('series-'+(n+2),seeds[n],3);}
+    return {id:bg.id+'/'+ac.id,version:catalog.version,tone:bg.light?'light':'dark',background:bg.id,accent:ac.id,colors:colors,adjustments:adjust};
+  }
+  function cssVars(theme){var out={};for(var r in theme.colors){if(Object.prototype.hasOwnProperty.call(theme.colors,r))out['--gestalt-color-'+r]=theme.colors[r];}return out;}
+  function cssText(theme){var v=cssVars(theme);var parts=[];for(var k in v){if(Object.prototype.hasOwnProperty.call(v,k))parts.push(k+':'+v[k]);}return parts.join(';');}
+  function apply(el,theme){var v=cssVars(theme);for(var k in v){if(Object.prototype.hasOwnProperty.call(v,k))el.style.setProperty(k,v[k]);}el.setAttribute('data-gestalt-theme',theme.id);el.setAttribute('data-gestalt-tone',theme.tone);}
+  return {resolve:resolve,contrast:contrast,mix:mix,cssVars:cssVars,cssText:cssText,apply:apply,catalog:catalog};
+}
+(function(){
+  var sys = gestaltColorSystem({"version":"0.2.0","defaults":{"background":"charcoal","accent":"cyan"},"backgrounds":[{"id":"ink","name":"잉크","color":"#101010","panel":"#1B1B1B","ink":"#F1F1F1","muted":"#ADADAD","line":"#373737","light":false},{"id":"charcoal","name":"차콜","color":"#171717","panel":"#232323","ink":"#F1F1F1","muted":"#ADADAD","line":"#404040","light":false},{"id":"graphite","name":"그래파이트","color":"#303030","panel":"#3B3B3B","ink":"#F3F3F3","muted":"#C8C8C8","line":"#565656","light":false},{"id":"soft-gray","name":"소프트 그레이","color":"#E6E6E6","panel":"#DCDCDC","ink":"#1F1F1F","muted":"#555555","line":"#B6B6B6","light":true},{"id":"paper","name":"페이퍼","color":"#F3F3F3","panel":"#E9E9E9","ink":"#202020","muted":"#585858","line":"#C4C4C4","light":true},{"id":"white","name":"화이트","color":"#FFFFFF","panel":"#F1F1F1","ink":"#202020","muted":"#5A5A5A","line":"#D0D0D0","light":true}],"accents":[{"id":"sage","name":"세이지","dark":"#B3C8A1","light":"#3D5A2D"},{"id":"indigo","name":"인디고","dark":"#9C9DFF","light":"#4941A8"},{"id":"lemon-yellow","name":"레몬 옐로","dark":"#F1E879","light":"#655D00"},{"id":"tangerine","name":"탠저린","dark":"#FFAD65","light":"#8A4007"},{"id":"signal-red","name":"시그널 레드","dark":"#FF7882","light":"#A62738"},{"id":"orchid","name":"오키드","dark":"#E796F2","light":"#83228E"},{"id":"cobalt-blue","name":"코발트 블루","dark":"#82A8FF","light":"#294DA7"},{"id":"cyan","name":"시안","dark":"#62D3EA","light":"#006479"},{"id":"mint","name":"민트","dark":"#74D9B2","light":"#13684F"},{"id":"amber","name":"앰버","dark":"#F5C25E","light":"#805100"},{"id":"coral","name":"코럴","dark":"#FF957F","light":"#A2382B"},{"id":"rose","name":"로즈","dark":"#F895BB","light":"#962759"},{"id":"lilac","name":"라일락","dark":"#BEA5FA","light":"#6036A2"},{"id":"powder-blue","name":"파우더 블루","dark":"#B9DBFF","light":null},{"id":"royal-blue","name":"로열 블루","dark":"#5A8FFF","light":null},{"id":"steel-blue","name":"스틸 블루","dark":"#A1B6CF","light":null},{"id":"electric-aqua","name":"일렉트릭 아쿠아","dark":"#22DDF6","light":null},{"id":"teal","name":"청록","dark":"#37BAAF","light":null},{"id":"celadon","name":"셀라돈","dark":"#CAE0C2","light":null},{"id":"leaf-green","name":"리프 그린","dark":"#8ACF75","light":null},{"id":"olive","name":"올리브","dark":"#CBD384","light":"#4F6600","lightFill":"#789600"},{"id":"mauve","name":"모브","dark":"#C5ADC7","light":null},{"id":"iris","name":"아이리스","dark":"#BA79E9","light":null},{"id":"buttercream","name":"버터 크림","dark":"#FCE9B2","light":null},{"id":"gold","name":"골드","dark":"#E4B13F","light":null},{"id":"copper","name":"카퍼","dark":"#CE986D","light":null},{"id":"peach","name":"피치","dark":"#FFD2BB","light":null},{"id":"terracotta","name":"테라코타","dark":"#DE8B6C","light":null},{"id":"vermilion","name":"버밀리언","dark":"#FA6950","light":null},{"id":"cherry","name":"체리","dark":"#EF689C","light":null},{"id":"dusty-rose","name":"더스티 로즈","dark":"#C994A5","light":null},{"id":"taupe","name":"토프","dark":"#C4B2A3","light":null},{"id":"silver","name":"실버","dark":"#C4C4C4","light":null},{"id":"orange-red","name":"오렌지레드","dark":"#FF3D00","light":"#C93303"}],"status":{"success":{"dark":"#79C98F","light":"#21643A"},"warning":{"dark":"#F1C06B","light":"#795100"},"danger":{"dark":"#FF8295","light":"#A52244"},"info":{"dark":"#8DB6F5","light":"#254D96"}},"series":{"dark":["#8DB6F5","#79C98F","#E796F2","#F1C06B","#BDBDBD"],"light":["#254D96","#21643A","#83228E","#795100","#5A5A5A"]},"diff":{"added":{"status":"success","symbol":"+","label":"추가"},"removed":{"status":"danger","symbol":"−","label":"삭제"},"changed":{"status":"warning","symbol":"~","label":"변경"}}});
+  var KEY = "gestalt-presentation-color" + ':' + location.pathname;
+  function read(){ try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function write(sel){ try { localStorage.setItem(KEY, JSON.stringify(sel)); } catch (e) {} }
+  var root = document.documentElement;
+  // 문서가 처음 들고 온 배경과 강조색이 그 산출물의 기본값이다. 적용할 때마다 속성을 덮어쓰므로 시작할 때 한 번만 읽는다
+  var base = { background: root.getAttribute('data-gestalt-background') || undefined, accent: root.getAttribute('data-gestalt-accent') || undefined };
+  function apply(sel){
+    var t = sys.resolve({ background: sel.background || base.background, accent: sel.accent || base.accent });
+    sys.apply(root, t);
+    root.setAttribute('data-gestalt-background', t.background);
+    root.setAttribute('data-gestalt-accent', t.accent);
+    return t;
+  }
+  var current = read();
+  window.gestaltTheme = {
+    system: sys,
+    get: function(){ return read(); },
+    set: function(part){ var s = read(); for (var k in part) { if (Object.prototype.hasOwnProperty.call(part, k)) s[k] = part[k]; } write(s); var t = apply(s); document.dispatchEvent(new CustomEvent('gestalt-theme', { detail: t })); return t; },
+    reset: function(){ write({}); var t = apply({}); document.dispatchEvent(new CustomEvent('gestalt-theme', { detail: t })); return t; },
+    resolve: function(sel){ return sys.resolve(sel || read()); }
+  };
+  apply(current);
+})();
+function gestaltPresentationVars(sys, t){
+  var out = {};
+  var alt = sys.resolve({ background: t.tone === 'light' ? 'charcoal' : 'paper', accent: t.accent });
+  for (var r in alt.colors) { if (Object.prototype.hasOwnProperty.call(alt.colors, r)) out['--gestalt-alt-' + r] = alt.colors[r]; }
+  for (var n = 1; n <= 6; n++) {
+    var s = t.colors['series-' + n];
+    var on = sys.contrast(s, t.colors.background) >= sys.contrast(s, t.colors.text) ? t.colors.background : t.colors.text;
+    if (sys.contrast(s, on) < 4.5) on = sys.contrast(s, '#000000') >= sys.contrast(s, '#FFFFFF') ? '#000000' : '#FFFFFF';
+    out['--gestalt-on-series-' + n] = on;
+  }
+  return out;
+}
+(function(){
+  var root = document.documentElement;
+  var sys = window.gestaltTheme.system;
+  function extra(t){ var v = gestaltPresentationVars(sys, t); for (var k in v) { if (Object.prototype.hasOwnProperty.call(v, k)) root.style.setProperty(k, v[k]); } }
+  extra(sys.resolve({ background: root.getAttribute('data-gestalt-background'), accent: root.getAttribute('data-gestalt-accent') }));
+  document.addEventListener('gestalt-theme', function(e){ extra(e.detail); });
+  var q = {};
+  location.search.replace(/^\?/, '').split('&').forEach(function(p){ var kv = p.split('='); if (kv[0]) q[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || ''); });
+  var pick = {};
+  if (q.background) pick.background = q.background;
+  if (q.accent) pick.accent = q.accent;
+  if (pick.background || pick.accent) { try { window.gestaltTheme.set(pick); } catch (e) {} }
+  if (q.motion === 'reduce' || q.motion === 'full') root.setAttribute('data-gestalt-motion', q.motion);
+  document.addEventListener('click', function(ev){
+    var R = window.Reveal;
+    if (!R || !R.isReady || !R.isReady() || (R.isOverview && R.isOverview())) return;
+    var t = ev.target;
+    if (!t || !t.closest || !t.closest('.reveal .slides')) return;
+    if (t.closest('a,button,input,select,textarea,label,summary,[contenteditable],[data-no-advance]')) return;
+    if (window.getSelection && String(window.getSelection())) return;
+    R.next();
+  });
+})();
+</script>
+<!-- gestalt-theme:end -->
 </head>
-<body style="margin:0;background:#111">
+<body style="margin:0;background:var(--gestalt-color-background)">
 <div class="reveal">
   <div class="slides">
 
@@ -246,10 +355,10 @@
         </div>
         <div data-anim="fade-up" data-delay="2">
           <ul class="bullet-list">
-            <li>항목 1 — 설명</li>
-            <li>항목 2 — 설명</li>
-            <li>항목 3 — 설명</li>
-            <li>항목 4 — 설명</li>
+            <li class="fragment">항목 1 — 설명</li>
+            <li class="fragment">항목 2 — 설명</li>
+            <li class="fragment">항목 3 — 설명</li>
+            <li class="fragment">항목 4 — 설명</li>
           </ul>
         </div>
       </div>
@@ -299,11 +408,11 @@
         </div>
         <div data-anim="fade-up" data-delay="2">
           <ul class="bullet-list">
-            <li>할 일 1</li>
-            <li>할 일 2</li>
-            <li>할 일 3</li>
-            <li>할 일 4</li>
-            <li>할 일 5</li>
+            <li class="fragment">할 일 1</li>
+            <li class="fragment">할 일 2</li>
+            <li class="fragment">할 일 3</li>
+            <li class="fragment">할 일 4</li>
+            <li class="fragment">할 일 5</li>
           </ul>
         </div>
       </div>
@@ -361,6 +470,7 @@
 <script src="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/notes/notes.js"></script>
 <script>
   Reveal.initialize({
+    pdfSeparateFragments: false,
     hash: true,
     width: 1600,
     height: 900,

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" data-gestalt-background="soft-gray" data-gestalt-accent="lemon-yellow">
 <head>
   <meta charset="utf-8" />
   <title>Neo-Grid Bold — Reveal.js</title>
@@ -10,11 +10,11 @@
   <style>
     /* ── DESIGN TOKENS ────────────────────────────────────────────── */
     :root {
-      --bg:     #ECECE8;
-      --ink:    #0A0A0A;
-      --paper:  #F5F4EF;
-      --accent: #E6FF3D;
-      --line:   #0A0A0A;
+      --bg:     var(--gestalt-color-background);
+      --ink:    var(--gestalt-color-text);
+      --paper:  var(--gestalt-color-surface);
+      --accent: var(--gestalt-color-accent-fill);
+      --line:   var(--gestalt-color-text);
     }
 
     /* ── REVEAL RESET ─────────────────────────────────────────────── */
@@ -129,8 +129,8 @@
       position: absolute;
       inset: 0;
       background:
-        radial-gradient(80% 60% at 50% 50%, #1f1f1f 0%, #0a0a0a 80%),
-        repeating-linear-gradient(45deg, rgba(255,255,255,.05) 0 2px, transparent 2px 8px);
+        radial-gradient(80% 60% at 50% 50%, color-mix(in srgb, var(--ink) 85%, var(--paper)) 0%, var(--ink) 80%),
+        repeating-linear-gradient(45deg, color-mix(in srgb, var(--paper) 5%, transparent) 0 2px, transparent 2px 8px);
     }
 
     /* ── SLIDE: COVER ─────────────────────────────────────────────── */
@@ -175,8 +175,119 @@
     .s-quote .photo { grid-column: 1 / span 5;  grid-row: 1 / span 8; }
     .s-quote .body  { grid-column: 6 / span 7;  grid-row: 1 / span 8; display: flex; flex-direction: column; justify-content: center; gap: 1.5rem; }
   </style>
+<!-- gestalt-theme:start -->
+<!-- 생성물: src/visual-system/presentation.ts의 표를 고치고 pnpm presentation:themes로 다시 쓴다 -->
+<style id="gestalt-theme">
+:root{--gestalt-color-background:#E6E6E6;--gestalt-color-surface:#DCDCDC;--gestalt-color-text:#1F1F1F;--gestalt-color-text-muted:#555555;--gestalt-color-border:#B6B6B6;--gestalt-color-accent-text:#655D00;--gestalt-color-accent-fill:#827D41;--gestalt-color-on-accent:#000000;--gestalt-color-focus:#827D41;--gestalt-color-highlight:#CECDBE;--gestalt-color-success-text:#21643A;--gestalt-color-success-fill:#21643A;--gestalt-color-on-success:#FFFFFF;--gestalt-color-warning-text:#795100;--gestalt-color-warning-fill:#795100;--gestalt-color-on-warning:#FFFFFF;--gestalt-color-danger-text:#A52244;--gestalt-color-danger-fill:#A52244;--gestalt-color-on-danger:#FFFFFF;--gestalt-color-info-text:#254D96;--gestalt-color-info-fill:#254D96;--gestalt-color-on-info:#FFFFFF;--gestalt-color-diff-added-text:#21643A;--gestalt-color-diff-added-bg:#C3CFC7;--gestalt-color-diff-removed-text:#A52244;--gestalt-color-diff-removed-bg:#DAC3C9;--gestalt-color-diff-changed-text:#795100;--gestalt-color-diff-changed-bg:#D2CBBD;--gestalt-color-series-1:#827D41;--gestalt-color-series-2:#254D96;--gestalt-color-series-3:#21643A;--gestalt-color-series-4:#83228E;--gestalt-color-series-5:#795100;--gestalt-color-series-6:#5A5A5A;--gestalt-alt-background:#171717;--gestalt-alt-surface:#232323;--gestalt-alt-text:#F1F1F1;--gestalt-alt-text-muted:#ADADAD;--gestalt-alt-border:#404040;--gestalt-alt-accent-text:#F1E879;--gestalt-alt-accent-fill:#F1E879;--gestalt-alt-on-accent:#171717;--gestalt-alt-focus:#F1E879;--gestalt-alt-highlight:#4B492F;--gestalt-alt-success-text:#79C98F;--gestalt-alt-success-fill:#79C98F;--gestalt-alt-on-success:#171717;--gestalt-alt-warning-text:#F1C06B;--gestalt-alt-warning-fill:#F1C06B;--gestalt-alt-on-warning:#171717;--gestalt-alt-danger-text:#FF8295;--gestalt-alt-danger-fill:#FF8295;--gestalt-alt-on-danger:#171717;--gestalt-alt-info-text:#8DB6F5;--gestalt-alt-info-fill:#8DB6F5;--gestalt-alt-on-info:#171717;--gestalt-alt-diff-added-text:#79C98F;--gestalt-alt-diff-added-bg:#29372D;--gestalt-alt-diff-removed-text:#FF8295;--gestalt-alt-diff-removed-bg:#412A2E;--gestalt-alt-diff-changed-text:#F1C06B;--gestalt-alt-diff-changed-bg:#3E3526;--gestalt-alt-series-1:#F1E879;--gestalt-alt-series-2:#8DB6F5;--gestalt-alt-series-3:#79C98F;--gestalt-alt-series-4:#E796F2;--gestalt-alt-series-5:#F1C06B;--gestalt-alt-series-6:#BDBDBD;--gestalt-on-series-1:#000000;--gestalt-on-series-2:#E6E6E6;--gestalt-on-series-3:#E6E6E6;--gestalt-on-series-4:#E6E6E6;--gestalt-on-series-5:#E6E6E6;--gestalt-on-series-6:#E6E6E6;--gestalt-motion-fast:160ms;--gestalt-motion-base:280ms;--gestalt-motion-slow:800ms;--gestalt-motion-stagger:80ms;--gestalt-ease-enter:cubic-bezier(0.16, 1, 0.3, 1);--gestalt-ease-move:cubic-bezier(0.4, 0, 0.2, 1)}
+.card.ink, .pagenum.invert{--accent:var(--gestalt-alt-accent-text)}
+.card.lemon, .pagenum.lemon{--ink:var(--gestalt-color-on-accent);color:var(--ink)}
+mark{--accent:var(--gestalt-color-accent-fill);--ink:var(--gestalt-color-on-accent);color:var(--ink)}
+.reveal .slides section :is(p,span,li,small,em,strong,h1,h2,h3,h4,[class*="t-"],.label,.caption,.kicker,.micro,.mono,.foot,.muted,.topbar,.meta,.footer,.runner,.masthead,.footline,.slide-chrome,.slide-foot,.bar-label):not(.fragment):not([data-anim]){opacity:1!important}
+:root[data-gestalt-motion="reduce"] .reveal .slides section,:root[data-gestalt-motion="reduce"] .reveal .slides section .fragment,:root[data-gestalt-motion="reduce"] .reveal .backgrounds .slide-background,:root[data-gestalt-motion="reduce"] .reveal .progress span,:root[data-gestalt-motion="reduce"] [data-anim]{transition:none!important;animation:none!important}:root[data-gestalt-motion="reduce"] [data-anim]{opacity:1!important;transform:none!important;clip-path:none!important}
+@media (prefers-reduced-motion: reduce){:root:not([data-gestalt-motion="full"]) .reveal .slides section,:root:not([data-gestalt-motion="full"]) .reveal .slides section .fragment,:root:not([data-gestalt-motion="full"]) .reveal .backgrounds .slide-background,:root:not([data-gestalt-motion="full"]) .reveal .progress span,:root:not([data-gestalt-motion="full"]) [data-anim]{transition:none!important;animation:none!important}:root:not([data-gestalt-motion="full"]) [data-anim]{opacity:1!important;transform:none!important;clip-path:none!important}}
+html.print-pdf [data-anim],html.reveal-print [data-anim]{opacity:1!important;transform:none!important;clip-path:none!important;animation:none!important}
+@media print{[data-anim]{opacity:1!important;transform:none!important;clip-path:none!important;animation:none!important}}
+</style>
+<script>
+function gestaltColorSystem(catalog){
+  function ch(c){return [1,3,5].map(function(o){return parseInt(c.slice(o,o+2),16);});}
+  function lum(c){var w=[0.2126,0.7152,0.0722];return ch(c).map(function(v){var l=v/255;return l<=0.04045?l/12.92:Math.pow((l+0.055)/1.055,2.4);}).reduce(function(t,v,i){return t+v*w[i];},0);}
+  function contrast(a,b){var x=lum(a),y=lum(b);return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05);}
+  function mix(c,target,amt){var t=ch(target);return '#'+ch(c).map(function(v,i){return Math.round(v+(t[i]-v)*amt).toString(16);}).map(function(s){return s.length<2?'0'+s:s;}).join('').toUpperCase();}
+  function worst(color,bg){return Math.min(contrast(color,bg.color),contrast(color,bg.panel));}
+  function fit(start,bg,min){var target=bg.light?'#000000':'#FFFFFF';var out=start;for(var a=1;a<=100&&worst(out,bg)<min;a++){out=mix(start,target,a/100);}return out;}
+  function onFill(fill){if(contrast('#171717',fill)>=4.5)return '#171717';return contrast('#000000',fill)>=contrast('#FFFFFF',fill)?'#000000':'#FFFFFF';}
+  function find(list,id){for(var i=0;i<list.length;i++){if(list[i].id===id)return list[i];}return null;}
+  function resolve(sel){
+    sel=sel||{};
+    var bgId=sel.background||catalog.defaults.background;var acId=sel.accent||catalog.defaults.accent;
+    var bg=find(catalog.backgrounds,bgId);var ac=find(catalog.accents,acId);
+    if(!bg)throw new RangeError('Unknown Gestalt background: '+bgId);
+    if(!ac)throw new RangeError('Unknown Gestalt accent: '+acId);
+    var colors={},adjust=[];
+    function put(role,seed,min){var v=fit(seed,bg,min);colors[role]=v;adjust.push({role:role,seed:seed,value:v,min:min,before:worst(seed,bg),after:worst(v,bg)});return v;}
+    colors.background=bg.color;colors.surface=bg.panel;colors.text=bg.ink;colors['text-muted']=bg.muted;colors.border=bg.line;
+    var textSeed=bg.light?(ac.light||ac.dark):ac.dark;var fillSeed=bg.light?(ac.lightFill||ac.dark):ac.dark;
+    put('accent-text',textSeed,4.5);var fill=put('accent-fill',fillSeed,3);colors['on-accent']=onFill(fill);
+    colors.focus=fill;
+    var hl=0.24;var h=mix(bg.color,fill,hl);while(contrast(bg.ink,h)<4.5&&hl>0.04){hl-=0.02;h=mix(bg.color,fill,hl);}colors.highlight=h;
+    var names=['success','warning','danger','info'];
+    for(var i=0;i<names.length;i++){var k=names[i];var p=catalog.status[k];var s=bg.light?p.light:p.dark;put(k+'-text',s,4.5);var f=put(k+'-fill',s,3);colors['on-'+k]=onFill(f);}
+    var diff=catalog.diff;
+    for(var d in diff){if(!Object.prototype.hasOwnProperty.call(diff,d))continue;var st=diff[d].status;colors['diff-'+d+'-text']=colors[st+'-text'];var amt=0.18;var row=mix(bg.color,colors[st+'-fill'],amt);while(contrast(bg.ink,row)<4.5&&amt>0.04){amt-=0.02;row=mix(bg.color,colors[st+'-fill'],amt);}colors['diff-'+d+'-bg']=row;}
+    var seeds=bg.light?catalog.series.light:catalog.series.dark;colors['series-1']=fill;
+    for(var n=0;n<seeds.length;n++){put('series-'+(n+2),seeds[n],3);}
+    return {id:bg.id+'/'+ac.id,version:catalog.version,tone:bg.light?'light':'dark',background:bg.id,accent:ac.id,colors:colors,adjustments:adjust};
+  }
+  function cssVars(theme){var out={};for(var r in theme.colors){if(Object.prototype.hasOwnProperty.call(theme.colors,r))out['--gestalt-color-'+r]=theme.colors[r];}return out;}
+  function cssText(theme){var v=cssVars(theme);var parts=[];for(var k in v){if(Object.prototype.hasOwnProperty.call(v,k))parts.push(k+':'+v[k]);}return parts.join(';');}
+  function apply(el,theme){var v=cssVars(theme);for(var k in v){if(Object.prototype.hasOwnProperty.call(v,k))el.style.setProperty(k,v[k]);}el.setAttribute('data-gestalt-theme',theme.id);el.setAttribute('data-gestalt-tone',theme.tone);}
+  return {resolve:resolve,contrast:contrast,mix:mix,cssVars:cssVars,cssText:cssText,apply:apply,catalog:catalog};
+}
+(function(){
+  var sys = gestaltColorSystem({"version":"0.2.0","defaults":{"background":"charcoal","accent":"cyan"},"backgrounds":[{"id":"ink","name":"잉크","color":"#101010","panel":"#1B1B1B","ink":"#F1F1F1","muted":"#ADADAD","line":"#373737","light":false},{"id":"charcoal","name":"차콜","color":"#171717","panel":"#232323","ink":"#F1F1F1","muted":"#ADADAD","line":"#404040","light":false},{"id":"graphite","name":"그래파이트","color":"#303030","panel":"#3B3B3B","ink":"#F3F3F3","muted":"#C8C8C8","line":"#565656","light":false},{"id":"soft-gray","name":"소프트 그레이","color":"#E6E6E6","panel":"#DCDCDC","ink":"#1F1F1F","muted":"#555555","line":"#B6B6B6","light":true},{"id":"paper","name":"페이퍼","color":"#F3F3F3","panel":"#E9E9E9","ink":"#202020","muted":"#585858","line":"#C4C4C4","light":true},{"id":"white","name":"화이트","color":"#FFFFFF","panel":"#F1F1F1","ink":"#202020","muted":"#5A5A5A","line":"#D0D0D0","light":true}],"accents":[{"id":"sage","name":"세이지","dark":"#B3C8A1","light":"#3D5A2D"},{"id":"indigo","name":"인디고","dark":"#9C9DFF","light":"#4941A8"},{"id":"lemon-yellow","name":"레몬 옐로","dark":"#F1E879","light":"#655D00"},{"id":"tangerine","name":"탠저린","dark":"#FFAD65","light":"#8A4007"},{"id":"signal-red","name":"시그널 레드","dark":"#FF7882","light":"#A62738"},{"id":"orchid","name":"오키드","dark":"#E796F2","light":"#83228E"},{"id":"cobalt-blue","name":"코발트 블루","dark":"#82A8FF","light":"#294DA7"},{"id":"cyan","name":"시안","dark":"#62D3EA","light":"#006479"},{"id":"mint","name":"민트","dark":"#74D9B2","light":"#13684F"},{"id":"amber","name":"앰버","dark":"#F5C25E","light":"#805100"},{"id":"coral","name":"코럴","dark":"#FF957F","light":"#A2382B"},{"id":"rose","name":"로즈","dark":"#F895BB","light":"#962759"},{"id":"lilac","name":"라일락","dark":"#BEA5FA","light":"#6036A2"},{"id":"powder-blue","name":"파우더 블루","dark":"#B9DBFF","light":null},{"id":"royal-blue","name":"로열 블루","dark":"#5A8FFF","light":null},{"id":"steel-blue","name":"스틸 블루","dark":"#A1B6CF","light":null},{"id":"electric-aqua","name":"일렉트릭 아쿠아","dark":"#22DDF6","light":null},{"id":"teal","name":"청록","dark":"#37BAAF","light":null},{"id":"celadon","name":"셀라돈","dark":"#CAE0C2","light":null},{"id":"leaf-green","name":"리프 그린","dark":"#8ACF75","light":null},{"id":"olive","name":"올리브","dark":"#CBD384","light":"#4F6600","lightFill":"#789600"},{"id":"mauve","name":"모브","dark":"#C5ADC7","light":null},{"id":"iris","name":"아이리스","dark":"#BA79E9","light":null},{"id":"buttercream","name":"버터 크림","dark":"#FCE9B2","light":null},{"id":"gold","name":"골드","dark":"#E4B13F","light":null},{"id":"copper","name":"카퍼","dark":"#CE986D","light":null},{"id":"peach","name":"피치","dark":"#FFD2BB","light":null},{"id":"terracotta","name":"테라코타","dark":"#DE8B6C","light":null},{"id":"vermilion","name":"버밀리언","dark":"#FA6950","light":null},{"id":"cherry","name":"체리","dark":"#EF689C","light":null},{"id":"dusty-rose","name":"더스티 로즈","dark":"#C994A5","light":null},{"id":"taupe","name":"토프","dark":"#C4B2A3","light":null},{"id":"silver","name":"실버","dark":"#C4C4C4","light":null},{"id":"orange-red","name":"오렌지레드","dark":"#FF3D00","light":"#C93303"}],"status":{"success":{"dark":"#79C98F","light":"#21643A"},"warning":{"dark":"#F1C06B","light":"#795100"},"danger":{"dark":"#FF8295","light":"#A52244"},"info":{"dark":"#8DB6F5","light":"#254D96"}},"series":{"dark":["#8DB6F5","#79C98F","#E796F2","#F1C06B","#BDBDBD"],"light":["#254D96","#21643A","#83228E","#795100","#5A5A5A"]},"diff":{"added":{"status":"success","symbol":"+","label":"추가"},"removed":{"status":"danger","symbol":"−","label":"삭제"},"changed":{"status":"warning","symbol":"~","label":"변경"}}});
+  var KEY = "gestalt-presentation-color" + ':' + location.pathname;
+  function read(){ try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function write(sel){ try { localStorage.setItem(KEY, JSON.stringify(sel)); } catch (e) {} }
+  var root = document.documentElement;
+  // 문서가 처음 들고 온 배경과 강조색이 그 산출물의 기본값이다. 적용할 때마다 속성을 덮어쓰므로 시작할 때 한 번만 읽는다
+  var base = { background: root.getAttribute('data-gestalt-background') || undefined, accent: root.getAttribute('data-gestalt-accent') || undefined };
+  function apply(sel){
+    var t = sys.resolve({ background: sel.background || base.background, accent: sel.accent || base.accent });
+    sys.apply(root, t);
+    root.setAttribute('data-gestalt-background', t.background);
+    root.setAttribute('data-gestalt-accent', t.accent);
+    return t;
+  }
+  var current = read();
+  window.gestaltTheme = {
+    system: sys,
+    get: function(){ return read(); },
+    set: function(part){ var s = read(); for (var k in part) { if (Object.prototype.hasOwnProperty.call(part, k)) s[k] = part[k]; } write(s); var t = apply(s); document.dispatchEvent(new CustomEvent('gestalt-theme', { detail: t })); return t; },
+    reset: function(){ write({}); var t = apply({}); document.dispatchEvent(new CustomEvent('gestalt-theme', { detail: t })); return t; },
+    resolve: function(sel){ return sys.resolve(sel || read()); }
+  };
+  apply(current);
+})();
+function gestaltPresentationVars(sys, t){
+  var out = {};
+  var alt = sys.resolve({ background: t.tone === 'light' ? 'charcoal' : 'paper', accent: t.accent });
+  for (var r in alt.colors) { if (Object.prototype.hasOwnProperty.call(alt.colors, r)) out['--gestalt-alt-' + r] = alt.colors[r]; }
+  for (var n = 1; n <= 6; n++) {
+    var s = t.colors['series-' + n];
+    var on = sys.contrast(s, t.colors.background) >= sys.contrast(s, t.colors.text) ? t.colors.background : t.colors.text;
+    if (sys.contrast(s, on) < 4.5) on = sys.contrast(s, '#000000') >= sys.contrast(s, '#FFFFFF') ? '#000000' : '#FFFFFF';
+    out['--gestalt-on-series-' + n] = on;
+  }
+  return out;
+}
+(function(){
+  var root = document.documentElement;
+  var sys = window.gestaltTheme.system;
+  function extra(t){ var v = gestaltPresentationVars(sys, t); for (var k in v) { if (Object.prototype.hasOwnProperty.call(v, k)) root.style.setProperty(k, v[k]); } }
+  extra(sys.resolve({ background: root.getAttribute('data-gestalt-background'), accent: root.getAttribute('data-gestalt-accent') }));
+  document.addEventListener('gestalt-theme', function(e){ extra(e.detail); });
+  var q = {};
+  location.search.replace(/^\?/, '').split('&').forEach(function(p){ var kv = p.split('='); if (kv[0]) q[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || ''); });
+  var pick = {};
+  if (q.background) pick.background = q.background;
+  if (q.accent) pick.accent = q.accent;
+  if (pick.background || pick.accent) { try { window.gestaltTheme.set(pick); } catch (e) {} }
+  if (q.motion === 'reduce' || q.motion === 'full') root.setAttribute('data-gestalt-motion', q.motion);
+  document.addEventListener('click', function(ev){
+    var R = window.Reveal;
+    if (!R || !R.isReady || !R.isReady() || (R.isOverview && R.isOverview())) return;
+    var t = ev.target;
+    if (!t || !t.closest || !t.closest('.reveal .slides')) return;
+    if (t.closest('a,button,input,select,textarea,label,summary,[contenteditable],[data-no-advance]')) return;
+    if (window.getSelection && String(window.getSelection())) return;
+    R.next();
+  });
+})();
+</script>
+<!-- gestalt-theme:end -->
 </head>
-<body style="margin:0;background:#1a1a1a">
+<body style="margin:0;background:var(--gestalt-color-background)">
 <div class="reveal">
   <div class="slides">
 
@@ -313,19 +424,19 @@
             <span class="t-label" style="color:var(--paper)">{{PERIOD}}</span>
           </div>
         </div>
-        <div class="card step-1">
+        <div class="card step-1 fragment">
           <p class="t-label" style="margin-bottom:0.5rem">7월</p>
           <p class="t-body" style="font-weight:700">Step 1<br>제목</p>
         </div>
-        <div class="card lemon step-2">
+        <div class="card lemon step-2 fragment">
           <p class="t-label" style="margin-bottom:0.5rem;opacity:1">8월</p>
           <p class="t-body" style="font-weight:700">Step 2<br>제목</p>
         </div>
-        <div class="card step-3">
+        <div class="card step-3 fragment">
           <p class="t-label" style="margin-bottom:0.5rem">8월</p>
           <p class="t-body" style="font-weight:700">Step 3<br>제목</p>
         </div>
-        <div class="card ink step-4">
+        <div class="card ink step-4 fragment">
           <p class="t-label" style="color:var(--paper);margin-bottom:0.5rem">9월</p>
           <p class="t-body" style="font-weight:700;color:var(--paper)">Step 4<br>제목</p>
         </div>
@@ -389,6 +500,7 @@
 <script src="https://cdn.jsdelivr.net/npm/reveal.js@5/plugin/notes/notes.js"></script>
 <script>
   Reveal.initialize({
+    pdfSeparateFragments: false,
     hash: true,
     width: 1600,
     height: 900,

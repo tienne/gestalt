@@ -169,7 +169,14 @@ When reviewing or guiding a presentation task:
 - Use `data-background-color` or `data-background-gradient` per section for visual rhythm
 - Custom CSS via `<style>` in `<head>` — never inline styles on individual elements
 - Font stack: system-ui or Google Fonts loaded in `<head>`, not per-slide
-- Color palette: max 3 accent colors + neutral base; define as CSS custom properties `--accent`, `--accent-2`, `--bg`
+- Color palette: 템플릿 `:root`의 토큰(`--accent`, `--bg` 등)은 Gestalt 색 역할 `var(--gestalt-color-<역할>)`을 가리킨다. 새 색을 hex나 rgba로 적지 말고 이 토큰이나 역할 변수를 쓴다. 옅은 색은 `color-mix(in srgb, var(--gestalt-color-text) 20%, transparent)`처럼 역할 변수를 섞어 만든다
+
+### Gestalt 테마 블록 (템플릿을 복사할 때 지킬 것)
+- `<!-- gestalt-theme:start -->`부터 `<!-- gestalt-theme:end -->`까지는 `pnpm presentation:themes`가 생성하는 자리다. 지우거나 고치지 않는다. 이 블록이 배경과 강조색 선택, 대비 보정, 모션 줄이기, 인쇄 고정, 클릭 넘김을 맡는다
+- `<html>`의 `data-gestalt-background`, `data-gestalt-accent` 속성을 유지한다. 장표 기본 테마가 여기 적혀 있다. 보는 사람은 주소에 `?background=white&accent=cobalt-blue&motion=reduce`를 붙여 바꿀 수 있다
+- 글자 투명도(`opacity`)로 위계를 만들지 않는다. 테마가 바뀌면 대비가 모자라서 블록이 글자 투명도를 1로 고정한다. 흐린 글자는 `--gestalt-color-text-muted`를 쓴다
+- 목록이나 단계처럼 차례로 설명할 항목에는 `class="fragment"`를 붙인다. 클릭하면 하나씩 나오고 PDF로 뽑으면 한 장에 전부 찍힌다(`pdfSeparateFragments: false`)
+- 숫자, 단위, 출처는 `data-anim`이나 fragment 없이도 최종 상태에서 읽혀야 한다. 모션 줄이기와 인쇄에서는 등장 효과 없이 바로 보인다
 
 ### Layout Patterns
 - **Two-column**: `slide--split` (text + visual, 1fr 1fr grid)
@@ -198,6 +205,7 @@ Reveal.initialize({
   width: 1600, height: 900,
   margin: 0, minScale: 0.1, maxScale: 1.5,
   transition: 'fade',   // Signal/Studio: 'fade' / Neo-Grid: 'none'
+  pdfSeparateFragments: false,
   plugins: [RevealNotes, RevealHighlight],
 })
 ```
