@@ -17,9 +17,10 @@ export const VISUAL_STEP_JS = `(function(){
   function countTo(el, to, ms){
     var dec = String(to).indexOf('.') >= 0 ? 1 : 0;
     var from = Number(el.textContent) || 0;
-    if (reduced() || !window.requestAnimationFrame) { if (el._vsRaf && window.cancelAnimationFrame) window.cancelAnimationFrame(el._vsRaf); el._vsRaf = 0; el.textContent = to.toFixed(dec); return; }
     // 단계를 빠르게 넘기면 앞 애니메이션이 같은 칸에 계속 써서 숫자가 오간다. 앞 프레임을 끊고 시작한다
     if (el._vsRaf && window.cancelAnimationFrame) window.cancelAnimationFrame(el._vsRaf);
+    el._vsRaf = 0;
+    if (reduced() || !window.requestAnimationFrame) { el.textContent = to.toFixed(dec); return; }
     var t0 = null;
     function tick(t){
       if (t0 === null) t0 = t;
